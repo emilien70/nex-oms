@@ -7,6 +7,7 @@ use App\Http\Controllers\Integrations\DpdParcelTemplateController;
 use App\Http\Controllers\Integrations\InPostCourierParcelTemplateController;
 use App\Http\Controllers\OrderMetaController;
 use App\Http\Controllers\OrderProductController;
+use App\Http\Controllers\OrderScanController;
 use App\Http\Controllers\OrdersController;
 use App\Http\Controllers\OrderSectionController;
 use App\Http\Controllers\OrderStatusController;
@@ -85,6 +86,7 @@ Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])
 
 Route::get('/orders', [OrdersController::class, 'index'])->name('orders.index');
 Route::get('/orders/list-state', [OrdersController::class, 'listState'])->name('orders.list-state');
+Route::get('/orders/scan', OrderScanController::class)->name('orders.scan');
 Route::get('/automation/activity', [AutomationActivityController::class, 'index'])->name('automation.activity.index');
 Route::get('/orders/automatic-actions', [AutomationRuleController::class, 'index'])->name('orders.automatic-actions.index');
 Route::get('/orders/automatic-actions/create', [AutomationRuleController::class, 'create'])->name('orders.automatic-actions.create');

@@ -101,6 +101,200 @@
             min-height: 100vh;
         }
 
+        .app-workspace {
+            display: flex;
+            flex: 1 1 auto;
+            flex-direction: column;
+            min-height: 100vh;
+            min-width: 0;
+        }
+
+        .app-workspace-body {
+            display: flex;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .app-topbar {
+            align-items: center;
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            column-gap: 18px;
+            display: grid;
+            flex: 0 0 56px;
+            grid-template-columns: minmax(170px, 1fr) minmax(280px, 720px) minmax(170px, 1fr);
+            height: 56px;
+            padding: 0 20px;
+            position: sticky;
+            top: 0;
+            z-index: 1030;
+        }
+
+        .app-topbar-leading {
+            justify-self: start;
+            min-width: 0;
+        }
+
+        .app-topbar-trailing {
+            min-width: 0;
+        }
+
+        .app-menu-toggle {
+            align-items: center;
+            background: transparent;
+            border: 0;
+            border-radius: 6px;
+            color: #64748b;
+            display: inline-flex;
+            font-size: 13px;
+            font-weight: 500;
+            gap: 10px;
+            min-height: 38px;
+            padding: 5px 8px;
+            white-space: nowrap;
+        }
+
+        .app-menu-toggle:hover {
+            background: #f1f5f9;
+            color: #334155;
+        }
+
+        .app-menu-toggle:focus {
+            outline: 0;
+        }
+
+        .app-menu-toggle:focus-visible {
+            box-shadow: 0 0 0 2px rgba(13, 110, 253, .16);
+        }
+
+        .app-menu-toggle-chevron {
+            font-size: 10px;
+            margin-left: 1px;
+        }
+
+        .orders-search-form {
+            margin: 0;
+            max-width: 720px;
+            width: 100%;
+        }
+
+        .orders-search-control {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            display: flex;
+            gap: 9px;
+            height: 42px;
+            padding: 0 8px 0 17px;
+            transition: border-color .12s ease, box-shadow .12s ease;
+        }
+
+        .orders-search-control:focus-within {
+            border-color: #70a9e8;
+            box-shadow: 0 0 0 2px rgba(13, 110, 253, .1);
+        }
+
+        .orders-search-icon {
+            color: #64748b;
+            flex: 0 0 auto;
+            font-size: 14px;
+        }
+
+        .orders-search-input {
+            background: transparent;
+            border: 0;
+            color: #111827;
+            flex: 1 1 auto;
+            font-size: 14px;
+            min-width: 0;
+            outline: 0;
+        }
+
+        .orders-search-input::placeholder {
+            color: #9ca3af;
+        }
+
+        .orders-search-submit {
+            align-items: center;
+            background: transparent;
+            border: 0;
+            border-radius: 999px;
+            color: #64748b;
+            display: inline-flex;
+            flex: 0 0 auto;
+            font-size: 17px;
+            height: 32px;
+            justify-content: center;
+            padding: 0;
+            width: 32px;
+        }
+
+        .orders-search-submit:hover,
+        .orders-search-submit:focus-visible {
+            background: #f1f5f9;
+            color: #0d6efd;
+            outline: 0;
+        }
+
+        .nex-global-error-toast {
+            align-items: flex-start;
+            background: #dc2626;
+            border: 1px solid rgba(127, 29, 29, .32);
+            border-radius: 7px;
+            bottom: 18px;
+            box-shadow: 0 10px 26px rgba(127, 29, 29, .24);
+            color: #ffffff;
+            display: flex;
+            gap: 10px;
+            left: 18px;
+            max-width: min(430px, calc(100vw - 36px));
+            opacity: 0;
+            padding: 12px 14px;
+            pointer-events: none;
+            position: fixed;
+            transform: translateY(12px);
+            transition: opacity .16s ease, transform .16s ease;
+            visibility: hidden;
+            z-index: 1100;
+        }
+
+        .nex-global-error-toast.is-visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
+            visibility: visible;
+        }
+
+        .nex-global-error-toast > i {
+            flex: 0 0 auto;
+            font-size: 17px;
+            line-height: 1.25;
+        }
+
+        .nex-global-error-toast-message {
+            flex: 1 1 auto;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .nex-global-error-toast-close {
+            background: transparent;
+            border: 0;
+            color: #ffffff;
+            flex: 0 0 auto;
+            font-size: 19px;
+            line-height: 1;
+            opacity: .82;
+            padding: 0;
+        }
+
+        .nex-global-error-toast-close:hover,
+        .nex-global-error-toast-close:focus-visible {
+            opacity: 1;
+            outline: 0;
+        }
+
         .app-shell.has-orders-context .content {
             padding-left: 1rem !important;
         }
@@ -428,36 +622,16 @@
             background: #f1f3f6;
             border-right: 1px solid #d7dee7;
             flex: 0 0 198px;
-            min-height: 100vh;
+            min-height: calc(100vh - 56px);
             padding: 10px 0;
             position: sticky;
-            top: 0;
+            top: 56px;
             width: 198px;
             z-index: 1020;
         }
 
         .orders-context-inner {
             padding: 0 0 12px;
-        }
-
-        .orders-context-toggle-wrap {
-            padding: 0 8px 8px;
-        }
-
-        .orders-context-menu-toggle {
-            align-items: center;
-            background: transparent;
-            border: 0;
-            border-radius: 6px;
-            color: #475569;
-            display: inline-flex;
-            min-height: 34px;
-            padding: 5px;
-        }
-
-        .orders-context-menu-toggle:hover {
-            background: #e3e8ef;
-            color: #111827;
         }
 
         .orders-context-toggle-icon {
@@ -498,6 +672,16 @@
             border-right: 0;
             left: 4px;
             right: auto;
+        }
+
+        @media (max-width: 1199.98px) {
+            .app-topbar {
+                grid-template-columns: auto minmax(0, 1fr);
+            }
+
+            .app-topbar-trailing {
+                display: none;
+            }
         }
 
         .orders-context-add-form {
@@ -900,6 +1084,40 @@
                 display: none;
             }
 
+            .app-workspace {
+                min-height: auto;
+                width: 100%;
+            }
+
+            .app-workspace-body {
+                display: block;
+            }
+
+            .app-topbar {
+                column-gap: 8px;
+                flex-basis: 54px;
+                grid-template-columns: 38px minmax(0, 1fr);
+                height: 54px;
+                padding: 6px 12px;
+            }
+
+            .app-menu-toggle {
+                height: 38px;
+                justify-content: center;
+                min-height: 38px;
+                padding: 0;
+                width: 38px;
+            }
+
+            .app-menu-toggle-label,
+            .app-menu-toggle-chevron {
+                display: none;
+            }
+
+            .orders-search-control {
+                height: 40px;
+            }
+
             .app-shell.sidebar-expanded .sidebar {
                 flex-basis: auto;
                 padding: 10px 0;
@@ -938,6 +1156,9 @@
         $currentLayoutStatus = request()->query('status');
         $currentLayoutStatus = is_string($currentLayoutStatus) ? $currentLayoutStatus : null;
         $layoutShowsTrash = request()->boolean('trash');
+        $globalOrderSearchQuery = request()->routeIs('orders.index')
+            ? trim((string) request()->query('q', ''))
+            : '';
     @endphp
 
     <div class="app-shell d-flex {{ $hasOrdersContext ? 'has-orders-context' : '' }}">
@@ -1005,14 +1226,40 @@
             </nav>
         </aside>
 
+        <div class="app-workspace">
+            <header class="app-topbar">
+                <div class="app-topbar-leading">
+                    <button class="app-menu-toggle" type="button" data-sidebar-toggle aria-expanded="false" aria-label="Poka&#380; menu" title="Poka&#380; menu">
+                        <span class="orders-context-toggle-icon" aria-hidden="true"></span>
+                        <span class="app-menu-toggle-label">Szybki dost&#281;p</span>
+                        <i class="bi bi-chevron-down app-menu-toggle-chevron" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <form class="orders-search-form" method="GET" action="{{ route('orders.index') }}" data-global-order-search-form>
+                    <div class="orders-search-control">
+                        <i class="bi bi-search orders-search-icon" aria-hidden="true"></i>
+                        <input
+                            class="orders-search-input"
+                            type="search"
+                            name="q"
+                            value="{{ $globalOrderSearchQuery }}"
+                            placeholder="Szukaj..."
+                            aria-label="Szukaj zam&oacute;wienia"
+                            autocomplete="off"
+                            data-global-order-search-input
+                        >
+                        <button class="orders-search-submit" type="submit" aria-label="Wyszukaj zam&oacute;wienie" title="Wyszukaj zam&oacute;wienie">
+                            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </form>
+                <div class="app-topbar-trailing" aria-hidden="true"></div>
+            </header>
+
+            <div class="app-workspace-body">
         @if ($hasOrdersContext)
             <aside class="orders-context-sidebar" aria-label="Menu zamowien">
                 <div class="orders-context-inner">
-                    <div class="orders-context-toggle-wrap">
-                        <button class="orders-context-menu-toggle" type="button" data-sidebar-toggle aria-expanded="false" aria-label="Poka&#380; menu" title="Poka&#380; menu">
-                            <span class="orders-context-toggle-icon" aria-hidden="true"></span>
-                        </button>
-                    </div>
                     <form class="orders-context-add-form" method="POST" action="{{ route('orders.empty-store') }}">
                         @csrf
                         <button class="orders-context-add" type="submit">
@@ -1078,6 +1325,14 @@
 
             @yield('content')
         </main>
+            </div>
+        </div>
+    </div>
+
+    <div class="nex-global-error-toast" data-global-error-toast role="alert" aria-live="assertive" aria-hidden="true">
+        <i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>
+        <span class="nex-global-error-toast-message" data-global-error-toast-message></span>
+        <button class="nex-global-error-toast-close" type="button" aria-label="Zamknij komunikat" data-global-error-toast-close>&times;</button>
     </div>
 
     <div class="page-navigation-loading" data-page-navigation-loading-overlay aria-hidden="true">
@@ -1097,6 +1352,128 @@
     ></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toast = document.querySelector('[data-global-error-toast]');
+            const toastMessage = toast?.querySelector('[data-global-error-toast-message]');
+            const toastClose = toast?.querySelector('[data-global-error-toast-close]');
+            const scanUrl = @json(route('orders.scan'));
+            const minimumScanLength = 6;
+            const maximumKeyGap = 100;
+            let scanBuffer = '';
+            let scanStartedAt = 0;
+            let lastScanKeyAt = 0;
+            let scanInProgress = false;
+            let toastTimer = null;
+
+            const hideError = () => {
+                window.clearTimeout(toastTimer);
+                toast?.classList.remove('is-visible');
+                toast?.setAttribute('aria-hidden', 'true');
+            };
+
+            const showError = (message) => {
+                if (!toast || !toastMessage) {
+                    return;
+                }
+
+                window.clearTimeout(toastTimer);
+                toastMessage.textContent = message;
+                toast.classList.add('is-visible');
+                toast.setAttribute('aria-hidden', 'false');
+                toastTimer = window.setTimeout(hideError, 6500);
+            };
+
+            window.nexOmsShowError = showError;
+            toastClose?.addEventListener('click', hideError);
+
+            const resetScan = () => {
+                scanBuffer = '';
+                scanStartedAt = 0;
+                lastScanKeyAt = 0;
+            };
+
+            const openScannedOrder = async (code) => {
+                if (scanInProgress) {
+                    return;
+                }
+
+                scanInProgress = true;
+
+                try {
+                    const url = new URL(scanUrl, window.location.origin);
+                    url.searchParams.set('code', code);
+                    const response = await fetch(url.toString(), {
+                        headers: {
+                            Accept: 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    });
+                    const payload = await response.json().catch(() => ({}));
+
+                    if (!response.ok || !payload.order_url) {
+                        throw new Error(payload.message || 'Nie znaleziono zam\u00f3wienia dla zeskanowanego numeru przesy\u0142ki.');
+                    }
+
+                    window.location.assign(payload.order_url);
+                } catch (error) {
+                    showError(error.message || 'Nie uda\u0142o si\u0119 sprawdzi\u0107 numeru przesy\u0142ki.');
+                    scanInProgress = false;
+                }
+            };
+
+            document.addEventListener('keydown', (event) => {
+                const target = event.target instanceof Element ? event.target : null;
+                const isEditable = target?.closest('input, textarea, select, [contenteditable="true"]');
+
+                if (isEditable || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) {
+                    resetScan();
+                    return;
+                }
+
+                const now = performance.now();
+
+                if (event.key === 'Enter' || event.key === 'Tab') {
+                    const code = scanBuffer.trim();
+                    const duration = scanStartedAt > 0 ? now - scanStartedAt : Number.POSITIVE_INFINITY;
+                    const maximumDuration = Math.max(900, code.length * maximumKeyGap);
+                    const looksLikeScannerInput = code.length >= minimumScanLength
+                        && now - lastScanKeyAt <= 220
+                        && duration <= maximumDuration;
+
+                    resetScan();
+
+                    if (looksLikeScannerInput) {
+                        event.preventDefault();
+                        openScannedOrder(code);
+                    }
+
+                    return;
+                }
+
+                if (event.key.length !== 1) {
+                    if (!['Shift', 'CapsLock'].includes(event.key)) {
+                        resetScan();
+                    }
+
+                    return;
+                }
+
+                if (lastScanKeyAt > 0 && now - lastScanKeyAt > maximumKeyGap) {
+                    scanBuffer = '';
+                    scanStartedAt = 0;
+                }
+
+                if (scanStartedAt === 0) {
+                    scanStartedAt = now;
+                }
+
+                scanBuffer += event.key;
+                lastScanKeyAt = now;
+                event.preventDefault();
+            }, true);
+        });
+    </script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const overlay = document.querySelector('[data-page-navigation-loading-overlay]');

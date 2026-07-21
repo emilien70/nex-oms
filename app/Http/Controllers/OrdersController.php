@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
 use App\Models\OrderStatusSetting;
 use App\Services\OrderStatusService;
+use App\Services\OrderTrackingLookupService;
 use App\Services\OrderTrashService;
 use App\Support\PhoneNumberFormatter;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,12 +22,20 @@ class OrdersController extends Controller
 {
     use RespondsToOrderAjax;
 
-    public function index(Request $request): View
+    public function __construct(private readonly OrderTrackingLookupService $trackingLookup) {}
+
+    public function index(Request $request): View|RedirectResponse
     {
         $currentStatus = $request->query('status');
         $currentStatus = is_string($currentStatus) ? $currentStatus : null;
         $showTrash = $request->boolean('trash');
         $searchQuery = trim((string) $request->query('q', ''));
+
+        if ($searchQuery !== '') {
+            $currentStatus = null;
+            $showTrash = false;
+        }
+
         $filters = $this->orderFilters($request);
         $perPageOptions = [20, 30, 50, 75, 100, 150, 200, 300, 500, 1000];
         $requestedPerPage = $request->integer('per_page', 20);
@@ -35,6 +44,24 @@ class OrdersController extends Controller
         $statuses = $statusSettings
             ->mapWithKeys(fn (array $status): array => [$status['code'] => $status['name']])
             ->all();
+
+        if (! $showTrash && $searchQuery !== '') {
+            $trackingOrderIds = $this->trackingLookup->matchingOrderIds(
+                $this->ordersListQuery(
+                    false,
+                    $currentStatus,
+                    $statuses,
+                    $searchQuery,
+                    $filters
+                ),
+                $searchQuery
+            );
+
+            if ($trackingOrderIds->count() === 1) {
+                return redirect()->route('orders.show', $trackingOrderIds->first());
+            }
+        }
+
         $statusCounts = $this->orderStatusCounts($statuses);
         $trashCount = Order::onlyTrashed()->count();
         $ordersQuery = $this->ordersListQuery(
@@ -389,7 +416,10 @@ class OrdersController extends Controller
                         ->orWhere('customer_email', 'like', $like)
                         ->orWhere('customer_phone', 'like', $like)
                         ->orWhere('shipping_name', 'like', $like)
-                        ->orWhere('shipping_company_name', 'like', $like);
+                        ->orWhere('shipping_company_name', 'like', $like)
+                        ->orWhereHas('shipments', function (Builder $shipmentQuery) use ($like): void {
+                            $this->trackingLookup->constrainShipmentQuery($shipmentQuery, $like);
+                        });
 
                     $parts = preg_split('/\s+/', $searchQuery, -1, PREG_SPLIT_NO_EMPTY);
 
@@ -512,6 +542,14 @@ class OrdersController extends Controller
 
         if ($this->filledFilter($filters, 'shipping_method')) {
             $query->where('shipping_method', 'like', $this->likeFilter($filters['shipping_method']));
+        }
+
+        if ($this->filledFilter($filters, 'tracking_number')) {
+            $trackingNumber = $this->likeFilter($filters['tracking_number']);
+
+            $query->whereHas('shipments', function ($shipmentQuery) use ($trackingNumber): void {
+                $this->trackingLookup->constrainShipmentQuery($shipmentQuery, $trackingNumber);
+            });
         }
 
         if ($this->filledFilter($filters, 'cash_on_delivery')) {

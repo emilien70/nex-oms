@@ -511,12 +511,6 @@
             border-color: #93c5fd;
         }
 
-        .orders-search-form {
-            flex: 0 1 720px;
-            max-width: 720px;
-            min-width: 360px;
-        }
-
         .orders-header {
             align-items: center;
             display: flex;
@@ -538,77 +532,6 @@
             padding-left: 14px;
             padding-right: 14px;
             white-space: nowrap;
-        }
-
-        .orders-search-control {
-            align-items: center;
-            background: #ffffff;
-            border: 1px solid #6b7280;
-            border-radius: 999px;
-            display: flex;
-            gap: 8px;
-            height: 46px;
-            padding: 0 10px 0 18px;
-        }
-
-        .orders-search-icon {
-            border: 1.8px solid #64748b;
-            border-radius: 50%;
-            flex: 0 0 auto;
-            height: 14px;
-            position: relative;
-            width: 14px;
-        }
-
-        .orders-search-icon::after {
-            background: #64748b;
-            border-radius: 999px;
-            content: "";
-            height: 7px;
-            left: 10px;
-            position: absolute;
-            top: 10px;
-            transform: rotate(-45deg);
-            transform-origin: top center;
-            width: 1.8px;
-        }
-
-        .orders-search-input {
-            background: transparent;
-            border: 0;
-            color: #111827;
-            flex: 1 1 auto;
-            font-size: 14px;
-            min-width: 0;
-            outline: 0;
-        }
-
-        .orders-search-input::placeholder {
-            color: #9ca3af;
-        }
-
-        .orders-search-submit {
-            align-items: center;
-            background: transparent;
-            border: 0;
-            border-radius: 999px;
-            color: #64748b;
-            display: inline-flex;
-            flex: 0 0 auto;
-            font-size: 26px;
-            height: 34px;
-            justify-content: center;
-            line-height: 1;
-            padding: 0;
-            padding-bottom: 2px;
-            width: 34px;
-        }
-
-        .orders-search-submit:hover,
-        .orders-search-submit:focus {
-            background: #f1f5f9;
-            color: #0d6efd;
-            outline: 0;
         }
 
         .orders-filters-panel {
@@ -660,13 +583,6 @@
                 flex-direction: column;
             }
 
-            .orders-search-form {
-                flex: 1 1 auto;
-                max-width: none;
-                min-width: 0;
-                width: 100%;
-            }
-
             .orders-top-actions {
                 justify-content: flex-start;
                 margin-left: 0;
@@ -711,23 +627,6 @@
                     <span>{!! $headerTitle !!}</span>
                 </h1>
             </div>
-            <form class="orders-search-form" method="GET" action="{{ route('orders.index') }}">
-                @foreach ($activeFilters as $key => $value)
-                    <input type="hidden" name="{{ $key }}" value="{{ $value }}">
-                @endforeach
-                @if ($currentStatus)
-                    <input type="hidden" name="status" value="{{ $currentStatus }}">
-                @endif
-                @if ($showTrash)
-                    <input type="hidden" name="trash" value="1">
-                @endif
-                <input type="hidden" name="per_page" value="{{ $perPage }}">
-                <div class="orders-search-control">
-                    <span class="orders-search-icon" aria-hidden="true"></span>
-                    <input class="orders-search-input" type="search" name="q" value="{{ $searchQuery }}" placeholder="Szukaj..." aria-label="Szukaj zamowienia">
-                    <button class="orders-search-submit" type="submit" aria-label="Wyszukaj zamowienie">&rarr;</button>
-                </div>
-            </form>
             <div class="orders-top-actions">
                 <button class="btn {{ $hasActiveFilters ? 'btn-primary' : 'btn-outline-secondary' }} orders-add-button" type="button" data-bs-toggle="collapse" data-bs-target="#ordersFiltersPanel" aria-expanded="{{ $hasActiveFilters ? 'true' : 'false' }}" aria-controls="ordersFiltersPanel">Filtry</button>
             </div>
@@ -1389,6 +1288,15 @@
                         throw new Error('Nie uda\u0142o si\u0119 od\u015bwie\u017cy\u0107 listy zam\u00f3wie\u0144.');
                     }
 
+                    if (response.redirected) {
+                        const responseUrl = new URL(response.url, window.location.href);
+
+                        if (responseUrl.pathname !== targetUrl.pathname) {
+                            window.location.assign(responseUrl.toString());
+                            return true;
+                        }
+                    }
+
                     const nextDocument = new DOMParser().parseFromString(await response.text(), 'text/html');
                     const nextOrdersPage = nextDocument.querySelector('[data-orders-page]');
                     const activeOrdersPage = currentOrdersPage();
@@ -1399,6 +1307,13 @@
 
                     activeOrdersPage.replaceWith(nextOrdersPage);
                     replaceOrdersContext(nextDocument);
+                    const globalSearchInput = document.querySelector('[data-global-order-search-input]');
+                    const nextGlobalSearchInput = nextDocument.querySelector('[data-global-order-search-input]');
+
+                    if (globalSearchInput && nextGlobalSearchInput) {
+                        globalSearchInput.value = nextGlobalSearchInput.value;
+                    }
+
                     document.title = nextDocument.title || document.title;
 
                     if (pushHistory && targetUrl.toString() !== window.location.href) {
