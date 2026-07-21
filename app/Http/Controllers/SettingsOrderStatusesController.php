@@ -97,6 +97,8 @@ class SettingsOrderStatusesController extends Controller
                 ->update(['sort_order' => $position + 1]);
         }
 
+        OrderStatusSetting::forgetRequestCache();
+
         return back();
     }
 
@@ -164,7 +166,7 @@ class SettingsOrderStatusesController extends Controller
         $suffix = 2;
 
         while (OrderStatusSetting::withTrashed()->where('status', $code)->exists()) {
-            $code = $baseCode . '-' . $suffix;
+            $code = $baseCode.'-'.$suffix;
             $suffix++;
         }
 

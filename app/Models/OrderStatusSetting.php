@@ -4,12 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 
 class OrderStatusSetting extends Model
 {
     use SoftDeletes;
+
+    private const REQUEST_SETTINGS_CACHE = 'nex_oms.order_status_settings';
+
+    private const REQUEST_TABLE_READY_CACHE = 'nex_oms.order_status_settings_table_ready';
 
     protected $fillable = [
         'status',
@@ -22,6 +27,14 @@ class OrderStatusSetting extends Model
     protected $casts = [
         'sort_order' => 'integer',
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(fn () => self::forgetRequestCache());
+        static::deleted(fn () => self::forgetRequestCache());
+        static::restored(fn () => self::forgetRequestCache());
+        static::forceDeleted(fn () => self::forgetRequestCache());
+    }
 
     public static function defaults(): array
     {
@@ -63,12 +76,14 @@ class OrderStatusSetting extends Model
             return;
         }
 
-        foreach (self::defaults() as $default) {
-            $status = self::withTrashed()
-                ->where('status', $default['status'])
-                ->first();
+        $defaults = self::defaults();
+        $existingStatuses = self::withTrashed()
+            ->whereIn('status', array_keys($defaults))
+            ->pluck('status')
+            ->all();
 
-            if (! $status) {
+        foreach ($defaults as $default) {
+            if (! in_array($default['status'], $existingStatuses, true)) {
                 self::query()->create([
                     'status' => $default['status'],
                     'sort_order' => $default['sort_order'],
@@ -82,17 +97,28 @@ class OrderStatusSetting extends Model
 
     public static function orderedSettings(): Collection
     {
+        $request = self::currentRequest();
+        $cached = $request?->attributes->get(self::REQUEST_SETTINGS_CACHE);
+
+        if ($cached instanceof Collection) {
+            return $cached;
+        }
+
         if (! self::tableReady()) {
-            return collect(self::defaults())
+            $settings = collect(self::defaults())
                 ->sortBy('sort_order')
                 ->values();
+
+            $request?->attributes->set(self::REQUEST_SETTINGS_CACHE, $settings);
+
+            return $settings;
         }
 
         self::syncDefaults();
 
         $defaults = self::defaults();
 
-        return self::query()
+        $settings = self::query()
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get()
@@ -104,6 +130,10 @@ class OrderStatusSetting extends Model
                 'color' => $setting->color ?: ($defaults[$setting->status]['color'] ?? '#64748b'),
                 'text_color' => self::readableTextColor($setting->color ?: ($defaults[$setting->status]['color'] ?? '#64748b')),
             ]);
+
+        $request?->attributes->set(self::REQUEST_SETTINGS_CACHE, $settings);
+
+        return $settings;
     }
 
     public static function orderedStatuses(): array
@@ -115,22 +145,14 @@ class OrderStatusSetting extends Model
 
     public static function labelFor(string $status): ?string
     {
-        return self::orderedStatuses()[$status] ?? null;
+        return self::orderedSettings()->firstWhere('code', $status)['name'] ?? null;
     }
 
     public static function colorFor(string $status): string
     {
-        if (! self::tableReady()) {
-            return self::defaults()[$status]['color'] ?? '#64748b';
-        }
+        $setting = self::orderedSettings()->firstWhere('code', $status);
 
-        self::syncDefaults();
-
-        $setting = self::query()
-            ->where('status', $status)
-            ->first();
-
-        return $setting?->color ?: (self::defaults()[$status]['color'] ?? '#64748b');
+        return $setting['color'] ?? (self::defaults()[$status]['color'] ?? '#64748b');
     }
 
     public static function textColorFor(string $status): string
@@ -156,8 +178,36 @@ class OrderStatusSetting extends Model
 
     private static function tableReady(): bool
     {
-        $table = (new self())->getTable();
+        $request = self::currentRequest();
 
-        return Schema::hasTable($table) && Schema::hasColumn($table, 'deleted_at');
+        if ($request?->attributes->has(self::REQUEST_TABLE_READY_CACHE)) {
+            return (bool) $request->attributes->get(self::REQUEST_TABLE_READY_CACHE);
+        }
+
+        $table = (new self)->getTable();
+        $ready = Schema::hasTable($table) && Schema::hasColumn($table, 'deleted_at');
+
+        $request?->attributes->set(self::REQUEST_TABLE_READY_CACHE, $ready);
+
+        return $ready;
+    }
+
+    public static function forgetRequestCache(): void
+    {
+        $request = self::currentRequest();
+
+        $request?->attributes->remove(self::REQUEST_SETTINGS_CACHE);
+        $request?->attributes->remove(self::REQUEST_TABLE_READY_CACHE);
+    }
+
+    private static function currentRequest(): ?Request
+    {
+        if (! app()->bound('request')) {
+            return null;
+        }
+
+        $request = app('request');
+
+        return $request instanceof Request ? $request : null;
     }
 }
