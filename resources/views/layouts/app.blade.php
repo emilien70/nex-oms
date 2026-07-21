@@ -1275,7 +1275,7 @@
                         </a>
                         @foreach ($layoutOrderStatuses ?? [] as $status)
                             <a class="orders-context-link {{ ! $layoutShowsTrash && $currentLayoutStatus === $status['code'] ? 'active' : '' }}" href="{{ route('orders.index', ['status' => $status['code']]) }}">
-                                <span class="orders-context-count" style="background: {{ $status['color'] }}; color: {{ $status['text_color'] ?? '#ffffff' }};">{{ $layoutOrderStatusCounts[$status['code']] ?? 0 }}</span>
+                                <span class="orders-context-count" style="background: {{ $status['color'] }}; color: {{ $status['code'] === 'new' ? '#ffffff' : ($status['text_color'] ?? '#ffffff') }};">{{ $layoutOrderStatusCounts[$status['code']] ?? 0 }}</span>
                                 <span class="orders-context-link-label">{{ $status['name'] }}</span>
                             </a>
                         @endforeach

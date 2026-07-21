@@ -262,6 +262,7 @@
 
         .order-source-line {
             align-items: center;
+            color: #0864b1;
             display: inline-flex;
             gap: 4px;
             margin-top: 1px;
@@ -369,9 +370,15 @@
         .order-status-badge {
             border-radius: 4px;
             display: inline-block;
-            font-size: 11px;
-            font-weight: 700;
-            padding: 3px 6px;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1.05;
+            padding: 3px 7px;
+            white-space: nowrap;
+        }
+
+        .order-status-badge-new {
+            color: #ffffff !important;
         }
 
         .order-extra-column {
@@ -387,11 +394,17 @@
             align-items: flex-start;
             display: flex;
             gap: 10px;
-            justify-content: flex-end;
+            justify-content: flex-start;
         }
 
         .order-extra-text {
-            text-align: right;
+            flex: 1 1 auto;
+            min-width: 0;
+            text-align: left;
+        }
+
+        .order-extra-text .order-subline {
+            color: #0864b1;
         }
 
         .status-filter-button {
@@ -442,8 +455,10 @@
 
         .orders-icon-row {
             display: flex;
+            flex: 0 0 auto;
             gap: 4px;
             justify-content: flex-end;
+            margin-left: auto;
         }
 
         .orders-icon {
@@ -865,7 +880,7 @@
                                 <td class="order-extra-column">
                                     <div class="order-extra-content">
                                         <div class="order-extra-text">
-                                            <span class="order-status-badge" style="background: {{ $order->statusColor() }}; color: {{ $order->statusTextColor() }};">{{ $order->statusLabel() }}</span>
+                                            <span class="order-status-badge {{ $order->status === 'new' ? 'order-status-badge-new' : '' }}" style="background: {{ $order->statusColor() }}; color: {{ $order->statusTextColor() }};">{{ $order->statusLabel() }}</span>
                                             <div class="order-subline mt-1">{{ $order->shipping_method ?: '...' }}</div>
                                         </div>
                                         <div class="orders-icon-row">
