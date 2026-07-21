@@ -30,6 +30,8 @@
     <style>
         .orders-page {
             background: #f4f6f8;
+            color: #4e565f;
+            font-size: 12px;
             margin: -1.5rem;
             min-height: 100vh;
             padding: 24px;
@@ -93,24 +95,31 @@
         .orders-table-card {
             background: #ffffff;
             border: 1px solid #dfe4ea;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+            border-left: 0;
+            border-radius: 0;
+            border-right: 0;
+            box-shadow: none;
+            margin-left: -24px;
+            margin-right: -24px;
             overflow: visible;
         }
 
         .orders-table {
-            font-size: 13px;
+            --bs-table-color: #4e565f;
+            color: #4e565f;
+            font-size: 12px;
             margin-bottom: 0;
         }
 
         .orders-table thead th {
             background: #f8fafc;
             border-bottom: 1px solid #dbe2ea;
-            color: #475569;
-            font-size: 11px;
+            color: #4e565f;
+            font-size: 12px;
             font-weight: 700;
             padding: 7px 6px;
             text-transform: uppercase;
+            vertical-align: top;
             white-space: nowrap;
         }
 
@@ -125,23 +134,36 @@
 
         .selection-toggle {
             align-items: center;
-            background: #ffffff;
-            border: 1px solid #cfd8e3;
+            background: transparent;
+            border: 1px solid #6c757d;
             border-radius: 4px;
+            color: #6c757d;
             display: inline-flex;
-            gap: 5px;
-            height: 32px;
+            gap: 7px;
+            height: 31px;
             justify-content: center;
-            padding: 0 8px;
+            padding: 0;
+            width: 44px;
         }
 
-        .selection-toggle .form-check-input {
-            margin: 0;
+        .selection-toggle:hover,
+        .selection-toggle:focus-visible,
+        .selection-toggle[aria-expanded="true"] {
+            background: #6c757d;
+            border-color: #6c757d;
+            color: #ffffff;
+            outline: 0;
+        }
+
+        .selection-checkbox-icon {
+            color: inherit;
+            font-size: 16px;
+            line-height: 1;
         }
 
         .selection-caret {
-            color: #475569;
-            font-size: 11px;
+            color: inherit;
+            font-size: 10px;
             line-height: 1;
         }
 
@@ -156,10 +178,6 @@
             padding: 10px 0;
             top: 100%;
             z-index: 1060;
-        }
-
-        .selection-toggle .form-check-input {
-            pointer-events: none;
         }
 
         .selection-dropdown-menu .dropdown-item {
@@ -216,7 +234,7 @@
         }
 
         .order-number-link {
-            color: #0d6efd;
+            color: #0077da;
             font-weight: 700;
             text-decoration: none;
         }
@@ -255,7 +273,20 @@
             line-height: 1.35;
         }
 
+        .order-customer-name {
+            color: #4e565f;
+            font-size: 12px;
+            font-weight: 400;
+        }
+
+        .order-amount {
+            color: #4e565f;
+            font-weight: 400;
+        }
+
         .order-items-list {
+            color: #4e565f;
+            font-weight: 400;
             line-height: 1.35;
             max-width: 320px;
         }
@@ -613,6 +644,11 @@
             .orders-filters-grid {
                 grid-template-columns: 1fr;
             }
+
+            .orders-table-card {
+                margin-left: -16px;
+                margin-right: -16px;
+            }
         }
     </style>
 
@@ -698,6 +734,24 @@
         </div>
 
         <div class="orders-list-toolbar mb-3">
+            <div class="selection-menu dropdown">
+                <button class="selection-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Menu zaznaczania zamowien">
+                    <input class="visually-hidden" type="checkbox" aria-label="Stan zaznaczenia zamowien na stronie" data-order-select-all disabled>
+                    <i class="bi bi-check-square selection-checkbox-icon" aria-hidden="true"></i>
+                    <i class="bi bi-chevron-down selection-caret" aria-hidden="true"></i>
+                </button>
+                <div class="dropdown-menu selection-dropdown-menu">
+                    <button class="dropdown-item" type="button" data-selection-action="select-page-all">Zaznacz wszystkie</button>
+                    <button class="dropdown-item" type="button" data-selection-action="select-page-starred">Zaznacz oznaczone gwiazdk&#261;</button>
+                    <button class="dropdown-item" type="button" data-selection-action="clear-page-all">Odznacz wszystkie</button>
+                    <button class="dropdown-item" type="button" data-selection-action="clear-page-starred">Odznacz oznaczone gwiazdk&#261;</button>
+                    <div class="selection-dropdown-heading">Na wszystkich stronach</div>
+                    <button class="dropdown-item" type="button" data-selection-action="select-all-pages">Zaznacz wszystkie</button>
+                    <button class="dropdown-item" type="button" data-selection-action="select-all-pages-starred">Zaznacz oznaczone gwiazdk&#261;</button>
+                    <button class="dropdown-item" type="button" data-selection-action="clear-all-pages">Odznacz wszystkie</button>
+                    <button class="dropdown-item" type="button" data-selection-action="clear-all-pages-starred">Odznacz oznaczone gwiazdk&#261;</button>
+                </div>
+            </div>
             @if ($showTrash)
                 <button class="btn btn-sm btn-outline-danger" type="submit" form="bulkOrdersForm" formaction="{{ route('orders.bulk-force-delete') }}" title="Usu&#324; zam&oacute;wienia z kosza" aria-label="Usu&#324; zam&oacute;wienia z kosza" data-trash-selection-action data-trash-force-delete>
                     <span aria-hidden="true">&#128465;</span>
@@ -760,25 +814,7 @@
                     </colgroup>
                     <thead>
                         <tr>
-                            <th class="order-select-column">
-                                <div class="selection-menu dropdown">
-                                    <button class="selection-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Menu zaznaczania zamowien">
-                                        <input class="form-check-input" type="checkbox" aria-label="Stan zaznaczenia zamowien na stronie" data-order-select-all disabled>
-                                        <span class="selection-caret" aria-hidden="true">&#8963;</span>
-                                    </button>
-                                    <div class="dropdown-menu selection-dropdown-menu">
-                                        <button class="dropdown-item" type="button" data-selection-action="select-page-all">Zaznacz wszystkie</button>
-                                        <button class="dropdown-item" type="button" data-selection-action="select-page-starred">Zaznacz oznaczone gwiazdk&#261;</button>
-                                        <button class="dropdown-item" type="button" data-selection-action="clear-page-all">Odznacz wszystkie</button>
-                                        <button class="dropdown-item" type="button" data-selection-action="clear-page-starred">Odznacz oznaczone gwiazdk&#261;</button>
-                                        <div class="selection-dropdown-heading">Na wszystkich stronach</div>
-                                        <button class="dropdown-item" type="button" data-selection-action="select-all-pages">Zaznacz wszystkie</button>
-                                        <button class="dropdown-item" type="button" data-selection-action="select-all-pages-starred">Zaznacz oznaczone gwiazdk&#261;</button>
-                                        <button class="dropdown-item" type="button" data-selection-action="clear-all-pages">Odznacz wszystkie</button>
-                                        <button class="dropdown-item" type="button" data-selection-action="clear-all-pages-starred">Odznacz oznaczone gwiazdk&#261;</button>
-                                    </div>
-                                </div>
-                            </th>
+                            <th class="order-select-column"></th>
                             <th class="order-star-column"></th>
                             <th>Numer<br><span class="fw-normal text-secondary orders-th-subtitle">(w sklepie)</span></th>
                             <th class="order-customer-column">Imi&#281; i nazwisko<br><span class="fw-normal text-secondary orders-th-subtitle">(&#378;r&oacute;d&#322;o)</span></th>
@@ -856,7 +892,7 @@
                                     @endif
                                 </td>
                                 <td>
-                                    <div class="fw-semibold">{{ $order->shipping_name ?: ($order->customer_login ?: '...') }}</div>
+                                    <div class="order-customer-name">{{ $order->shipping_name ?: ($order->customer_login ?: '...') }}</div>
                                     <div class="order-subline order-source-line">
                                         <span class="order-source-icon {{ $sourceIconClass }}" aria-hidden="true">{!! $sourceIcon !!}</span>
                                         <span>{{ $sourceDisplayLabel }}</span>
@@ -875,7 +911,7 @@
                                     </div>
                                 </td>
                                 <td>
-                                    <span class="fw-semibold">{{ $money($order->total_gross) }} {{ $order->currency }}</span>
+                                    <span class="order-amount">{{ $money($order->total_gross) }} {{ $order->currency }}</span>
                                 </td>
                                 <td class="order-extra-column">
                                     <div class="order-extra-content">
