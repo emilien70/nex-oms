@@ -1,0 +1,955 @@
+﻿-- logger module started --
+main debug: VLC media player - 3.0.21 Vetinari
+main debug: Copyright © 1996-2024 the VideoLAN team
+main debug: revision 3.0.21-1-0-g9c4768291e
+main debug: configured with /builds/videolan/vlc/extras/package/win32/../../../configure  '--enable-update-check' '--enable-lua' '--enable-faad' '--enable-flac' '--enable-theora' '--enable-avcodec' '--enable-merge-ffmpeg' '--enable-dca' '--enable-mpc' '--enable-libass' '--enable-schroedinger' '--enable-realrtsp' '--enable-live555' '--enable-shout' '--enable-goom' '--enable-sse' '--enable-mmx' '--enable-libcddb' '--enable-zvbi' '--disable-telx' '--enable-nls' '--host=x86_64-w64-mingw32' '--with-contrib=../contrib/x86_64-w64-mingw32' '--with-breakpad=https://win.crashes.videolan.org' '--enable-qt' '--enable-skins2' '--enable-dvdread' '--enable-caca' 'host_alias=x86_64-w64-mingw32' 'CFLAGS= -D_WIN32_WINNT=0x0502 -DWINVER=0x502 -D__MSVCRT_VERSION__=0x700 ' 'CXXFLAGS= -D_WIN32_WINNT=0x0502 -DWINVER=0x502 -D__MSVCRT_VERSION__=0x700 ' 'PKG_CONFIG=pkg-config' 'PKG_CONFIG_LIBDIR=/usr/x86_64-w64-mingw32/lib/pkgconfig:/usr/lib/x86_64-w64-mingw32/pkgconfig'
+main debug: using multimedia timers as clock source
+main debug:  min period: 1 ms, max period: 1000000 ms
+main debug: searching plug-in modules
+main debug: loading plugins cache file C:\Program Files\VideoLAN\VLC\plugins\plugins.dat
+main debug: recursively browsing `C:\Program Files\VideoLAN\VLC\plugins'
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libaccess_concat_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libaccess_imem_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libaccess_mms_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libaccess_realrtsp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libaccess_srt_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libaccess_wasapi_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libattachment_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libcdda_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libdcp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libdshow_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libdtv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libdvdnav_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libdvdread_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libfilesystem_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libftp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libhttps_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libhttp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libidummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libimem_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\liblibbluray_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\liblive555_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libnfs_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\librist_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\librtp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libsatip_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libscreen_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libsdp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libsftp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libshm_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libsmb_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libtcp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libtimecode_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libudp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libvcd_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libvdr_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access\libvnc_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access_output\libaccess_output_dummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access_output\libaccess_output_file_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access_output\libaccess_output_http_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access_output\libaccess_output_livehttp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access_output\libaccess_output_rist_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access_output\libaccess_output_shout_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access_output\libaccess_output_srt_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\access_output\libaccess_output_udp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libaudiobargraph_a_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libaudio_format_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libchorus_flanger_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libcompressor_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libdolby_surround_decoder_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libequalizer_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libgain_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libheadphone_channel_mixer_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libkaraoke_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libmad_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libmono_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libnormvol_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libparam_eq_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libremap_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libsamplerate_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libscaletempo_pitch_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libscaletempo_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libsimple_channel_mixer_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libspatialaudio_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libspatializer_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libspeex_resampler_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libstereo_widen_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libtospdif_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libtrivial_channel_mixer_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_filter\libugly_resampler_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_mixer\libfloat_mixer_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_mixer\libinteger_mixer_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_output\libadummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_output\libafile_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_output\libamem_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_output\libdirectsound_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_output\libmmdevice_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_output\libwasapi_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\audio_output\libwaveout_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\liba52_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libadpcm_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libaes3_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libaom_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libaraw_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libaribsub_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libavcodec_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libcc_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libcdg_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libcrystalhd_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libcvdsub_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libd3d11va_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libdav1d_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libdca_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libddummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libdmo_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libdvbsub_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libdxva2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libedummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libfaad_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libflac_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libfluidsynth_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libg711_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libjpeg_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libkate_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\liblibass_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\liblibmpeg2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\liblpcm_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libmft_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libmpg123_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\liboggspots_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libopus_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libpng_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libqsv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\librawvideo_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\librtpvideo_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libschroedinger_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libscte18_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libscte27_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libsdl_image_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libspdif_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libspeex_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libspudec_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libstl_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libsubsdec_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libsubstx3g_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libsubsusf_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libsvcdsub_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libt140_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libtextst_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libtheora_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libttml_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libtwolame_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libuleaddvaudio_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libvorbis_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libvpx_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libwebvtt_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libx26410b_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libx264_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libx265_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\codec\libzvbi_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\control\libdummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\control\libgestures_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\control\libhotkeys_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\control\libnetsync_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\control\libntservice_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\control\liboldrc_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\control\libwin_hotkeys_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\control\libwin_msg_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\d3d11\libdirect3d11_filters_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\d3d9\libdirect3d9_filters_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libadaptive_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libaiff_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libasf_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libau_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libavi_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libcaf_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libdemuxdump_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libdemux_cdg_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libdemux_chromecast_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libdemux_stl_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libdiracsys_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libdirectory_demux_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libes_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libflacsys_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libgme_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libh26x_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libimage_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libmjpeg_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libmkv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libmod_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libmp4_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libmpc_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libmpgv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libnoseek_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libnsc_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libnsv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libnuv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libogg_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libplaylist_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libps_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libpva_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\librawaud_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\librawdv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\librawvid_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libreal_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libsid_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libsmf_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libsubtitle_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libts_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libtta_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libty_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libvc1_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libvobsub_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libvoc_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libwav_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\demux\libxa_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\gui\libqt_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\gui\libskins2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\keystore\libfile_keystore_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\keystore\libmemory_keystore_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\logger\libconsole_logger_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\logger\libfile_logger_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\lua\liblua_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\meta_engine\libfolder_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\meta_engine\libtaglib_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libaddonsfsstorage_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libaddonsvorepository_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libaudioscrobbler_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libexport_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libfingerprinter_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libgnutls_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\liblogger_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libstats_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libvod_rtsp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\misc\libxml_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_asf_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_avi_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_dummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_mp4_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_mpjpeg_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_ogg_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_ps_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_ts_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\mux\libmux_wav_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_a52_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_av1_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_copy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_dirac_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_dts_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_flac_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_h264_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_hevc_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_mlp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_mpeg4audio_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_mpeg4video_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_mpegaudio_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_mpegvideo_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\packetizer\libpacketizer_vc1_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\services_discovery\libmediadirs_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\services_discovery\libmicrodns_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\services_discovery\libpodcast_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\services_discovery\libsap_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\services_discovery\libupnp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\services_discovery\libwindrive_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\spu\libaudiobargraph_v_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\spu\liblogo_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\spu\libmarq_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\spu\libmosaic_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\spu\libremoteosd_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\spu\librss_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\spu\libsubsdelay_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_extractor\libarchive_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\libadf_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\libaribcam_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\libcache_block_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\libcache_read_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\libhds_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\libinflate_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\libprefetch_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\librecord_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_filter\libskiptags_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_autodel_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_bridge_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_chromaprint_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_chromecast_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_cycle_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_delay_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_description_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_display_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_dummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_duplicate_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_es_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_gather_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_mosaic_bridge_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_record_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_rtp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_setid_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_smem_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_standard_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_stats_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\stream_out\libstream_out_transcode_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\text_renderer\libfreetype_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\text_renderer\libsapi_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\text_renderer\libtdummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libchain_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libgrey_yuv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi420_10_p010_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi420_nv12_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi420_rgb_mmx_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi420_rgb_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi420_rgb_sse2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi420_yuy2_mmx_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi420_yuy2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi420_yuy2_sse2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi422_i420_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi422_yuy2_mmx_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi422_yuy2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libi422_yuy2_sse2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\librv32_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libswscale_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libyuvp_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libyuy2_i420_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_chroma\libyuy2_i422_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libadjust_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libalphamask_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libanaglyph_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libantiflicker_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libball_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libblendbench_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libblend_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libbluescreen_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libcanvas_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libcolorthres_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libcroppadd_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libdeinterlace_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libedgedetection_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\liberase_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libextract_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libfps_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libfreeze_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libgaussianblur_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libgradfun_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libgradient_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libgrain_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libhqdn3d_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libinvert_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libmagnify_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libmirror_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libmotionblur_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libmotiondetect_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\liboldmovie_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libposterize_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libpostproc_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libpsychedelic_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libpuzzle_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libripple_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\librotate_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libscale_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libscene_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libsepia_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libsharpen_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libtransform_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libvhs_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_filter\libwave_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libcaca_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libdirect3d11_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libdirect3d9_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libdirectdraw_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libdrawable_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libflaschen_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libglinterop_dxva2_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libglwin32_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libgl_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libvdummy_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libvmem_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libwgl_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libwingdi_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libwinhibit_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_output\libyuv_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_splitter\libclone_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_splitter\libpanoramix_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\video_splitter\libwall_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\visualization\libglspectrum_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\visualization\libgoom_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\visualization\libprojectm_plugin.dll
+main error: stale plugins cache: modified C:\Program Files\VideoLAN\VLC\plugins\visualization\libvisual_plugin.dll
+main debug: plug-ins loaded: 498 modules
+main debug: opening config file (C:\Users\emilien\AppData\Roaming\vlc\vlcrc)
+main error: cannot open config file (C:\Users\emilien\AppData\Roaming\vlc\vlcrc): Permission denied
+main debug: looking for logger module matching "any": 2 candidates
+file debug: opening logfile `vlc-log.txt'
+main debug: using logger module "file"
+main debug: translation test: code is "pl"
+main debug: looking for keystore module matching "memory": 3 candidates
+main debug: using keystore module "memory"
+main debug: CPU has capabilities MMX MMXEXT SSE SSE2 SSE3 SSSE3 SSE4.1 SSE4.2 FPU 
+main debug: creating audio output
+main debug: looking for audio output module matching "any": 6 candidates
+mmdevice debug: using default device
+mmdevice debug: display name changed: VLC media player (LibVLC 3.0.21)
+mmdevice debug: version 2 session control unavailable
+mmdevice debug: volume from -65.250000 dB to +0.000000 dB with 0.031250 dB increments
+main debug: using audio output module "mmdevice"
+main debug: keeping audio output
+main debug: Creating an input for preparsing '15-08-42.mp4'
+main debug: looking for interface module matching "hotkeys,none": 16 candidates
+main debug: using interface module "hotkeys"
+main debug: looking for interface module matching "globalhotkeys,none": 16 candidates
+main debug: Creating an input for preparsing '2026-07-16'
+main debug: using interface module "win32"
+main debug: looking for interface module matching "dummy": 16 candidates
+dummy: using the dummy interface module...
+main debug: using interface module "dummy"
+main debug: processing request item: null, node: Lista odtwarzania, skip: 0
+main debug: rebuilding array of current - root Lista odtwarzania
+main debug: rebuild done - 11 items, index -1
+main debug: starting playback of new item
+main debug: resyncing on Base.com
+main debug: Base.com is at 0
+main debug: creating new input thread
+main debug: Creating an input for 'Base.com'
+main debug: requesting art for new input thread
+main debug: Creating an input for preparsing 'Firefox'
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/Users/emilien/Desktop/Base.com' gives access `file' demux `any' path `/C:/Users/emilien/Desktop/Base.com'
+main debug: creating demux: access='file' demux='any' location='/C:/Users/emilien/Desktop/Base.com' file='C:\Users\emilien\Desktop\Base.com'
+main debug: looking for access_demux module matching "file": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/Users/emilien/Desktop/Base.com
+main debug:  (path: C:\Users\emilien\Desktop\Base.com)
+main debug: looking for access module matching "file": 27 candidates
+filesystem error: cannot open file C:\Users\emilien\Desktop\Base.com (No such file or directory)
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/Users/emilien/Desktop/Base.com'. Szczegóły błędu można znaleźć w dzienniku.
+main debug: dead input
+main debug: changing item without a request (current 0/11)
+main debug: using item 1
+main debug: starting playback of new item
+main debug: resyncing on fd://0
+main debug: fd://0 is at 1
+main debug: creating new input thread
+main debug: Creating an input for 'fd://0'
+main debug: requesting art for new input thread
+main debug: looking for meta fetcher module matching "any": 1 candidates
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `fd://0' gives access `fd' demux `any' path `0'
+main debug: creating demux: access='fd' demux='any' location='0' file='\\0'
+main debug: looking for access_demux module matching "fd": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: fd://0
+main debug:  (path: \\0)
+main debug: looking for access module matching "fd": 27 candidates
+filesystem error: read error: Bad file descriptor
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'fd://0'. Szczegóły błędu można znaleźć w dzienniku.
+main debug: dead input
+main debug: Creating an input for preparsing 'Mozilla'
+main debug: changing item without a request (current 1/11)
+main debug: using item 2
+main debug: starting playback of new item
+main debug: resyncing on zarządzanie
+main debug: zarządzanie is at 2
+main debug: creating new input thread
+main debug: Creating an input for 'zarządzanie'
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: requesting art for new input thread
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/projekty/nex-oms/zarz%C4%85dzanie' gives access `file' demux `any' path `/C:/projekty/nex-oms/zarz%C4%85dzanie'
+main debug: creating demux: access='file' demux='any' location='/C:/projekty/nex-oms/zarz%C4%85dzanie' file='C:\projekty\nex-oms\zarządzanie'
+main debug: looking for access_demux module matching "file": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/projekty/nex-oms/zarz%C4%85dzanie
+main debug:  (path: C:\projekty\nex-oms\zarządzanie)
+main debug: looking for access module matching "file": 27 candidates
+filesystem error: cannot open file C:\projekty\nex-oms\zarządzanie (No such file or directory)
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/projekty/nex-oms/zarz%C4%85dzanie'. Szczegóły błędu można znaleźć w dzienniku.
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+main debug: dead input
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+main debug: Creating an input for preparsing '—'
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+main debug: changing item without a request (current 2/11)
+main debug: using item 3
+main debug: starting playback of new item
+main debug: resyncing on sprzedażą
+main debug: sprzedażą is at 3
+main debug: creating new input thread
+main debug: Creating an input for 'sprzedażą'
+main debug: requesting art for new input thread
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+main debug: Creating an input for preparsing 'internetową'
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+main debug: using timeshift granularity of 50 MiB
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/projekty/nex-oms/sprzeda%C5%BC%C4%85' gives access `file' demux `any' path `/C:/projekty/nex-oms/sprzeda%C5%BC%C4%85'
+main debug: creating demux: access='file' demux='any' location='/C:/projekty/nex-oms/sprzeda%C5%BC%C4%85' file='C:\projekty\nex-oms\sprzedażą'
+main debug: looking for access_demux module matching "file": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/projekty/nex-oms/sprzeda%C5%BC%C4%85
+main debug:  (path: C:\projekty\nex-oms\sprzedażą)
+main debug: looking for access module matching "file": 27 candidates
+filesystem error: cannot open file C:\projekty\nex-oms\sprzedażą (No such file or directory)
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/projekty/nex-oms/sprzeda%C5%BC%C4%85'. Szczegóły błędu można znaleźć w dzienniku.
+main debug: dead input
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: changing item without a request (current 3/11)
+main debug: using item 4
+main debug: starting playback of new item
+main debug: resyncing on internetową
+main debug: internetową is at 4
+main debug: creating new input thread
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: Creating an input for 'internetową'
+main debug: requesting art for new input thread
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/projekty/nex-oms/internetow%C4%85' gives access `file' demux `any' path `/C:/projekty/nex-oms/internetow%C4%85'
+main debug: creating demux: access='file' demux='any' location='/C:/projekty/nex-oms/internetow%C4%85' file='C:\projekty\nex-oms\internetową'
+main debug: looking for access_demux module matching "file": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/projekty/nex-oms/internetow%C4%85
+main debug:  (path: C:\projekty\nex-oms\internetową)
+main debug: looking for access module matching "file": 27 candidates
+main debug: looking for meta fetcher module matching "any": 1 candidates
+filesystem error: cannot open file C:\projekty\nex-oms\internetową (No such file or directory)
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/projekty/nex-oms/internetow%C4%85'. Szczegóły błędu można znaleźć w dzienniku.
+main debug: dead input
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+main debug: changing item without a request (current 4/11)
+main debug: using item 5
+main debug: starting playback of new item
+main debug: resyncing on —
+main debug: — is at 5
+main debug: creating new input thread
+main debug: Creating an input for '—'
+main debug: requesting art for new input thread
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/projekty/nex-oms/%E2%80%94' gives access `file' demux `any' path `/C:/projekty/nex-oms/%E2%80%94'
+main debug: creating demux: access='file' demux='any' location='/C:/projekty/nex-oms/%E2%80%94' file='C:\projekty\nex-oms\—'
+main debug: looking for access_demux module matching "file": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/projekty/nex-oms/%E2%80%94
+main debug:  (path: C:\projekty\nex-oms\—)
+main debug: looking for access module matching "file": 27 candidates
+filesystem error: cannot open file C:\projekty\nex-oms\— (No such file or directory)
+main debug: no access modules matched
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/projekty/nex-oms/%E2%80%94'. Szczegóły błędu można znaleźć w dzienniku.
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+main debug: dead input
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: changing item without a request (current 5/11)
+main debug: using item 6
+main debug: starting playback of new item
+main debug: resyncing on Mozilla
+main debug: Mozilla is at 6
+main debug: creating new input thread
+main debug: Creating an input for 'Mozilla'
+main debug: requesting art for new input thread
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/projekty/nex-oms/Mozilla' gives access `file' demux `any' path `/C:/projekty/nex-oms/Mozilla'
+main debug: creating demux: access='file' demux='any' location='/C:/projekty/nex-oms/Mozilla' file='C:\projekty\nex-oms\Mozilla'
+main debug: looking for access_demux module matching "file": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/projekty/nex-oms/Mozilla
+main debug:  (path: C:\projekty\nex-oms\Mozilla)
+main debug: looking for access module matching "file": 27 candidates
+main debug: looking for meta fetcher module matching "any": 1 candidates
+filesystem error: cannot open file C:\projekty\nex-oms\Mozilla (No such file or directory)
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/projekty/nex-oms/Mozilla'. Szczegóły błędu można znaleźć w dzienniku.
+main debug: dead input
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: changing item without a request (current 6/11)
+main debug: using item 7
+main debug: starting playback of new item
+main debug: resyncing on Firefox
+main debug: Firefox is at 7
+main debug: creating new input thread
+main debug: Creating an input for 'Firefox'
+main debug: requesting art for new input thread
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/projekty/nex-oms/Firefox' gives access `file' demux `any' path `/C:/projekty/nex-oms/Firefox'
+main debug: creating demux: access='file' demux='any' location='/C:/projekty/nex-oms/Firefox' file='C:\projekty\nex-oms\Firefox'
+main debug: looking for access_demux module matching "file": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/projekty/nex-oms/Firefox
+main debug:  (path: C:\projekty\nex-oms\Firefox)
+main debug: looking for access module matching "file": 27 candidates
+filesystem error: cannot open file C:\projekty\nex-oms\Firefox (No such file or directory)
+main debug: looking for meta fetcher module matching "any": 1 candidates
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/projekty/nex-oms/Firefox'. Szczegóły błędu można znaleźć w dzienniku.
+main debug: dead input
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: changing item without a request (current 7/11)
+main debug: using item 8
+main debug: starting playback of new item
+main debug: resyncing on 2026-07-16
+main debug: 2026-07-16 is at 8
+main debug: creating new input thread
+main debug: Creating an input for '2026-07-16'
+main debug: requesting art for new input thread
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/projekty/nex-oms/2026-07-16' gives access `file' demux `any' path `/C:/projekty/nex-oms/2026-07-16'
+main debug: creating demux: access='file' demux='any' location='/C:/projekty/nex-oms/2026-07-16' file='C:\projekty\nex-oms\2026-07-16'
+main debug: looking for access_demux module matching "file": 15 candidates
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/projekty/nex-oms/2026-07-16
+main debug:  (path: C:\projekty\nex-oms\2026-07-16)
+main debug: looking for access module matching "file": 27 candidates
+filesystem error: cannot open file C:\projekty\nex-oms\2026-07-16 (No such file or directory)
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/projekty/nex-oms/2026-07-16'. Szczegóły błędu można znaleźć w dzienniku.
+main debug: dead input
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: changing item without a request (current 8/11)
+main debug: using item 9
+main debug: starting playback of new item
+main debug: resyncing on 15-08-42.mp4
+main debug: 15-08-42.mp4 is at 9
+main debug: creating new input thread
+main debug: Creating an input for '15-08-42.mp4'
+main debug: requesting art for new input thread
+main debug: looking for meta fetcher module matching "any": 1 candidates
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `file:///C:/projekty/nex-oms/15-08-42.mp4' gives access `file' demux `any' path `/C:/projekty/nex-oms/15-08-42.mp4'
+main debug: creating demux: access='file' demux='any' location='/C:/projekty/nex-oms/15-08-42.mp4' file='C:\projekty\nex-oms\15-08-42.mp4'
+main debug: looking for access_demux module matching "file": 15 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no access_demux modules matched
+main debug: creating access: file:///C:/projekty/nex-oms/15-08-42.mp4
+main debug: no meta fetcher modules matched
+main debug:  (path: C:\projekty\nex-oms\15-08-42.mp4)
+main debug: looking for art finder module matching "any": 2 candidates
+main debug: looking for access module matching "file": 27 candidates
+filesystem error: cannot open file C:\projekty\nex-oms\15-08-42.mp4 (No such file or directory)
+main debug: no access modules matched
+main error: Twoje dane wejściowe nie mogą być otwarte
+main error: Program VLC nie może otworzyć MRL 'file:///C:/projekty/nex-oms/15-08-42.mp4'. Szczegóły błędu można znaleźć w dzienniku.
+main debug: dead input
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: changing item without a request (current 9/11)
+main debug: using item 10
+main debug: starting playback of new item
+main debug: resyncing on vlc://quit
+main debug: vlc://quit is at 10
+main debug: creating new input thread
+main debug: Creating an input for 'vlc://quit'
+main debug: requesting art for new input thread
+main debug: using timeshift granularity of 50 MiB
+main debug: using timeshift path: C:\Users\emilien\AppData\Local\Temp
+main debug: `vlc://quit' gives access `vlc' demux `any' path `quit'
+main debug: creating demux: access='vlc' demux='any' location='quit' file='\\quit'
+main debug: looking for access_demux module matching "vlc": 15 candidates
+idummy: command `quit'
+main debug: exiting
+main debug: using access_demux module "idummy"
+main debug: starting at time: 10s
+main debug: exiting
+main debug: no exit handler
+main debug: looking for meta reader module matching "any": 2 candidates
+main debug: removing all interfaces
+main debug: removing module "dummy"
+main debug: removing module "win32"
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\reader
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\reader
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\reader\filename.luac
+main debug: removing module "hotkeys"
+main debug: destroying
+main debug: deactivating the playlist
+main debug: incoming request - stopping current input
+main debug: no meta reader modules matched
+main debug: `vlc://quit' successfully opened
+main debug: removing module "idummy"
+main debug: dead input
+main debug: looking for meta fetcher module matching "any": 1 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\fetcher
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\fetcher
+main debug: no meta fetcher modules matched
+main debug: looking for art finder module matching "any": 2 candidates
+lua debug: Trying Lua scripts in C:\Users\emilien\AppData\Roaming\vlc\lua\meta\art
+lua debug: Trying Lua scripts in C:\Program Files\VideoLAN\VLC\lua\meta\art
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\00_musicbrainz.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\01_googleimage.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\02_frenchtv.luac
+lua debug: Trying Lua playlist script C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+lua debug: skipping script (unmatched scope) C:\Program Files\VideoLAN\VLC\lua\meta\art\03_lastfm.luac
+main debug: no art finder modules matched
+main debug: nothing to play
+main: end of playlist, exiting
+main debug: exiting
+main debug: no exit handler
+main debug: removing module "mmdevice"
+main debug: saving media library to file C:\Users\emilien\AppData\Roaming\vlc\ml.xspf.tmp14672
+main error: could not create playlist file C:\Users\emilien\AppData\Roaming\vlc\ml.xspf.tmp14672: Permission denied
+main debug: deleting item `Biblioteka mediów'
+main debug: deleting item `vlc://quit'
+main debug: deleting item `15-08-42.mp4'
+main debug: deleting item `2026-07-16'
+main debug: deleting item `Firefox'
+main debug: deleting item `Mozilla'
+main debug: deleting item `—'
+main debug: deleting item `internetową'
+main debug: deleting item `sprzedażą'
+main debug: deleting item `zarządzanie'
+main debug: deleting item `fd://0'
+main debug: deleting item `Base.com'
+main debug: deleting item `Lista odtwarzania'
+main debug: removing module "memory"
+-- logger module stopped --

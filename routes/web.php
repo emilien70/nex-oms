@@ -1,0 +1,134 @@
+<?php
+
+use App\Http\Controllers\GusCompanyController;
+use App\Http\Controllers\Integrations\AllegroShippingParcelTemplateController;
+use App\Http\Controllers\Integrations\CourierIntegrationController;
+use App\Http\Controllers\Integrations\DpdParcelTemplateController;
+use App\Http\Controllers\Integrations\InPostCourierParcelTemplateController;
+use App\Http\Controllers\OrderMetaController;
+use App\Http\Controllers\OrderProductController;
+use App\Http\Controllers\OrdersController;
+use App\Http\Controllers\OrderSectionController;
+use App\Http\Controllers\OrderStatusController;
+use App\Http\Controllers\SettingsOrderStatusesController;
+use App\Http\Controllers\SettingsVariablesController;
+use App\Http\Controllers\ShipmentController;
+use App\Models\Order;
+use Illuminate\Support\Facades\Route;
+use Modules\Automation\Http\Controllers\AutomationActivityController;
+use Modules\Automation\Http\Controllers\AutomationRuleController;
+
+Route::get('/', function () {
+    $dashboardStats = [
+        'newOrders' => Order::query()
+            ->where('status', Order::STATUS_NEW)
+            ->count(),
+        'pending' => Order::query()
+            ->where('status', Order::STATUS_PENDING)
+            ->count(),
+        'shippedToday' => Order::query()
+            ->where('status', Order::STATUS_SHIPPED)
+            ->whereDate('updated_at', today())
+            ->count(),
+        'cancelled' => Order::query()
+            ->where('status', Order::STATUS_CANCELLED)
+            ->count(),
+    ];
+
+    return view('dashboard', [
+        'dashboardStats' => $dashboardStats,
+    ]);
+});
+
+Route::get('/api/gus/company-by-nip', [GusCompanyController::class, 'show'])->name('gus.company-by-nip');
+
+Route::get('/integrations/couriers', [CourierIntegrationController::class, 'index'])->name('integrations.couriers.index');
+Route::get('/integrations/couriers/inpost-lockers', [CourierIntegrationController::class, 'editInPostLockers'])->name('integrations.couriers.inpost-lockers.edit');
+Route::put('/integrations/couriers/inpost-lockers', [CourierIntegrationController::class, 'updateInPostLockers'])->name('integrations.couriers.inpost-lockers.update');
+Route::post('/integrations/couriers/inpost-lockers/test', [CourierIntegrationController::class, 'testInPostLockers'])->name('integrations.couriers.inpost-lockers.test');
+Route::post('/integrations/couriers/inpost-lockers/shipments/refresh', [ShipmentController::class, 'bulkRefresh'])->name('integrations.couriers.inpost-lockers.shipments.refresh');
+Route::post('/integrations/couriers/inpost-lockers/shipments/delete', [ShipmentController::class, 'bulkDelete'])->name('integrations.couriers.inpost-lockers.shipments.delete');
+Route::get('/integrations/couriers/inpost-courier', [CourierIntegrationController::class, 'editInPostCourier'])->name('integrations.couriers.inpost-courier.edit');
+Route::put('/integrations/couriers/inpost-courier', [CourierIntegrationController::class, 'updateInPostCourier'])->name('integrations.couriers.inpost-courier.update');
+Route::post('/integrations/couriers/inpost-courier/test', [CourierIntegrationController::class, 'testInPostCourier'])->name('integrations.couriers.inpost-courier.test');
+Route::post('/integrations/couriers/inpost-courier/shipments/refresh', [ShipmentController::class, 'bulkRefreshInPostCourier'])->name('integrations.couriers.inpost-courier.shipments.refresh');
+Route::post('/integrations/couriers/inpost-courier/shipments/delete', [ShipmentController::class, 'bulkDeleteInPostCourier'])->name('integrations.couriers.inpost-courier.shipments.delete');
+Route::get('/integrations/couriers/dpd', [CourierIntegrationController::class, 'editDpd'])->name('integrations.couriers.dpd.edit');
+Route::put('/integrations/couriers/dpd', [CourierIntegrationController::class, 'updateDpd'])->name('integrations.couriers.dpd.update');
+Route::post('/integrations/couriers/dpd/test', [CourierIntegrationController::class, 'testDpd'])->name('integrations.couriers.dpd.test');
+Route::post('/integrations/couriers/dpd/shipments/refresh', [ShipmentController::class, 'bulkRefreshDpd'])->name('integrations.couriers.dpd.shipments.refresh');
+Route::post('/integrations/couriers/dpd/shipments/delete', [ShipmentController::class, 'bulkDeleteDpd'])->name('integrations.couriers.dpd.shipments.delete');
+Route::get('/integrations/couriers/allegro-shipping', [CourierIntegrationController::class, 'editAllegroShipping'])->name('integrations.couriers.allegro-shipping.edit');
+Route::put('/integrations/couriers/allegro-shipping', [CourierIntegrationController::class, 'updateAllegroShipping'])->name('integrations.couriers.allegro-shipping.update');
+Route::match(['post', 'put'], '/integrations/couriers/allegro-shipping/test', [CourierIntegrationController::class, 'testAllegroShipping'])->name('integrations.couriers.allegro-shipping.test');
+Route::match(['post', 'put'], '/integrations/couriers/allegro-shipping/device/start', [CourierIntegrationController::class, 'startAllegroShippingDevice'])->name('integrations.couriers.allegro-shipping.device.start');
+Route::post('/integrations/couriers/allegro-shipping/device/poll', [CourierIntegrationController::class, 'pollAllegroShippingDevice'])->name('integrations.couriers.allegro-shipping.device.poll');
+Route::match(['post', 'put'], '/integrations/couriers/allegro-shipping/device/cancel', [CourierIntegrationController::class, 'cancelAllegroShippingDevice'])->name('integrations.couriers.allegro-shipping.device.cancel');
+Route::post('/integrations/couriers/allegro-shipping/shipments/refresh', [ShipmentController::class, 'bulkRefreshAllegroShipping'])->name('integrations.couriers.allegro-shipping.shipments.refresh');
+Route::post('/integrations/couriers/allegro-shipping/shipments/delete', [ShipmentController::class, 'bulkDeleteAllegroShipping'])->name('integrations.couriers.allegro-shipping.shipments.delete');
+Route::post('/integrations/couriers/allegro-shipping/templates', [AllegroShippingParcelTemplateController::class, 'store'])->name('integrations.couriers.allegro-shipping.templates.store');
+Route::put('/integrations/couriers/allegro-shipping/templates/{templateId}', [AllegroShippingParcelTemplateController::class, 'update'])->name('integrations.couriers.allegro-shipping.templates.update');
+Route::delete('/integrations/couriers/allegro-shipping/templates/{templateId}', [AllegroShippingParcelTemplateController::class, 'destroy'])->name('integrations.couriers.allegro-shipping.templates.destroy');
+Route::post('/integrations/couriers/dpd/templates', [DpdParcelTemplateController::class, 'store'])->name('integrations.couriers.dpd.templates.store');
+Route::put('/integrations/couriers/dpd/templates/{templateId}', [DpdParcelTemplateController::class, 'update'])->name('integrations.couriers.dpd.templates.update');
+Route::delete('/integrations/couriers/dpd/templates/{templateId}', [DpdParcelTemplateController::class, 'destroy'])->name('integrations.couriers.dpd.templates.destroy');
+Route::post('/integrations/couriers/inpost-courier/templates', [InPostCourierParcelTemplateController::class, 'store'])->name('integrations.couriers.inpost-courier.templates.store');
+Route::put('/integrations/couriers/inpost-courier/templates/{templateId}', [InPostCourierParcelTemplateController::class, 'update'])->name('integrations.couriers.inpost-courier.templates.update');
+Route::delete('/integrations/couriers/inpost-courier/templates/{templateId}', [InPostCourierParcelTemplateController::class, 'destroy'])->name('integrations.couriers.inpost-courier.templates.destroy');
+
+Route::get('/settings/order-statuses', [SettingsOrderStatusesController::class, 'index'])->name('settings.order-statuses.index');
+Route::post('/settings/order-statuses', [SettingsOrderStatusesController::class, 'store'])->name('settings.order-statuses.store');
+Route::patch('/settings/order-statuses/order', [SettingsOrderStatusesController::class, 'updateOrder'])->name('settings.order-statuses.order');
+Route::patch('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderStatusesController::class, 'update'])->name('settings.order-statuses.update');
+Route::delete('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderStatusesController::class, 'destroy'])->name('settings.order-statuses.destroy');
+Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])->name('settings.variables.index');
+
+Route::get('/orders', [OrdersController::class, 'index'])->name('orders.index');
+Route::get('/orders/list-state', [OrdersController::class, 'listState'])->name('orders.list-state');
+Route::get('/automation/activity', [AutomationActivityController::class, 'index'])->name('automation.activity.index');
+Route::get('/orders/automatic-actions', [AutomationRuleController::class, 'index'])->name('orders.automatic-actions.index');
+Route::get('/orders/automatic-actions/create', [AutomationRuleController::class, 'create'])->name('orders.automatic-actions.create');
+Route::post('/orders/automatic-actions', [AutomationRuleController::class, 'store'])->name('orders.automatic-actions.store');
+Route::get('/orders/automatic-actions/{automationRule}/edit', [AutomationRuleController::class, 'edit'])->name('orders.automatic-actions.edit');
+Route::put('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'update'])->name('orders.automatic-actions.update');
+Route::patch('/orders/automatic-actions/{automationRule}/toggle', [AutomationRuleController::class, 'toggle'])->name('orders.automatic-actions.toggle');
+Route::delete('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'destroy'])->name('orders.automatic-actions.destroy');
+Route::get('/orders/create', [OrdersController::class, 'create'])->name('orders.create');
+Route::post('/orders', [OrdersController::class, 'store'])->name('orders.store');
+Route::post('/orders/empty', [OrdersController::class, 'storeEmpty'])->name('orders.empty-store');
+Route::post('/orders/bulk-trash', [OrdersController::class, 'bulkTrash'])->name('orders.bulk-trash');
+Route::post('/orders/bulk-restore', [OrdersController::class, 'bulkRestore'])->name('orders.bulk-restore');
+Route::post('/orders/bulk-force-delete', [OrdersController::class, 'bulkForceDelete'])->name('orders.bulk-force-delete');
+Route::post('/orders/bulk-status', [OrdersController::class, 'bulkUpdateStatus'])->name('orders.bulk-status');
+Route::post('/orders/{order}/create-for-customer', [OrdersController::class, 'createForCustomer'])->name('orders.create-for-customer');
+Route::post('/orders/{order}/duplicate', [OrdersController::class, 'duplicate'])->name('orders.duplicate');
+Route::post('/orders/{order}/products', [OrderProductController::class, 'store'])->name('orders.products.store');
+Route::get('/orders/{order}/shipments/{provider}/form', [ShipmentController::class, 'form'])
+    ->where('provider', 'inpost_lockers|inpost_courier|dpd|allegro_shipping')
+    ->name('orders.shipments.form');
+Route::post('/orders/{order}/shipments/inpost', [ShipmentController::class, 'storeInPost'])->name('orders.shipments.inpost.store');
+Route::post('/orders/{order}/shipments/inpost-courier', [ShipmentController::class, 'storeInPostCourier'])->name('orders.shipments.inpost-courier.store');
+Route::post('/orders/{order}/shipments/dpd', [ShipmentController::class, 'storeDpd'])->name('orders.shipments.dpd.store');
+Route::post('/orders/{order}/shipments/allegro-shipping', [ShipmentController::class, 'storeAllegroShipping'])->name('orders.shipments.allegro-shipping.store');
+Route::get('/shipments/{shipment}/status', [ShipmentController::class, 'status'])->name('shipments.status');
+Route::post('/shipments/{shipment}/refresh', [ShipmentController::class, 'refresh'])->name('shipments.refresh');
+Route::post('/shipments/{shipment}/retry', [ShipmentController::class, 'retry'])->name('shipments.retry');
+Route::post('/shipments/{shipment}/cancel', [ShipmentController::class, 'cancel'])->name('shipments.cancel');
+Route::get('/shipments/{shipment}/label', [ShipmentController::class, 'label'])->name('shipments.label');
+Route::patch('/order-items/{orderItem}', [OrderProductController::class, 'update'])->name('order-items.update');
+Route::delete('/order-items/{orderItem}', [OrderProductController::class, 'destroy'])->name('order-items.destroy');
+Route::get('/orders/{order}/state', [OrderStatusController::class, 'state'])->name('orders.state');
+Route::patch('/orders/{order}/status', [OrderStatusController::class, 'update'])->name('orders.status.update');
+Route::patch('/orders/{order}/paid-amount', [OrderMetaController::class, 'updatePaidAmount'])->name('orders.paid-amount.update');
+Route::patch('/orders/{order}/recalculate-total', [OrderMetaController::class, 'recalculateTotal'])->name('orders.recalculate-total');
+Route::patch('/orders/{order}/pickup-point', [OrderMetaController::class, 'updatePickupPoint'])->name('orders.pickup-point.update');
+Route::patch('/orders/{order}/star-color', [OrderMetaController::class, 'updateStarColor'])->name('orders.star-color.update');
+Route::patch('/orders/{order}/sections/order-info', [OrderSectionController::class, 'updateOrderInfo'])->name('orders.sections.order-info');
+Route::patch('/orders/{order}/sections/shipping-address', [OrderSectionController::class, 'updateShippingAddress'])->name('orders.sections.shipping-address');
+Route::patch('/orders/{order}/sections/billing-address', [OrderSectionController::class, 'updateBillingAddress'])->name('orders.sections.billing-address');
+Route::patch('/orders/{order}/sections/payment', [OrderSectionController::class, 'updatePayment'])->name('orders.sections.payment');
+Route::patch('/orders/{order}/sections/products', [OrderSectionController::class, 'updateProducts'])->name('orders.sections.products');
+Route::get('/orders/{order}/edit', [OrdersController::class, 'edit'])->name('orders.edit');
+Route::put('/orders/{order}', [OrdersController::class, 'update'])->name('orders.update');
+Route::delete('/orders/{order}', [OrdersController::class, 'destroy'])->name('orders.destroy');
+Route::get('/orders/{order}', [OrdersController::class, 'show'])->name('orders.show');
