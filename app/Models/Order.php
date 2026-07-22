@@ -182,9 +182,4 @@ class Order extends Model
     {
         return $this->hasMany(AutomationRun::class);
     }
-
-    public function serialNumbers(): HasMany
-    {
-        return $this->hasMany(SerialNumber::class);
-    }
 }

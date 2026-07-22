@@ -1,6 +1,6 @@
 # NEX-OMS
 
-NEX-OMS to rozwijany system OMS do zarządzania zamówieniami, produktami zamówień, danymi klientów, płatnościami, wysyłkami, numerami seryjnymi, dokumentami sprzedaży i przyszłymi integracjami z kanałami sprzedaży.
+NEX-OMS to rozwijany system OMS do zarządzania zamówieniami, produktami zamówień, danymi klientów, płatnościami, wysyłkami, dokumentami sprzedaży i przyszłymi integracjami z kanałami sprzedaży.
 
 Nie wszystkie wymienione obszary są ukończone. Poniższy dokument rozdziela funkcje działające, będące w budowie i planowane.
 
@@ -45,7 +45,6 @@ Na podstawie aktualnych tras, kontrolerów, modeli, widoków, migracji i testów
 
 - Nie istnieje osobna baza klientów. Dane kupującego należą wyłącznie do konkretnego zamówienia.
 - Nie istnieje osobna tabela adresów w docelowym schemacie. Dane dostawy i faktury znajdują się w `orders`.
-- Tabela i model `serial_numbers` pozostały po wcześniejszym etapie, ale nie mają obecnie aktywnych tras ani interfejsu użytkownika. Obsługa numerów seryjnych jest zarezerwowana na przyszłość.
 - Moduł faktur ma tylko wejście w menu, trasę, kontroler, ekran początkowy i test dostępności. Nie wystawia jeszcze dokumentów.
 - Import zamówień z Allegro i PrestaShop nie jest jeszcze zaimplementowany.
 - Katalog produktów niezależny od zamówień nie jest jeszcze zaimplementowany.
@@ -76,12 +75,11 @@ Panel ustawień pozwala również dodawać własne statusy, ustalać ich kolor i
 | Automation | Działa | Reguły zdarzeń, warunki, akcje, wykonania i podgląd aktywności. |
 | GUS/REGON | Działa | Pobranie danych firmy po NIP przez backendowy klient HTTP/XML; wymaga klucza API. |
 | Invoices | W budowie | Utworzone wejście do modułu i ekran początkowy; pełna obsługa dokumentów jest w przygotowaniu. |
-| SerialNumbers | Planowany | Istnieje historyczna tabela i model, ale brak aktywnego interfejsu i tras. |
 | Katalog Products | Planowany | Katalog produktów niezależny od pozycji konkretnego zamówienia. |
 | Emails | Planowany | Moduł wiadomości i szablonów nie ma jeszcze implementacji. |
 | Zwroty | Planowany | Pozycja jest widoczna jako element przyszłej nawigacji, bez obsługi domenowej. |
 
-Aktywną implementację wewnątrz `Modules/` zawierają obecnie `Automation`, `Integrations`, `Invoices` i `Shipments`. Katalogi `Customers`, `Dashboard`, `Emails`, `Orders`, `Products` i `SerialNumbers` są pustymi punktami organizacyjnymi; sama obecność katalogu nie oznacza gotowego modułu.
+Aktywną implementację wewnątrz `Modules/` zawierają obecnie `Automation`, `Integrations`, `Invoices` i `Shipments`. Katalogi `Customers`, `Dashboard`, `Emails`, `Orders` i `Products` są pustymi punktami organizacyjnymi; sama obecność katalogu nie oznacza gotowego modułu.
 
 ## Model danych w skrócie
 
@@ -96,7 +94,7 @@ Najważniejsze aktywne obszary bazy danych to:
 - `automation_rules`, `automation_actions`, `automation_runs` i `automation_run_steps` — reguły i przebiegi automatyzacji;
 - tabele systemowe Laravel dla kolejek, cache, sesji i użytkowników.
 
-Migracje tworzące dawne tabele `customers` i `addresses` pozostają w historii, ale późniejsze migracje przenoszą dane do `orders` i usuwają te tabele. Tabela `serial_numbers` istnieje jako nieużywana rezerwa przyszłego modułu.
+Migracje tworzące dawne tabele `customers` i `addresses` pozostają w historii, ale późniejsze migracje przenoszą dane do `orders` i usuwają te tabele.
 
 ## Moduł dokumentów sprzedaży
 

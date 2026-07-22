@@ -9,7 +9,6 @@ Kazdy wiekszy obszar systemu ma wlasny modul w katalogu `Modules/`. Projekt pozo
 - `Dashboard` - ekran startowy panelu.
 - `Orders` - wspolny model zamowien dla Allegro i PrestaShop.
 - `Products` - produkty i ich dane bazowe.
-- `SerialNumbers` - osobna obsluga numerow seryjnych.
 - `Shipments` - przesylki i statusy wysylek.
 - `Invoices` - faktury i dokumenty sprzedazy.
 - `Emails` - komunikacja e-mail.
@@ -48,7 +47,7 @@ Statusy sa na tym etapie stale w modelu `Order`. Nie tworzymy osobnej tabeli sta
 
 Od v0.5.0 zamowienia mozna dodawac i edytowac recznie z panelu. Formularz zapisuje dane zamowienia, dane kontaktowe kupujacego, adres dostawy, dane do faktury oraz do 5 pozycji zamowienia bezposrednio w danych konkretnego zamowienia.
 
-Od v0.5.1 szczegoly zamowienia sa edytowalne sekcjami jak karta operacyjna OMS. Uzytkownik moze zapisac osobno informacje o zamowieniu, produkty, adres dostawy, dane do faktury, platnosc oraz numery S/N. Kazda sekcja zapisuje tylko swoje dane i dopisuje zdarzenie do historii zamowienia.
+Od v0.5.1 szczegoly zamowienia sa edytowalne sekcjami jak karta operacyjna OMS. Uzytkownik moze zapisac osobno informacje o zamowieniu, produkty, adres dostawy, dane do faktury oraz platnosc. Kazda sekcja zapisuje tylko swoje dane i dopisuje zdarzenie do historii zamowienia.
 
 Od v0.6.0 widok szczegolow i lista zamowien maja bardziej operacyjny uklad inspirowany Base.com:
 

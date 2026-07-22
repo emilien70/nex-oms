@@ -9,8 +9,6 @@ Projekt zaklada uzycie MySQL albo MariaDB.
 - Schemat bazy powinien byc zarzadzany migracjami Laravela.
 - Nazwy tabel powinny byc czytelne i spojne z domena.
 - Dane z Allegro i PrestaShop maja trafiac do wspolnego modelu zamowien.
-- Numery seryjne sa osobnym obszarem domenowym.
-- Numery seryjne sa przypisane do calego zamowienia, a nie do konkretnej pozycji `order_items`.
 
 ## Dodane tabele w v0.2.0
 
@@ -241,34 +239,10 @@ Relacje:
 
 Kafelka Zarzadzanie w szczegolach zamowienia jest placeholderem dla przyszlych akcji operacyjnych. Nie zapisuje obecnie danych w osobnej kolumnie bazy.
 
-### serial_numbers
-
-Tabela `serial_numbers`, jesli istnieje w bazie po wczesniejszym etapie, nie jest usuwana i nie jest uzywana w aktualnym MVP. Pozostaje zarezerwowana na przyszlosc, gdyby projekt wrocil do osobnych rekordow S/N.
-
-Historyczne pola tabeli:
-
-- `order_id` - zamowienie, do ktorego przypisano numer,
-- `serial_number` - numer seryjny, unikalny globalnie w calej tabeli,
-- `source` - zrodlo dodania numeru, domyslnie `manual`,
-- `scanned_by` - opcjonalna informacja, kto zeskanowal numer,
-- `scanned_at` - data zeskanowania lub dodania numeru,
-- `notes` - opcjonalne uwagi.
-
-Indeksy:
-
-- indeks na `order_id`,
-- unikalny indeks na `serial_number`.
-
-Relacje:
-
-- historycznie numer seryjny nalezal do zamowienia,
-- numer seryjny nie ma relacji do `order_items`.
-
 ## Planowane obszary danych
 
 - Zamowienia.
 - Produkty.
-- Numery seryjne.
 - Wysylki.
 - Faktury.
 - E-maile.

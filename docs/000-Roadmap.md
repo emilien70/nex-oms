@@ -2,7 +2,7 @@
 
 ## Cel projektu
 
-NEX-OMS to lokalnie rozwijany system OMS dla obslugi zamowien, klientow, produktow, numerow seryjnych, wysylek, faktur, e-maili oraz przyszlych integracji z zewnetrznymi uslugami.
+NEX-OMS to lokalnie rozwijany system OMS dla obslugi zamowien, klientow, produktow, wysylek, faktur, e-maili oraz przyszlych integracji z zewnetrznymi uslugami.
 
 ## v0.1.1 - Fundament aplikacji - gotowe
 
@@ -20,13 +20,6 @@ NEX-OMS to lokalnie rozwijany system OMS dla obslugi zamowien, klientow, produkt
 - Modele Eloquent z podstawowymi relacjami.
 - Lista zamowien i widok szczegolow.
 - Seeder z danymi testowymi dla zrodel Allegro i PrestaShop.
-
-## v0.3.0 - Serial Numbers
-
-- Numery seryjne sa osobnym modulem domenowym.
-- Aktualny widok szczegolow ma kafelke Zarzadzanie jako miejsce na przyszle funkcje operacyjne.
-- Tabela `serial_numbers` pozostaje nieuzywana i zarezerwowana na przyszlosc.
-- Brak przypisywania numerow seryjnych do produktow lub `order_items`.
 
 ## v0.4.0 - Statusy i workflow zamowienia
 

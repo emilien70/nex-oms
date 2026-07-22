@@ -1,14 +1,962 @@
-# Zasady pracy nad NEX-OMS
+# AGENTS.md
 
-- NEX-OMS jest modularnym monolitem.
-- Kazdy wiekszy obszar systemu ma wlasny modul.
-- Kontrolery nie powinny zawierac logiki biznesowej.
-- Logika biznesowa powinna byc w serwisach.
-- Integracje API powinny byc w osobnych modulach.
-- Kazde zewnetrzne API powinno miec logowanie request/response.
-- Operacje API docelowo powinny dzialac przez kolejki.
-- Numery seryjne sa osobnym modulem, nie zwyklym polem tekstowym.
-- Zamowienia z Allegro i PrestaShop maja trafiac do wspolnego modelu Orders.
-- Panel konfiguracji przyszlych integracji kurierskich powinien korzystac ze wzorca UX zastosowanego w `InPost Kurier`.
-- Wspolny wzorzec kurierski obejmuje panel operacyjny przesylek, filtry, akcje zbiorcze, wspolna paginacje, konfiguracje konta w modalu i dodatkowe sekcje zalezne od mozliwosci przewoznika.
-- Nie nalezy wymuszac na integracji kurierskiej opcji, ktorych dany przewoznik lub jego API nie obsluguje.
+## Cel
+
+Ten plik zawiera stałe zasady pracy dla Codexa i innych agentów kodujących w projekcie **NEX-OMS**.
+
+Obowiązuje dla całego repozytorium:
+
+```text
+C:\projekty\nex-oms
+```
+
+Jeżeli w podkatalogu pojawi się bardziej szczegółowy `AGENTS.md`, jego zasady mają pierwszeństwo wyłącznie dla tego podkatalogu.
+
+---
+
+# 1. Źródło prawdy
+
+Jedynym źródłem prawdy jest aktualna zawartość lokalnego katalogu projektu.
+
+Przed rozpoczęciem zadania:
+
+1. Przeczytaj ten plik.
+2. Przeczytaj `docs/product-spec.md`, jeśli istnieje.
+3. Przeczytaj `docs/architecture.md`, jeśli istnieje.
+4. Sprawdź rzeczywisty kod, migracje, modele, kontrolery, Form Requesty, widoki, trasy, konfigurację i testy.
+5. Nie zakładaj, że GitHub, README lub wcześniejsze raporty są aktualniejsze od lokalnego kodu.
+6. Nie twórz duplikatów istniejących klas, tras, migracji, modeli, widoków ani usług.
+
+Jeżeli dokumentacja jest sprzeczna z kodem:
+
+- nie zgaduj,
+- wskaż sprzeczność,
+- traktuj kod jako stan faktyczny,
+- poproś właściciela o decyzję, jeśli zmiana wpływa na zachowanie biznesowe.
+
+---
+
+# 2. Aktualna architektura projektu
+
+Projekt jest modularnym monolitem Laravel.
+
+Aktualne informacje środowiskowe:
+
+```text
+PHP: ^8.2
+Laravel: 12
+Frontend: Blade + Bootstrap 5 + Bootstrap Icons
+Lokalna baza: SQLite
+Baza testowa: SQLite :memory:
+Namespace modułów: Modules\
+```
+
+Aktywne moduły:
+
+```text
+Modules/Automation
+Modules/Integrations
+Modules/Invoices
+Modules/Shipments
+```
+
+Aktualne konwencje:
+
+- trasy znajdują się centralnie w `routes/web.php`,
+- migracje znajdują się w `database/migrations`,
+- widoki faktur znajdują się w `resources/views/invoices`,
+- testy znajdują się w `tests`,
+- moduły nie mają obecnie własnych providerów, tras ani migracji,
+- namespace `Modules\` jest ładowany przez Composer.
+
+Nie wprowadzaj osobnego providera modułu, własnego systemu routingu ani nowej konwencji katalogów bez wyraźnej decyzji architektonicznej.
+
+---
+
+# 3. Sposób pracy
+
+Pracuj małymi, kontrolowanymi etapami.
+
+Dla każdego zadania:
+
+1. Najpierw przeanalizuj istniejące rozwiązanie.
+2. Określ dokładny zakres plików do zmiany.
+3. Zmieniaj wyłącznie elementy wymagane w bieżącym etapie.
+4. Nie rozszerzaj samodzielnie zakresu.
+5. Zachowuj zgodność z aktualnym stylem projektu.
+6. Dodaj lub zaktualizuj adekwatne testy.
+7. Uruchom bezpieczne testy.
+8. Podaj listę zmienionych plików i instrukcję ręcznej weryfikacji.
+
+Nie wykonuj dodatkowych refaktoryzacji „przy okazji”, chyba że są bezpośrednio konieczne do ukończenia zadania.
+
+Nie usuwaj istniejących funkcji bez wyraźnej zgody właściciela.
+
+---
+
+# 4. Git
+
+Właściciel projektu obsługuje Git ręcznie.
+
+Nie wykonuj:
+
+```text
+git commit
+git push
+git pull
+git fetch
+git merge
+git rebase
+git reset
+git checkout
+git restore
+git clean
+```
+
+Nie cofaj istniejących zmian użytkownika.
+
+Nie zakładaj, że zdalne repozytorium zawiera najnowszą wersję projektu.
+
+Nie wymagaj czystego katalogu Git jako warunku rozpoczęcia pracy.
+
+---
+
+# 5. Bezpieczeństwo zmian
+
+Nigdy nie używaj:
+
+```text
+php artisan migrate:fresh
+php artisan migrate:refresh
+php artisan migrate:reset
+php artisan db:wipe
+```
+
+Nie usuwaj danych użytkownika.
+
+Nie zmieniaj bez wyraźnego polecenia:
+
+```text
+.env
+.env.example
+composer.lock
+package-lock.json
+README.md
+```
+
+Nie instaluj ani nie aktualizuj zależności bez osobnej zgody.
+
+Nie zmieniaj nazw istniejących tabel, kolumn, tras ani publicznych metod bez analizy kompatybilności.
+
+Migracje muszą być bezpieczne dla istniejącej bazy:
+
+- twórz nowe migracje zamiast edytować wcześniej wykonane,
+- nie zakładaj pustej bazy,
+- używaj `nullable`, gdy historyczne dane mogą nie posiadać nowej relacji,
+- dodawaj indeksy i klucze obce świadomie,
+- jawnie określaj zachowanie `onDelete`,
+- przy relacjach historycznych preferuj `nullOnDelete` zamiast kaskadowego usuwania danych dokumentowych.
+
+---
+
+# 6. PHP, Laravel i Windows
+
+Projekt działa lokalnie w Windows/XAMPP.
+
+Jeżeli polecenie `php` nie jest dostępne, użyj:
+
+```text
+C:\xampp\php\php.exe
+```
+
+Przykłady:
+
+```text
+C:\xampp\php\php.exe artisan about
+C:\xampp\php\php.exe artisan route:list
+C:\xampp\php\php.exe artisan test
+C:\xampp\php\php.exe artisan migrate
+```
+
+Przed użyciem komendy zapisującej upewnij się, że należy ona do zakresu bieżącego etapu.
+
+Stosuj aktualne konwencje projektu:
+
+- modele głównej aplikacji w `app/Models`,
+- modele modułu faktur w `Modules/Invoices/Models`,
+- kontrolery modułu faktur w `Modules/Invoices/Http/Controllers`,
+- Form Requesty modułu faktur w `Modules/Invoices/Http/Requests`,
+- serwisy modułu faktur w `Modules/Invoices/Services`,
+- enumy modułu faktur w `Modules/Invoices/Enums`,
+- widoki faktur w `resources/views/invoices`,
+- migracje w `database/migrations`,
+- testy w `tests/Unit/Invoices` i `tests/Feature/Invoices`.
+
+Nie przenoś istniejących klas między `app` i `Modules` bez wyraźnej decyzji.
+
+---
+
+# 7. Baza danych i wartości pieniężne
+
+Nie używaj `float` do krytycznych obliczeń finansowych ani trwałego przechowywania kwot.
+
+Dla kwot:
+
+- używaj `DECIMAL` o jawnej precyzji i skali,
+- zachowuj wartości jako stringi dziesiętne lub używaj bezpiecznej arytmetyki,
+- stosuj jedną, udokumentowaną regułę zaokrągleń,
+- licz wartości po stronie serwera,
+- testuj netto, VAT i brutto,
+- testuj różnice groszowe,
+- testuj sumowanie pozycji i wysyłki.
+
+Dokumenty finansowe muszą przechowywać własne dane historyczne. Nie mogą zależeć wyłącznie od aktualnego stanu zamówienia, produktu lub serii numeracji.
+
+Aktualny kod zamówień używa miejscami `float`. Nie kopiuj tego wzorca do faktur.
+
+---
+
+# 8. Testy
+
+Po zmianach uruchom testy adekwatne do zakresu.
+
+Preferowana kolejność:
+
+1. testy jednostkowe zmienianego elementu,
+2. testy feature zmienianego modułu,
+3. testy powiązanego obszaru,
+4. pełny `artisan test`, jeśli jest bezpieczny i uzasadniony.
+
+Aktualne testy korzystają z SQLite `:memory:`. Mimo to przed uruchomieniem sprawdź konfigurację testową.
+
+Nie uruchamiaj testów przeciwko lokalnej roboczej bazie użytkownika.
+
+Jeżeli nie można bezpiecznie uruchomić testów:
+
+- nie zgaduj,
+- podaj konkretny powód,
+- podaj bezpieczną komendę do ręcznego wykonania.
+
+Każda nowa funkcja biznesowa powinna mieć testy obejmujące:
+
+- poprawny przypadek,
+- walidację,
+- przypadek brzegowy,
+- ochronę danych historycznych,
+- relacje i zachowanie przy usuwaniu,
+- uprawnienia, jeśli występują.
+
+---
+
+# 9. Raport po zadaniu
+
+Po każdej implementacji podaj:
+
+## Zmienione pliki
+
+Lista:
+
+- utworzonych,
+- zmienionych,
+- usuniętych.
+
+## Wykonane zmiany
+
+Krótki opis funkcjonalny.
+
+## Migracje
+
+- nazwa migracji,
+- czy została uruchomiona,
+- bezpieczna komenda do uruchomienia.
+
+## Testy
+
+- wykonane komendy,
+- liczba testów,
+- wynik,
+- ewentualne błędy.
+
+## Weryfikacja ręczna
+
+Dokładne kroki do wykonania w przeglądarce.
+
+## Ograniczenia i ryzyka
+
+Wskaż wszystko, czego nie udało się sprawdzić lub co wymaga decyzji właściciela.
+
+Nie wykonuj commita ani pusha.
+
+---
+
+# 10. Istniejący szkielet modułu faktur
+
+W projekcie istnieją już:
+
+```text
+Modules/Invoices/Http/Controllers/InvoiceController.php
+routes/web.php — trasa GET /invoices
+resources/views/invoices/index.blade.php
+tests/Feature/InvoicesPageTest.php
+link „Faktury” w sidebarze
+przyciski WYSTAW FAKTURĘ i PRO FORMA na karcie zamówienia
+```
+
+Te elementy są szkieletem lub placeholderem.
+
+Nie twórz ich duplikatów.
+
+Przed rozbudową:
+
+- otwórz istniejący kontroler,
+- sprawdź istniejącą trasę,
+- sprawdź istniejący widok,
+- sprawdź istniejący test,
+- rozbuduj istniejące elementy zamiast tworzyć równoległe.
+
+---
+
+# 11. Zamówienia
+
+Dozwolone statusy zamówień:
+
+```text
+new        = Nowe
+pending    = Oczekujące
+shipped    = Wysłane
+cancelled  = Anulowane
+```
+
+Nowe i importowane zamówienia domyślnie otrzymują:
+
+```text
+new
+```
+
+Nie dodawaj magazynowego workflow pakowania bez wyraźnego polecenia. Właściciel sam przygotowuje przesyłki.
+
+Dane klienta i adresy są obecnie przechowywane bezpośrednio na `orders`.
+
+Nie twórz ponownie tabel `customers` ani `addresses` bez osobnej decyzji.
+
+Relacja dokumentów:
+
+```text
+Order hasMany Invoices
+```
+
+Nie dodawaj pojedynczego `invoice_id` do tabeli `orders`.
+
+---
+
+# 12. Dane produktów w interfejsie
+
+Nie pokazuj w interfejsie zamówień i faktur bez wyraźnej decyzji:
+
+```text
+SKU
+EAN
+lokalizacji magazynowej
+atrybutów
+identyfikatorów ofert zewnętrznych
+```
+
+Planowany jest przyszły moduł:
+
+```text
+Produkty
+```
+
+Wewnętrzne `product_id` jest dozwolone i potrzebne.
+
+Planowane relacje:
+
+```text
+order_items.product_id nullable
+invoice_items.product_id nullable
+```
+
+Relacje z katalogiem produktów muszą być opcjonalne.
+
+Historyczne pozycje muszą działać bez istniejącego produktu.
+
+Nie dopasowuj automatycznie starych pozycji wyłącznie po nazwie, SKU lub EAN.
+
+---
+
+# 13. Pole „Informacje” serii i zmienna `[uwagi_sprzedawcy]`
+
+Każda seria numeracji posiada pole tekstowe **„Informacje”**. Nie jest to gotowa, stała treść dokumentu, lecz szablon określający, co ma zostać pokazane w sekcji informacji dodatkowych faktury lub pro formy.
+
+Przykład konfiguracji serii:
+
+```text
+Numery seryjne zakupionych przedmiotów:
+[uwagi_sprzedawcy]
+```
+
+Znacznik:
+
+```text
+[uwagi_sprzedawcy]
+```
+
+pobiera pełną treść pola uwag sprzedawcy z zamówienia. Właściciel wpisuje w tych uwagach numery seryjne.
+
+Przed implementacją odczytaj rzeczywiste mapowanie pola w lokalnym kodzie; według audytu odpowiada mu obecnie `orders.notes`.
+
+Założenia:
+
+- numery seryjne są zwykłą treścią uwag sprzedawcy,
+- jedno pole uwag dotyczy całego zamówienia,
+- nie przypisujemy numerów seryjnych do pojedynczych pozycji,
+- nie tworzymy osobnej tabeli numerów seryjnych,
+- nie dodajemy `orders.serial_numbers_text`,
+- nie rozpoznajemy ani nie walidujemy automatycznie pojedynczych numerów seryjnych,
+- numery seryjne pojawią się na dokumencie tylko wtedy, gdy szablon pola „Informacje” zawiera `[uwagi_sprzedawcy]`.
+
+W modelu serii przechowuj szablon, a nie wyrenderowany tekst. Preferowana nazwa pola:
+
+```text
+additional_information_template
+```
+
+Podczas wystawiania dokumentu:
+
+1. pobierz `additional_information_template` z wybranej serii,
+2. pobierz aktualne uwagi sprzedawcy z zamówienia,
+3. zastąp wszystkie wystąpienia `[uwagi_sprzedawcy]` ich pełną treścią,
+4. zapisz wyrenderowany wynik jako snapshot informacji dodatkowych dokumentu.
+
+Na wystawionym dokumencie przechowuj wynik, a nie zależność od szablonu serii lub zamówienia. Późniejsza zmiana uwag albo konfiguracji serii nie może zmienić dokumentu historycznego.
+
+Jeżeli uwagi sprzedawcy są puste, znacznik zastąp pustym tekstem. Nie pozostawiaj literalnego `[uwagi_sprzedawcy]` na PDF ani w danych dokumentu.
+
+---
+
+# 14. Moduł faktur — zakres
+
+Docelowy zakres:
+
+```text
+serie numeracji
+faktury VAT
+faktury pro forma
+korekty
+duplikaty
+PDF
+dokumenty zewnętrzne
+wysyłka e-mail
+rejestr sprzedaży
+historia dokumentów
+JPK
+GTU
+wewnętrzne ID produktu
+```
+
+Obecnie poza zakresem:
+
+```text
+paragony
+e-paragony
+drukarki fiskalne
+API Fakturowni
+```
+
+---
+
+# 15. Sprzedawca i serie numeracji
+
+NEX-OMS obsługuje jednego właściciela systemu, ale każda seria numeracji może posiadać własne dane sprzedawcy.
+
+Nie twórz:
+
+```text
+seller_profiles
+company_settings
+centralnego wyboru profilu sprzedawcy
+```
+
+Dane sprzedawcy należą bezpośrednio do `invoice_series`.
+
+Różne serie mogą mieć:
+
+- te same albo inne dane firmy,
+- inny rachunek bankowy,
+- inne logo,
+- inne miejsce wystawienia,
+- innego wystawiającego,
+- inne informacje dodatkowe,
+- inne ustawienia dokumentu.
+
+Dane sprzedawcy mają być strukturalne.
+
+Planowane osobne pola obejmują między innymi:
+
+- nazwę,
+- NIP,
+- REGON,
+- BDO,
+- ulicę,
+- numer budynku,
+- numer lokalu,
+- kod pocztowy,
+- miasto,
+- województwo,
+- kod kraju,
+- e-mail,
+- telefon,
+- nazwę banku,
+- rachunek bankowy,
+- SWIFT/BIC.
+
+Po wystawieniu dokumentu dane serii muszą zostać zapisane jako snapshot.
+
+Późniejsza zmiana serii nie może zmienić dokumentu historycznego.
+
+---
+
+# 16. Typy dokumentów
+
+Podstawowe typy:
+
+```text
+invoice
+proforma
+correction
+```
+
+Każdy typ może mieć wiele serii.
+
+System zawsze posiada dokładnie trzy serie systemowe, identyfikowane technicznie przez stabilne klucze:
+
+```text
+invoice
+correction
+proforma
+```
+
+Serie systemowe są zawsze aktywne. Nie wolno ich usuwać, dezaktywować, zmieniać ich typu dokumentu, klucza systemowego ani przekształcać w serie własne. Można zmieniać ich nazwę, format numeru i ustawienia biznesowe.
+
+Serie własne mają `is_system = false` i `system_key = null`. Mogą być ukrywane, ponownie aktywowane i usuwane, o ile nie narusza to integralności dokumentów historycznych.
+
+Nie używaj pola `is_default`. Serię systemową rozpoznawaj wyłącznie przez `is_system` oraz `system_key`, nigdy po nazwie.
+
+Przy ręcznym wystawianiu dokumentu użytkownik wybiera aktywną serię właściwego typu. Automatyczna akcja wystawiania dokumentu musi przechowywać jawny `invoice_series_id`.
+
+Nazwa serii powinna być unikalna w obrębie typu dokumentu.
+
+Seria może być aktywna lub nieaktywna.
+
+W bazie preferowana nazwa pola:
+
+```text
+is_active
+```
+
+W interfejsie może być prezentowana jako „Pokaż/ukryj”.
+
+Serii użytej przez dokument nie wolno usuwać w sposób niszczący historię.
+
+---
+
+# 17. Numeracja
+
+Format numeracji ma docelowo obsługiwać:
+
+```text
+%N
+%NN...
+%M
+%Y
+%y
+```
+
+Tryby resetowania:
+
+```text
+monthly
+yearly
+none
+```
+
+Domyślne propozycje:
+
+```text
+Faktura:   BL %N/%Y
+Pro forma: BLPF %N/%Y
+Korekta:   BLK %N/%Y
+Reset:     yearly
+```
+
+Resetowania nie ustalaj wyłącznie na podstawie tokenów formatu. Używaj osobnego pola `reset_period`.
+
+Numer dokumentu należy nadawać:
+
+- dopiero przy finalnym wystawieniu,
+- transakcyjnie,
+- bez ryzyka duplikatu,
+- z osobnym licznikiem dla serii i okresu.
+
+Nie implementuj generatora numerów w etapie ograniczonym do modelu serii.
+
+---
+
+# 18. Domyślna seria korekt
+
+Seria faktur może opcjonalnie wskazywać:
+
+```text
+default_correction_series_id
+```
+
+Relacja jest nullable.
+
+Przy wystawianiu korekty planowana kolejność:
+
+1. seria korekt przypisana do serii dokumentu źródłowego,
+2. aktywna seria systemowa z `system_key = correction`,
+3. czytelny błąd, jeśli żadna nie istnieje.
+
+Klucz obcy powinien używać `nullOnDelete`.
+
+---
+
+# 19. Tworzenie dokumentu
+
+Faktura i pro forma mają być tworzone z karty zamówienia:
+
+```text
+WYSTAW FAKTURĘ
+PRO FORMA
+```
+
+Przed pierwszym wystawieniem nie planuje się rozbudowanego formularza.
+
+Dane mają zostać skopiowane z zamówienia i serii.
+
+Dokument musi posiadać własne snapshoty:
+
+- sprzedawcy,
+- nabywcy,
+- opcjonalnego odbiorcy,
+- pozycji,
+- ilości i jednostek,
+- cen netto i brutto,
+- stawek i kwot VAT,
+- wysyłki,
+- płatności,
+- waluty,
+- numeru zamówienia,
+- rozwiązanej wartości `[uwagi_sprzedawcy]` zawierającej numery seryjne,
+- GTU,
+- procedur JPK,
+- informacji dodatkowych.
+
+Zmiana zamówienia nie może automatycznie zmieniać wystawionego dokumentu.
+
+---
+
+# 20. Edycja faktury
+
+Edycja ma dotyczyć snapshotu dokumentu.
+
+Docelowo ekran powinien pokazywać różnice między:
+
+- aktualnym zamówieniem,
+- snapshotem faktury.
+
+Planowane akcje:
+
+```text
+Kopiuj aktualne pozycje z zamówienia
+Kopiuj aktualne dane nabywcy z zamówienia
+```
+
+Nie synchronizuj dokumentu automatycznie z zamówieniem.
+
+---
+
+# 21. Pozycje i obliczenia faktury
+
+Każda pozycja faktury powinna docelowo przechowywać:
+
+- nazwę,
+- opcjonalne `product_id`,
+- opis,
+- ilość,
+- jednostkę,
+- cenę jednostkową netto,
+- cenę jednostkową brutto,
+- stawkę VAT,
+- kwotę netto,
+- kwotę VAT,
+- kwotę brutto,
+- rabat,
+- walutę,
+- oznaczenia GTU, jeśli dotyczą.
+
+Aktualne pozycje zamówienia posiadają głównie brutto i opcjonalny VAT. Nie kopiuj ich ograniczeń do modelu faktury.
+
+Obliczenia faktury muszą być wykonywane po stronie serwera bez `float`.
+
+---
+
+# 22. Korekty
+
+Korekta jest osobnym dokumentem.
+
+Musi posiadać:
+
+- własny numer,
+- własną serię,
+- powiązanie z dokumentem źródłowym,
+- dane przed zmianą,
+- dane po zmianie,
+- różnicę,
+- własny snapshot,
+- własną historię.
+
+Planowane są:
+
+- korekty pozycji,
+- korekty ilości,
+- korekty cen,
+- korekty VAT,
+- korekty danych nabywcy,
+- zwroty pełne,
+- zwroty częściowe.
+
+Kolejna korekta powinna odnosić się do skutecznego stanu po wcześniejszych korektach.
+
+Po wystawieniu korekty nie pozwalaj swobodnie nadpisywać danych finansowych dokumentu źródłowego.
+
+---
+
+# 23. Duplikaty
+
+Duplikat:
+
+- nie otrzymuje nowego numeru faktury,
+- używa numeru dokumentu źródłowego,
+- zawiera oznaczenie `DUPLIKAT`,
+- posiada datę wystawienia duplikatu,
+- zapisuje zdarzenie w historii,
+- nie zwiększa rejestru sprzedaży.
+
+---
+
+# 24. JPK i GTU
+
+JPK i GTU są częścią planowanego modułu.
+
+Konfiguracja serii może docelowo zawierać:
+
+- domyślne kody GTU,
+- domyślne procedury JPK,
+- sposób łączenia oznaczeń serii i produktów.
+
+Planowane strategie GTU:
+
+```text
+series_only
+products_only
+merge
+```
+
+Rekomendowana wartość domyślna:
+
+```text
+merge
+```
+
+Końcowe oznaczenia muszą zostać zapisane jako snapshot dokumentu.
+
+Dozwolone kody muszą być walidowane po stronie serwera.
+
+Nie opieraj logiki wyłącznie na checkboxach widoku.
+
+Dla list kodów preferuj walidowane tablice JSON, a nie dowolny tekst.
+
+Pełne generowanie pliku JPK jest osobnym, późniejszym etapem po uruchomieniu faktur, korekt i rejestru sprzedaży.
+
+---
+
+# 25. KSeF — wybrany wariant 2
+
+Wybrana strategia:
+
+```text
+Architektura gotowa pod KSeF teraz.
+Integracja KSeF dopiero po pełnym sprawdzeniu modułu faktur.
+```
+
+Obecnie nie implementuj bez osobnego zadania:
+
+```text
+API KSeF
+XML FA(3)
+ksef_submissions
+pól ksef_*
+numeru KSeF
+statusów KSeF
+UPO
+kodów QR KSeF
+wysyłki do KSeF
+```
+
+Projektuj dane strukturalnie, aby późniejsze mapowanie nie wymagało przebudowy podstawowych tabel.
+
+W szczególności:
+
+- dane sprzedawcy mają być rozdzielone na pola,
+- dane nabywcy i odbiorcy mają być strukturalne,
+- pozycje muszą mieć jednostkę, ilość, netto, VAT i brutto,
+- dokument ma mieć własne snapshoty,
+- korekta ma być osobnym dokumentem,
+- numer faktury ma być niezależny od przyszłego numeru KSeF,
+- nie używaj `float`.
+
+---
+
+# 26. PDF i pliki
+
+Pliki dokumentów mają być przechowywane prywatnie.
+
+Pobieranie powinno odbywać się przez kontroler z kontrolą dostępu lub bezpieczny podpisany URL.
+
+Zewnętrzny dokument:
+
+- tylko PDF,
+- bez OCR,
+- z metadanymi,
+- z sumą kontrolną,
+- z informacją, który plik jest podstawowy dla klienta.
+
+Nie instaluj biblioteki PDF bez osobnego zatwierdzenia.
+
+Aktualnie biblioteka PDF nie jest zainstalowana.
+
+---
+
+# 27. Historia dokumentów
+
+Docelowy podział:
+
+```text
+invoice_events — pełna historia dokumentu
+order_events   — skrócone zdarzenia fakturowe widoczne przy zamówieniu
+```
+
+Ważne operacje finansowe powinny wykonywać zapis dokumentu i zdarzenia w jednej transakcji.
+
+---
+
+# 28. Granice audytu
+
+Jeżeli zadanie jest oznaczone jako audyt:
+
+- nie modyfikuj plików,
+- nie twórz plików,
+- nie usuwaj plików,
+- nie uruchamiaj migracji,
+- nie uruchamiaj seederów,
+- nie instaluj pakietów,
+- nie aktualizuj dokumentacji,
+- zwróć wyłącznie raport.
+
+---
+
+# 29. Granice Etapu 1A
+
+Jeżeli zadanie dotyczy wyłącznie Etapu 1A, zakres może obejmować tylko:
+
+- migrację `invoice_series`,
+- model `InvoiceSeries`,
+- enum typu dokumentu,
+- enum okresu resetowania,
+- enum klucza serii systemowej,
+- podstawowe casty,
+- relację domyślnej serii korekt,
+- utworzenie trzech chronionych serii systemowych,
+- testy modelu i migracji.
+
+Etap 1A może zawierać jawne pola:
+
+## Podstawowe
+
+```text
+id
+document_type
+name
+number_format
+reset_period
+fiscal_year_start_month
+is_active
+is_system
+system_key
+default_correction_series_id
+default_currency
+```
+
+## Sprzedawca
+
+```text
+seller_name
+seller_tax_id
+seller_regon
+seller_bdo
+seller_street
+seller_building_number
+seller_apartment_number
+seller_postal_code
+seller_city
+seller_province
+seller_country_code
+seller_email
+seller_phone
+```
+
+## Bank i wystawienie
+
+```text
+seller_bank_name
+seller_bank_account
+seller_bank_swift
+place_of_issue
+issuer_name
+logo_path
+additional_information_template
+```
+
+## Techniczne
+
+```text
+created_at
+updated_at
+```
+
+Nazwa serii ma być unikalna w obrębie `document_type`.
+
+`default_correction_series_id` ma być nullable i używać `nullOnDelete`.
+
+Pola sprzedawcy mogą być nullable na etapie tworzenia serii. Kompletność danych będzie walidowana przed aktywowaniem serii lub wystawieniem dokumentu.
+
+Poza zakresem Etapu 1A:
+
+- kontrolery CRUD,
+- trasy CRUD,
+- widoki listy,
+- formularze,
+- modale,
+- liczniki,
+- generator numerów,
+- faktury,
+- pozycje faktur,
+- PDF,
+- JPK eksport,
+- KSeF,
+- `document_settings` jako ogólny worek JSON,
+- dodawanie GTU i procedur JPK przed właściwym etapem.
+
+Nie rozszerzaj zakresu bez zgody właściciela.
