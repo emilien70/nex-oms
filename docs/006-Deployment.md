@@ -37,3 +37,20 @@ W przyszlosci, gdy pojawia sie zadania cykliczne i kolejki, nalezy dodac cron La
 ```cron
 * * * * * cd /sciezka/do/nex-oms && php artisan schedule:run >> /dev/null 2>&1
 ```
+
+## Kolejki przesylek
+
+Nadawanie i anulowanie przesylek oraz synchronizacja statusow dzialaja na osobnych kolejkach, aby zadania okresowe nie opoznialy operacji uzytkownika:
+
+```bash
+php artisan queue:work --queue=shipments-actions
+php artisan queue:work --queue=shipments-sync
+```
+
+Kolejka `integrations` pozostaje przeznaczona dla przyszlego importu zamowien z Allegro i PrestaShop:
+
+```bash
+php artisan queue:work --queue=integrations
+```
+
+Na serwerze workery powinny byc utrzymywane przez Supervisor, systemd albo analogiczny mechanizm zarzadzania procesami. Worker `integrations` moze pozostac bezczynny do czasu wdrozenia importu zamowien.

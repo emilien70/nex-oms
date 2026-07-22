@@ -139,7 +139,7 @@ Integracje kurierskie korzystaja ze wspolnego kontraktu `CourierDriver` i rejest
 
 Pierwszym adapterem modulu jest `Modules/Integrations/InPost`. `InPostLockerDriver` i `InPostCourierDriver` wspoldziela klienta ShipX, operacje kolejki oraz synchronizator statusow, ale maja osobne budowanie payloadu i tworzenie lokalnej przesylki. Dzieki temu kolejne integracje kurierskie beda mogly korzystac ze wspolnego modelu `shipments` bez dodawania pol przewoznika bezposrednio do `orders`.
 
-Drugim adapterem jest `Modules/Integrations/DPD`. `DpdDriver` korzysta z REST DPD Services podczas nadania i generowania etykiety oraz z DPD InfoServices przy synchronizacji statusu. Cala komunikacja jest logowana, wykonywana przez kolejke `integrations`, limitowana i chroniona przed rownoleglym odswiezaniem tej samej przesylki.
+Drugim adapterem jest `Modules/Integrations/DPD`. `DpdDriver` korzysta z REST DPD Services podczas nadania i generowania etykiety oraz z DPD InfoServices przy synchronizacji statusu. Cala komunikacja jest logowana, rozdzielona miedzy kolejki `shipments-actions` i `shipments-sync`, limitowana oraz chroniona przed rownoleglym odswiezaniem tej samej przesylki.
 
 Trzecim adapterem jest `Modules/Integrations/AllegroShipping`. `AllegroShippingDriver` korzysta z propozycji dostawy przypisanej do zamowienia Allegro, a tworzenie i anulowanie realizuje przez asynchroniczne komendy Shipment Management. Modul ma osobny klient OAuth, fabryke payloadu, synchronizator, zadania kolejki, szablony wag i wymiarow oraz panel konfiguracyjny zgodny ze wspolnym wzorcem kurierskim.
 

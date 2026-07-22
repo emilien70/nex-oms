@@ -43,7 +43,7 @@ Integracja korzysta z API ShipX i obsluguje:
 - test polaczenia z organizacja ShipX,
 - nadanie przesylki Paczkomaty 24/7 z gabarytem A, B albo C,
 - punkt docelowy, pobranie i ubezpieczenie,
-- asynchroniczne utworzenie przesylki przez kolejke `integrations`,
+- asynchroniczne utworzenie przesylki przez kolejke `shipments-actions`,
 - okresowe odswiezanie statusu przez Laravel Scheduler,
 - pobranie etykiety PDF, ZPL albo EPL,
 - anulowanie tylko w statusach, w ktorych ShipX pozwala anulowac przesylke,
@@ -65,7 +65,7 @@ Tworzenie przesylki nie jest ponawiane automatycznie na poziomie klienta HTTP, a
 
 ## Kurier InPost
 
-Integracja korzysta z tego samego klienta ShipX, logow API i kolejki `integrations` co InPost Paczkomaty, ale ma osobna konfiguracje konta i formularz przesylki. Obsluguje:
+Integracja korzysta z tego samego klienta ShipX, logow API i kolejek przesylek co InPost Paczkomaty, ale ma osobna konfiguracje konta i formularz przesylki. Obsluguje:
 
 - usluge standardowa oraz doreczenie Express do 10:00, 12:00 i 17:00,
 - jedna lub wiele podpaczek z waga, wymiarami i oznaczeniem elementu niestandardowego,
@@ -92,7 +92,7 @@ Z poziomu zamowienia dostepne sa:
 - przesylka krajowa standardowa, DPD Next Day oraz doreczenie do 09:30 lub 12:00,
 - jedna albo wiele paczek z waga i wymiarami,
 - pobranie, wartosc deklarowana, doreczenie w sobote i zwrot dokumentow,
-- asynchroniczne nadanie przez kolejke `integrations`,
+- asynchroniczne nadanie przez kolejke `shipments-actions`,
 - pobranie etykiety PDF, ZPL albo EPL,
 - tracking na stronie DPD,
 - reczne i zaplanowane odswiezanie statusow co 60 minut,
@@ -111,7 +111,7 @@ Integracja korzysta z aktualnego zasobu Allegro Shipment Management i obsluguje:
 - utworzenie od jednej do dziesieciu paczek w ramach propozycji dostawy,
 - konfigurowalne szablony wag i wymiarow, wybierane osobno dla kazdej paczki w formularzu zamowienia,
 - pobranie, ubezpieczenie i uslugi dodatkowe udostepnione przez Allegro dla konkretnego zamowienia,
-- asynchroniczne nadanie i anulowanie przez komendy Shipment Management oraz kolejke `integrations`,
+- asynchroniczne nadanie i anulowanie przez komendy Shipment Management oraz kolejke `shipments-actions`,
 - pobieranie etykiet PDF lub ZPL,
 - zbiorcze odswiezanie i usuwanie przesylek w panelu operacyjnym,
 - wykorzystanie przewoznika w ogolnej akcji automatycznej `Utworz przesylke`,
@@ -124,7 +124,10 @@ Allegro realizuje utworzenie i anulowanie asynchronicznie. NEX-OMS zapisuje iden
 
 ## Uruchomienie operacyjne
 
-- Worker kolejki powinien obslugiwac kolejke `integrations`.
+- Operacje wywolane przez uzytkownika, takie jak tworzenie i anulowanie przesylek, korzystaja z kolejki `shipments-actions`.
+- Okresowe i reczne odswiezanie statusow korzysta z osobnej kolejki `shipments-sync`, aby synchronizacja nie blokowala nadawania przesylek.
+- Dla obu kolejek powinny dzialac osobne workery: `php artisan queue:work --queue=shipments-actions` oraz `php artisan queue:work --queue=shipments-sync`.
+- Kolejka `integrations` jest zachowana dla przyszlego pobierania zamowien z Allegro i PrestaShop; obecnie nie obsluguje operacji kurierskich.
 - Laravel Scheduler powinien byc uruchamiany co minute przez cron albo `php artisan schedule:work` w srodowisku lokalnym.
 - Przed pierwszym nadaniem nalezy zapisac konfiguracje i wykonac test polaczenia w panelu odpowiedniej integracji: `InPost Paczkomaty`, `InPost Kurier`, `DPD` albo `Wysylam z Allegro`.
 

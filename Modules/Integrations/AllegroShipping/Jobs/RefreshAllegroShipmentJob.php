@@ -11,6 +11,7 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\AllegroShipping\Jobs\Concerns\UsesAllegroShippingApiMiddleware;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\CourierDriverRegistry;
+use Modules\Shipments\Support\ShipmentQueue;
 
 class RefreshAllegroShipmentJob implements ShouldBeUnique, ShouldQueue
 {
@@ -26,7 +27,7 @@ class RefreshAllegroShipmentJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public Shipment $shipment)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(ShipmentQueue::SYNC);
     }
 
     public function uniqueId(): string

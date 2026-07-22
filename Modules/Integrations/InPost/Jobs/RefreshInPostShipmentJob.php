@@ -11,6 +11,7 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\InPost\Jobs\Concerns\UsesInPostApiMiddleware;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\CourierDriverRegistry;
+use Modules\Shipments\Support\ShipmentQueue;
 use Throwable;
 
 class RefreshInPostShipmentJob implements ShouldBeUnique, ShouldQueue
@@ -29,7 +30,7 @@ class RefreshInPostShipmentJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public Shipment $shipment)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(ShipmentQueue::SYNC);
     }
 
     public function uniqueId(): string

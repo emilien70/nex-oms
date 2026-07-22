@@ -10,6 +10,7 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\AllegroShipping\Jobs\Concerns\UsesAllegroShippingApiMiddleware;
 use Modules\Integrations\AllegroShipping\Services\AllegroShippingOperations;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Support\ShipmentQueue;
 use Throwable;
 
 class ResolveAllegroCancellationJob implements ShouldQueue
@@ -22,7 +23,7 @@ class ResolveAllegroCancellationJob implements ShouldQueue
 
     public function __construct(public Shipment $shipment, public string $commandId)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(ShipmentQueue::ACTIONS);
     }
 
     public function handle(AllegroShippingOperations $operations): void

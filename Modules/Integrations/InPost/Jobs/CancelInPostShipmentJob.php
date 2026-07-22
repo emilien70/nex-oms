@@ -10,6 +10,7 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\InPost\Jobs\Concerns\UsesInPostApiMiddleware;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\CourierDriverRegistry;
+use Modules\Shipments\Support\ShipmentQueue;
 use Throwable;
 
 class CancelInPostShipmentJob implements ShouldQueue
@@ -24,7 +25,7 @@ class CancelInPostShipmentJob implements ShouldQueue
 
     public function __construct(public Shipment $shipment)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(ShipmentQueue::ACTIONS);
     }
 
     public function handle(CourierDriverRegistry $drivers): void

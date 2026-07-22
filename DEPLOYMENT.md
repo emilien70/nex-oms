@@ -64,4 +64,17 @@ Gdy aplikacja zacznie korzystac z harmonogramu, dodaj cron:
 
 ## Kolejki
 
-Operacje API docelowo powinny dzialac przez kolejki. Na tym etapie nie konfigurujemy jeszcze workera kolejek.
+Operacje kurierskie wymagaja dwoch osobnych workerow. Pierwszy obsluguje nadawanie i anulowanie przesylek, a drugi synchronizacje statusow:
+
+```bash
+php artisan queue:work --queue=shipments-actions
+php artisan queue:work --queue=shipments-sync
+```
+
+Kolejka `integrations` jest zachowana dla przyszlego importu zamowien z Allegro i PrestaShop:
+
+```bash
+php artisan queue:work --queue=integrations
+```
+
+Na serwerze workery powinny byc uruchamiane stale przez Supervisor, systemd albo analogiczny mechanizm zarzadzania procesami. Do czasu wdrozenia importu zamowien worker `integrations` pozostanie bezczynny.

@@ -143,6 +143,28 @@ class InPostCourierShipmentTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_zero_insurance_is_accepted_when_cod_is_empty(): void
+    {
+        Queue::fake();
+        $this->account();
+        $order = $this->order();
+
+        $response = $this->post(route('orders.shipments.inpost-courier.store', $order), [
+            'shipment_provider' => CourierAccount::PROVIDER_INPOST_COURIER,
+            'service' => Shipment::SERVICE_INPOST_COURIER_STANDARD,
+            'cod_amount' => null,
+            'insurance_amount' => '0.00',
+            'parcels' => [$this->parcel()],
+        ]);
+
+        $response->assertRedirect()->assertSessionHasNoErrors();
+
+        $shipment = Shipment::query()->firstOrFail();
+        $this->assertNull($shipment->cod_amount);
+        $this->assertNull($shipment->insurance_amount);
+        Queue::assertPushed(CreateInPostShipmentJob::class);
+    }
+
     public function test_courier_shipment_is_queued_with_multiple_parcels_and_sent_to_shipx(): void
     {
         Queue::fake();

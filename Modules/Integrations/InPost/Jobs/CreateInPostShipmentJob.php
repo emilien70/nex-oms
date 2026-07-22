@@ -11,8 +11,9 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\InPost\Exceptions\InPostApiException;
 use Modules\Integrations\InPost\Jobs\Concerns\UsesInPostApiMiddleware;
 use Modules\Shipments\Models\Shipment;
-use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Services\CourierDriverRegistry;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
+use Modules\Shipments\Support\ShipmentQueue;
 use Throwable;
 
 class CreateInPostShipmentJob implements ShouldBeUnique, ShouldQueue
@@ -29,7 +30,7 @@ class CreateInPostShipmentJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public Shipment $shipment)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(ShipmentQueue::ACTIONS);
     }
 
     public function uniqueId(): string

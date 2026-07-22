@@ -11,6 +11,7 @@ use Modules\Integrations\AllegroShipping\Jobs\Concerns\UsesAllegroShippingApiMid
 use Modules\Integrations\AllegroShipping\Services\AllegroShippingOperations;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\ShipmentCreationAttemptService;
+use Modules\Shipments\Support\ShipmentQueue;
 use Throwable;
 
 class ResolveAllegroShipmentCommandJob implements ShouldQueue
@@ -23,7 +24,7 @@ class ResolveAllegroShipmentCommandJob implements ShouldQueue
 
     public function __construct(public Shipment $shipment)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(ShipmentQueue::ACTIONS);
     }
 
     public function handle(AllegroShippingOperations $operations): void

@@ -2,16 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
+use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
 use DomainException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-use Modules\Integrations\DPD\Services\DpdServiceResolver;
 use Modules\Integrations\AllegroShipping\Services\AllegroShippingProposalService;
+use Modules\Integrations\DPD\Services\DpdServiceResolver;
 use Modules\Integrations\InPost\Services\InPostCourierServiceResolver;
 use Modules\Integrations\InPost\Services\InPostShipmentServiceResolver;
 use Modules\Shipments\Models\CourierAccount;
@@ -126,11 +126,21 @@ class ShipmentController extends Controller
         CourierDriverRegistry $drivers,
         InPostCourierServiceResolver $serviceResolver,
     ): RedirectResponse|JsonResponse {
+        $this->normalizeDecimalFields($request, ['cod_amount', 'insurance_amount']);
+        $this->normalizeNestedDecimalFields($request, 'parcels', ['weight', 'length', 'width', 'height']);
+
+        $insuranceRules = ['nullable', 'numeric', 'min:0', 'max:999999.99'];
+
+        if ((float) ($request->input('cod_amount') ?? 0) > 0) {
+            $insuranceRules[] = 'required';
+            $insuranceRules[] = 'gte:cod_amount';
+        }
+
         $validated = $request->validate([
             'service' => ['required', 'string', Rule::in($serviceResolver->supportedServices())],
             'content_description' => ['nullable', 'string', 'max:100'],
             'cod_amount' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
-            'insurance_amount' => ['nullable', 'numeric', 'min:0', 'max:999999.99', 'gte:cod_amount'],
+            'insurance_amount' => $insuranceRules,
             'additional_services' => ['nullable', 'array'],
             'additional_services.*' => ['string', Rule::in([
                 Shipment::ADDITIONAL_SERVICE_SMS,
@@ -145,6 +155,7 @@ class ShipmentController extends Controller
             'parcels.*.height' => ['required', 'numeric', 'gt:0', 'max:350'],
             'parcels.*.is_non_standard' => ['nullable', 'boolean'],
         ], [
+            'insurance_amount.required' => 'Przy pobraniu podaj kwote ubezpieczenia.',
             'insurance_amount.gte' => 'Ubezpieczenie musi byc rowne lub wyzsze od kwoty pobrania.',
             'parcels.required' => 'Dodaj co najmniej jedna paczke.',
             'parcels.min' => 'Dodaj co najmniej jedna paczke.',

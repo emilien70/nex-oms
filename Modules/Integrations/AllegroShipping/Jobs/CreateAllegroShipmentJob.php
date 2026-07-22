@@ -11,8 +11,9 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\AllegroShipping\Exceptions\AllegroShippingApiException;
 use Modules\Integrations\AllegroShipping\Jobs\Concerns\UsesAllegroShippingApiMiddleware;
 use Modules\Shipments\Models\Shipment;
-use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Services\CourierDriverRegistry;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
+use Modules\Shipments\Support\ShipmentQueue;
 use Throwable;
 
 class CreateAllegroShipmentJob implements ShouldBeUnique, ShouldQueue
@@ -31,7 +32,7 @@ class CreateAllegroShipmentJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public Shipment $shipment)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(ShipmentQueue::ACTIONS);
     }
 
     public function uniqueId(): string

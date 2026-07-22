@@ -11,8 +11,9 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\DPD\Exceptions\DpdApiException;
 use Modules\Integrations\DPD\Jobs\Concerns\UsesDpdApiMiddleware;
 use Modules\Shipments\Models\Shipment;
-use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Services\CourierDriverRegistry;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
+use Modules\Shipments\Support\ShipmentQueue;
 use Throwable;
 
 class CreateDpdShipmentJob implements ShouldBeUnique, ShouldQueue
@@ -31,7 +32,7 @@ class CreateDpdShipmentJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public Shipment $shipment)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(ShipmentQueue::ACTIONS);
     }
 
     public function uniqueId(): string
