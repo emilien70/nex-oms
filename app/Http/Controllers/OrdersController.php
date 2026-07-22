@@ -395,7 +395,9 @@ class OrdersController extends Controller
         bool $withItems = false
     ): Builder {
         return Order::query()
-            ->when($withItems, fn (Builder $query) => $query->with('items')->withExists('shipments'))
+            ->when($withItems, fn (Builder $query) => $query
+                ->with('items')
+                ->withExists(['visibleShipments as shipments_exists']))
             ->when($showTrash, fn (Builder $query) => $query->onlyTrashed())
             ->when(
                 ! $showTrash && array_key_exists((string) $currentStatus, $statuses),
@@ -444,7 +446,9 @@ class OrdersController extends Controller
     {
         $matchingOrders = (clone $query)->reorder();
         $matchingOrderIds = (clone $matchingOrders)->select('orders.id');
-        $matchingShipments = Shipment::query()->whereIn('order_id', $matchingOrderIds);
+        $matchingShipments = Shipment::query()
+            ->whereNotNull('tracking_number')
+            ->whereIn('order_id', $matchingOrderIds);
 
         return hash('sha256', json_encode([
             'matching_count' => (clone $matchingOrders)->count(),
@@ -627,7 +631,9 @@ class OrdersController extends Controller
 
         $order->load([
             'items',
-            'shipments' => fn ($query) => $query->orderByDesc('created_at'),
+            'shipments' => fn ($query) => $query
+                ->whereNotNull('tracking_number')
+                ->orderByDesc('created_at'),
             'shipments.courierAccount',
             'shipments.parcels',
             'events' => fn ($query) => $query->orderByDesc('created_at'),

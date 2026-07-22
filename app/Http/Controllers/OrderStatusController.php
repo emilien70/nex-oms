@@ -38,7 +38,9 @@ class OrderStatusController extends Controller
     {
         $order->load([
             'items',
-            'shipments' => fn ($query) => $query->orderByDesc('created_at'),
+            'shipments' => fn ($query) => $query
+                ->whereNotNull('tracking_number')
+                ->orderByDesc('created_at'),
             'shipments.courierAccount',
             'events' => fn ($query) => $query->orderByDesc('created_at'),
         ]);

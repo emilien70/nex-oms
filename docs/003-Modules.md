@@ -116,6 +116,13 @@ Modul `Shipments` przechowuje wspolny model przesylki niezalezny od konkretnego 
 - konfiguracje pojedynczych kont InPost Paczkomaty, InPost Kurier, DPD i Wysylam z Allegro,
 - podpaczki przesylek kurierskich z waga, wymiarami i oznaczeniem elementu niestandardowego.
 
+Tworzenie przesylki jest dwuetapowe. Najpierw NEX-OMS zapisuje techniczna probe
+utworzenia i przekazuje ja do kolejki integracji. Przesylka pojawia sie w
+zamowieniu dopiero wtedy, gdy przewoznik zwroci numer nadawczy. Znany blad
+walidacji jest pokazywany przy formularzu i nie pozostawia pustej przesylki na
+liscie. Timeout lub inny niepewny wynik zachowuje niewidoczna probe oraz logi API,
+co pozwala pozniej uzgodnic stan bez ryzyka ponownego utworzenia tej samej paczki.
+
 Status techniczny zwrocony przez przewoznika jest mapowany na wspolny workflow przesylek OMS:
 
 - `created` - Przesylka utworzona, 0%,
@@ -145,7 +152,10 @@ Modul publikuje neutralne zdarzenia domenowe niezalezne od konkretnego kuriera:
 
 Zdarzenia stanowia punkt rozszerzenia dla planowanego modulu `Automatyczne akcje`. Zmiany statusu zamowienia przechodza przez wspolny `OrderStatusService`, ktory publikuje `order.status_changed`. Tabele `order_events` i `shipment_events` pozostaja historia dla uzytkownika, a nie kolejka automatyzacji.
 
-Bledy tworzenia przesylki zachowuja techniczne rozroznienie `creation_failed` i `creation_unknown`, ale oba wymagaja sprawdzenia panelu InPost i nie udostepniaja akcji ponownego nadania.
+Bledy tworzenia przesylki zachowuja techniczne rozroznienie `failed` i
+`unknown` w rejestrze prob. Znany blad nie tworzy widocznej przesylki. Niepewny
+wynik wymaga sprawdzenia po stronie przewoznika i nie udostepnia automatycznego
+ponowienia, aby nie utworzyc duplikatu.
 
 ## Modul Automation
 

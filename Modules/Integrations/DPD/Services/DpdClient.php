@@ -206,6 +206,7 @@ class DpdClient
             'operation' => $operation,
             'order_id' => $shipment?->order_id,
             'shipment_id' => $shipment?->id,
+            'shipment_creation_attempt_id' => $shipment?->creation_attempt_id,
             'request_id' => $requestId,
             'method' => strtoupper($method),
             'url' => $url,

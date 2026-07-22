@@ -7,6 +7,7 @@ use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Str;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
 
 class ShipmentCreationFailed implements ShouldDispatchAfterCommit
 {
@@ -16,7 +17,7 @@ class ShipmentCreationFailed implements ShouldDispatchAfterCommit
     public readonly string $eventId;
 
     public function __construct(
-        public readonly Shipment $shipment,
+        public readonly ShipmentCreationAttempt $attempt,
         public readonly bool $outcomeUnknown,
     ) {
         $this->eventId = (string) Str::uuid();
@@ -32,13 +33,13 @@ class ShipmentCreationFailed implements ShouldDispatchAfterCommit
         return [
             'event_id' => $this->eventId,
             'event_name' => $this->name(),
-            'shipment_id' => $this->shipment->id,
-            'order_id' => $this->shipment->order_id,
-            'provider' => $this->shipment->provider,
-            'status' => $this->shipment->oms_status,
-            'provider_status' => $this->shipment->status,
+            'shipment_attempt_id' => $this->attempt->id,
+            'order_id' => $this->attempt->order_id,
+            'provider' => $this->attempt->provider,
+            'status' => Shipment::OMS_STATUS_PROBLEM,
+            'provider_status' => $this->attempt->status,
             'outcome_unknown' => $this->outcomeUnknown,
-            'error_message' => $this->shipment->error_message,
+            'error_message' => $this->attempt->error_message,
         ];
     }
 }

@@ -9,8 +9,8 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\AllegroShipping\Jobs\Concerns\UsesAllegroShippingApiMiddleware;
 use Modules\Integrations\AllegroShipping\Services\AllegroShippingOperations;
-use Modules\Shipments\Events\ShipmentCreationFailed;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Throwable;
 
 class ResolveAllegroShipmentCommandJob implements ShouldQueue
@@ -46,23 +46,6 @@ class ResolveAllegroShipmentCommandJob implements ShouldQueue
             $message .= ' '.$exception->getMessage();
         }
 
-        $shipment->update([
-            'status' => Shipment::STATUS_CREATION_UNKNOWN,
-            'status_changed_at' => now(),
-            'error_message' => $message,
-        ]);
-        $shipment->events()->create([
-            'event_type' => 'shipment_creation_failed',
-            'status' => Shipment::STATUS_CREATION_UNKNOWN,
-            'payload' => ['outcome_unknown' => true, 'error_message' => $message],
-            'occurred_at' => now(),
-        ]);
-        $shipment->order?->events()->create([
-            'event_type' => 'shipment_creation_failed',
-            'title' => 'Wynik nadania Wysylam z Allegro jest niepewny',
-            'description' => $message,
-            'payload' => ['shipment_id' => $shipment->id, 'outcome_unknown' => true],
-        ]);
-        ShipmentCreationFailed::dispatch($shipment->fresh(), true);
+        app(ShipmentCreationAttemptService::class)->fail($shipment, $message, true);
     }
 }

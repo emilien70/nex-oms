@@ -18,7 +18,9 @@ use Modules\Shipments\Events\ShipmentStatusChanged;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\IntegrationApiLog;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
 use Modules\Shipments\Services\CourierDriverRegistry;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Support\OrderReferenceFormatter;
 use Tests\TestCase;
 
@@ -297,25 +299,34 @@ class InPostShipmentTest extends TestCase
         ]);
 
         $shipment = Shipment::query()->firstOrFail();
+        $attempt = ShipmentCreationAttempt::query()->firstOrFail();
 
         $response
             ->assertAccepted()
-            ->assertJsonPath('id', $shipment->id)
-            ->assertJsonPath('status', Shipment::OMS_STATUS_CREATED)
+            ->assertJsonPath('id', $attempt->id)
+            ->assertJsonPath('status', ShipmentCreationAttempt::STATUS_PROCESSING)
             ->assertJsonPath('provider_status', Shipment::STATUS_QUEUED)
             ->assertJsonPath('label_available', false)
             ->assertJsonPath('polling_finished', false)
-            ->assertJsonPath('status_url', route('shipments.status', $shipment));
+            ->assertJsonPath('status_url', route('shipment-creation-attempts.status', $attempt))
+            ->assertJsonPath('row_html', null);
 
-        $this->assertStringContainsString('data-shipment-id="'.$shipment->id.'"', $response->json('row_html'));
+        $this->assertDatabaseHas('shipments', [
+            'id' => $shipment->id,
+            'tracking_number' => null,
+        ]);
+        $this->get(route('orders.show', $order))
+            ->assertOk()
+            ->assertDontSee('data-shipment-id="'.$shipment->id.'"', false);
 
         $shipment->update([
             'external_id' => '558',
             'tracking_number' => '123456789012345678901238',
             'status' => Shipment::STATUS_CONFIRMED,
         ]);
+        app(ShipmentCreationAttemptService::class)->succeed($shipment->fresh());
 
-        $statusResponse = $this->getJson(route('shipments.status', $shipment));
+        $statusResponse = $this->getJson(route('shipment-creation-attempts.status', $attempt));
 
         $statusResponse
             ->assertOk()
@@ -975,7 +986,9 @@ class InPostShipmentTest extends TestCase
 
         (new CreateInPostShipmentJob($shipment))->failed(new InPostApiException('Blad walidacji.', 422));
 
-        $this->assertSame(Shipment::STATUS_CREATION_FAILED, $shipment->fresh()->status);
+        $attempt = ShipmentCreationAttempt::query()->firstOrFail();
+        $this->assertSame(ShipmentCreationAttempt::STATUS_FAILED, $attempt->status);
+        $this->assertDatabaseMissing('shipments', ['id' => $shipment->id]);
         Event::assertDispatched(ShipmentCreationFailed::class, fn (ShipmentCreationFailed $event): bool => ! $event->outcomeUnknown);
     }
 
@@ -1025,10 +1038,10 @@ class InPostShipmentTest extends TestCase
 
         (new CreateInPostShipmentJob($shipment))->failed(new \Error('Lokalny blad kodu.'));
 
-        $shipment->refresh();
-
-        $this->assertSame(Shipment::STATUS_CREATION_FAILED, $shipment->status);
-        $this->assertSame('Lokalny blad kodu.', $shipment->error_message);
+        $attempt = ShipmentCreationAttempt::query()->firstOrFail();
+        $this->assertSame(ShipmentCreationAttempt::STATUS_FAILED, $attempt->status);
+        $this->assertSame('Lokalny blad kodu.', $attempt->error_message);
+        $this->assertDatabaseMissing('shipments', ['id' => $shipment->id]);
         Event::assertDispatched(ShipmentCreationFailed::class, fn (ShipmentCreationFailed $event): bool => ! $event->outcomeUnknown);
     }
 

@@ -6,18 +6,20 @@ use App\Models\Order;
 use DomainException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Modules\Integrations\DPD\Services\DpdServiceResolver;
 use Modules\Integrations\DPD\Services\DpdShipmentOperations;
 use Modules\Shipments\Contracts\CourierDriver;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 
 class DpdDriver implements CourierDriver
 {
     public function __construct(
         private readonly DpdShipmentOperations $operations,
         private readonly DpdServiceResolver $services,
+        private readonly ShipmentCreationAttemptService $attempts,
     ) {}
 
     public function provider(): string
@@ -40,7 +42,7 @@ class DpdDriver implements CourierDriver
         return in_array($capability, $this->capabilities(), true);
     }
 
-    public function queueShipment(Order $order, CourierAccount $account, array $data): Shipment
+    public function queueShipment(Order $order, CourierAccount $account, array $data): ShipmentCreationAttempt
     {
         if ($account->provider !== $this->provider() || ! $account->is_active || ! $account->hasCompleteCredentials()) {
             throw new DomainException('Konto DPD nie jest aktywne lub nie ma kompletnych danych dostepowych.');
@@ -55,7 +57,8 @@ class DpdDriver implements CourierDriver
             throw new DomainException('Przesylka DPD musi zawierac od 1 do 100 paczek.');
         }
 
-        return DB::transaction(function () use ($order, $account, $data, $parcels): Shipment {
+        return DB::transaction(function () use ($order, $account, $data, $parcels): ShipmentCreationAttempt {
+            $attempt = $this->attempts->begin($order, $account, $data);
             $shipment = $order->shipments()->create([
                 'courier_account_id' => $account->id,
                 'provider' => $this->provider(),
@@ -77,7 +80,7 @@ class DpdDriver implements CourierDriver
                 'currency' => $order->currency ?: 'PLN',
                 'label_format' => $account->setting('label_format', 'PDF'),
                 'label_type' => $account->setting('label_type', 'LABEL'),
-                'request_uuid' => (string) Str::uuid(),
+                'request_uuid' => $attempt->request_uuid,
             ]);
 
             foreach ($parcels as $index => $parcel) {
@@ -91,6 +94,8 @@ class DpdDriver implements CourierDriver
                 ]);
             }
 
+            $attempt = $this->attempts->attach($attempt, $shipment);
+
             $shipment->events()->create([
                 'event_type' => 'shipment_queued',
                 'status' => Shipment::STATUS_QUEUED,
@@ -102,12 +107,12 @@ class DpdDriver implements CourierDriver
                 'event_type' => 'shipment_queued',
                 'title' => 'Przesylka DPD dodana do kolejki',
                 'description' => 'Zlecono utworzenie przesylki DPD',
-                'payload' => ['shipment_id' => $shipment->id, 'parcel_count' => count($parcels)],
+                'payload' => ['shipment_attempt_id' => $attempt->id, 'parcel_count' => count($parcels)],
             ]);
 
             $this->dispatchCreate($shipment);
 
-            return $shipment->load('parcels');
+            return $attempt;
         });
     }
 

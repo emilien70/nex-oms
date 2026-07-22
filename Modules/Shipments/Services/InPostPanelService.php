@@ -18,6 +18,7 @@ class InPostPanelService
     ): LengthAwarePaginator {
         $query = Shipment::query()
             ->where('provider', $provider)
+            ->whereNotNull('tracking_number')
             ->with([
                 'order:id,customer_phone,customer_email',
                 'courierAccount:id,name,provider',

@@ -7,17 +7,18 @@ use Modules\Shipments\Events\ShipmentCreated;
 use Modules\Shipments\Events\ShipmentStatusChanged;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Services\ShipmentStatusMapper;
 
 class InPostShipmentSynchronizer
 {
     public function __construct(
         private readonly ShipmentStatusMapper $statusMapper,
+        private readonly ShipmentCreationAttemptService $attempts,
     ) {}
 
     public function apply(Shipment $shipment, array $data, string $eventType): void
     {
-        $previousExternalId = $shipment->external_id;
         $previousStatus = $shipment->status;
         $previousOmsStatus = $shipment->oms_status
             ?: $this->statusMapper->map($shipment->provider, $previousStatus);
@@ -94,6 +95,8 @@ class InPostShipmentSynchronizer
         }
 
         if (! $previousTrackingNumber && $shipment->tracking_number) {
+            $this->attempts->succeed($shipment->fresh());
+
             $shipment->order?->events()->create([
                 'event_type' => 'shipment_created',
                 'title' => 'Przesylka InPost utworzona',
@@ -105,7 +108,7 @@ class InPostShipmentSynchronizer
             ]);
         }
 
-        if (! $previousExternalId && $shipment->external_id) {
+        if (! $previousTrackingNumber && $shipment->tracking_number) {
             ShipmentCreated::dispatch($shipment->fresh());
         }
     }

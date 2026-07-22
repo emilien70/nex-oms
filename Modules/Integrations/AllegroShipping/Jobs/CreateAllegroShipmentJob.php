@@ -10,8 +10,8 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\AllegroShipping\Exceptions\AllegroShippingApiException;
 use Modules\Integrations\AllegroShipping\Jobs\Concerns\UsesAllegroShippingApiMiddleware;
-use Modules\Shipments\Events\ShipmentCreationFailed;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Services\CourierDriverRegistry;
 use Throwable;
 
@@ -60,26 +60,12 @@ class CreateAllegroShipmentJob implements ShouldBeUnique, ShouldQueue
             && $exception->statusCode < 500;
         $localError = $exception instanceof \DomainException || $exception instanceof \Error;
         $outcomeUnknown = ! $knownRejection && ! $localError;
-        $status = $outcomeUnknown ? Shipment::STATUS_CREATION_UNKNOWN : Shipment::STATUS_CREATION_FAILED;
         $message = $exception?->getMessage() ?? 'Nie udalo sie utworzyc przesylki Wysylam z Allegro.';
 
         if ($outcomeUnknown) {
             $message .= ' Wynik nadania jest niepewny - sprawdz panel Wysylam z Allegro przed kolejna proba.';
         }
 
-        $shipment->update(['status' => $status, 'status_changed_at' => now(), 'error_message' => $message]);
-        $shipment->events()->create([
-            'event_type' => 'shipment_creation_failed',
-            'status' => $status,
-            'payload' => ['outcome_unknown' => $outcomeUnknown, 'error_message' => $message],
-            'occurred_at' => now(),
-        ]);
-        $shipment->order?->events()->create([
-            'event_type' => 'shipment_creation_failed',
-            'title' => 'Nie udalo sie utworzyc przesylki Wysylam z Allegro',
-            'description' => $message,
-            'payload' => ['shipment_id' => $shipment->id, 'outcome_unknown' => $outcomeUnknown],
-        ]);
-        ShipmentCreationFailed::dispatch($shipment->fresh(), $outcomeUnknown);
+        app(ShipmentCreationAttemptService::class)->fail($shipment, $message, $outcomeUnknown);
     }
 }

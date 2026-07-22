@@ -6,6 +6,7 @@ use App\Models\Order;
 use Illuminate\Http\Client\Response;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
 
 interface CourierDriver
 {
@@ -25,7 +26,7 @@ interface CourierDriver
 
     public function supports(string $capability): bool;
 
-    public function queueShipment(Order $order, CourierAccount $account, array $data): Shipment;
+    public function queueShipment(Order $order, CourierAccount $account, array $data): ShipmentCreationAttempt;
 
     public function dispatchCreate(Shipment $shipment): void;
 

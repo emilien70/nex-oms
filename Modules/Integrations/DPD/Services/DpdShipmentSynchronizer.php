@@ -6,11 +6,15 @@ use Illuminate\Support\Carbon;
 use Modules\Shipments\Events\ShipmentCreated;
 use Modules\Shipments\Events\ShipmentStatusChanged;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Services\ShipmentStatusMapper;
 
 class DpdShipmentSynchronizer
 {
-    public function __construct(private readonly ShipmentStatusMapper $statusMapper) {}
+    public function __construct(
+        private readonly ShipmentStatusMapper $statusMapper,
+        private readonly ShipmentCreationAttemptService $attempts,
+    ) {}
 
     public function applyCreated(Shipment $shipment, array $data): void
     {
@@ -63,6 +67,7 @@ class DpdShipmentSynchronizer
             'payload' => ['shipment_id' => $shipment->id, 'tracking_number' => $trackingNumber],
         ]);
 
+        $this->attempts->succeed($shipment->fresh());
         ShipmentCreated::dispatch($shipment->fresh());
     }
 

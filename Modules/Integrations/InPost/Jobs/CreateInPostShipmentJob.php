@@ -10,8 +10,8 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\InPost\Exceptions\InPostApiException;
 use Modules\Integrations\InPost\Jobs\Concerns\UsesInPostApiMiddleware;
-use Modules\Shipments\Events\ShipmentCreationFailed;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Services\CourierDriverRegistry;
 use Throwable;
 
@@ -63,41 +63,12 @@ class CreateInPostShipmentJob implements ShouldBeUnique, ShouldQueue
         $isLocalValidationError = $exception instanceof \DomainException;
         $isLocalExecutionError = $exception instanceof \Error;
         $outcomeUnknown = ! $isKnownApiRejection && ! $isLocalValidationError && ! $isLocalExecutionError;
-        $status = $outcomeUnknown
-            ? Shipment::STATUS_CREATION_UNKNOWN
-            : Shipment::STATUS_CREATION_FAILED;
         $message = $exception?->getMessage() ?? 'Nie udalo sie utworzyc przesylki InPost.';
 
         if ($outcomeUnknown) {
             $message .= ' Wynik nadania jest niepewny - przed ponowieniem sprawdz panel InPost.';
         }
 
-        $shipment->update([
-            'status' => $status,
-            'status_changed_at' => now(),
-            'error_message' => $message,
-        ]);
-
-        $shipment->events()->create([
-            'event_type' => 'shipment_creation_failed',
-            'status' => $status,
-            'payload' => [
-                'outcome_unknown' => $outcomeUnknown,
-                'error_message' => $message,
-            ],
-            'occurred_at' => now(),
-        ]);
-
-        $shipment->order?->events()->create([
-            'event_type' => 'shipment_creation_failed',
-            'title' => 'Nie udalo sie utworzyc przesylki',
-            'description' => $message,
-            'payload' => [
-                'shipment_id' => $shipment->id,
-                'outcome_unknown' => $outcomeUnknown,
-            ],
-        ]);
-
-        ShipmentCreationFailed::dispatch($shipment->fresh(), $outcomeUnknown);
+        app(ShipmentCreationAttemptService::class)->fail($shipment, $message, $outcomeUnknown);
     }
 }

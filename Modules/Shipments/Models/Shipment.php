@@ -77,6 +77,7 @@ class Shipment extends Model
     protected $fillable = [
         'order_id',
         'courier_account_id',
+        'creation_attempt_id',
         'provider',
         'carrier_code',
         'external_id',
@@ -126,6 +127,11 @@ class Shipment extends Model
     public function courierAccount(): BelongsTo
     {
         return $this->belongsTo(CourierAccount::class);
+    }
+
+    public function creationAttempt(): BelongsTo
+    {
+        return $this->belongsTo(ShipmentCreationAttempt::class, 'creation_attempt_id');
     }
 
     public function events(): HasMany

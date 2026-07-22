@@ -144,6 +144,11 @@ Tabela przechowuje przesylki powiazane z konkretnym zamowieniem:
 - wspolny status operacyjny NEX-OMS w `oms_status` i date jego zmiany w `oms_status_changed_at`,
 - ostatni blad i daty utworzenia, nadania oraz anulowania.
 
+Rekord `shipments` jest elementem widocznym operacyjnie dopiero po otrzymaniu
+numeru nadawczego. Techniczny rekord przygotowywany na potrzeby kolejki nie jest
+pokazywany na karcie ani na liscie zamowien, dopoki przewoznik nie zwroci
+`tracking_number`.
+
 `oms_status` przyjmuje jedna z siedmiu wartosci: `created`, `dispatched`, `out_for_delivery`, `ready_for_pickup`, `delivered`, `problem` albo `returned`. Surowy status przewoznika pozostaje zachowany, poniewaz jest potrzebny do operacji API. Interfejs i przyszle automatyczne akcje korzystaja ze statusu OMS.
 
 Relacje:
@@ -151,6 +156,24 @@ Relacje:
 - przesylka nalezy do zamowienia,
 - przesylka nalezy do konta kurierskiego,
 - przesylka ma wiele zdarzen.
+
+### shipment_creation_attempts
+
+Tabela przechowuje techniczny przebieg kazdej proby utworzenia przesylki, zanim
+powstanie widoczna przesylka z numerem nadawczym:
+
+- `order_id`, `courier_account_id` i `provider` wskazuja kontekst operacji,
+- `request_uuid` jest unikalnym kluczem idempotencji,
+- `request_data` zachowuje dane potrzebne do diagnostyki i bezpiecznego
+  rozstrzygniecia niepewnego wyniku,
+- `status` przyjmuje `queued`, `processing`, `succeeded`, `failed` albo `unknown`,
+- `error_message` przechowuje czytelny blad zwrocony do formularza,
+- `outcome_unknown` odroznia znany blad walidacji od timeoutu, przy ktorym
+  przewoznik mogl przyjac zlecenie.
+
+Znany blad konczy probe statusem `failed` i usuwa techniczny, pusty rekord
+przesylki. Wynik `unknown` zachowuje niewidoczny rekord techniczny oraz logi API,
+aby pozniej mozna bylo sprawdzic wynik bez ryzyka podwojnego nadania.
 
 ### shipment_parcels
 
@@ -169,7 +192,10 @@ Jedna przesylka kurierska ma od jednej do 99 podpaczek. Usuniecie przesylki usuw
 
 Tabela zapisuje historie techniczna przesylki, m.in. dodanie do kolejki, ponowienie nadania, utworzenie, zmiane statusu i blad. Opcjonalny `payload` przechowuje poprzedni i nowy status, numer nadawczy, zrodlo aktualizacji oraz czas zwrocony przez przewoznika. `occurred_at` oznacza czas zdarzenia u przewoznika, a w razie jego braku czas lokalnego odswiezenia.
 
-Statusy `creation_failed` i `creation_unknown` rozrozniaja znany blad od sytuacji, w ktorej wynik zadania API jest niepewny. Oba mapuja sie na `problem`, wymagaja sprawdzenia panelu InPost i nie udostepniaja akcji ponownego nadania.
+Historyczne przesylki moga nadal zawierac statusy `creation_failed` i
+`creation_unknown`. Nowy przeplyw zapisuje wynik nieudanego nadania w
+`shipment_creation_attempts`: znany blad ma status `failed`, a niepewny wynik
+API status `unknown`.
 
 ### integration_api_logs
 
@@ -180,6 +206,8 @@ Tabela zapisuje metadane request/response dla zewnetrznych API:
 - payload request i response,
 - kod HTTP, czas wykonania i komunikat bledu,
 - powiazanie z zamowieniem, przesylka i kontem kurierskim.
+- powiazanie z proba utworzenia przesylki, rowniez gdy widoczna przesylka nie
+  zostala utworzona.
 
 Token API nie jest zapisywany w logu. Log moze zawierac dane operacyjne odbiorcy wymagane do diagnostyki integracji, dlatego dostep do tej tabeli powinien byc ograniczony.
 

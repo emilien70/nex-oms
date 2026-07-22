@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
 
 class Order extends Model
 {
@@ -165,6 +166,16 @@ class Order extends Model
     public function shipments(): HasMany
     {
         return $this->hasMany(Shipment::class);
+    }
+
+    public function visibleShipments(): HasMany
+    {
+        return $this->hasMany(Shipment::class)->whereNotNull('tracking_number');
+    }
+
+    public function shipmentCreationAttempts(): HasMany
+    {
+        return $this->hasMany(ShipmentCreationAttempt::class);
     }
 
     public function automationRuns(): HasMany

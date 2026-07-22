@@ -87,6 +87,7 @@ class OrdersAjaxListTest extends TestCase
             'provider' => 'inpost_lockers',
             'service' => 'inpost_locker_standard',
             'status' => Shipment::STATUS_CONFIRMED,
+            'tracking_number' => '620000000000000000000099',
             'currency' => 'PLN',
             'request_uuid' => (string) Str::uuid(),
         ]);

@@ -16,6 +16,7 @@ use Modules\Integrations\InPost\Services\InPostCourierServiceResolver;
 use Modules\Integrations\InPost\Services\InPostShipmentServiceResolver;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
 use Modules\Shipments\Services\CourierDriverRegistry;
 use Modules\Shipments\Services\ShipmentCancellationService;
 use Modules\Shipments\Services\ShipmentFormViewService;
@@ -97,7 +98,7 @@ class ShipmentController extends Controller
 
         try {
             $order->refresh();
-            $shipment = $drivers->forAccount($account)->queueShipment($order, $account, $validated);
+            $attempt = $drivers->forAccount($account)->queueShipment($order, $account, $validated);
         } catch (DomainException $exception) {
             if ($request->expectsJson()) {
                 return response()->json([
@@ -111,7 +112,7 @@ class ShipmentController extends Controller
 
         if ($request->expectsJson()) {
             return response()->json(
-                $this->shipmentStatusPayload($shipment->fresh()->load('courierAccount')),
+                $this->shipmentCreationAttemptPayload($attempt),
                 Response::HTTP_ACCEPTED,
             );
         }
@@ -171,7 +172,7 @@ class ShipmentController extends Controller
 
         try {
             $order->refresh();
-            $shipment = $drivers->forAccount($account)->queueShipment($order, $account, $validated);
+            $attempt = $drivers->forAccount($account)->queueShipment($order, $account, $validated);
         } catch (DomainException $exception) {
             if ($request->expectsJson()) {
                 return response()->json([
@@ -185,7 +186,7 @@ class ShipmentController extends Controller
 
         if ($request->expectsJson()) {
             return response()->json(
-                $this->shipmentStatusPayload($shipment->fresh()->load(['courierAccount', 'parcels'])),
+                $this->shipmentCreationAttemptPayload($attempt),
                 Response::HTTP_ACCEPTED,
             );
         }
@@ -238,7 +239,7 @@ class ShipmentController extends Controller
 
         try {
             $order->refresh();
-            $shipment = $drivers->forAccount($account)->queueShipment($order, $account, $validated);
+            $attempt = $drivers->forAccount($account)->queueShipment($order, $account, $validated);
         } catch (DomainException $exception) {
             return $request->expectsJson()
                 ? response()->json([
@@ -250,7 +251,7 @@ class ShipmentController extends Controller
 
         if ($request->expectsJson()) {
             return response()->json(
-                $this->shipmentStatusPayload($shipment->fresh()->load(['courierAccount', 'parcels'])),
+                $this->shipmentCreationAttemptPayload($attempt),
                 Response::HTTP_ACCEPTED,
             );
         }
@@ -308,7 +309,7 @@ class ShipmentController extends Controller
             if (! in_array($validated['package_type'], $allowedPackageTypes, true)) {
                 throw new DomainException('Wybrany rodzaj przesylki nie jest dostepny dla tego zamowienia Allegro.');
             }
-            $shipment = $drivers->forAccount($account)->queueShipment($order, $account, $validated);
+            $attempt = $drivers->forAccount($account)->queueShipment($order, $account, $validated);
         } catch (DomainException $exception) {
             return $request->expectsJson()
                 ? response()->json(['message' => $exception->getMessage(), 'errors' => ['shipment' => [$exception->getMessage()]]], Response::HTTP_UNPROCESSABLE_ENTITY)
@@ -317,7 +318,7 @@ class ShipmentController extends Controller
 
         if ($request->expectsJson()) {
             return response()->json(
-                $this->shipmentStatusPayload($shipment->fresh()->load(['courierAccount', 'parcels'])),
+                $this->shipmentCreationAttemptPayload($attempt),
                 Response::HTTP_ACCEPTED,
             );
         }
@@ -330,6 +331,11 @@ class ShipmentController extends Controller
         return response()->json(
             $this->shipmentStatusPayload($shipment->fresh()->load(['courierAccount', 'parcels'])),
         );
+    }
+
+    public function creationAttemptStatus(ShipmentCreationAttempt $shipmentCreationAttempt): JsonResponse
+    {
+        return response()->json($this->shipmentCreationAttemptPayload($shipmentCreationAttempt));
     }
 
     public function refresh(Request $request, Shipment $shipment, CourierDriverRegistry $drivers): JsonResponse|RedirectResponse
@@ -556,6 +562,31 @@ class ShipmentController extends Controller
             'status_url' => route('shipments.status', $shipment),
             'row_html' => view('orders.partials.shipment-row', compact('shipment'))->render(),
             'error_message' => $shipment->error_message,
+        ];
+    }
+
+    private function shipmentCreationAttemptPayload(ShipmentCreationAttempt $attempt): array
+    {
+        $attempt = $attempt->fresh()->load(['shipment.courierAccount', 'shipment.parcels']);
+        $shipment = $attempt->shipment;
+        $succeeded = $attempt->status === ShipmentCreationAttempt::STATUS_SUCCEEDED
+            && $shipment
+            && filled($shipment->tracking_number);
+
+        return [
+            'id' => $attempt->id,
+            'shipment_id' => $shipment?->id,
+            'status' => $attempt->status,
+            'provider_status' => $shipment?->status,
+            'tracking_number' => $succeeded ? $shipment->tracking_number : null,
+            'label_available' => $succeeded && $shipment->canDownloadLabel(),
+            'polling_finished' => $attempt->pollingFinished(),
+            'status_url' => route('shipment-creation-attempts.status', $attempt),
+            'row_html' => $succeeded
+                ? view('orders.partials.shipment-row', compact('shipment'))->render()
+                : null,
+            'error_message' => $attempt->error_message,
+            'outcome_unknown' => $attempt->outcome_unknown,
         ];
     }
 }

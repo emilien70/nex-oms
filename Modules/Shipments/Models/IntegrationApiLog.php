@@ -13,6 +13,7 @@ class IntegrationApiLog extends Model
         'operation',
         'order_id',
         'shipment_id',
+        'shipment_creation_attempt_id',
         'request_id',
         'method',
         'url',
@@ -38,5 +39,10 @@ class IntegrationApiLog extends Model
     public function shipment(): BelongsTo
     {
         return $this->belongsTo(Shipment::class);
+    }
+
+    public function shipmentCreationAttempt(): BelongsTo
+    {
+        return $this->belongsTo(ShipmentCreationAttempt::class);
     }
 }

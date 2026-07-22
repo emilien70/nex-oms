@@ -5,12 +5,13 @@ namespace Modules\Integrations\InPost\Drivers;
 use App\Models\Order;
 use DomainException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Modules\Integrations\InPost\Services\InPostShipmentOperations;
 use Modules\Integrations\InPost\Services\InPostShipmentPayloadFactory;
 use Modules\Integrations\InPost\Services\InPostShipmentServiceResolver;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 
 class InPostLockerDriver extends AbstractInPostDriver
 {
@@ -18,6 +19,7 @@ class InPostLockerDriver extends AbstractInPostDriver
         InPostShipmentOperations $operations,
         private readonly InPostShipmentPayloadFactory $payloadFactory,
         private readonly InPostShipmentServiceResolver $serviceResolver,
+        private readonly ShipmentCreationAttemptService $attempts,
     ) {
         parent::__construct($operations);
     }
@@ -27,11 +29,12 @@ class InPostLockerDriver extends AbstractInPostDriver
         return CourierAccount::PROVIDER_INPOST_LOCKERS;
     }
 
-    public function queueShipment(Order $order, CourierAccount $account, array $data): Shipment
+    public function queueShipment(Order $order, CourierAccount $account, array $data): ShipmentCreationAttempt
     {
         $this->assertAccount($account, 'InPost Paczkomaty');
 
-        return DB::transaction(function () use ($order, $account, $data): Shipment {
+        return DB::transaction(function () use ($order, $account, $data): ShipmentCreationAttempt {
+            $attempt = $this->attempts->begin($order, $account, $data);
             $codAmount = $data['cod_amount'] ?? null;
             $service = $this->serviceResolver->resolve($order, $data['service'] ?? null);
             $additionalServices = collect($data['additional_services'] ?? [])
@@ -83,8 +86,10 @@ class InPostLockerDriver extends AbstractInPostDriver
                 'currency' => $order->currency ?: 'PLN',
                 'label_format' => $account->setting('label_format', 'Pdf'),
                 'label_type' => $account->setting('label_type', 'A6'),
-                'request_uuid' => (string) Str::uuid(),
+                'request_uuid' => $attempt->request_uuid,
             ]);
+
+            $attempt = $this->attempts->attach($attempt, $shipment);
 
             $shipment->events()->create([
                 'event_type' => 'shipment_queued',
@@ -96,12 +101,12 @@ class InPostLockerDriver extends AbstractInPostDriver
                 'event_type' => 'shipment_queued',
                 'title' => 'Przesylka InPost dodana do kolejki',
                 'description' => 'Zlecono utworzenie przesylki InPost Paczkomaty',
-                'payload' => ['shipment_id' => $shipment->id],
+                'payload' => ['shipment_attempt_id' => $attempt->id],
             ]);
 
             $this->dispatchCreate($shipment);
 
-            return $shipment;
+            return $attempt;
         });
     }
 

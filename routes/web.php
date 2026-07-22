@@ -113,6 +113,8 @@ Route::post('/orders/{order}/shipments/inpost-courier', [ShipmentController::cla
 Route::post('/orders/{order}/shipments/dpd', [ShipmentController::class, 'storeDpd'])->name('orders.shipments.dpd.store');
 Route::post('/orders/{order}/shipments/allegro-shipping', [ShipmentController::class, 'storeAllegroShipping'])->name('orders.shipments.allegro-shipping.store');
 Route::get('/shipments/{shipment}/status', [ShipmentController::class, 'status'])->name('shipments.status');
+Route::get('/shipment-creation-attempts/{shipmentCreationAttempt}/status', [ShipmentController::class, 'creationAttemptStatus'])
+    ->name('shipment-creation-attempts.status');
 Route::post('/shipments/{shipment}/refresh', [ShipmentController::class, 'refresh'])->name('shipments.refresh');
 Route::post('/shipments/{shipment}/retry', [ShipmentController::class, 'retry'])->name('shipments.retry');
 Route::post('/shipments/{shipment}/cancel', [ShipmentController::class, 'cancel'])->name('shipments.cancel');

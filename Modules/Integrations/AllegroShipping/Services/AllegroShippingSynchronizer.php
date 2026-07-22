@@ -7,11 +7,15 @@ use Illuminate\Support\Carbon;
 use Modules\Shipments\Events\ShipmentCreated;
 use Modules\Shipments\Events\ShipmentStatusChanged;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 use Modules\Shipments\Services\ShipmentStatusMapper;
 
 class AllegroShippingSynchronizer
 {
-    public function __construct(private readonly ShipmentStatusMapper $statusMapper) {}
+    public function __construct(
+        private readonly ShipmentStatusMapper $statusMapper,
+        private readonly ShipmentCreationAttemptService $attempts,
+    ) {}
 
     public function applyCommand(Shipment $shipment, array $command): bool
     {
@@ -47,7 +51,7 @@ class AllegroShippingSynchronizer
             ?: data_get($apiPackages->first(), 'transportingInfo.0.carrierWaybill');
         $cancelled = filled($details['canceledDate'] ?? null);
         $previousStatus = $shipment->status;
-        $wasConfirmed = filled($shipment->confirmed_at);
+        $previousTrackingNumber = $shipment->tracking_number;
         $nextStatus = $cancelled ? Shipment::STATUS_CANCELLED : $this->detailsStatus($previousStatus);
         $nextOmsStatus = $this->statusMapper->map($shipment->provider, $nextStatus);
 
@@ -72,18 +76,20 @@ class AllegroShippingSynchronizer
             }
         }
 
-        if (! $wasConfirmed && ! $cancelled) {
+        if (! $previousTrackingNumber && $shipment->tracking_number && ! $cancelled) {
+            $this->attempts->succeed($shipment->fresh());
+
             $shipment->events()->create([
                 'event_type' => 'shipment_created',
                 'status' => Shipment::STATUS_CONFIRMED,
-                'payload' => ['shipment_id' => $shipment->external_id, 'tracking_number' => $tracking],
+                'payload' => ['shipment_id' => $shipment->external_id, 'tracking_number' => $shipment->tracking_number],
                 'occurred_at' => now(),
             ]);
             $shipment->order?->events()->create([
                 'event_type' => 'shipment_created',
                 'title' => 'Przesylka Wysylam z Allegro utworzona',
-                'description' => 'Numer nadania: '.($tracking ?: 'oczekuje'),
-                'payload' => ['shipment_id' => $shipment->id, 'tracking_number' => $tracking],
+                'description' => 'Numer nadania: '.$shipment->tracking_number,
+                'payload' => ['shipment_id' => $shipment->id, 'tracking_number' => $shipment->tracking_number],
             ]);
             ShipmentCreated::dispatch($shipment->fresh());
         }

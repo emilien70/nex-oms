@@ -63,12 +63,12 @@ class AutomationShipmentActionService
             $data['parcels'] = $this->parcels($configuration, $account, $provider);
         }
 
-        $shipment = $this->courierDrivers
+        $attempt = $this->courierDrivers
             ->forAccount($account)
             ->queueShipment($order, $account, $data);
 
         return [
-            'shipment_id' => $shipment->id,
+            'shipment_attempt_id' => $attempt->id,
             'provider' => $provider,
         ];
     }

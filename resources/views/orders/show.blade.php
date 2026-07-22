@@ -2404,10 +2404,19 @@
                 return errors[0] || payload?.message || fallback;
             };
 
-            const pollShipment = async (statusUrl, attempt = 0) => {
+            const shipmentCreationSucceeded = (payload) => (
+                payload?.status === 'succeeded' && Boolean(payload?.tracking_number)
+            );
+
+            const closeShipmentFormAfterSuccess = (form) => {
+                form?.closest('[data-courier-form-panel]')?.remove();
+                closeCourierForm();
+            };
+
+            const pollShipment = async (statusUrl, attempt = 0, form = null) => {
                 if (!statusUrl || attempt >= 120) {
                     showShipmentNotice('Przesy\u0142ka nadal oczekuje na obs\u0142ug\u0119 kolejki. Sprawd\u017a, czy worker kolejki jest uruchomiony.', 'warning');
-                    return;
+                    return false;
                 }
 
                 await new Promise((resolve) => window.setTimeout(resolve, 2000));
@@ -2429,18 +2438,25 @@
                     replaceShipmentRow(payload);
 
                     if (payload.polling_finished) {
-                        if (payload.label_available) {
-                            showShipmentNotice('Przesy\u0142ka zosta\u0142a utworzona. Numer nadawczy i etykieta s\u0105 ju\u017c dost\u0119pne.', 'success', true);
+                        if (shipmentCreationSucceeded(payload)) {
+                            const message = payload.label_available
+                                ? 'Przesy\u0142ka zosta\u0142a utworzona. Numer nadawczy i etykieta s\u0105 ju\u017c dost\u0119pne.'
+                                : 'Przesy\u0142ka zosta\u0142a utworzona. Numer nadawczy jest ju\u017c dost\u0119pny.';
+                            showShipmentNotice(message, 'success', true);
+                            closeShipmentFormAfterSuccess(form);
                         } else {
                             showShipmentNotice(payload.error_message || 'Nie uda\u0142o si\u0119 utworzy\u0107 przesy\u0142ki.', 'danger');
                         }
-                        return;
+
+                        await fetchOrderState(['history', 'shipments'], true);
+
+                        return shipmentCreationSucceeded(payload);
                     }
 
-                    pollShipment(payload.status_url || statusUrl, attempt + 1);
+                    return pollShipment(payload.status_url || statusUrl, attempt + 1, form);
                 } catch (error) {
                     showShipmentNotice(error.message || 'Oczekiwanie na aktualizacj\u0119 przesy\u0142ki...', 'warning');
-                    pollShipment(statusUrl, attempt + 1);
+                    return pollShipment(statusUrl, attempt + 1, form);
                 }
             };
 
@@ -2488,20 +2504,25 @@
                             throw new Error(shipmentErrorMessage(payload, 'Nie uda\u0142o si\u0119 nada\u0107 przesy\u0142ki.'));
                         }
 
-                        replaceShipmentRow(payload);
                         document.dispatchEvent(new Event('nexoms:automation-wake'));
-                        ajaxShipmentForm.closest('[data-courier-form-panel]')?.remove();
-                        closeCourierForm();
 
                         if (payload.polling_finished) {
-                            if (payload.label_available) {
-                                showShipmentNotice('Przesy\u0142ka zosta\u0142a utworzona. Numer nadawczy i etykieta s\u0105 ju\u017c dost\u0119pne.', 'success', true);
+                            replaceShipmentRow(payload);
+
+                            if (shipmentCreationSucceeded(payload)) {
+                                const message = payload.label_available
+                                    ? 'Przesy\u0142ka zosta\u0142a utworzona. Numer nadawczy i etykieta s\u0105 ju\u017c dost\u0119pne.'
+                                    : 'Przesy\u0142ka zosta\u0142a utworzona. Numer nadawczy jest ju\u017c dost\u0119pny.';
+                                showShipmentNotice(message, 'success', true);
+                                closeShipmentFormAfterSuccess(ajaxShipmentForm);
                             } else {
                                 showShipmentNotice(payload.error_message || 'Nie uda\u0142o si\u0119 utworzy\u0107 przesy\u0142ki.', 'danger');
                             }
+
+                            await fetchOrderState(['history', 'shipments'], true);
                         } else {
-                            showShipmentNotice('Przesy\u0142ka zosta\u0142a dodana do kolejki. Oczekiwanie na numer nadawczy...', 'info');
-                            pollShipment(payload.status_url);
+                            showShipmentNotice('Trwa tworzenie przesy\u0142ki. Oczekiwanie na numer nadawczy...', 'info');
+                            await pollShipment(payload.status_url, 0, ajaxShipmentForm);
                         }
                     } catch (error) {
                         showShipmentNotice(error.message || 'Nie uda\u0142o si\u0119 nada\u0107 przesy\u0142ki.', 'danger');

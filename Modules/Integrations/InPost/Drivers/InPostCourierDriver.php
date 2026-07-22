@@ -5,12 +5,13 @@ namespace Modules\Integrations\InPost\Drivers;
 use App\Models\Order;
 use DomainException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Modules\Integrations\InPost\Services\InPostCourierServiceResolver;
 use Modules\Integrations\InPost\Services\InPostCourierShipmentPayloadFactory;
 use Modules\Integrations\InPost\Services\InPostShipmentOperations;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
+use Modules\Shipments\Services\ShipmentCreationAttemptService;
 
 class InPostCourierDriver extends AbstractInPostDriver
 {
@@ -18,6 +19,7 @@ class InPostCourierDriver extends AbstractInPostDriver
         InPostShipmentOperations $operations,
         private readonly InPostCourierShipmentPayloadFactory $payloadFactory,
         private readonly InPostCourierServiceResolver $serviceResolver,
+        private readonly ShipmentCreationAttemptService $attempts,
     ) {
         parent::__construct($operations);
     }
@@ -27,7 +29,7 @@ class InPostCourierDriver extends AbstractInPostDriver
         return CourierAccount::PROVIDER_INPOST_COURIER;
     }
 
-    public function queueShipment(Order $order, CourierAccount $account, array $data): Shipment
+    public function queueShipment(Order $order, CourierAccount $account, array $data): ShipmentCreationAttempt
     {
         $this->assertAccount($account, 'InPost Kurier');
 
@@ -45,7 +47,8 @@ class InPostCourierDriver extends AbstractInPostDriver
             throw new DomainException('Przesylka kurierska musi zawierac od 1 do 99 paczek.');
         }
 
-        return DB::transaction(function () use ($order, $account, $data, $service, $codAmount, $insuranceAmount, $parcels): Shipment {
+        return DB::transaction(function () use ($order, $account, $data, $service, $codAmount, $insuranceAmount, $parcels): ShipmentCreationAttempt {
+            $attempt = $this->attempts->begin($order, $account, $data);
             $contentDescription = trim((string) ($data['content_description'] ?? ''));
 
             if ($contentDescription === '') {
@@ -78,7 +81,7 @@ class InPostCourierDriver extends AbstractInPostDriver
                 'currency' => $order->currency ?: 'PLN',
                 'label_format' => $account->setting('label_format', 'Pdf'),
                 'label_type' => $account->setting('label_type', 'A6'),
-                'request_uuid' => (string) Str::uuid(),
+                'request_uuid' => $attempt->request_uuid,
             ]);
 
             foreach ($parcels as $index => $parcel) {
@@ -92,6 +95,8 @@ class InPostCourierDriver extends AbstractInPostDriver
                 ]);
             }
 
+            $attempt = $this->attempts->attach($attempt, $shipment);
+
             $shipment->events()->create([
                 'event_type' => 'shipment_queued',
                 'status' => Shipment::STATUS_QUEUED,
@@ -103,12 +108,12 @@ class InPostCourierDriver extends AbstractInPostDriver
                 'event_type' => 'shipment_queued',
                 'title' => 'Przesylka InPost Kurier dodana do kolejki',
                 'description' => 'Zlecono utworzenie przesylki InPost Kurier',
-                'payload' => ['shipment_id' => $shipment->id, 'parcel_count' => count($parcels)],
+                'payload' => ['shipment_attempt_id' => $attempt->id, 'parcel_count' => count($parcels)],
             ]);
 
             $this->dispatchCreate($shipment);
 
-            return $shipment->load('parcels');
+            return $attempt;
         });
     }
 
