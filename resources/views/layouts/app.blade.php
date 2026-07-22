@@ -1150,6 +1150,10 @@
 </head>
 <body>
     @php
+        $ordersNavigationActive = request()->is('orders*')
+            || request()->routeIs('invoices.*')
+            || request()->routeIs('settings.order-statuses.index')
+            || request()->routeIs('settings.variables.index');
         $hasOrdersContext = request()->is('orders*')
             || request()->routeIs('settings.order-statuses.index')
             || request()->routeIs('settings.variables.index');
@@ -1174,8 +1178,8 @@
                         <span class="nav-text">Strona g&#322;&oacute;wna</span>
                     </a>
                 </div>
-                <div class="sidebar-nav-item has-nav-flyout orders-nav-item {{ request()->is('orders*') || request()->routeIs('settings.order-statuses.index') || request()->routeIs('settings.variables.index') ? 'is-open' : '' }}">
-                    <a class="nav-link {{ request()->is('orders*') || request()->routeIs('settings.order-statuses.index') || request()->routeIs('settings.variables.index') ? 'active' : '' }}" href="{{ route('orders.index') }}" aria-label="Zam&oacute;wienia" title="Zam&oacute;wienia" aria-expanded="{{ request()->is('orders*') || request()->routeIs('settings.order-statuses.index') || request()->routeIs('settings.variables.index') ? 'true' : 'false' }}">
+                <div class="sidebar-nav-item has-nav-flyout orders-nav-item {{ $ordersNavigationActive ? 'is-open' : '' }}">
+                    <a class="nav-link {{ $ordersNavigationActive ? 'active' : '' }}" href="{{ route('orders.index') }}" aria-label="Zam&oacute;wienia" title="Zam&oacute;wienia" aria-expanded="{{ $ordersNavigationActive ? 'true' : 'false' }}">
                         <span class="nav-initial nav-orders-icon" aria-hidden="true"><i class="bi bi-cart3"></i></span>
                         <span class="nav-text">Zam&oacute;wienia</span>
                         <span class="nav-chevron" aria-hidden="true"></span>
@@ -1183,6 +1187,7 @@
                     <div class="nav-flyout">
                         <div class="nav-flyout-title">Zam&oacute;wienia</div>
                         <a class="nav-flyout-link {{ request()->routeIs('orders.index') && ! request()->boolean('trash') ? 'active' : '' }}" href="{{ route('orders.index') }}">Lista zam&oacute;wie&#324;</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('invoices.*') ? 'active' : '' }}" href="{{ route('invoices.index') }}">Faktury</a>
                         <a class="nav-flyout-link" href="#">Zwroty</a>
                         <a class="nav-flyout-link {{ request()->routeIs('settings.order-statuses.index') ? 'active' : '' }}" href="{{ route('settings.order-statuses.index') }}">Statusy zam&oacute;wie&#324;</a>
                         <a class="nav-flyout-link {{ request()->routeIs('orders.automatic-actions.index') ? 'active' : '' }}" href="{{ route('orders.automatic-actions.index') }}">Automatyczne akcje</a>

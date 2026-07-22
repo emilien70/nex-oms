@@ -18,6 +18,7 @@ use App\Models\Order;
 use Illuminate\Support\Facades\Route;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Invoices\Http\Controllers\InvoiceController;
 
 Route::get('/', function () {
     $dashboardStats = [
@@ -83,6 +84,8 @@ Route::patch('/settings/order-statuses/order', [SettingsOrderStatusesController:
 Route::patch('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderStatusesController::class, 'update'])->name('settings.order-statuses.update');
 Route::delete('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderStatusesController::class, 'destroy'])->name('settings.order-statuses.destroy');
 Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])->name('settings.variables.index');
+
+Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
 
 Route::get('/orders', [OrdersController::class, 'index'])->name('orders.index');
 Route::get('/orders/list-state', [OrdersController::class, 'listState'])->name('orders.list-state');

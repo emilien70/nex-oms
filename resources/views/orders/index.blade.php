@@ -29,6 +29,7 @@
 @section('content')
     <style>
         .orders-page {
+            --orders-button-border: #d1d5dc;
             background: #f4f6f8;
             color: #4e565f;
             font-size: 12px;
@@ -36,6 +37,14 @@
             min-height: 100vh;
             padding: 24px;
             position: relative;
+        }
+
+        .orders-page .btn-light,
+        .orders-page .btn-outline-secondary,
+        .orders-page .btn.border,
+        .orders-page .selection-toggle,
+        .orders-page .orders-icon {
+            border-color: var(--orders-button-border) !important;
         }
 
         .orders-page.is-loading {
@@ -135,7 +144,7 @@
         .selection-toggle {
             align-items: center;
             background: transparent;
-            border: 1px solid #6c757d;
+            border: 1px solid var(--orders-button-border);
             border-radius: 4px;
             color: #6c757d;
             display: inline-flex;
