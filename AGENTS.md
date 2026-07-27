@@ -960,3 +960,32 @@ Poza zakresem Etapu 1A:
 - dodawanie GTU i procedur JPK przed właściwym etapem.
 
 Nie rozszerzaj zakresu bez zgody właściciela.
+
+---
+
+# 30. Granice Etapu 1B
+
+Etap 1B obejmuje:
+
+- listę serii pod `/invoices/settings/series`,
+- 10 rekordów na stronę,
+- pustą, nieklikalną gwiazdkę oznaczającą wyłącznie serię systemową,
+- aktywowanie i ukrywanie serii własnych,
+- blokadę ukrywania oraz usuwania serii systemowych,
+- bezpieczne usuwanie nieaktywnych i niepowiązanych serii własnych,
+- testy Feature listy i reguł zarządzania.
+
+Pole `is_default` nie istnieje. Nie twórz interfejsu wyboru serii domyślnej.
+
+Tworzenie i edycja serii należą do Etapu 1C. W Etapie 1B ich kontrolki mogą być wyłącznie widoczne i nieaktywne; nie dodawaj pustych tras ani niedziałających linków.
+
+Etap 1B nie obejmuje:
+
+- formularzy tworzenia i edycji,
+- modali,
+- AJAX,
+- liczników numeracji,
+- dokumentów, pozycji dokumentów i generatora numerów,
+- PDF, JPK, GTU, KSeF i Fakturowni,
+- filtrów i wyszukiwania,
+- paragonów.

@@ -1320,6 +1320,8 @@ Wymagane elementy:
 - bezpieczne usuwanie,
 - paginacja.
 
+Lista jest dostępna pod `/invoices/settings/series` i wyświetla 10 rekordów na stronę. Pusta gwiazdka jest nieklikalnym oznaczeniem `is_system = true`; nie reprezentuje serii domyślnej. Serie systemowe nie udostępniają formularza ukrywania ani usuwania. Tworzenie i edycja pozostają nieaktywne do Etapu 1C.
+
 Nie należy dodawać SPA ani frameworka frontendowego tylko dla modułu faktur.
 
 ---
@@ -1397,14 +1399,16 @@ Bez CRUD i UI.
 ## Etap 1B
 
 - lista serii,
-- paginacja,
+- paginacja po 10 rekordów,
 - aktywność,
 - oznaczenie i ochrona serii systemowych,
-- bezpieczne usuwanie.
+- bezpieczne usuwanie,
+- jawne trasy listy, aktywności i usuwania bez pełnego CRUD,
+- nieaktywne kontrolki tworzenia i edycji.
 
 ## Etap 1C
 
-- podstawowy formularz,
+- formularze tworzenia i edycji,
 - nazwa,
 - typ,
 - format,

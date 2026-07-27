@@ -436,6 +436,10 @@ Elementy:
 - liczba rekordów,
 - paginacja.
 
+Ekran listy serii jest dostępny pod adresem `/invoices/settings/series`. Pusta gwiazdka ma wyłącznie znaczenie informacyjne i oznacza serię systemową; nie służy do wyboru serii domyślnej. Serie systemowe są zawsze aktywne i nie można ich ukryć ani usunąć. Serie własne można aktywować, ukrywać oraz usuwać po spełnieniu reguł bezpieczeństwa.
+
+W Etapie 1B przycisk tworzenia i ikony edycji są widoczne, ale nieaktywne. Tworzenie i edycja serii należą do Etapu 1C.
+
 ## 13.2. Typy serii
 
 | Kod | Znaczenie |
@@ -1192,12 +1196,13 @@ Poza zakresem Etapu 1A:
 - tabela,
 - oznaczenie serii systemowych pustą, nieklikalną gwiazdką,
 - aktywność,
-- edycja,
 - bezpieczne usuwanie,
-- paginacja.
+- paginacja po 10 rekordów,
+- nieaktywne kontrolki tworzenia i edycji zapowiadające Etap 1C.
 
 ## Etap 1C — podstawowy formularz
 
+- tworzenie i edycja serii,
 - nazwa,
 - typ,
 - format,

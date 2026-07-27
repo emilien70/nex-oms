@@ -47,6 +47,8 @@
     </style>
 
     <div class="invoices-page">
+        @include('invoices._navigation')
+
         <section class="invoices-card">
             <header class="invoices-header">
                 <h1 class="invoices-title">Faktury</h1>
