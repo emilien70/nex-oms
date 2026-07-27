@@ -7,8 +7,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Enums\InvoicePaymentDueMode;
+use Modules\Invoices\Enums\InvoicePaymentMethodSource;
+use Modules\Invoices\Enums\InvoicePrimaryLanguage;
+use Modules\Invoices\Enums\InvoicePrintTemplate;
+use Modules\Invoices\Enums\InvoiceSaleDateSource;
+use Modules\Invoices\Enums\InvoiceSecondaryLanguage;
 use Modules\Invoices\Enums\InvoiceSeriesResetPeriod;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
+use Modules\Invoices\Enums\InvoiceShippingVatMode;
+use Modules\Invoices\Enums\InvoiceUnitPriceMode;
+use Modules\Invoices\Enums\InvoiceVatRateSource;
 
 class InvoiceSeries extends Model
 {
@@ -43,6 +52,27 @@ class InvoiceSeries extends Model
         'issuer_name',
         'logo_path',
         'additional_information_template',
+        'vat_rate_source',
+        'default_vat_rate',
+        'include_shipping',
+        'shipping_vat_mode',
+        'default_shipping_vat_rate',
+        'skip_zero_price_items',
+        'payment_method_source',
+        'fixed_payment_method',
+        'sale_date_source',
+        'payment_due_mode',
+        'payment_due_days',
+        'unit_price_mode',
+        'show_vat_column',
+        'show_order_number',
+        'show_buyer_signature',
+        'show_original_copy',
+        'print_template',
+        'primary_language',
+        'secondary_language',
+        'document_title',
+        'copies_count',
     ];
 
     protected $casts = [
@@ -52,6 +82,25 @@ class InvoiceSeries extends Model
         'fiscal_year_start_month' => 'integer',
         'is_system' => 'boolean',
         'is_active' => 'boolean',
+        'vat_rate_source' => InvoiceVatRateSource::class,
+        'default_vat_rate' => 'decimal:2',
+        'include_shipping' => 'boolean',
+        'shipping_vat_mode' => InvoiceShippingVatMode::class,
+        'default_shipping_vat_rate' => 'decimal:2',
+        'skip_zero_price_items' => 'boolean',
+        'payment_method_source' => InvoicePaymentMethodSource::class,
+        'sale_date_source' => InvoiceSaleDateSource::class,
+        'payment_due_mode' => InvoicePaymentDueMode::class,
+        'payment_due_days' => 'integer',
+        'unit_price_mode' => InvoiceUnitPriceMode::class,
+        'show_vat_column' => 'boolean',
+        'show_order_number' => 'boolean',
+        'show_buyer_signature' => 'boolean',
+        'show_original_copy' => 'boolean',
+        'print_template' => InvoicePrintTemplate::class,
+        'primary_language' => InvoicePrimaryLanguage::class,
+        'secondary_language' => InvoiceSecondaryLanguage::class,
+        'copies_count' => 'integer',
     ];
 
     protected static function booted(): void

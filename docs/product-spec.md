@@ -602,6 +602,16 @@ Tworzenie i edycja korzystają z jednego modala Bootstrap. Zmiana typu pobiera o
 
 Seria systemowa może zmieniać podstawowe ustawienia biznesowe, ale zachowuje typ dokumentu, klucz systemowy, status systemowy i aktywność. Nie ma paragonów ani pola `is_default`.
 
+## 13.8. Ustawienia serii Faktura — Etap 1C.2
+
+Formularz serii typu `invoice` przechowuje bezpośrednio w `invoice_series` dane sprzedawcy, rachunek bankowy, miejsce wystawienia, wystawiającego, przypisaną serię korekt oraz ustawienia VAT, dostawy, płatności, dat, pozycji i przyszłego wydruku. Różne serie mogą posiadać różne dane sprzedawcy; projekt nie używa `seller_profiles` ani `company_settings`.
+
+Dane sprzedawcy mogą być zapisane częściowo. Ich kompletność będzie sprawdzana centralnie dopiero przed wystawieniem dokumentu. Opcjonalne logo serii jest przechowywane na prywatnym dysku `local`.
+
+Pole `additional_information_template` przechowuje szablon „Informacje”. Token `[uwagi_sprzedawcy]` pozostaje w szablonie bez renderowania i zostanie rozwiązany dopiero podczas przyszłego wystawiania dokumentu, a wynik będzie snapshotem faktury.
+
+Etap 1C.2 nie wystawia faktur, nie generuje PDF i nie oblicza VAT. Formularze Korekty i Pro formy pozostają w zakresie Etapu 1C.1 i zostaną rozbudowane później. Paragony nie należą do modułu.
+
 ---
 
 # 14. Dane sprzedawcy
@@ -1263,7 +1273,19 @@ Poza zakresem Etapu 1A:
 - aktywność serii własnych,
 - pola techniczne serii systemowej tylko do odczytu.
 
-Rozbudowane ustawienia właściwe dla faktur, korekt i pro form powstaną w Etapach 1C.2–1C.4.
+Ustawienia serii Faktura wdrożono w Etapie 1C.2. Rozbudowane ustawienia Korekty i Pro formy powstaną w kolejnych etapach.
+
+## Etap 1C.2 — ustawienia serii Faktura
+
+- dane sprzedawcy przechowywane bezpośrednio w serii,
+- rachunek bankowy, miejsce wystawienia i wystawiający,
+- domyślna seria korekt,
+- konfiguracja VAT, dostawy, płatności, dat i pozycji,
+- szablon informacji z tokenem `[uwagi_sprzedawcy]`,
+- podstawowa konfiguracja przyszłego wydruku,
+- prywatne logo serii.
+
+Etap nie tworzy dokumentów ani PDF. Korekta i Pro forma nadal wymagają kolejnych etapów rozbudowy.
 
 ## Etap 1D — VAT, produkty, JPK i GTU
 

@@ -82,6 +82,41 @@
             padding: 10px 12px;
         }
 
+        .invoice-series-readiness-note {
+            align-items: flex-start;
+            display: flex;
+            font-size: 12px;
+            gap: 8px;
+            padding: 10px 12px;
+        }
+
+        .invoice-series-sections {
+            display: grid;
+            gap: 14px;
+            margin-top: 14px;
+        }
+
+        .invoice-series-form-section {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 14px;
+        }
+
+        .invoice-series-form-section h3 {
+            color: #1f2937;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0 0 12px;
+        }
+
+        .invoice-series-current-logo {
+            align-items: center;
+            color: #64748b;
+            display: flex;
+            font-size: 12px;
+            gap: 7px;
+        }
+
         #invoiceSeriesModal .form-label {
             color: #4e565f;
             font-size: 12px;
@@ -396,6 +431,26 @@
                 submit.disabled = !enabled;
             };
 
+            const updateInvoiceDependencies = () => {
+                const vatSource = body.querySelector('[name="vat_rate_source"]')?.value;
+                const includeShipping = body.querySelector('[name="include_shipping"][type="checkbox"]')?.checked === true;
+                const shippingVatMode = body.querySelector('[name="shipping_vat_mode"]')?.value;
+                const paymentSource = body.querySelector('[name="payment_method_source"]')?.value;
+                const paymentDueMode = body.querySelector('[name="payment_due_mode"]')?.value;
+                const visibility = {
+                    'default-vat-rate': vatSource === 'fixed',
+                    'shipping-vat-rate': includeShipping && shippingVatMode === 'fixed',
+                    'fixed-payment-method': paymentSource === 'fixed',
+                    'payment-due-days': paymentDueMode === 'days_from_issue',
+                };
+
+                Object.entries(visibility).forEach(([name, visible]) => {
+                    body.querySelectorAll(`[data-invoice-dependent="${name}"]`).forEach((element) => {
+                        element.classList.toggle('d-none', !visible);
+                    });
+                });
+            };
+
             const showLoading = () => {
                 body.innerHTML = `
                     <div class="invoice-series-modal-loading" role="status" aria-live="polite">
@@ -427,6 +482,10 @@
                 const values = {};
 
                 body.querySelectorAll('[name]').forEach((field) => {
+                    if (field.type === 'file') {
+                        return;
+                    }
+
                     values[field.name] = field.type === 'checkbox'
                         ? (field.checked ? '1' : '0')
                         : field.value;
@@ -437,7 +496,7 @@
 
             const restoreValues = (values, preserveNumberFormat) => {
                 Object.entries(values || {}).forEach(([name, value]) => {
-                    if (name === 'document_type' || (!preserveNumberFormat && name === 'number_format')) {
+                    if (name === 'document_type' || name === 'logo' || (!preserveNumberFormat && name === 'number_format')) {
                         return;
                     }
 
@@ -488,6 +547,7 @@
 
                     body.innerHTML = html;
                     restoreValues(options.values, options.preserveNumberFormat === true);
+                    updateInvoiceDependencies();
                     setSubmitEnabled(true);
                     focusFirstField();
                 } catch (error) {
@@ -531,7 +591,15 @@
 
             body.addEventListener('change', (event) => {
                 const selector = event.target.closest('[data-series-document-type]');
-                if (!selector || selector.value === '') {
+                if (!selector) {
+                    if (event.target.closest('[data-invoice-control]')) {
+                        updateInvoiceDependencies();
+                    }
+
+                    return;
+                }
+
+                if (selector.value === '') {
                     return;
                 }
 
@@ -564,6 +632,7 @@
                 activeMode = modeInput.value;
                 modal.show();
                 setSubmitEnabled(body.querySelector('[data-series-form-fragment]') !== null);
+                updateInvoiceDependencies();
                 focusFirstField();
             }
         });

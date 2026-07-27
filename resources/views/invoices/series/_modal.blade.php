@@ -16,9 +16,8 @@
     data-store-url="{{ route('invoices.series.store') }}"
     data-reopen="{{ $reopenForm === null ? '0' : '1' }}"
 >
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content">
-            <form method="POST" action="{{ $reopenAction }}" data-series-modal-form>
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
+        <form class="modal-content" method="POST" action="{{ $reopenAction }}" enctype="multipart/form-data" data-series-modal-form>
                 @csrf
                 <input
                     type="hidden"
@@ -74,8 +73,7 @@
                         @disabled(($reopenForm['viewData'] ?? null) === null)
                     >Zapisz</button>
                 </div>
-            </form>
-        </div>
+        </form>
     </div>
 </div>
 

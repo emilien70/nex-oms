@@ -1023,3 +1023,19 @@ Usunięcie faktury będzie dozwolone wyłącznie, gdy dokument nie został przyj
 Dozwolone usunięcie zwalnia numer. Numer może zostać użyty ponownie tylko w tej samej serii i tym samym okresie numeracji, przed zwiększeniem licznika, z transakcyjną ochroną przed równoległym użyciem.
 
 Powyższe reguły wystawiania, usuwania i zwalniania numerów są wymaganiami przyszłych etapów. Etap 1C.1 nie tworzy tabel dokumentów, liczników, PDF ani integracji KSeF.
+
+---
+
+# 32. Granice Etapu 1C.2
+
+Etap 1C.2 rozbudowuje wyłącznie formularz serii typu `invoice` o:
+
+- dane sprzedawcy zapisane bezpośrednio w `invoice_series`,
+- rachunek bankowy, miejsce wystawienia i wystawiającego,
+- domyślną serię korekt,
+- ustawienia VAT, dostawy, płatności, dat i pozycji,
+- szablon `additional_information_template` z nierozwiązanym tokenem `[uwagi_sprzedawcy]`,
+- podstawowe ustawienia przyszłego wydruku,
+- prywatne logo serii.
+
+Dane sprzedawcy mogą być częściowe; pełna walidacja nastąpi przed przyszłym wystawieniem dokumentu. Logo należy do prywatnego dysku `local`. Formularze Korekty i Pro formy pozostają na poziomie Etapu 1C.1. Etap nie tworzy dokumentów, pozycji dokumentów, liczników, PDF, JPK ani KSeF. Nie ma paragonów.

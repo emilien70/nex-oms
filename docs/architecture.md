@@ -1333,6 +1333,10 @@ Lista jest dostępna pod `/invoices/settings/series` i wyświetla 10 rekordów n
 
 W Etapie 1C.1 kontrolki tworzenia i edycji są aktywne. Jeden modal ładuje partial typu przez AJAX, obsługuje stan ładowania i błędy, a zapisuje dane standardowym formularzem Laravel. Błąd walidacji wraca na listę, odtwarza tryb create/edit i ponownie otwiera modal z old input.
 
+Etap 1C.2 rozbudowuje wyłącznie partial typu `invoice`. Strukturalne dane sprzedawcy i konfiguracja faktury są kolumnami `invoice_series`, bez dodatkowej tabeli profili sprzedawcy. Serwis zapisuje jawnie dozwolone pola, zachowując ochronę `is_system`, `system_key`, typu i aktywności serii systemowej. Logo jest prywatnym plikiem dysku `local`, a jego wymiana usuwa poprzedni plik dopiero po udanym zapisie modelu.
+
+Zależności formularza VAT, dostawy i płatności są prezentacyjne po stronie JavaScript, ale wszystkie reguły warunkowe są ponownie egzekwowane przez Form Request. `additional_information_template` przechowuje nierozwiązany token `[uwagi_sprzedawcy]`; renderowanie i snapshot należą do przyszłego serwisu wystawiania dokumentu.
+
 Nie należy dodawać SPA ani frameworka frontendowego tylko dla modułu faktur.
 
 ---
@@ -1430,7 +1434,18 @@ Bez CRUD i UI.
 - aktywność serii własnych,
 - techniczne oznaczenie serii systemowej tylko do odczytu.
 
-Etapy 1C.2–1C.4 rozbudują formularze właściwe dla faktury, korekty i pro formy.
+Etap 1C.2 rozbudował formularz Faktury. Formularze Korekty i Pro formy zostaną rozbudowane w kolejnych etapach.
+
+## Etap 1C.2
+
+- rozbudowane ustawienia serii typu Faktura,
+- strukturalne dane sprzedawcy bez `seller_profiles` i `company_settings`,
+- ustawienia VAT, dostawy, płatności, dat, pozycji i wydruku,
+- wybór serii korekt,
+- szablon informacji z nierozwiązanym tokenem `[uwagi_sprzedawcy]`,
+- prywatne logo serii.
+
+Ten etap nie tworzy tabel dokumentów, nie wystawia faktur i nie generuje PDF. Korekta i Pro forma pozostają nierozbudowane.
 
 ## Etap 1D
 

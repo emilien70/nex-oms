@@ -9,7 +9,16 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Enums\InvoicePaymentDueMode;
+use Modules\Invoices\Enums\InvoicePaymentMethodSource;
+use Modules\Invoices\Enums\InvoicePrimaryLanguage;
+use Modules\Invoices\Enums\InvoicePrintTemplate;
+use Modules\Invoices\Enums\InvoiceSaleDateSource;
+use Modules\Invoices\Enums\InvoiceSecondaryLanguage;
 use Modules\Invoices\Enums\InvoiceSeriesResetPeriod;
+use Modules\Invoices\Enums\InvoiceShippingVatMode;
+use Modules\Invoices\Enums\InvoiceUnitPriceMode;
+use Modules\Invoices\Enums\InvoiceVatRateSource;
 use Modules\Invoices\Http\Requests\StoreInvoiceSeriesRequest;
 use Modules\Invoices\Http\Requests\UpdateInvoiceSeriesActiveRequest;
 use Modules\Invoices\Http\Requests\UpdateInvoiceSeriesRequest;
@@ -64,7 +73,11 @@ class InvoiceSeriesController extends Controller
 
     public function store(StoreInvoiceSeriesRequest $request): RedirectResponse
     {
-        $this->seriesManagement->create($request->validated());
+        try {
+            $this->seriesManagement->create($request->validated());
+        } catch (DomainException $exception) {
+            return $this->domainError($exception);
+        }
 
         return redirect()
             ->route('invoices.series.index')
@@ -180,10 +193,34 @@ class InvoiceSeriesController extends Controller
         ?InvoiceSeries $series = null,
         bool $showValidationErrors = false,
     ): array {
+        $correctionSeries = InvoiceSeries::query()
+            ->where('document_type', InvoiceDocumentType::Correction->value)
+            ->where(function ($query) use ($series): void {
+                $query->where('is_active', true);
+
+                if ($series?->default_correction_series_id !== null) {
+                    $query->orWhere('id', $series->default_correction_series_id);
+                }
+            })
+            ->orderByDesc('is_system')
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get();
+
         return [
             'documentType' => $documentType,
             'documentTypes' => InvoiceDocumentType::cases(),
             'resetPeriods' => InvoiceSeriesResetPeriod::cases(),
+            'vatRateSources' => InvoiceVatRateSource::cases(),
+            'shippingVatModes' => InvoiceShippingVatMode::cases(),
+            'paymentMethodSources' => InvoicePaymentMethodSource::cases(),
+            'saleDateSources' => InvoiceSaleDateSource::cases(),
+            'paymentDueModes' => InvoicePaymentDueMode::cases(),
+            'unitPriceModes' => InvoiceUnitPriceMode::cases(),
+            'printTemplates' => InvoicePrintTemplate::cases(),
+            'primaryLanguages' => InvoicePrimaryLanguage::cases(),
+            'secondaryLanguages' => InvoiceSecondaryLanguage::cases(),
+            'correctionSeries' => $correctionSeries,
             'series' => $series,
             'showValidationErrors' => $showValidationErrors,
             'useOldInput' => $showValidationErrors,
@@ -195,6 +232,49 @@ class InvoiceSeriesController extends Controller
                 'fiscal_year_start_month' => $series?->fiscal_year_start_month ?? 1,
                 'default_currency' => $series?->default_currency ?? 'PLN',
                 'is_active' => $series?->is_active ?? true,
+                'seller_name' => $series?->seller_name,
+                'seller_tax_id' => $series?->seller_tax_id,
+                'seller_regon' => $series?->seller_regon,
+                'seller_bdo' => $series?->seller_bdo,
+                'seller_street' => $series?->seller_street,
+                'seller_building_number' => $series?->seller_building_number,
+                'seller_apartment_number' => $series?->seller_apartment_number,
+                'seller_postal_code' => $series?->seller_postal_code,
+                'seller_city' => $series?->seller_city,
+                'seller_province' => $series?->seller_province,
+                'seller_country_code' => $series?->seller_country_code ?? 'PL',
+                'seller_email' => $series?->seller_email,
+                'seller_phone' => $series?->seller_phone,
+                'seller_bank_name' => $series?->seller_bank_name,
+                'seller_bank_account' => $series?->seller_bank_account,
+                'seller_bank_swift' => $series?->seller_bank_swift,
+                'place_of_issue' => $series?->place_of_issue,
+                'issuer_name' => $series?->issuer_name,
+                'default_correction_series_id' => $series?->default_correction_series_id,
+                'vat_rate_source' => $series?->vat_rate_source?->value ?? InvoiceVatRateSource::OrderItem->value,
+                'default_vat_rate' => $series?->default_vat_rate,
+                'include_shipping' => $series?->include_shipping ?? true,
+                'shipping_vat_mode' => $series?->shipping_vat_mode?->value ?? InvoiceShippingVatMode::HighestItem->value,
+                'default_shipping_vat_rate' => $series?->default_shipping_vat_rate,
+                'skip_zero_price_items' => $series?->skip_zero_price_items ?? false,
+                'payment_method_source' => $series?->payment_method_source?->value ?? InvoicePaymentMethodSource::Order->value,
+                'fixed_payment_method' => $series?->fixed_payment_method,
+                'sale_date_source' => $series?->sale_date_source?->value ?? InvoiceSaleDateSource::PaymentOrIssue->value,
+                'payment_due_mode' => $series?->payment_due_mode?->value ?? InvoicePaymentDueMode::None->value,
+                'payment_due_days' => $series?->payment_due_days,
+                'unit_price_mode' => $series?->unit_price_mode?->value ?? InvoiceUnitPriceMode::Gross->value,
+                'show_vat_column' => $series?->show_vat_column ?? true,
+                'show_order_number' => $series?->show_order_number ?? false,
+                'show_buyer_signature' => $series?->show_buyer_signature ?? false,
+                'show_original_copy' => $series?->show_original_copy ?? false,
+                'print_template' => $series?->print_template?->value ?? InvoicePrintTemplate::Standard->value,
+                'primary_language' => $series?->primary_language?->value ?? InvoicePrimaryLanguage::BuyerCountry->value,
+                'secondary_language' => $series?->secondary_language?->value,
+                'document_title' => $series?->document_title ?? 'Faktura VAT',
+                'copies_count' => $series?->copies_count ?? 1,
+                'additional_information_template' => $series?->additional_information_template,
+                'logo_path' => $series?->logo_path,
+                'remove_logo' => false,
             ],
         ];
     }
