@@ -39,11 +39,23 @@
             <input class="form-control form-control-sm {{ $invoiceHasError('copies_count') ? 'is-invalid' : '' }}" id="invoice-series-copies-count" name="copies_count" type="number" min="1" max="10" step="1" value="{{ $invoiceValue('copies_count') }}" required>
             @if ($invoiceHasError('copies_count'))<div class="invalid-feedback">{{ $errors->first('copies_count') }}</div>@endif
         </div>
-        @foreach ([
-            'show_order_number' => 'Pokaż numer zamówienia',
-            'show_buyer_signature' => 'Pokaż miejsce na podpis odbiorcy',
-            'show_original_copy' => 'Oryginał/kopia',
-        ] as $field => $label)
+        @php
+            $printOptions = [
+                'show_order_number' => 'Pokaż numer zamówienia',
+                'show_buyer_signature' => 'Pokaż miejsce na podpis odbiorcy',
+                'show_original_copy' => 'Oryginał/kopia',
+            ];
+
+            if ($showPaymentIdentifierOption ?? false) {
+                $printOptions = [
+                    'show_order_number' => $printOptions['show_order_number'],
+                    'show_payment_identifier' => 'Pokaż identyfikator płatności',
+                    'show_buyer_signature' => $printOptions['show_buyer_signature'],
+                    'show_original_copy' => $printOptions['show_original_copy'],
+                ];
+            }
+        @endphp
+        @foreach ($printOptions as $field => $label)
             <div class="col-md-4">
                 <div class="form-check">
                     <input type="hidden" name="{{ $field }}" value="0">

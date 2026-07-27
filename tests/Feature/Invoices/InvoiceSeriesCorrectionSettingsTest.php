@@ -101,7 +101,7 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         }
     }
 
-    public function test_invoice_form_remains_extended_and_proforma_remains_basic(): void
+    public function test_invoice_and_proforma_forms_remain_extended_without_correction_settings(): void
     {
         $this->get(route('invoices.series.form', ['document_type' => 'invoice']))
             ->assertOk()
@@ -111,8 +111,8 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         $this->get(route('invoices.series.form', ['document_type' => 'proforma']))
             ->assertOk()
             ->assertDontSee('Ustawienia korekty')
-            ->assertDontSee('Dane sprzedawcy')
-            ->assertDontSee('Ustawienia wydruku');
+            ->assertSee('Dane sprzedawcy')
+            ->assertSee('Ustawienia wydruku');
     }
 
     public function test_custom_correction_series_can_be_created_with_all_settings(): void

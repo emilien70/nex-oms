@@ -610,7 +610,7 @@ Dane sprzedawcy mogą być zapisane częściowo. Ich kompletność będzie spraw
 
 Pole `additional_information_template` przechowuje szablon „Informacje”. Token `[uwagi_sprzedawcy]` pozostaje w szablonie bez renderowania i zostanie rozwiązany dopiero podczas przyszłego wystawiania dokumentu, a wynik będzie snapshotem faktury.
 
-Etap 1C.2 nie wystawia faktur, nie generuje PDF i nie oblicza VAT. Formularz Pro formy pozostaje w zakresie Etapu 1C.1. Paragony nie należą do modułu.
+Etap 1C.2 nie wystawia faktur, nie generuje PDF i nie oblicza VAT. Formularz Pro formy został rozbudowany w Etapie 1C.4. Paragony nie należą do modułu.
 
 ## 13.9. Ustawienia serii Korekta — Etap 1C.3
 
@@ -620,7 +620,15 @@ Dane prawne sprzedawcy, bank i logo nie są konfigurowane w serii korekt. Przysz
 
 Korekta będzie osobnym dokumentem powiązanym z fakturą źródłową. Obowiązkowo pokaże wartości przed zmianą, po zmianie i różnicę. Kolejna korekta tego samego dokumentu będzie odnosiła się do skutecznego stanu po wcześniejszych korektach. Data sprzedaży może pochodzić z faktury źródłowej albo z daty wystawienia korekty; wystawiający może pochodzić z faktury źródłowej albo z serii; sposób płatności może pochodzić z faktury źródłowej, zostać ukryty albo przyjąć stałą wartość serii.
 
-Etap 1C.3 nie tworzy korekt ani innych dokumentów, nie nadaje numerów i nie generuje PDF, JPK ani danych KSeF. Formularz Pro formy zostanie rozbudowany w Etapie 1C.4. Nie ma paragonów.
+Etap 1C.3 nie tworzy korekt ani innych dokumentów, nie nadaje numerów i nie generuje PDF, JPK ani danych KSeF. Formularz Pro formy został rozbudowany w Etapie 1C.4. Nie ma paragonów.
+
+## 13.10. Ustawienia serii Pro forma — Etap 1C.4
+
+Formularz serii typu `proforma` przechowuje bezpośrednio w `invoice_series` własne dane sprzedawcy, rachunek bankowy, miejsce wystawienia, wystawiającego oraz ustawienia VAT, dostawy, płatności, dat, pozycji, informacji i przyszłego wydruku. Pro forma współdzieli z Fakturą pola o takim samym znaczeniu, ale nie posiada serii korekt. Dla końcowego typu `proforma` wartość `default_correction_series_id` jest zawsze `null`.
+
+Pro forma posiada własną serię i własny numer, nie zużywa numeru faktury VAT, nie jest fakturą VAT, nie trafia do rejestru VAT ani JPK jako faktura sprzedaży i nie jest wysyłana do KSeF. Projekt nie używa `seller_profiles` ani `company_settings`; dane sprzedawcy należą bezpośrednio do serii. Opcjonalne logo jest przechowywane na prywatnym dysku `local`.
+
+Pole `additional_information_template` nadal przechowuje literalny token `[uwagi_sprzedawcy]`. Dane sprzedawcy, nabywcy, pozycji i wyrenderowanych informacji zostaną zapisane jako snapshot dopiero podczas przyszłego wystawiania dokumentu. Etap nie wystawia Pro form, nie nadaje numerów i nie generuje PDF. Nie ma paragonów.
 
 ---
 
@@ -891,7 +899,7 @@ Pro forma:
 - nie jest traktowana jak faktura VAT,
 - może być powiązana z późniejszą fakturą.
 
-Na fakturze może być widoczny numer pro formy, jeśli konfiguracja serii tego wymaga.
+Pro forma zawsze posiada własny numer wynikający z własnej serii. Nie zużywa numeru faktury VAT, nie jest wysyłana do KSeF i nie trafia do rejestru VAT ani JPK jako faktura sprzedaży.
 
 ---
 
@@ -1283,7 +1291,7 @@ Poza zakresem Etapu 1A:
 - aktywność serii własnych,
 - pola techniczne serii systemowej tylko do odczytu.
 
-Ustawienia serii Faktura wdrożono w Etapie 1C.2, a ustawienia serii Korekta w Etapie 1C.3. Rozbudowane ustawienia Pro formy powstaną w kolejnym etapie.
+Ustawienia serii Faktura wdrożono w Etapie 1C.2, ustawienia serii Korekta w Etapie 1C.3, a ustawienia serii Pro forma w Etapie 1C.4.
 
 ## Etap 1C.2 — ustawienia serii Faktura
 
@@ -1295,7 +1303,7 @@ Ustawienia serii Faktura wdrożono w Etapie 1C.2, a ustawienia serii Korekta w E
 - podstawowa konfiguracja przyszłego wydruku,
 - prywatne logo serii.
 
-Etap nie tworzy dokumentów ani PDF. Korekta została rozbudowana w Etapie 1C.3, a Pro forma nadal wymaga kolejnego etapu.
+Etap nie tworzy dokumentów ani PDF. Korekta została rozbudowana w Etapie 1C.3, a Pro forma w Etapie 1C.4.
 
 ## Etap 1C.3 — ustawienia serii Korekta
 
@@ -1306,7 +1314,19 @@ Etap nie tworzy dokumentów ani PDF. Korekta została rozbudowana w Etapie 1C.3,
 - podstawowa konfiguracja przyszłego wydruku,
 - dziedziczenie danych prawnych sprzedawcy ze snapshotu dokumentu źródłowego.
 
-Etap nie tworzy dokumentów, nie nadaje numerów i nie generuje PDF. Pro forma nadal wymaga kolejnego etapu rozbudowy.
+Etap nie tworzy dokumentów, nie nadaje numerów i nie generuje PDF. Pro forma została rozbudowana w Etapie 1C.4.
+
+## Etap 1C.4 — ustawienia serii Pro forma
+
+- dane sprzedawcy przechowywane bezpośrednio w serii,
+- rachunek bankowy, miejsce wystawienia i wystawiający,
+- konfiguracja VAT, dostawy, płatności, dat i pozycji,
+- identyfikator płatności i podstawowa konfiguracja przyszłego wydruku,
+- szablon informacji z nierozwiązanym tokenem `[uwagi_sprzedawcy]`,
+- prywatne logo serii,
+- brak `default_correction_series_id` dla końcowego typu `proforma`.
+
+Etap nie tworzy dokumentów, nie nadaje numerów i nie generuje PDF. Pro forma nie jest fakturą VAT, nie podlega KSeF i nie trafia do rejestru VAT ani JPK jako faktura sprzedaży.
 
 ## Etap 1D — VAT, produkty, JPK i GTU
 

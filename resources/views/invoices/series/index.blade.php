@@ -439,6 +439,7 @@
                 const paymentDueMode = body.querySelector('[name="payment_due_mode"]')?.value;
                 const visibility = {
                     'default-vat-rate': vatSource === 'fixed',
+                    'shipping-vat-settings': includeShipping,
                     'shipping-vat-rate': includeShipping && shippingVatMode === 'fixed',
                     'fixed-payment-method': paymentSource === 'fixed',
                     'payment-due-days': paymentDueMode === 'days_from_issue',

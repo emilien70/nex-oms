@@ -57,6 +57,17 @@ abstract class InvoiceSeriesRequest extends FormRequest
         'remove_logo',
     ];
 
+    private const PROFORMA_BOOLEAN_FIELDS = [
+        'include_shipping',
+        'skip_zero_price_items',
+        'show_vat_column',
+        'show_order_number',
+        'show_payment_identifier',
+        'show_buyer_signature',
+        'show_original_copy',
+        'remove_logo',
+    ];
+
     private const CORRECTION_BOOLEAN_FIELDS = [
         'show_correction_item_sequence',
         'show_return_id_in_header',
@@ -93,6 +104,8 @@ abstract class InvoiceSeriesRequest extends FormRequest
             $rules = array_merge($rules, $this->invoiceRules());
         } elseif ($this->finalDocumentType() === InvoiceDocumentType::Correction) {
             $rules = array_merge($rules, $this->correctionRules());
+        } elseif ($this->finalDocumentType() === InvoiceDocumentType::Proforma) {
+            $rules = array_merge($rules, $this->proformaRules());
         }
 
         return $rules;
@@ -171,11 +184,20 @@ abstract class InvoiceSeriesRequest extends FormRequest
             return;
         }
 
-        if ($this->finalDocumentType() !== InvoiceDocumentType::Invoice) {
+        $documentType = $this->finalDocumentType();
+        if (! in_array($documentType, [InvoiceDocumentType::Invoice, InvoiceDocumentType::Proforma], true)) {
             return;
         }
 
-        $defaults = $this->invoiceInputDefaults();
+        $this->prepareCommercialDocumentForValidation($documentType);
+    }
+
+    private function prepareCommercialDocumentForValidation(InvoiceDocumentType $documentType): void
+    {
+        $defaults = $documentType === InvoiceDocumentType::Proforma
+            ? $this->proformaInputDefaults()
+            : $this->invoiceInputDefaults();
+
         foreach ($defaults as $field => $value) {
             if (! $this->exists($field)) {
                 $this->merge([$field => $value]);
@@ -197,7 +219,11 @@ abstract class InvoiceSeriesRequest extends FormRequest
             : strtoupper($normalized['seller_bank_swift']);
         $normalized['document_title'] = trim((string) $this->input('document_title', ''));
 
-        foreach (self::BOOLEAN_FIELDS as $field) {
+        $booleanFields = $documentType === InvoiceDocumentType::Proforma
+            ? self::PROFORMA_BOOLEAN_FIELDS
+            : self::BOOLEAN_FIELDS;
+
+        foreach ($booleanFields as $field) {
             $value = $this->input($field);
             if (in_array($value, [true, false, 0, 1, '0', '1'], true)) {
                 $normalized[$field] = filter_var($value, FILTER_VALIDATE_BOOL);
@@ -218,7 +244,23 @@ abstract class InvoiceSeriesRequest extends FormRequest
      */
     private function invoiceRules(): array
     {
-        return [
+        return $this->commercialDocumentRules(true, false);
+    }
+
+    /**
+     * @return array<string, array<int, mixed>>
+     */
+    private function proformaRules(): array
+    {
+        return $this->commercialDocumentRules(false, true);
+    }
+
+    /**
+     * @return array<string, array<int, mixed>>
+     */
+    private function commercialDocumentRules(bool $allowCorrectionSeries, bool $showPaymentIdentifier): array
+    {
+        $rules = [
             'seller_name' => ['nullable', 'string', 'max:255'],
             'seller_tax_id' => ['nullable', 'string', 'max:32'],
             'seller_regon' => ['nullable', 'string', 'max:32'],
@@ -237,16 +279,6 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'seller_bank_swift' => ['nullable', 'string', 'max:11'],
             'place_of_issue' => ['nullable', 'string', 'max:120'],
             'issuer_name' => ['nullable', 'string', 'max:255'],
-            'default_correction_series_id' => [
-                'nullable',
-                'integer',
-                Rule::exists('invoice_series', 'id')->where(
-                    fn (Builder $query): Builder => $query->where(
-                        'document_type',
-                        InvoiceDocumentType::Correction->value,
-                    ),
-                ),
-            ],
             'vat_rate_source' => ['required', Rule::enum(InvoiceVatRateSource::class)],
             'default_vat_rate' => [
                 Rule::requiredIf(fn (): bool => $this->input('vat_rate_source') === InvoiceVatRateSource::Fixed->value),
@@ -299,6 +331,25 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'logo' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:2048'],
             'remove_logo' => ['required', 'boolean'],
         ];
+
+        if ($allowCorrectionSeries) {
+            $rules['default_correction_series_id'] = [
+                'nullable',
+                'integer',
+                Rule::exists('invoice_series', 'id')->where(
+                    fn (Builder $query): Builder => $query->where(
+                        'document_type',
+                        InvoiceDocumentType::Correction->value,
+                    ),
+                ),
+            ];
+        }
+
+        if ($showPaymentIdentifier) {
+            $rules['show_payment_identifier'] = ['required', 'boolean'];
+        }
+
+        return $rules;
     }
 
     /**
@@ -434,6 +485,22 @@ abstract class InvoiceSeriesRequest extends FormRequest
      */
     private function invoiceInputDefaults(): array
     {
+        return $this->commercialDocumentInputDefaults(InvoiceDocumentType::Invoice);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function proformaInputDefaults(): array
+    {
+        return $this->commercialDocumentInputDefaults(InvoiceDocumentType::Proforma);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function commercialDocumentInputDefaults(InvoiceDocumentType $documentType): array
+    {
         $defaults = [
             'seller_name' => null,
             'seller_tax_id' => null,
@@ -477,10 +544,21 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'copies_count' => 1,
             'additional_information_template' => null,
             'remove_logo' => false,
+            'show_payment_identifier' => false,
         ];
 
+        if ($documentType === InvoiceDocumentType::Proforma) {
+            $defaults = array_replace($defaults, [
+                'default_correction_series_id' => null,
+                'include_shipping' => false,
+                'payment_method_source' => InvoicePaymentMethodSource::None->value,
+                'unit_price_mode' => InvoiceUnitPriceMode::Net->value,
+                'document_title' => 'Faktura pro forma',
+            ]);
+        }
+
         $series = $this->route('series');
-        if (! $series instanceof InvoiceSeries) {
+        if (! $series instanceof InvoiceSeries || $series->document_type !== $documentType) {
             return $defaults;
         }
 

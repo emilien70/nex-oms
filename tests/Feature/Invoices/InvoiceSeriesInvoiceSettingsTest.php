@@ -48,7 +48,7 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
         $this->assertDatabaseHas('invoice_series', ['system_key' => 'proforma']);
     }
 
-    public function test_invoice_form_has_all_sections_but_other_types_remain_basic(): void
+    public function test_invoice_form_has_all_sections_and_proforma_uses_shared_commercial_sections(): void
     {
         $invoice = $this->get(route('invoices.series.form', ['document_type' => 'invoice']));
 
@@ -75,10 +75,11 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
 
         $this->get(route('invoices.series.form', ['document_type' => 'proforma']))
             ->assertOk()
-            ->assertDontSee('Dane sprzedawcy')
-            ->assertDontSee('VAT i pozycje')
-            ->assertDontSee('Płatność i daty')
-            ->assertDontSee('Ustawienia wydruku');
+            ->assertSee('Dane sprzedawcy')
+            ->assertSee('VAT i pozycje')
+            ->assertSee('Płatność i daty')
+            ->assertSee('Ustawienia wydruku')
+            ->assertDontSee('default_correction_series_id', false);
     }
 
     public function test_custom_invoice_series_can_be_created_with_complete_configuration(): void

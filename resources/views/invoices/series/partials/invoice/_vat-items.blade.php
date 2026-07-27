@@ -23,7 +23,7 @@
                 @if ($invoiceHasError('include_shipping'))<div class="invalid-feedback">{{ $errors->first('include_shipping') }}</div>@endif
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-4" data-invoice-dependent="shipping-vat-settings">
             <label class="form-label" for="invoice-series-shipping-vat-mode">VAT kosztu dostawy</label>
             <select class="form-select form-select-sm {{ $invoiceHasError('shipping_vat_mode') ? 'is-invalid' : '' }}" id="invoice-series-shipping-vat-mode" name="shipping_vat_mode" data-invoice-control required>
                 @foreach ($shippingVatModes as $option)

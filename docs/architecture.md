@@ -1337,6 +1337,10 @@ Etap 1C.2 rozbudowuje wyłącznie partial typu `invoice`. Strukturalne dane sprz
 
 Etap 1C.3 rozbudowuje partial typu `correction`. Ustawienia korekty są osobnymi kolumnami `invoice_series`, a źródła daty sprzedaży, wystawiającego i sposobu płatności są zamkniętymi enumami. Serwis używa osobnej jawnej listy dozwolonych pól korekty. Nie pozwala ona zapisywać danych prawnych sprzedawcy, banku, logo ani ustawień dostawy właściwych dla faktury.
 
+Etap 1C.4 rozbudowuje partial typu `proforma`. Faktura i Pro forma współdzielą partiale danych sprzedawcy, banku, wystawienia, VAT, dostawy, płatności, dat, informacji, wydruku i logo. Serwis posiada wspólną jawną listę pól dokumentów handlowych oraz osobne listy pól właściwych tylko Fakturze albo Pro formie. Dla końcowego typu `proforma` zawsze zeruje `default_correction_series_id`. Logo jest obsługiwane dla `invoice` i `proforma`, ale nie dla `correction`.
+
+Pro forma posiada własną serię i numer, nie zużywa numeracji faktury VAT, nie jest fakturą VAT, nie trafia do rejestru VAT ani JPK jako faktura sprzedaży i nie jest wysyłana do KSeF. Dane sprzedawcy należą bezpośrednio do serii, bez `seller_profiles` i `company_settings`. Token `[uwagi_sprzedawcy]` pozostaje nierozwiązany do czasu przyszłego utworzenia snapshotu dokumentu.
+
 Dane prawne korekty będą pochodziły ze snapshotu dokumentu źródłowego. Korekta pozostaje osobnym dokumentem powiązanym z fakturą źródłową i w przyszłości zapisze wartości przed zmianą, po zmianie oraz różnicę. Korekty łańcuchowe będą bazowały na skutecznym stanie po poprzednich korektach. Domyślny powód jest podpowiedzią, a finalna wartość będzie snapshotem dokumentu. Pola warunkowe formularza są sterowane w JavaScript, lecz te same zależności egzekwuje Form Request. Zmiana typu serii własnej zachowuje nieaktywne ustawienia poprzedniego typu, a nowy typ otrzymuje bezpieczne wartości domyślne.
 
 Zależności formularza VAT, dostawy i płatności są prezentacyjne po stronie JavaScript, ale wszystkie reguły warunkowe są ponownie egzekwowane przez Form Request. `additional_information_template` przechowuje nierozwiązany token `[uwagi_sprzedawcy]`; renderowanie i snapshot należą do przyszłego serwisu wystawiania dokumentu.
@@ -1438,7 +1442,7 @@ Bez CRUD i UI.
 - aktywność serii własnych,
 - techniczne oznaczenie serii systemowej tylko do odczytu.
 
-Etap 1C.2 rozbudował formularz Faktury, a Etap 1C.3 formularz Korekty. Formularz Pro formy zostanie rozbudowany w kolejnym etapie.
+Etap 1C.2 rozbudował formularz Faktury, Etap 1C.3 formularz Korekty, a Etap 1C.4 formularz Pro formy.
 
 ## Etap 1C.2
 
@@ -1449,7 +1453,7 @@ Etap 1C.2 rozbudował formularz Faktury, a Etap 1C.3 formularz Korekty. Formular
 - szablon informacji z nierozwiązanym tokenem `[uwagi_sprzedawcy]`,
 - prywatne logo serii.
 
-Ten etap nie tworzy tabel dokumentów, nie wystawia faktur i nie generuje PDF. Korekta została rozbudowana w Etapie 1C.3, a Pro forma pozostaje nierozbudowana.
+Ten etap nie tworzy tabel dokumentów, nie wystawia faktur i nie generuje PDF. Korekta została rozbudowana w Etapie 1C.3, a Pro forma w Etapie 1C.4.
 
 ## Etap 1C.3
 
@@ -1461,7 +1465,19 @@ Ten etap nie tworzy tabel dokumentów, nie wystawia faktur i nie generuje PDF. K
 - jawna lista dozwolonych pól oddzielona od konfiguracji Faktury,
 - dane prawne sprzedawcy dziedziczone w przyszłości ze snapshotu dokumentu źródłowego.
 
-Etap nie tworzy dokumentów, liczników, PDF, JPK ani KSeF. Pro forma pozostaje zakresem kolejnego etapu.
+Etap nie tworzy dokumentów, liczników, PDF, JPK ani KSeF. Pro forma została rozbudowana w Etapie 1C.4.
+
+## Etap 1C.4
+
+- rozbudowane ustawienia serii typu Pro forma,
+- współdzielone z Fakturą dane sprzedawcy, banku, wystawienia, VAT, dostawy, płatności, dat, informacji i wydruku,
+- prywatne logo serii,
+- osobne ustawienie identyfikatora płatności,
+- jawna lista dozwolonych pól końcowego typu `proforma`,
+- bezwarunkowe `default_correction_series_id = null` dla Pro formy,
+- bezpieczna zmiana typu dodatkowej serii.
+
+Etap nie tworzy dokumentów, liczników, PDF, JPK ani KSeF. Pro forma posiada własną serię i numer, ale nie jest fakturą VAT i nie trafia do rejestru VAT ani JPK jako faktura sprzedaży. Nie ma paragonów.
 
 ## Etap 1D
 

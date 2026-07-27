@@ -1038,7 +1038,7 @@ Etap 1C.2 rozbudowuje wyłącznie formularz serii typu `invoice` o:
 - podstawowe ustawienia przyszłego wydruku,
 - prywatne logo serii.
 
-Dane sprzedawcy mogą być częściowe; pełna walidacja nastąpi przed przyszłym wystawieniem dokumentu. Logo należy do prywatnego dysku `local`. Formularz Pro formy pozostaje na poziomie Etapu 1C.1. Etap nie tworzy dokumentów, pozycji dokumentów, liczników, PDF, JPK ani KSeF. Nie ma paragonów.
+Dane sprzedawcy mogą być częściowe; pełna walidacja nastąpi przed przyszłym wystawieniem dokumentu. Logo należy do prywatnego dysku `local`. Formularz Pro formy został rozbudowany w Etapie 1C.4. Etap nie tworzy dokumentów, pozycji dokumentów, liczników, PDF, JPK ani KSeF. Nie ma paragonów.
 
 ---
 
@@ -1054,4 +1054,23 @@ Etap 1C.3 rozbudowuje wyłącznie formularz serii typu `correction` o:
 - szablon `additional_information_template` z nierozwiązanym tokenem `[uwagi_sprzedawcy]`,
 - wspólne ustawienia przyszłego wydruku.
 
-Dane prawne sprzedawcy, rachunek bankowy i logo korekty będą pochodziły ze snapshotu dokumentu źródłowego, dlatego nie są edytowane w serii korekt. Powód korekty jest tylko wartością domyślną przyszłego dokumentu i zostanie zapisany jako snapshot po wystawieniu korekty. Korekta pozostaje osobnym dokumentem powiązanym z fakturą źródłową, obowiązkowo pokaże wartości przed zmianą, po zmianie i różnicę. Korekta łańcuchowa będzie odnosiła się do skutecznego stanu po wcześniejszych korektach. Etap nie tworzy korekt, faktur, pozycji dokumentów, liczników, PDF, JPK ani KSeF. Formularz Pro formy pozostaje zakresem Etapu 1C.4. Nie ma paragonów.
+Dane prawne sprzedawcy, rachunek bankowy i logo korekty będą pochodziły ze snapshotu dokumentu źródłowego, dlatego nie są edytowane w serii korekt. Powód korekty jest tylko wartością domyślną przyszłego dokumentu i zostanie zapisany jako snapshot po wystawieniu korekty. Korekta pozostaje osobnym dokumentem powiązanym z fakturą źródłową, obowiązkowo pokaże wartości przed zmianą, po zmianie i różnicę. Korekta łańcuchowa będzie odnosiła się do skutecznego stanu po wcześniejszych korektach. Etap nie tworzy korekt, faktur, pozycji dokumentów, liczników, PDF, JPK ani KSeF. Formularz Pro formy został rozbudowany w Etapie 1C.4. Nie ma paragonów.
+
+---
+
+# 34. Granice Etapu 1C.4
+
+Etap 1C.4 rozbudowuje formularz serii typu `proforma` o dane sprzedawcy, rachunek bankowy, dane wystawienia, ustawienia VAT, dostawy, płatności, dat, informacji, wydruku oraz prywatne logo. Faktura i Pro forma współdzielą pola oraz mechanizmy, które mają identyczne znaczenie biznesowe. Serwis nadal używa jawnych list pól dozwolonych dla końcowego typu dokumentu.
+
+Pro forma:
+
+- posiada własną serię i własny numer,
+- nie zużywa numeru faktury VAT,
+- nie jest fakturą VAT,
+- nie trafia do rejestru VAT ani JPK jako faktura sprzedaży,
+- nie jest wysyłana do KSeF,
+- nie posiada serii korekt; `default_correction_series_id` zawsze pozostaje `null`,
+- może posiadać własne dane sprzedawcy i logo zapisane bezpośrednio w serii,
+- nie używa `seller_profiles` ani `company_settings`.
+
+`additional_information_template` przechowuje nierozwiązany token `[uwagi_sprzedawcy]`. Renderowanie tokenu oraz snapshot danych sprzedawcy, nabywcy, pozycji i informacji nastąpią dopiero podczas przyszłego wystawiania dokumentu. Etap nie tworzy dokumentów, pozycji dokumentów, liczników, PDF, JPK ani KSeF. Nie ma paragonów.

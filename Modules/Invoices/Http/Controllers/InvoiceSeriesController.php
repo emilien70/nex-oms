@@ -210,6 +210,8 @@ class InvoiceSeriesController extends Controller
             ->orderBy('id')
             ->get();
 
+        $isNewProforma = $series === null && $documentType === InvoiceDocumentType::Proforma;
+
         return [
             'documentType' => $documentType,
             'documentTypes' => InvoiceDocumentType::cases(),
@@ -259,16 +261,20 @@ class InvoiceSeriesController extends Controller
                 'default_correction_series_id' => $series?->default_correction_series_id,
                 'vat_rate_source' => $series?->vat_rate_source?->value ?? InvoiceVatRateSource::OrderItem->value,
                 'default_vat_rate' => $series?->default_vat_rate,
-                'include_shipping' => $series?->include_shipping ?? true,
+                'include_shipping' => $series?->include_shipping ?? ! $isNewProforma,
                 'shipping_vat_mode' => $series?->shipping_vat_mode?->value ?? InvoiceShippingVatMode::HighestItem->value,
                 'default_shipping_vat_rate' => $series?->default_shipping_vat_rate,
                 'skip_zero_price_items' => $series?->skip_zero_price_items ?? false,
-                'payment_method_source' => $series?->payment_method_source?->value ?? InvoicePaymentMethodSource::Order->value,
+                'payment_method_source' => $series?->payment_method_source?->value ?? ($isNewProforma
+                    ? InvoicePaymentMethodSource::None->value
+                    : InvoicePaymentMethodSource::Order->value),
                 'fixed_payment_method' => $series?->fixed_payment_method,
                 'sale_date_source' => $series?->sale_date_source?->value ?? InvoiceSaleDateSource::PaymentOrIssue->value,
                 'payment_due_mode' => $series?->payment_due_mode?->value ?? InvoicePaymentDueMode::None->value,
                 'payment_due_days' => $series?->payment_due_days,
-                'unit_price_mode' => $series?->unit_price_mode?->value ?? InvoiceUnitPriceMode::Gross->value,
+                'unit_price_mode' => $series?->unit_price_mode?->value ?? ($isNewProforma
+                    ? InvoiceUnitPriceMode::Net->value
+                    : InvoiceUnitPriceMode::Gross->value),
                 'show_vat_column' => $series?->show_vat_column ?? true,
                 'show_order_number' => $series?->show_order_number ?? false,
                 'show_buyer_signature' => $series?->show_buyer_signature ?? false,
@@ -279,7 +285,7 @@ class InvoiceSeriesController extends Controller
                 'document_title' => $series?->document_title ?? match ($documentType) {
                     InvoiceDocumentType::Invoice => 'Faktura VAT',
                     InvoiceDocumentType::Correction => 'Faktura korygująca',
-                    InvoiceDocumentType::Proforma => null,
+                    InvoiceDocumentType::Proforma => 'Faktura pro forma',
                 },
                 'copies_count' => $series?->copies_count ?? 1,
                 'additional_information_template' => $series?->additional_information_template,

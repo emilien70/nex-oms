@@ -31,7 +31,7 @@ class InvoiceSeriesManagementService
         'is_active',
     ];
 
-    private const INVOICE_EDITABLE_FIELDS = [
+    private const COMMERCIAL_DOCUMENT_EDITABLE_FIELDS = [
         'seller_name',
         'seller_tax_id',
         'seller_regon',
@@ -50,7 +50,6 @@ class InvoiceSeriesManagementService
         'seller_bank_swift',
         'place_of_issue',
         'issuer_name',
-        'default_correction_series_id',
         'additional_information_template',
         'vat_rate_source',
         'default_vat_rate',
@@ -73,6 +72,14 @@ class InvoiceSeriesManagementService
         'secondary_language',
         'document_title',
         'copies_count',
+    ];
+
+    private const INVOICE_EDITABLE_FIELDS = [
+        'default_correction_series_id',
+    ];
+
+    private const PROFORMA_EDITABLE_FIELDS = [
+        'show_payment_identifier',
     ];
 
     private const CORRECTION_EDITABLE_FIELDS = [
@@ -114,7 +121,16 @@ class InvoiceSeriesManagementService
                 $series->system_key = null;
                 $series->save();
 
-                if ($this->finalDocumentType($data) === InvoiceDocumentType::Invoice->value
+                $finalDocumentType = $this->finalDocumentType($data);
+                if ($finalDocumentType === InvoiceDocumentType::Proforma->value) {
+                    $series->default_correction_series_id = null;
+                    $series->save();
+                }
+
+                if (in_array($finalDocumentType, [
+                    InvoiceDocumentType::Invoice->value,
+                    InvoiceDocumentType::Proforma->value,
+                ], true)
                     && ($data['logo'] ?? null) instanceof UploadedFile) {
                     $newLogoPath = $this->storeLogo($series, $data['logo']);
                     $series->logo_path = $newLogoPath;
@@ -137,7 +153,11 @@ class InvoiceSeriesManagementService
     {
         $oldLogoPath = $series->logo_path;
         $newLogoPath = null;
-        $allowLogoChanges = $this->finalDocumentType($data, $series) === InvoiceDocumentType::Invoice->value;
+        $finalDocumentType = $this->finalDocumentType($data, $series);
+        $allowLogoChanges = in_array($finalDocumentType, [
+            InvoiceDocumentType::Invoice->value,
+            InvoiceDocumentType::Proforma->value,
+        ], true);
         $removeLogo = $allowLogoChanges && (bool) ($data['remove_logo'] ?? false);
         $uploadedLogo = $allowLogoChanges && ($data['logo'] ?? null) instanceof UploadedFile
             ? $data['logo']
@@ -156,6 +176,10 @@ class InvoiceSeriesManagementService
                 $editableFields = $this->editableFieldsForData($data, $baseFields, $managedSeries);
 
                 $managedSeries->fill($this->normalizeData(Arr::only($data, $editableFields)));
+
+                if ($this->finalDocumentType($data, $managedSeries) === InvoiceDocumentType::Proforma->value) {
+                    $managedSeries->default_correction_series_id = null;
+                }
 
                 if ($newLogoPath !== null) {
                     $managedSeries->logo_path = $newLogoPath;
@@ -305,7 +329,16 @@ class InvoiceSeriesManagementService
         ?InvoiceSeries $series = null,
     ): array {
         return match ($this->finalDocumentType($data, $series)) {
-            InvoiceDocumentType::Invoice->value => array_merge($baseFields, self::INVOICE_EDITABLE_FIELDS),
+            InvoiceDocumentType::Invoice->value => array_merge(
+                $baseFields,
+                self::COMMERCIAL_DOCUMENT_EDITABLE_FIELDS,
+                self::INVOICE_EDITABLE_FIELDS,
+            ),
+            InvoiceDocumentType::Proforma->value => array_merge(
+                $baseFields,
+                self::COMMERCIAL_DOCUMENT_EDITABLE_FIELDS,
+                self::PROFORMA_EDITABLE_FIELDS,
+            ),
             InvoiceDocumentType::Correction->value => array_merge($baseFields, self::CORRECTION_EDITABLE_FIELDS),
             default => $baseFields,
         };
