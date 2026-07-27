@@ -6,6 +6,9 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Unique;
+use Modules\Invoices\Enums\CorrectionIssuerSource;
+use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
+use Modules\Invoices\Enums\CorrectionSaleDateSource;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoicePaymentDueMode;
 use Modules\Invoices\Enums\InvoicePaymentMethodSource;
@@ -54,6 +57,16 @@ abstract class InvoiceSeriesRequest extends FormRequest
         'remove_logo',
     ];
 
+    private const CORRECTION_BOOLEAN_FIELDS = [
+        'show_correction_item_sequence',
+        'show_return_id_in_header',
+        'show_payment_identifier',
+        'show_vat_column',
+        'show_order_number',
+        'show_buyer_signature',
+        'show_original_copy',
+    ];
+
     public function authorize(): bool
     {
         return true;
@@ -78,6 +91,8 @@ abstract class InvoiceSeriesRequest extends FormRequest
 
         if ($this->finalDocumentType() === InvoiceDocumentType::Invoice) {
             $rules = array_merge($rules, $this->invoiceRules());
+        } elseif ($this->finalDocumentType() === InvoiceDocumentType::Correction) {
+            $rules = array_merge($rules, $this->correctionRules());
         }
 
         return $rules;
@@ -131,6 +146,14 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'logo.image' => 'Logo musi być prawidłowym plikiem graficznym.',
             'logo.mimes' => 'Logo musi być plikiem PNG, JPG, JPEG albo WEBP.',
             'logo.max' => 'Logo nie może być większe niż 2 MB.',
+            'default_correction_reason.max' => 'Domyślny powód korekty nie może być dłuższy niż 1000 znaków.',
+            'correction_sale_date_source.required' => 'Wybierz sposób ustalania daty sprzedaży.',
+            'correction_sale_date_source.enum' => 'Wybrany sposób ustalania daty sprzedaży jest nieprawidłowy.',
+            'correction_issuer_source.required' => 'Wybierz źródło osoby wystawiającej.',
+            'correction_issuer_source.enum' => 'Wybrane źródło osoby wystawiającej jest nieprawidłowe.',
+            'issuer_name.required' => 'Podaj osobę wystawiającą zapisaną w serii korekt.',
+            'correction_payment_method_source.required' => 'Wybierz sposób prezentowania płatności.',
+            'correction_payment_method_source.enum' => 'Wybrany sposób prezentowania płatności jest nieprawidłowy.',
         ];
     }
 
@@ -141,6 +164,12 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'number_format' => trim((string) $this->input('number_format', '')),
             'default_currency' => strtoupper(trim((string) $this->input('default_currency', ''))),
         ]);
+
+        if ($this->finalDocumentType() === InvoiceDocumentType::Correction) {
+            $this->prepareCorrectionForValidation();
+
+            return;
+        }
 
         if ($this->finalDocumentType() !== InvoiceDocumentType::Invoice) {
             return;
@@ -272,9 +301,132 @@ abstract class InvoiceSeriesRequest extends FormRequest
         ];
     }
 
+    /**
+     * @return array<string, array<int, mixed>>
+     */
+    private function correctionRules(): array
+    {
+        return [
+            'default_correction_reason' => ['nullable', 'string', 'max:1000'],
+            'correction_sale_date_source' => ['required', Rule::enum(CorrectionSaleDateSource::class)],
+            'correction_issuer_source' => ['required', Rule::enum(CorrectionIssuerSource::class)],
+            'issuer_name' => [
+                Rule::requiredIf(fn (): bool => $this->input('correction_issuer_source') === CorrectionIssuerSource::Series->value),
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'correction_payment_method_source' => ['required', Rule::enum(CorrectionPaymentMethodSource::class)],
+            'fixed_payment_method' => [
+                Rule::requiredIf(fn (): bool => $this->input('correction_payment_method_source') === CorrectionPaymentMethodSource::Fixed->value),
+                'nullable',
+                'string',
+                'max:80',
+            ],
+            'show_correction_item_sequence' => ['required', 'boolean'],
+            'show_return_id_in_header' => ['required', 'boolean'],
+            'show_payment_identifier' => ['required', 'boolean'],
+            'document_title' => ['required', 'string', 'max:120'],
+            'print_template' => ['required', Rule::enum(InvoicePrintTemplate::class)],
+            'primary_language' => ['required', Rule::enum(InvoicePrimaryLanguage::class)],
+            'secondary_language' => [
+                'nullable',
+                Rule::enum(InvoiceSecondaryLanguage::class),
+                'different:primary_language',
+            ],
+            'unit_price_mode' => ['required', Rule::enum(InvoiceUnitPriceMode::class)],
+            'show_vat_column' => ['required', 'boolean'],
+            'show_order_number' => ['required', 'boolean'],
+            'show_buyer_signature' => ['required', 'boolean'],
+            'show_original_copy' => ['required', 'boolean'],
+            'copies_count' => ['required', 'integer', 'between:1,10'],
+            'additional_information_template' => ['nullable', 'string', 'max:65535'],
+        ];
+    }
+
+    private function prepareCorrectionForValidation(): void
+    {
+        foreach ($this->correctionInputDefaults() as $field => $value) {
+            if (! $this->exists($field)) {
+                $this->merge([$field => $value]);
+            }
+        }
+
+        $normalized = [];
+        foreach ([
+            'default_correction_reason',
+            'issuer_name',
+            'fixed_payment_method',
+            'additional_information_template',
+            'secondary_language',
+        ] as $field) {
+            if ($this->exists($field)) {
+                $value = trim((string) $this->input($field));
+                $normalized[$field] = $value === '' ? null : $value;
+            }
+        }
+
+        $normalized['document_title'] = trim((string) $this->input('document_title', ''));
+
+        foreach (self::CORRECTION_BOOLEAN_FIELDS as $field) {
+            $value = $this->input($field);
+            if (in_array($value, [true, false, 0, 1, '0', '1'], true)) {
+                $normalized[$field] = filter_var($value, FILTER_VALIDATE_BOOL);
+            }
+        }
+
+        $this->merge($normalized);
+    }
+
     private function finalDocumentType(): ?InvoiceDocumentType
     {
+        $series = $this->route('series');
+        if ($series instanceof InvoiceSeries && $series->is_system) {
+            return $series->document_type;
+        }
+
         return InvoiceDocumentType::tryFrom((string) $this->input('document_type'));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function correctionInputDefaults(): array
+    {
+        $defaults = [
+            'default_correction_reason' => null,
+            'correction_sale_date_source' => CorrectionSaleDateSource::SourceInvoice->value,
+            'correction_issuer_source' => CorrectionIssuerSource::SourceInvoice->value,
+            'issuer_name' => null,
+            'correction_payment_method_source' => CorrectionPaymentMethodSource::SourceInvoice->value,
+            'fixed_payment_method' => null,
+            'show_correction_item_sequence' => false,
+            'show_return_id_in_header' => false,
+            'show_payment_identifier' => false,
+            'document_title' => 'Faktura korygująca',
+            'print_template' => InvoicePrintTemplate::Standard->value,
+            'primary_language' => InvoicePrimaryLanguage::BuyerCountry->value,
+            'secondary_language' => null,
+            'unit_price_mode' => InvoiceUnitPriceMode::Gross->value,
+            'show_vat_column' => true,
+            'show_order_number' => false,
+            'show_buyer_signature' => false,
+            'show_original_copy' => false,
+            'copies_count' => 1,
+            'additional_information_template' => null,
+        ];
+
+        $series = $this->route('series');
+        if (! $series instanceof InvoiceSeries || $series->document_type !== InvoiceDocumentType::Correction) {
+            return $defaults;
+        }
+
+        foreach (array_keys($defaults) as $field) {
+            $value = $series->{$field};
+            $defaults[$field] = $value instanceof \BackedEnum ? $value->value : $value;
+        }
+
+        return $defaults;
     }
 
     /**

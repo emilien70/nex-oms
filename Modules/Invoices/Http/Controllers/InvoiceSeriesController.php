@@ -8,6 +8,9 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Modules\Invoices\Enums\CorrectionIssuerSource;
+use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
+use Modules\Invoices\Enums\CorrectionSaleDateSource;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoicePaymentDueMode;
 use Modules\Invoices\Enums\InvoicePaymentMethodSource;
@@ -220,6 +223,9 @@ class InvoiceSeriesController extends Controller
             'printTemplates' => InvoicePrintTemplate::cases(),
             'primaryLanguages' => InvoicePrimaryLanguage::cases(),
             'secondaryLanguages' => InvoiceSecondaryLanguage::cases(),
+            'correctionSaleDateSources' => CorrectionSaleDateSource::cases(),
+            'correctionIssuerSources' => CorrectionIssuerSource::cases(),
+            'correctionPaymentMethodSources' => CorrectionPaymentMethodSource::cases(),
             'correctionSeries' => $correctionSeries,
             'series' => $series,
             'showValidationErrors' => $showValidationErrors,
@@ -270,11 +276,25 @@ class InvoiceSeriesController extends Controller
                 'print_template' => $series?->print_template?->value ?? InvoicePrintTemplate::Standard->value,
                 'primary_language' => $series?->primary_language?->value ?? InvoicePrimaryLanguage::BuyerCountry->value,
                 'secondary_language' => $series?->secondary_language?->value,
-                'document_title' => $series?->document_title ?? 'Faktura VAT',
+                'document_title' => $series?->document_title ?? match ($documentType) {
+                    InvoiceDocumentType::Invoice => 'Faktura VAT',
+                    InvoiceDocumentType::Correction => 'Faktura korygująca',
+                    InvoiceDocumentType::Proforma => null,
+                },
                 'copies_count' => $series?->copies_count ?? 1,
                 'additional_information_template' => $series?->additional_information_template,
                 'logo_path' => $series?->logo_path,
                 'remove_logo' => false,
+                'default_correction_reason' => $series?->default_correction_reason,
+                'correction_sale_date_source' => $series?->correction_sale_date_source?->value
+                    ?? CorrectionSaleDateSource::SourceInvoice->value,
+                'correction_issuer_source' => $series?->correction_issuer_source?->value
+                    ?? CorrectionIssuerSource::SourceInvoice->value,
+                'correction_payment_method_source' => $series?->correction_payment_method_source?->value
+                    ?? CorrectionPaymentMethodSource::SourceInvoice->value,
+                'show_correction_item_sequence' => $series?->show_correction_item_sequence ?? false,
+                'show_return_id_in_header' => $series?->show_return_id_in_header ?? false,
+                'show_payment_identifier' => $series?->show_payment_identifier ?? false,
             ],
         ];
     }

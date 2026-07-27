@@ -1335,6 +1335,10 @@ W Etapie 1C.1 kontrolki tworzenia i edycji są aktywne. Jeden modal ładuje part
 
 Etap 1C.2 rozbudowuje wyłącznie partial typu `invoice`. Strukturalne dane sprzedawcy i konfiguracja faktury są kolumnami `invoice_series`, bez dodatkowej tabeli profili sprzedawcy. Serwis zapisuje jawnie dozwolone pola, zachowując ochronę `is_system`, `system_key`, typu i aktywności serii systemowej. Logo jest prywatnym plikiem dysku `local`, a jego wymiana usuwa poprzedni plik dopiero po udanym zapisie modelu.
 
+Etap 1C.3 rozbudowuje partial typu `correction`. Ustawienia korekty są osobnymi kolumnami `invoice_series`, a źródła daty sprzedaży, wystawiającego i sposobu płatności są zamkniętymi enumami. Serwis używa osobnej jawnej listy dozwolonych pól korekty. Nie pozwala ona zapisywać danych prawnych sprzedawcy, banku, logo ani ustawień dostawy właściwych dla faktury.
+
+Dane prawne korekty będą pochodziły ze snapshotu dokumentu źródłowego. Korekta pozostaje osobnym dokumentem powiązanym z fakturą źródłową i w przyszłości zapisze wartości przed zmianą, po zmianie oraz różnicę. Korekty łańcuchowe będą bazowały na skutecznym stanie po poprzednich korektach. Domyślny powód jest podpowiedzią, a finalna wartość będzie snapshotem dokumentu. Pola warunkowe formularza są sterowane w JavaScript, lecz te same zależności egzekwuje Form Request. Zmiana typu serii własnej zachowuje nieaktywne ustawienia poprzedniego typu, a nowy typ otrzymuje bezpieczne wartości domyślne.
+
 Zależności formularza VAT, dostawy i płatności są prezentacyjne po stronie JavaScript, ale wszystkie reguły warunkowe są ponownie egzekwowane przez Form Request. `additional_information_template` przechowuje nierozwiązany token `[uwagi_sprzedawcy]`; renderowanie i snapshot należą do przyszłego serwisu wystawiania dokumentu.
 
 Nie należy dodawać SPA ani frameworka frontendowego tylko dla modułu faktur.
@@ -1434,7 +1438,7 @@ Bez CRUD i UI.
 - aktywność serii własnych,
 - techniczne oznaczenie serii systemowej tylko do odczytu.
 
-Etap 1C.2 rozbudował formularz Faktury. Formularze Korekty i Pro formy zostaną rozbudowane w kolejnych etapach.
+Etap 1C.2 rozbudował formularz Faktury, a Etap 1C.3 formularz Korekty. Formularz Pro formy zostanie rozbudowany w kolejnym etapie.
 
 ## Etap 1C.2
 
@@ -1445,7 +1449,19 @@ Etap 1C.2 rozbudował formularz Faktury. Formularze Korekty i Pro formy zostaną
 - szablon informacji z nierozwiązanym tokenem `[uwagi_sprzedawcy]`,
 - prywatne logo serii.
 
-Ten etap nie tworzy tabel dokumentów, nie wystawia faktur i nie generuje PDF. Korekta i Pro forma pozostają nierozbudowane.
+Ten etap nie tworzy tabel dokumentów, nie wystawia faktur i nie generuje PDF. Korekta została rozbudowana w Etapie 1C.3, a Pro forma pozostaje nierozbudowana.
+
+## Etap 1C.3
+
+- rozbudowane ustawienia serii typu Korekta,
+- zamknięte enumy źródła daty sprzedaży, wystawiającego i sposobu płatności,
+- warunkowe pola wystawiającego i stałego sposobu płatności,
+- ustawienia pozycji, nagłówka i przyszłego wydruku,
+- szablon informacji z nierozwiązanym tokenem `[uwagi_sprzedawcy]`,
+- jawna lista dozwolonych pól oddzielona od konfiguracji Faktury,
+- dane prawne sprzedawcy dziedziczone w przyszłości ze snapshotu dokumentu źródłowego.
+
+Etap nie tworzy dokumentów, liczników, PDF, JPK ani KSeF. Pro forma pozostaje zakresem kolejnego etapu.
 
 ## Etap 1D
 

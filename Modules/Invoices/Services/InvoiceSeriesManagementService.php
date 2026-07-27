@@ -75,6 +75,29 @@ class InvoiceSeriesManagementService
         'copies_count',
     ];
 
+    private const CORRECTION_EDITABLE_FIELDS = [
+        'default_correction_reason',
+        'correction_sale_date_source',
+        'correction_issuer_source',
+        'issuer_name',
+        'correction_payment_method_source',
+        'fixed_payment_method',
+        'additional_information_template',
+        'show_correction_item_sequence',
+        'show_return_id_in_header',
+        'show_payment_identifier',
+        'document_title',
+        'print_template',
+        'primary_language',
+        'secondary_language',
+        'unit_price_mode',
+        'show_vat_column',
+        'show_order_number',
+        'show_buyer_signature',
+        'show_original_copy',
+        'copies_count',
+    ];
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -91,7 +114,8 @@ class InvoiceSeriesManagementService
                 $series->system_key = null;
                 $series->save();
 
-                if (($data['logo'] ?? null) instanceof UploadedFile) {
+                if ($this->finalDocumentType($data) === InvoiceDocumentType::Invoice->value
+                    && ($data['logo'] ?? null) instanceof UploadedFile) {
                     $newLogoPath = $this->storeLogo($series, $data['logo']);
                     $series->logo_path = $newLogoPath;
                     $series->save();
@@ -113,8 +137,11 @@ class InvoiceSeriesManagementService
     {
         $oldLogoPath = $series->logo_path;
         $newLogoPath = null;
-        $removeLogo = (bool) ($data['remove_logo'] ?? false);
-        $uploadedLogo = ($data['logo'] ?? null) instanceof UploadedFile ? $data['logo'] : null;
+        $allowLogoChanges = $this->finalDocumentType($data, $series) === InvoiceDocumentType::Invoice->value;
+        $removeLogo = $allowLogoChanges && (bool) ($data['remove_logo'] ?? false);
+        $uploadedLogo = $allowLogoChanges && ($data['logo'] ?? null) instanceof UploadedFile
+            ? $data['logo']
+            : null;
 
         if ($uploadedLogo !== null) {
             $newLogoPath = $this->storeLogo($series, $uploadedLogo);
@@ -126,7 +153,7 @@ class InvoiceSeriesManagementService
                 $baseFields = $managedSeries->is_system
                     ? self::COMMON_EDITABLE_FIELDS
                     : self::CUSTOM_EDITABLE_FIELDS;
-                $editableFields = $this->editableFieldsForData($data, $baseFields);
+                $editableFields = $this->editableFieldsForData($data, $baseFields, $managedSeries);
 
                 $managedSeries->fill($this->normalizeData(Arr::only($data, $editableFields)));
 
@@ -249,6 +276,9 @@ class InvoiceSeriesManagementService
             'place_of_issue',
             'issuer_name',
             'fixed_payment_method',
+            'default_correction_reason',
+            'additional_information_template',
+            'document_title',
         ] as $field) {
             if (array_key_exists($field, $data) && is_string($data[$field])) {
                 $data[$field] = trim($data[$field]);
@@ -269,17 +299,32 @@ class InvoiceSeriesManagementService
      * @param  array<int, string>  $baseFields
      * @return array<int, string>
      */
-    private function editableFieldsForData(array $data, array $baseFields): array
-    {
-        $documentType = $data['document_type'] ?? null;
+    private function editableFieldsForData(
+        array $data,
+        array $baseFields,
+        ?InvoiceSeries $series = null,
+    ): array {
+        return match ($this->finalDocumentType($data, $series)) {
+            InvoiceDocumentType::Invoice->value => array_merge($baseFields, self::INVOICE_EDITABLE_FIELDS),
+            InvoiceDocumentType::Correction->value => array_merge($baseFields, self::CORRECTION_EDITABLE_FIELDS),
+            default => $baseFields,
+        };
+    }
 
-        if ($documentType instanceof InvoiceDocumentType) {
-            $documentType = $documentType->value;
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function finalDocumentType(array $data, ?InvoiceSeries $series = null): ?string
+    {
+        if ($series?->is_system) {
+            return $series->document_type->value;
         }
 
-        return $documentType === InvoiceDocumentType::Invoice->value
-            ? array_merge($baseFields, self::INVOICE_EDITABLE_FIELDS)
-            : $baseFields;
+        $documentType = $data['document_type'] ?? $series?->document_type;
+
+        return $documentType instanceof InvoiceDocumentType
+            ? $documentType->value
+            : (is_string($documentType) ? $documentType : null);
     }
 
     private function storeLogo(InvoiceSeries $series, UploadedFile $logo): string

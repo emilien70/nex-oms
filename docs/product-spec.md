@@ -610,7 +610,17 @@ Dane sprzedawcy mogą być zapisane częściowo. Ich kompletność będzie spraw
 
 Pole `additional_information_template` przechowuje szablon „Informacje”. Token `[uwagi_sprzedawcy]` pozostaje w szablonie bez renderowania i zostanie rozwiązany dopiero podczas przyszłego wystawiania dokumentu, a wynik będzie snapshotem faktury.
 
-Etap 1C.2 nie wystawia faktur, nie generuje PDF i nie oblicza VAT. Formularze Korekty i Pro formy pozostają w zakresie Etapu 1C.1 i zostaną rozbudowane później. Paragony nie należą do modułu.
+Etap 1C.2 nie wystawia faktur, nie generuje PDF i nie oblicza VAT. Formularz Pro formy pozostaje w zakresie Etapu 1C.1. Paragony nie należą do modułu.
+
+## 13.9. Ustawienia serii Korekta — Etap 1C.3
+
+Formularz serii typu `correction` przechowuje domyślny powód korekty, źródło daty sprzedaży, wystawiającego i sposobu płatności, ustawienia nagłówka i pozycji oraz podstawowe ustawienia przyszłego wydruku. Wartości źródłowe są wybierane z zamkniętych, walidowanych list.
+
+Dane prawne sprzedawcy, bank i logo nie są konfigurowane w serii korekt. Przyszła korekta odziedziczy je ze snapshotu dokumentu źródłowego. Domyślny powód jest wyłącznie podpowiedzią i finalnie zostanie zapisany jako snapshot dokumentu. Pole `additional_information_template` przechowuje nierozwiązany szablon, a `[uwagi_sprzedawcy]` zostanie zastąpione dopiero przy wystawianiu dokumentu.
+
+Korekta będzie osobnym dokumentem powiązanym z fakturą źródłową. Obowiązkowo pokaże wartości przed zmianą, po zmianie i różnicę. Kolejna korekta tego samego dokumentu będzie odnosiła się do skutecznego stanu po wcześniejszych korektach. Data sprzedaży może pochodzić z faktury źródłowej albo z daty wystawienia korekty; wystawiający może pochodzić z faktury źródłowej albo z serii; sposób płatności może pochodzić z faktury źródłowej, zostać ukryty albo przyjąć stałą wartość serii.
+
+Etap 1C.3 nie tworzy korekt ani innych dokumentów, nie nadaje numerów i nie generuje PDF, JPK ani danych KSeF. Formularz Pro formy zostanie rozbudowany w Etapie 1C.4. Nie ma paragonów.
 
 ---
 
@@ -1273,7 +1283,7 @@ Poza zakresem Etapu 1A:
 - aktywność serii własnych,
 - pola techniczne serii systemowej tylko do odczytu.
 
-Ustawienia serii Faktura wdrożono w Etapie 1C.2. Rozbudowane ustawienia Korekty i Pro formy powstaną w kolejnych etapach.
+Ustawienia serii Faktura wdrożono w Etapie 1C.2, a ustawienia serii Korekta w Etapie 1C.3. Rozbudowane ustawienia Pro formy powstaną w kolejnym etapie.
 
 ## Etap 1C.2 — ustawienia serii Faktura
 
@@ -1285,7 +1295,18 @@ Ustawienia serii Faktura wdrożono w Etapie 1C.2. Rozbudowane ustawienia Korekty
 - podstawowa konfiguracja przyszłego wydruku,
 - prywatne logo serii.
 
-Etap nie tworzy dokumentów ani PDF. Korekta i Pro forma nadal wymagają kolejnych etapów rozbudowy.
+Etap nie tworzy dokumentów ani PDF. Korekta została rozbudowana w Etapie 1C.3, a Pro forma nadal wymaga kolejnego etapu.
+
+## Etap 1C.3 — ustawienia serii Korekta
+
+- domyślny powód korekty,
+- źródła daty sprzedaży, wystawiającego i sposobu płatności,
+- konfiguracja pozycji i nagłówka korekty,
+- szablon informacji z tokenem `[uwagi_sprzedawcy]`,
+- podstawowa konfiguracja przyszłego wydruku,
+- dziedziczenie danych prawnych sprzedawcy ze snapshotu dokumentu źródłowego.
+
+Etap nie tworzy dokumentów, nie nadaje numerów i nie generuje PDF. Pro forma nadal wymaga kolejnego etapu rozbudowy.
 
 ## Etap 1D — VAT, produkty, JPK i GTU
 

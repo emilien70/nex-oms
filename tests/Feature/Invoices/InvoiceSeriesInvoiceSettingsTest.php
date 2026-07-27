@@ -67,14 +67,18 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
             $invoice->assertSee($section);
         }
 
-        foreach (['correction', 'proforma'] as $documentType) {
-            $this->get(route('invoices.series.form', ['document_type' => $documentType]))
-                ->assertOk()
-                ->assertDontSee('Dane sprzedawcy')
-                ->assertDontSee('VAT i pozycje')
-                ->assertDontSee('Płatność i daty')
-                ->assertDontSee('Ustawienia wydruku');
-        }
+        $this->get(route('invoices.series.form', ['document_type' => 'correction']))
+            ->assertOk()
+            ->assertDontSee('Dane sprzedawcy')
+            ->assertDontSee('VAT i pozycje')
+            ->assertDontSee('Płatność i daty');
+
+        $this->get(route('invoices.series.form', ['document_type' => 'proforma']))
+            ->assertOk()
+            ->assertDontSee('Dane sprzedawcy')
+            ->assertDontSee('VAT i pozycje')
+            ->assertDontSee('Płatność i daty')
+            ->assertDontSee('Ustawienia wydruku');
     }
 
     public function test_custom_invoice_series_can_be_created_with_complete_configuration(): void

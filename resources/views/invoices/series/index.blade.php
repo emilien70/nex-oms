@@ -449,6 +449,22 @@
                         element.classList.toggle('d-none', !visible);
                     });
                 });
+
+                const correctionIssuerSource = body.querySelector('[name="correction_issuer_source"]')?.value;
+                const correctionPaymentSource = body.querySelector('[name="correction_payment_method_source"]')?.value;
+                const correctionVisibility = {
+                    'issuer-name': correctionIssuerSource === 'series',
+                    'fixed-payment-method': correctionPaymentSource === 'fixed',
+                };
+
+                Object.entries(correctionVisibility).forEach(([name, visible]) => {
+                    body.querySelectorAll(`[data-correction-dependent="${name}"]`).forEach((element) => {
+                        element.classList.toggle('d-none', !visible);
+                        element.querySelectorAll('[data-required-when-visible]').forEach((field) => {
+                            field.required = visible;
+                        });
+                    });
+                });
             };
 
             const showLoading = () => {
@@ -592,7 +608,7 @@
             body.addEventListener('change', (event) => {
                 const selector = event.target.closest('[data-series-document-type]');
                 if (!selector) {
-                    if (event.target.closest('[data-invoice-control]')) {
+                    if (event.target.closest('[data-invoice-control], [data-correction-control]')) {
                         updateInvoiceDependencies();
                     }
 

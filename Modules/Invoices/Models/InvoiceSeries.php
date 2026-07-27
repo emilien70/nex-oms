@@ -6,6 +6,9 @@ use DomainException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\Invoices\Enums\CorrectionIssuerSource;
+use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
+use Modules\Invoices\Enums\CorrectionSaleDateSource;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoicePaymentDueMode;
 use Modules\Invoices\Enums\InvoicePaymentMethodSource;
@@ -73,6 +76,13 @@ class InvoiceSeries extends Model
         'secondary_language',
         'document_title',
         'copies_count',
+        'default_correction_reason',
+        'correction_sale_date_source',
+        'correction_issuer_source',
+        'correction_payment_method_source',
+        'show_correction_item_sequence',
+        'show_return_id_in_header',
+        'show_payment_identifier',
     ];
 
     protected $casts = [
@@ -101,6 +111,12 @@ class InvoiceSeries extends Model
         'primary_language' => InvoicePrimaryLanguage::class,
         'secondary_language' => InvoiceSecondaryLanguage::class,
         'copies_count' => 'integer',
+        'correction_sale_date_source' => CorrectionSaleDateSource::class,
+        'correction_issuer_source' => CorrectionIssuerSource::class,
+        'correction_payment_method_source' => CorrectionPaymentMethodSource::class,
+        'show_correction_item_sequence' => 'boolean',
+        'show_return_id_in_header' => 'boolean',
+        'show_payment_identifier' => 'boolean',
     ];
 
     protected static function booted(): void
