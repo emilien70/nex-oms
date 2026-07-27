@@ -227,7 +227,7 @@ class InvoiceSeriesManagementTest extends TestCase
         $this->assertSame(1, $secondPage->viewData('series')->count());
     }
 
-    public function test_list_has_no_is_default_controls_or_broken_create_and_edit_links(): void
+    public function test_list_has_no_is_default_controls_and_has_active_create_and_edit_buttons(): void
     {
         $response = $this->get(route('invoices.series.index'));
         $content = $response->getContent();
@@ -235,16 +235,11 @@ class InvoiceSeriesManagementTest extends TestCase
         $response
             ->assertOk()
             ->assertDontSee('is_default')
-            ->assertSee('data-role="new-series-disabled"', false)
-            ->assertSee('data-role="series-edit-disabled"', false);
-        $this->assertMatchesRegularExpression(
-            '/<button[^>]*data-role="new-series-disabled"[^>]*disabled|<button[^>]*disabled[^>]*data-role="new-series-disabled"/i',
-            $content,
-        );
-        $this->assertDoesNotMatchRegularExpression(
-            '/<a[^>]*data-role="(?:new-series-disabled|series-edit-disabled)"/i',
-            $content,
-        );
+            ->assertSee('data-role="new-series"', false)
+            ->assertSee('data-role="series-edit"', false)
+            ->assertDontSee('data-role="new-series-disabled"', false)
+            ->assertDontSee('data-role="series-edit-disabled"', false);
+        $this->assertDoesNotMatchRegularExpression('/data-role="new-series"[^>]*disabled/i', $content);
     }
 
     private function systemSeries(InvoiceSeriesSystemKey $key): InvoiceSeries

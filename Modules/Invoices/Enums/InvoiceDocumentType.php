@@ -16,4 +16,13 @@ enum InvoiceDocumentType: string
             self::Proforma => 'Pro forma',
         };
     }
+
+    public function defaultNumberFormat(): string
+    {
+        return match ($this) {
+            self::Invoice => 'BL %N/%Y',
+            self::Correction => 'BLK %N/%Y',
+            self::Proforma => 'BLPF %N/%Y',
+        };
+    }
 }

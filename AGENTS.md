@@ -347,6 +347,8 @@ Order hasMany Invoices
 
 Nie dodawaj pojedynczego `invoice_id` do tabeli `orders`.
 
+Relacja `hasMany` obsługuje różne typy dokumentów i ich historię, ale jedno zamówienie może posiadać najwyżej jedną istniejącą fakturę VAT. Pro formy i korekty nie podlegają temu limitowi.
+
 ---
 
 # 12. Dane produktów w interfejsie
@@ -989,3 +991,35 @@ Etap 1B nie obejmuje:
 - PDF, JPK, GTU, KSeF i Fakturowni,
 - filtrów i wyszukiwania,
 - paragonów.
+
+---
+
+# 31. Granice Etapu 1C.1
+
+Etap 1C.1 obejmuje:
+
+- jeden modal Bootstrap wspólny dla tworzenia i edycji serii,
+- wybór typu `invoice`, `correction` albo `proforma`,
+- ładowanie partiala formularza przez `fetch()`,
+- standardowy zapis przez POST albo PATCH,
+- podstawowe pola serii: typ, nazwa, format, reset, miesiąc roku fiskalnego, waluta i aktywność,
+- wymuszanie `is_system = false` oraz `system_key = null` dla nowych serii,
+- ochronę typu, klucza, aktywności i statusu systemowego serii systemowych,
+- testy endpointów, walidacji, tworzenia i edycji.
+
+Nie ma pola `is_default`, interfejsu wyboru serii domyślnej ani paragonów.
+
+Przyszła centralna reguła wystawiania faktur VAT:
+
+- jedno zamówienie może posiadać najwyżej jedną istniejącą fakturę VAT,
+- ręczne wystawianie, automatyzacje, API i integracje muszą korzystać z jednego serwisu domenowego,
+- błąd biznesowy automatyzacji ma kod `invoice_already_exists`,
+- relacja pozostaje `Order hasMany Invoices`, bez `orders.invoice_id`.
+
+Po wystawieniu faktury widok zamówienia ma docelowo zastąpić przycisk `WYSTAW FAKTURĘ` numerem dokumentu prowadzącym przez kontrolowaną trasę do prywatnego PDF. Obok numeru ma być dostępna operacja `Usuń fakturę`.
+
+Usunięcie faktury będzie dozwolone wyłącznie, gdy dokument nie został przyjęty przez KSeF i nie został wystawiony w trybie offline ani awaryjnym. Podczas wysyłania lub oczekiwania na odpowiedź KSeF usuwanie będzie tymczasowo blokowane. Operacja pozostawia ślad audytowy, ale usuwa fakturę z bieżących list.
+
+Dozwolone usunięcie zwalnia numer. Numer może zostać użyty ponownie tylko w tej samej serii i tym samym okresie numeracji, przed zwiększeniem licznika, z transakcyjną ochroną przed równoległym użyciem.
+
+Powyższe reguły wystawiania, usuwania i zwalniania numerów są wymaganiami przyszłych etapów. Etap 1C.1 nie tworzy tabel dokumentów, liczników, PDF ani integracji KSeF.

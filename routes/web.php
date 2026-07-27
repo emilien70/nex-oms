@@ -88,6 +88,10 @@ Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])
 
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
 Route::get('/invoices/settings/series', [InvoiceSeriesController::class, 'index'])->name('invoices.series.index');
+Route::get('/invoices/settings/series/form', [InvoiceSeriesController::class, 'form'])->name('invoices.series.form');
+Route::post('/invoices/settings/series', [InvoiceSeriesController::class, 'store'])->name('invoices.series.store');
+Route::get('/invoices/settings/series/{series}/edit', [InvoiceSeriesController::class, 'edit'])->name('invoices.series.edit');
+Route::patch('/invoices/settings/series/{series}', [InvoiceSeriesController::class, 'update'])->name('invoices.series.update');
 Route::patch('/invoices/settings/series/{series}/active', [InvoiceSeriesController::class, 'updateActive'])->name('invoices.series.active');
 Route::delete('/invoices/settings/series/{series}', [InvoiceSeriesController::class, 'destroy'])->name('invoices.series.destroy');
 

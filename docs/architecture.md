@@ -455,6 +455,8 @@ Seria własna ma `is_system = false` oraz `system_key = null`. Może być ukryta
 
 Przy ręcznym wystawianiu dokumentu interfejs udostępnia aktywne serie właściwego typu. Automatyzacja nie rozstrzyga serii po nazwie ani kolejności: konfiguracja akcji przechowuje jawny `invoice_series_id`.
 
+Od Etapu 1C.1 tworzenie i edycja serii korzystają z jednego modala Bootstrap. Partial formularza właściwego typu jest pobierany przez `fetch()`, ale właściwy zapis pozostaje standardowym żądaniem POST albo PATCH. Nowe serie są zawsze własne (`is_system = false`, `system_key = null`), a serwis aktualizacji serii systemowej zachowuje jej typ, klucz, aktywność i status systemowy.
+
 ## 8.7. Unikalność nazwy
 
 Zalecane ograniczenie:
@@ -747,10 +749,12 @@ orders.invoice_id
 
 Jedno zamówienie może mieć:
 
-- wiele faktur,
+- najwyżej jedną istniejącą fakturę VAT,
 - wiele pro form,
 - korekty,
 - zewnętrzne dokumenty.
+
+Relacja nadal pozostaje `Order hasMany Invoices`, ponieważ obejmuje różne typy dokumentów i historię. Przyszły `InvoiceIssuingService` będzie centralnym wejściem dla ręcznego wystawiania, automatyzacji, API i integracji. Reguła jednej faktury VAT musi być egzekwowana transakcyjnie oraz mechanizmem bazodanowym lub równoważną blokadą. Próba ponownego wystawienia zwróci błąd biznesowy `invoice_already_exists`, bez pobierania kolejnego numeru.
 
 ---
 
@@ -1259,9 +1263,14 @@ Nie należy wykonywać częściowego zapisu dokumentu poza transakcją.
 
 ## Faktury
 
-- dokument roboczy może być usuwalny,
-- dokument wystawiony powinien być anulowany lub korygowany,
-- fizyczne usuwanie wystawionych dokumentów powinno być silnie ograniczone.
+- przyszła operacja ma nazywać się `Usuń fakturę`,
+- jest dostępna wyłącznie dla faktury nieprzyjętej przez KSeF i niewystawionej offline ani awaryjnie,
+- podczas technicznego wysyłania lub oczekiwania na odpowiedź KSeF jest tymczasowo blokowana,
+- jest ręczna i wymaga potwierdzenia z numerem dokumentu,
+- usuwa rekord z aktywnych list, ale zapisuje osobny ślad audytowy,
+- po dozwolonym usunięciu zamówienie ponownie może otrzymać fakturę VAT.
+
+Dozwolone usunięcie zwalnia numer dla tej samej serii i tego samego okresu numeracji. Przyszły generator najpierw wybiera zwolniony numer, a dopiero przy jego braku zwiększa licznik. Wybór oraz oznaczenie numeru jako wykorzystanego muszą odbywać się transakcyjnie z ochroną przed współbieżnością. Usunięta faktura nie pozostaje jako wyszarzony dokument; historia jest zachowywana w audycie.
 
 ## Produkty
 
@@ -1320,7 +1329,9 @@ Wymagane elementy:
 - bezpieczne usuwanie,
 - paginacja.
 
-Lista jest dostępna pod `/invoices/settings/series` i wyświetla 10 rekordów na stronę. Pusta gwiazdka jest nieklikalnym oznaczeniem `is_system = true`; nie reprezentuje serii domyślnej. Serie systemowe nie udostępniają formularza ukrywania ani usuwania. Tworzenie i edycja pozostają nieaktywne do Etapu 1C.
+Lista jest dostępna pod `/invoices/settings/series` i wyświetla 10 rekordów na stronę. Pusta gwiazdka jest nieklikalnym oznaczeniem `is_system = true`; nie reprezentuje serii domyślnej. Serie systemowe nie udostępniają formularza ukrywania ani usuwania. W Etapie 1B kontrolki tworzenia i edycji były nieaktywne.
+
+W Etapie 1C.1 kontrolki tworzenia i edycji są aktywne. Jeden modal ładuje partial typu przez AJAX, obsługuje stan ładowania i błędy, a zapisuje dane standardowym formularzem Laravel. Błąd walidacji wraca na listę, odtwarza tryb create/edit i ponownie otwiera modal z old input.
 
 Nie należy dodawać SPA ani frameworka frontendowego tylko dla modułu faktur.
 
@@ -1406,9 +1417,11 @@ Bez CRUD i UI.
 - jawne trasy listy, aktywności i usuwania bez pełnego CRUD,
 - nieaktywne kontrolki tworzenia i edycji.
 
-## Etap 1C
+## Etap 1C.1
 
-- formularze tworzenia i edycji,
+- jeden modal tworzenia i edycji,
+- partiale typu ładowane przez AJAX,
+- zapis POST/PATCH,
 - nazwa,
 - typ,
 - format,
@@ -1416,6 +1429,8 @@ Bez CRUD i UI.
 - rok fiskalny,
 - aktywność serii własnych,
 - techniczne oznaczenie serii systemowej tylko do odczytu.
+
+Etapy 1C.2–1C.4 rozbudują formularze właściwe dla faktury, korekty i pro formy.
 
 ## Etap 1D
 

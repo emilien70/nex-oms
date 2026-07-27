@@ -438,7 +438,7 @@ Elementy:
 
 Ekran listy serii jest dostępny pod adresem `/invoices/settings/series`. Pusta gwiazdka ma wyłącznie znaczenie informacyjne i oznacza serię systemową; nie służy do wyboru serii domyślnej. Serie systemowe są zawsze aktywne i nie można ich ukryć ani usunąć. Serie własne można aktywować, ukrywać oraz usuwać po spełnieniu reguł bezpieczeństwa.
 
-W Etapie 1B przycisk tworzenia i ikony edycji są widoczne, ale nieaktywne. Tworzenie i edycja serii należą do Etapu 1C.
+Od Etapu 1C.1 przycisk tworzenia i ikony edycji są aktywne. Jeden wspólny modal obsługuje tworzenie oraz edycję, właściwy partial formularza jest ładowany przez AJAX, a zapis odbywa się standardowym żądaniem POST albo PATCH.
 
 ## 13.2. Typy serii
 
@@ -586,6 +586,22 @@ Każda seria może docelowo posiadać własne:
 
 Kod QR KSeF nie należy do bieżącego etapu.
 
+## 13.7. Podstawowy formularz Etapu 1C.1
+
+Formularz Etapu 1C.1 obejmuje wyłącznie:
+
+- typ dokumentu,
+- nazwę serii,
+- format numeracji,
+- resetowanie numeracji,
+- początek roku fiskalnego,
+- domyślną walutę,
+- aktywność.
+
+Tworzenie i edycja korzystają z jednego modala Bootstrap. Zmiana typu pobiera odpowiedni fragment HTML przez `fetch()`, natomiast zapis pozostaje zwykłym formularzem Laravel. Nowa seria zawsze jest serią własną z `is_system = false` i `system_key = null`.
+
+Seria systemowa może zmieniać podstawowe ustawienia biznesowe, ale zachowuje typ dokumentu, klucz systemowy, status systemowy i aktywność. Nie ma paragonów ani pola `is_default`.
+
 ---
 
 # 14. Dane sprzedawcy
@@ -681,7 +697,40 @@ Order hasMany Invoices
 
 Nie dodajemy pojedynczego `invoice_id` do tabeli `orders`.
 
-Jedno zamówienie może mieć wiele dokumentów.
+Jedno zamówienie może mieć wiele dokumentów różnych typów, ale najwyżej jedną istniejącą fakturę VAT. Limit nie dotyczy pro form, korekt, duplikatów ani ponownego wygenerowania PDF tej samej faktury.
+
+## 15.1. Jedna faktura VAT na zamówienie
+
+W przyszłym mechanizmie wszystkie ścieżki wystawiania faktury VAT — ręczne, automatyczne, API i integracje — muszą korzystać z jednego centralnego serwisu, np. `InvoiceIssuingService`.
+
+Serwis przed pobraniem numeru sprawdza, czy faktura VAT już istnieje, i zabezpiecza tę regułę transakcyjnie również przed równoległymi procesami. W przypadku duplikatu użytkownik otrzymuje komunikat:
+
+```text
+Nie można wystawić faktury VAT. Faktura do tego zamówienia została już wystawiona.
+```
+
+Automatyzacja zwraca błąd biznesowy `invoice_already_exists` z komunikatem `Faktura VAT do zamówienia została już wystawiona.` Błąd nie jest bez końca ponawiany i pozostaje w historii wykonania.
+
+Relacja pozostaje `Order hasMany Invoices`; nie dodajemy `invoice_id` do `orders`.
+
+## 15.2. Docelowy widok faktury przy zamówieniu
+
+Przed wystawieniem widok pokazuje rozwijany przycisk `WYSTAW FAKTURĘ` z aktywnymi seriami typu `invoice` oraz osobny przycisk `PRO FORMA`.
+
+Po wystawieniu przycisk faktury znika. Zastępuje go numer faktury otwierający PDF w nowej karcie przez kontrolowaną trasę Laravel (`target="_blank"`, `rel="noopener"`), bez ujawniania prywatnej ścieżki storage. Obok numeru będą dostępne operacje dokumentu, w tym czerwony krzyżyk opisany dokładnie jako `Usuń fakturę`.
+
+## 15.3. Przyszłe usuwanie faktury i zwalnianie numeru
+
+Fakturę będzie można usunąć wyłącznie, gdy jednocześnie:
+
+- nie została przyjęta przez KSeF,
+- nie została wystawiona w trybie offline ani awaryjnym.
+
+Podczas wysyłania albo oczekiwania na odpowiedź KSeF operacja będzie tymczasowo zablokowana. Automatyzacja nie może usuwać faktur. Po potwierdzonym ręcznym usunięciu dokument znika z listy i zamówienia, ponownie można wystawić fakturę VAT, a techniczny audyt zachowuje numer, serię, zamówienie, datę, użytkownika i powód operacji.
+
+Usunięta faktura nie pozostaje jako wyszarzony rekord. Jej numer trafia do przyszłego mechanizmu numerów zwolnionych i może zostać użyty dla dowolnego zamówienia wyłącznie w tej samej serii oraz tym samym okresie resetowania. Generator najpierw pobiera najniższy dostępny zwolniony numer, a dopiero później zwiększa licznik; operacja musi być transakcyjna i odporna na równoległe procesy.
+
+Te zasady są wymaganiami przyszłych etapów. Etap 1C.1 nie implementuje tabel faktur, usuwania, liczników ani KSeF.
 
 ---
 
@@ -1198,11 +1247,14 @@ Poza zakresem Etapu 1A:
 - aktywność,
 - bezpieczne usuwanie,
 - paginacja po 10 rekordów,
-- nieaktywne kontrolki tworzenia i edycji zapowiadające Etap 1C.
+- początkowo nieaktywne kontrolki tworzenia i edycji, aktywowane w Etapie 1C.1.
 
-## Etap 1C — podstawowy formularz
+## Etap 1C.1 — podstawowy formularz
 
 - tworzenie i edycja serii,
+- jeden wspólny modal Bootstrap,
+- ładowanie formularza typu przez AJAX,
+- standardowy zapis POST/PATCH,
 - nazwa,
 - typ,
 - format,
@@ -1210,6 +1262,8 @@ Poza zakresem Etapu 1A:
 - rok fiskalny,
 - aktywność serii własnych,
 - pola techniczne serii systemowej tylko do odczytu.
+
+Rozbudowane ustawienia właściwe dla faktur, korekt i pro form powstaną w Etapach 1C.2–1C.4.
 
 ## Etap 1D — VAT, produkty, JPK i GTU
 

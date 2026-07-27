@@ -53,6 +53,46 @@
             gap: 6px;
         }
 
+        .invoice-series-modal-loading {
+            align-items: center;
+            color: #64748b;
+            display: flex;
+            font-size: 13px;
+            gap: 9px;
+            justify-content: center;
+            min-height: 180px;
+        }
+
+        .invoice-series-system-note {
+            align-items: flex-start;
+            color: #64748b;
+            display: flex;
+            font-size: 12px;
+            gap: 7px;
+            line-height: 1.4;
+        }
+
+        .invoice-series-next-stage-note {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 7px;
+            color: #64748b;
+            font-size: 12px;
+            margin-top: 16px;
+            padding: 10px 12px;
+        }
+
+        #invoiceSeriesModal .form-label {
+            color: #4e565f;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+
+        #invoiceSeriesModal .form-text,
+        #invoiceSeriesModal .form-check-label {
+            font-size: 12px;
+        }
+
         .invoice-series-table-wrap {
             overflow-x: auto;
         }
@@ -179,18 +219,15 @@
         <section class="invoice-series-panel" aria-labelledby="invoice-series-title">
             <header class="invoice-series-header">
                 <h1 class="invoice-series-title" id="invoice-series-title">Serie numeracji</h1>
-                <span title="Dodawanie serii numeracji będzie dostępne w kolejnym etapie.">
-                    <button
-                        class="btn btn-success btn-sm invoice-series-new"
-                        type="button"
-                        disabled
-                        data-role="new-series-disabled"
-                        aria-label="Dodawanie serii numeracji będzie dostępne w kolejnym etapie."
-                    >
-                        <i class="bi bi-plus-circle" aria-hidden="true"></i>
-                        Nowa seria numeracji
-                    </button>
-                </span>
+                <button
+                    class="btn btn-success btn-sm invoice-series-new"
+                    type="button"
+                    data-role="new-series"
+                    data-series-create
+                >
+                    <i class="bi bi-plus-circle" aria-hidden="true"></i>
+                    Nowa seria numeracji
+                </button>
             </header>
 
             @if ($series->isEmpty())
@@ -257,14 +294,17 @@
                                         @endif
                                     </td>
                                     <td class="text-center">
-                                        <span
-                                            class="invoice-series-action-disabled"
-                                            data-role="series-edit-disabled"
+                                        <button
+                                            class="invoice-series-action"
+                                            type="button"
+                                            data-role="series-edit"
                                             data-series-id="{{ $item->id }}"
-                                            title="Edycja serii numeracji będzie dostępna w kolejnym etapie."
-                                            aria-label="Edycja serii numeracji będzie dostępna w kolejnym etapie."
-                                            aria-disabled="true"
-                                        ><i class="bi bi-pencil" aria-hidden="true"></i></span>
+                                            data-series-edit
+                                            data-edit-url="{{ route('invoices.series.edit', $item) }}"
+                                            data-update-url="{{ route('invoices.series.update', $item) }}"
+                                            title="Edytuj serię numeracji"
+                                            aria-label="Edytuj serię numeracji {{ $item->name }}"
+                                        ><i class="bi bi-pencil" aria-hidden="true"></i></button>
                                     </td>
                                     <td class="text-center">
                                         @if ($item->is_system)
@@ -324,4 +364,208 @@
             </footer>
         </section>
     </div>
+
+    @include('invoices.series._modal')
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const modalElement = document.querySelector('[data-series-modal]');
+            const createButton = document.querySelector('[data-series-create]');
+
+            if (!modalElement || !createButton || typeof bootstrap === 'undefined') {
+                return;
+            }
+
+            const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+            const form = modalElement.querySelector('[data-series-modal-form]');
+            const body = modalElement.querySelector('[data-series-modal-body]');
+            const title = modalElement.querySelector('[data-series-modal-title]');
+            const submit = modalElement.querySelector('[data-series-submit]');
+            const method = modalElement.querySelector('[data-series-method]');
+            const modeInput = modalElement.querySelector('[data-series-form-mode]');
+            const editingIdInput = modalElement.querySelector('[data-series-editing-id]');
+            const pickerTemplate = document.querySelector('[data-series-type-picker-template]');
+            const createFormUrl = modalElement.dataset.createFormUrl;
+            const storeUrl = modalElement.dataset.storeUrl;
+            let activeMode = 'create';
+            let activeRequest = null;
+            let requestSequence = 0;
+            let lastLoad = null;
+
+            const setSubmitEnabled = (enabled) => {
+                submit.disabled = !enabled;
+            };
+
+            const showLoading = () => {
+                body.innerHTML = `
+                    <div class="invoice-series-modal-loading" role="status" aria-live="polite">
+                        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                        <span>Ładowanie formularza…</span>
+                    </div>
+                `;
+                setSubmitEnabled(false);
+            };
+
+            const renderTypePicker = () => {
+                body.replaceChildren(pickerTemplate.content.cloneNode(true));
+                setSubmitEnabled(false);
+            };
+
+            const showLoadingError = () => {
+                body.innerHTML = `
+                    <div class="alert alert-danger mb-0" role="alert">
+                        <div>Nie udało się załadować formularza serii numeracji. Spróbuj ponownie.</div>
+                        <button class="btn btn-outline-danger btn-sm mt-3" type="button" data-series-retry>
+                            Spróbuj ponownie
+                        </button>
+                    </div>
+                `;
+                setSubmitEnabled(false);
+            };
+
+            const captureValues = () => {
+                const values = {};
+
+                body.querySelectorAll('[name]').forEach((field) => {
+                    values[field.name] = field.type === 'checkbox'
+                        ? (field.checked ? '1' : '0')
+                        : field.value;
+                });
+
+                return values;
+            };
+
+            const restoreValues = (values, preserveNumberFormat) => {
+                Object.entries(values || {}).forEach(([name, value]) => {
+                    if (name === 'document_type' || (!preserveNumberFormat && name === 'number_format')) {
+                        return;
+                    }
+
+                    const fields = [...body.querySelectorAll(`[name="${CSS.escape(name)}"]`)];
+                    const field = fields.find((candidate) => candidate.type === 'checkbox') || fields[0];
+                    if (!field) {
+                        return;
+                    }
+
+                    if (field.type === 'checkbox') {
+                        field.checked = value === '1';
+                    } else {
+                        field.value = value;
+                    }
+                });
+            };
+
+            const focusFirstField = () => {
+                const field = body.querySelector('.is-invalid, input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
+                window.setTimeout(() => field?.focus(), 120);
+            };
+
+            const loadFragment = async (url, options = {}) => {
+                const sequence = ++requestSequence;
+                activeRequest?.abort();
+                activeRequest = new AbortController();
+                lastLoad = { url, options };
+                showLoading();
+
+                try {
+                    const response = await fetch(url, {
+                        headers: {
+                            Accept: 'text/html',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        cache: 'no-store',
+                        signal: activeRequest.signal,
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Form request failed.');
+                    }
+
+                    const html = await response.text();
+                    if (sequence !== requestSequence) {
+                        return;
+                    }
+
+                    body.innerHTML = html;
+                    restoreValues(options.values, options.preserveNumberFormat === true);
+                    setSubmitEnabled(true);
+                    focusFirstField();
+                } catch (error) {
+                    if (error.name === 'AbortError' || sequence !== requestSequence) {
+                        return;
+                    }
+
+                    showLoadingError();
+                }
+            };
+
+            const resetCreateForm = () => {
+                activeMode = 'create';
+                form.action = storeUrl;
+                method.disabled = true;
+                modeInput.value = 'create';
+                editingIdInput.value = '';
+                title.textContent = 'Nowa seria numeracji';
+                renderTypePicker();
+            };
+
+            createButton.addEventListener('click', () => {
+                activeRequest?.abort();
+                resetCreateForm();
+                modal.show();
+                focusFirstField();
+            });
+
+            document.querySelectorAll('[data-series-edit]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    activeMode = 'edit';
+                    form.action = button.dataset.updateUrl;
+                    method.disabled = false;
+                    modeInput.value = 'edit';
+                    editingIdInput.value = button.dataset.seriesId;
+                    title.textContent = 'Edytuj serię numeracji';
+                    modal.show();
+                    loadFragment(button.dataset.editUrl);
+                });
+            });
+
+            body.addEventListener('change', (event) => {
+                const selector = event.target.closest('[data-series-document-type]');
+                if (!selector || selector.value === '') {
+                    return;
+                }
+
+                const values = captureValues();
+                const url = new URL(createFormUrl, window.location.origin);
+                url.searchParams.set('document_type', selector.value);
+
+                loadFragment(url.toString(), {
+                    values,
+                    preserveNumberFormat: activeMode === 'edit',
+                });
+            });
+
+            body.addEventListener('click', (event) => {
+                if (!event.target.closest('[data-series-retry]') || !lastLoad) {
+                    return;
+                }
+
+                loadFragment(lastLoad.url, lastLoad.options);
+            });
+
+            modalElement.addEventListener('hidden.bs.modal', () => {
+                activeRequest?.abort();
+                requestSequence += 1;
+                lastLoad = null;
+                resetCreateForm();
+            });
+
+            if (modalElement.dataset.reopen === '1') {
+                activeMode = modeInput.value;
+                modal.show();
+                setSubmitEnabled(body.querySelector('[data-series-form-fragment]') !== null);
+                focusFirstField();
+            }
+        });
+    </script>
 @endsection
