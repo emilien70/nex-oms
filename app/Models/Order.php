@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Models\ShipmentCreationAttempt;
 
@@ -187,5 +188,10 @@ class Order extends Model
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
+    }
+
+    public function documentSlots(): HasMany
+    {
+        return $this->hasMany(OrderDocumentSlot::class);
     }
 }

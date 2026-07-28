@@ -731,11 +731,11 @@ orders.invoice_id
 Jedno zamówienie może mieć:
 
 - najwyżej jedną istniejącą fakturę VAT,
-- wiele pro form,
+- najwyżej jedną logiczną Pro formę z trwałą historią wersji,
 - korekty,
 - zewnętrzne dokumenty.
 
-Relacja nadal pozostaje `Order hasMany Invoices`, ponieważ obejmuje różne typy dokumentów i historię. Przyszły `InvoiceIssuingService` będzie centralnym wejściem dla ręcznego wystawiania, automatyzacji, API i integracji. Reguła jednej faktury VAT musi być egzekwowana transakcyjnie oraz mechanizmem bazodanowym lub równoważną blokadą. Próba ponownego wystawienia zwróci błąd biznesowy `invoice_already_exists`, bez pobierania kolejnego numeru.
+Relacja nadal pozostaje `Order hasMany Invoices`, ponieważ obejmuje różne typy dokumentów i historię. Zaimplementowany `InvoiceIssuingService` jest centralnym wejściem dla przyszłego ręcznego wystawiania, automatyzacji, API i integracji. Regułę jednej faktury VAT egzekwuje transakcja, kontrola domenowa i unikalny slot dokumentu. Próba ponownego wystawienia zwraca błąd biznesowy `invoice_already_exists`, bez pobierania kolejnego numeru.
 
 ---
 
@@ -1546,16 +1546,29 @@ Walidacja konfiguracji jest wykonywana poza warstwą formularza. Reset `monthly`
 
 Wewnętrzne luki nie są ponownie używane. Usuwanie dokumentów i rzeczywiste cofanie wolnego końca licznika nie są jeszcze wdrożone. Przyszłe cofnięcie będzie transakcyjne i nie zejdzie poniżej `protected_floor_sequence_number`. Nie ma OSS ani kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru. Zmiana `issue_date` nie przeniesie ponumerowanego dokumentu do innego okresu. Pierwsza logiczna Pro forma zużyje jeden numer, jej przyszłe odświeżenie zachowa numer, a każda Korekta otrzyma osobny numer. KSeF pozostaje planowany w wariantach `send` i `exclude`.
 
+## Etap 2C — centralne operacje Faktury VAT i Pro formy
+
+Warstwa domenowa Etapu 2C składa się z komponentów przygotowania dokumentu (`InvoiceDateResolver`, `InvoiceSnapshotBuilder`, `InvoiceItemBuilder`, `InvoiceTotalsCalculator`, `AdditionalInformationRenderer`) oraz dwóch serwisów orkiestrujących: `InvoiceIssuingService` i `ProformaService`. Komponenty przygotowania nie uruchamiają własnych transakcji. Wszystkie krytyczne zapisy wraz z użyciem `InvoiceNumberingService` odbywają się we wspólnej transakcji operacji dokumentu.
+
+Tabela `order_document_slots` posiada unikalność `(order_id, document_type)` i stanowi ostateczną ochronę jednej Faktury VAT oraz jednej logicznej Pro formy zamówienia, także na SQLite. Slot powstaje przed dokumentem i otrzymuje `invoice_id` po jego zapisaniu w tej samej transakcji. Niespójny slot nie jest naprawiany automatycznie; operacja kończy się kontrolowanym błędem domenowym.
+
+`InvoiceIssuingService` wykonuje kontrolę typu i aktywności serii, ochronę duplikatu, tworzy szkic, snapshoty i pozycje, nadaje numer przez istniejący silnik Etapu 2B, wystawia dokument, wiąże slot, oznacza ewentualną Pro formę jako zastąpioną i zapisuje `OrderEvent`. Błąd na dowolnym etapie wycofuje również licznik numeracji.
+
+`ProformaService` tworzy pierwszy dokument i rewizję nr 1 albo porównuje kanoniczny SHA-256 z bieżącym stanem. Hash nie obejmuje technicznych ID, timestampów ani kontekstu operacji; sortuje klucze asocjacyjne, ale zachowuje kolejność pozycji. Brak zmiany niczego nie zapisuje. Zmiana zastępuje pozycje, aktualizuje snapshoty i dodaje niezmienną rewizję w `invoice_revisions`, zachowując tożsamość numeracji i pierwotne daty wystawienia.
+
+Faktura i Pro forma mogą istnieć równolegle. `proforma_superseded_at` jest trwałym znacznikiem blokady; `superseded_by_invoice_id` używa `nullOnDelete`, więc usunięcie Faktury w przyszłości nie usuwa informacji, że Pro forma została zastąpiona. Historia rewizji pozostaje dostępna.
+
+Snapshoty są niezależne od późniejszych zmian `orders`, `order_items` i `invoice_series`. Waluta pochodzi z Order z fallbackiem `PLN`. Brak opcjonalnych danych kontrahenta nie blokuje operacji, natomiast brak stawki VAT wymaganej przez konfigurację serii powoduje kontrolowany błąd i pełny rollback. Nie ma OSS ani kontroli kompletności zamówienia.
+
+Etap 2C nie dodaje UI, kontrolerów ani tras wystawiania, PDF, e-maila, usuwania dokumentów, ręcznej edycji, Korekt, automatyzacji, publicznego API, JPK XML, OSS, KSeF ani Fakturowni.
+
 ## Kolejne etapy
 
-- kalkulator,
-- wystawianie z zamówienia,
-- odświeżanie wersji Pro formy,
 - edycja,
 - centralny proces Korekt,
 - PDF,
 - pliki zewnętrzne,
-- historia,
+- historia edycji Faktur i Korekt,
 - e-mail,
 - rejestr sprzedaży,
 - JPK,

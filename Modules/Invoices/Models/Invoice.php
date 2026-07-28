@@ -28,6 +28,8 @@ class Invoice extends Model
         'revision_number',
         'source_snapshot_hash',
         'last_refreshed_at',
+        'proforma_superseded_at',
+        'superseded_by_invoice_id',
         'corrected_invoice_id',
         'previous_correction_id',
         'correction_reason',
@@ -65,6 +67,7 @@ class Invoice extends Model
         'payment_due_date' => 'date',
         'issued_at' => 'datetime',
         'last_refreshed_at' => 'datetime',
+        'proforma_superseded_at' => 'datetime',
         'revision_number' => 'integer',
         'sequence_number' => 'integer',
         'correction_totals_snapshot' => 'array',
@@ -98,6 +101,26 @@ class Invoice extends Model
     public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class)->orderBy('position')->orderBy('id');
+    }
+
+    public function revisions(): HasMany
+    {
+        return $this->hasMany(InvoiceRevision::class)->orderBy('revision_number');
+    }
+
+    public function documentSlots(): HasMany
+    {
+        return $this->hasMany(OrderDocumentSlot::class);
+    }
+
+    public function supersededByInvoice(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'superseded_by_invoice_id');
+    }
+
+    public function supersededProformas(): HasMany
+    {
+        return $this->hasMany(self::class, 'superseded_by_invoice_id');
     }
 
     public function correctedInvoice(): BelongsTo
@@ -145,5 +168,10 @@ class Invoice extends Model
     public function isCorrection(): bool
     {
         return $this->document_type === InvoiceDocumentType::Correction;
+    }
+
+    public function isProformaSuperseded(): bool
+    {
+        return $this->isProforma() && $this->proforma_superseded_at !== null;
     }
 }

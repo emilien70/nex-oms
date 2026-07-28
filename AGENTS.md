@@ -1156,3 +1156,38 @@ Etap 2B nie implementuje:
 - kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru.
 
 Przyszły serwis usuwania może cofnąć wyłącznie wolny koniec numeracji i nigdy poniżej `protected_floor_sequence_number`. Zmiana `issue_date` nie przenosi automatycznie ponumerowanego dokumentu do innego okresu. Pierwsze utworzenie logicznej Pro formy zużywa jeden numer, odświeżenie zachowa ten numer, a każda Korekta zużywa osobny numer własnej serii. KSeF pozostaje planowany w trybach `send` i `exclude`.
+
+---
+
+# 37. Granice Etapu 2C
+
+Etap 2C wdraża centralne przygotowanie i wystawianie dokumentów z zamówienia:
+
+- `order_document_slots` jako bazodanową ochronę jednej Faktury VAT i jednej logicznej Pro formy na zamówienie,
+- `invoice_revisions` jako niezmienną historię wersji Pro formy,
+- pola trwałego zastąpienia Pro formy przez Fakturę VAT,
+- snapshoty sprzedawcy, nabywcy, odbiorcy, zamówienia, płatności, dostawy i ustawień serii,
+- pozycje produktów oraz opcjonalną pozycję dostawy,
+- deterministyczne obliczenia netto, VAT i brutto bez użycia `float`,
+- daty dokumentu i wyrenderowane informacje dodatkowe,
+- `InvoiceIssuingService` jako jedyne centralne wejście do przyszłych ścieżek wystawiania Faktury VAT,
+- `ProformaService` utrzymujący jedną logiczną Pro formę, jej kanoniczny hash oraz rewizje,
+- zdarzenia `invoice_issued`, `proforma_issued` i `proforma_refreshed`,
+- jedną transakcję obejmującą slot, dokument, pozycje, numerację, rewizję i zdarzenie zamówienia.
+
+Jedno zamówienie może mieć najwyżej jedną istniejącą Fakturę VAT i jedną logiczną Pro formę. Faktura i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie usuwa Pro formy, lecz trwale oznacza ją jako zastąpioną i blokuje dalsze odświeżanie. Usunięcie Faktury zastępującej w przyszłości nie odblokuje Pro formy.
+
+Pierwsze utworzenie Pro formy zużywa numer i zapisuje rewizję nr 1. Kolejne wywołanie bez zmiany kanonicznego hasha niczego nie zapisuje. Zmiana treści odświeża ten sam dokument i dodaje rewizję, zachowując numer, serię, okres, `issue_date` i `issued_at`. Sama zmiana `orders.updated_at` nie tworzy rewizji.
+
+Waluta pochodzi z zamówienia z technicznym fallbackiem `PLN`. Brak NIP-u, telefonu, e-maila lub opcjonalnych danych adresowych nie blokuje dokumentu. Brak wymaganej stawki VAT nie jest zastępowany przypadkową wartością i kończy operację kontrolowanym błędem oraz pełnym rollbackiem. Etap nie dodaje OSS ani kontroli kompletności zamówienia.
+
+Etap 2C nie implementuje:
+
+- UI, kontrolerów ani tras wystawiania,
+- listy i widoku szczegółów dokumentu,
+- PDF i wysyłki e-mail,
+- usuwania dokumentów, cofania licznika ani ręcznej zmiany numeru,
+- ręcznej edycji dokumentu,
+- wystawiania Korekt,
+- automatyzacji ani publicznego API,
+- JPK XML, OSS, KSeF ani Fakturowni.

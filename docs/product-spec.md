@@ -725,11 +725,11 @@ Order hasMany Invoices
 
 Nie dodajemy pojedynczego `invoice_id` do tabeli `orders`.
 
-Jedno zamówienie może mieć wiele dokumentów różnych typów, ale najwyżej jedną istniejącą fakturę VAT. Limit nie dotyczy pro form, korekt, duplikatów ani ponownego wygenerowania PDF tej samej faktury.
+Jedno zamówienie może mieć wiele dokumentów różnych typów, ale najwyżej jedną istniejącą fakturę VAT i jedną logiczną Pro formę z wieloma historycznymi rewizjami. Limity te nie dotyczą korekt, duplikatów ani ponownego wygenerowania PDF tego samego dokumentu.
 
 ## 15.1. Jedna faktura VAT na zamówienie
 
-W przyszłym mechanizmie wszystkie ścieżki wystawiania faktury VAT — ręczne, automatyczne, API i integracje — muszą korzystać z jednego centralnego serwisu, np. `InvoiceIssuingService`.
+Wszystkie przyszłe ścieżki wystawiania faktury VAT — ręczne, automatyczne, API i integracje — muszą korzystać z zaimplementowanego centralnego `InvoiceIssuingService`.
 
 Serwis przed pobraniem numeru sprawdza, czy faktura VAT już istnieje, i zabezpiecza tę regułę transakcyjnie również przed równoległymi procesami. W przypadku duplikatu użytkownik otrzymuje komunikat:
 
@@ -737,7 +737,7 @@ Serwis przed pobraniem numeru sprawdza, czy faktura VAT już istnieje, i zabezpi
 Nie można wystawić faktury VAT. Faktura do tego zamówienia została już wystawiona.
 ```
 
-Automatyzacja zwraca błąd biznesowy `invoice_already_exists` z komunikatem `Faktura VAT do zamówienia została już wystawiona.` Błąd nie jest bez końca ponawiany i pozostaje w historii wykonania.
+Serwis zwraca błąd biznesowy `invoice_already_exists` z komunikatem `Nie można wystawić faktury VAT. Faktura do tego zamówienia została już wystawiona.` Przyszła automatyzacja nie może ponawiać tego błędu bez końca i powinna zachować go w historii wykonania.
 
 Relacja pozostaje `Order hasMany Invoices`; nie dodajemy `invoice_id` do `orders`.
 
@@ -1374,16 +1374,27 @@ Wewnętrzne luki nie są automatycznie uzupełniane. Usuwanie dokumentów i rzec
 
 Etap 2B nie dodaje OSS ani kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru. KSeF pozostaje planowany w trybach `send` i `exclude` i nie jest częścią silnika numeracji.
 
+## Etap 2C — centralne wystawianie Faktury VAT i wersjonowanie Pro formy
+
+Zaimplementowano centralne przygotowanie danych dokumentu z `Order`: snapshoty sprzedawcy, nabywcy, odbiorcy, zamówienia, płatności, dostawy i efektywnych ustawień serii, pozycje produktów, opcjonalną pozycję dostawy, daty, informacje dodatkowe oraz deterministyczne sumy netto, VAT i brutto. Obliczenia finansowe nie używają `float`. Brak wymaganej stawki VAT nie jest zastępowany domyślnym 23%, lecz powoduje kontrolowany błąd i rollback.
+
+`InvoiceIssuingService` jest centralnym wejściem dla wszystkich przyszłych ścieżek wystawiania Faktury VAT. Jedno zamówienie może mieć najwyżej jedną istniejącą Fakturę VAT. Regułę chroni zarówno kontrola domenowa, jak i unikalny slot `order_document_slots`. Dokument, pozycje, slot, numeracja i `OrderEvent` są zapisywane w jednej transakcji, więc błąd po nadaniu numeru nie zużywa numeru ani nie pozostawia częściowych danych.
+
+`ProformaService` utrzymuje jedną logiczną Pro formę zamówienia. Pierwsze utworzenie nadaje numer i zapisuje rewizję nr 1. Kolejne wywołanie bez zmiany kanonicznego hasha zwraca stan bez zmian i niczego nie zapisuje. Zmiana treści odświeża ten sam dokument, zachowuje jego numer, serię, okres, `issue_date` i `issued_at`, a pełną poprzednią i nową wersję przechowuje w `invoice_revisions`. Sama zmiana `orders.updated_at` nie wpływa na hash.
+
+Faktura VAT i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie usuwa Pro formy ani jej rewizji, lecz oznacza ją jako historycznie zastąpioną i trwale blokuje dalsze odświeżanie. Późniejsze usunięcie Faktury zastępującej nie odblokuje Pro formy. Zdarzenia zamówienia powstają wyłącznie po udanej operacji: `invoice_issued`, `proforma_issued` albo `proforma_refreshed`.
+
+Waluta dokumentu pochodzi z zamówienia z fallbackiem `PLN`. Brak NIP-u, telefonu, e-maila lub części opcjonalnych danych adresowych nie blokuje utworzenia dokumentu. Etap nie dodaje kontroli kompletności zamówienia ani OSS.
+
+Etap 2C nie implementuje UI, kontrolerów i tras wystawiania, list i szczegółów dokumentów, PDF, e-maila, usuwania dokumentów, cofania licznika, ręcznej edycji i zmiany numeru, Korekt, automatyzacji, publicznego API, JPK XML, OSS, KSeF ani Fakturowni.
+
 ## Dalsze etapy
 
-- kalkulator dokumentów,
-- wystawianie z zamówienia,
 - edycja,
-- odświeżanie wersji Pro formy,
 - centralny proces Korekt,
 - PDF,
 - dokumenty zewnętrzne,
-- historia,
+- historia edycji Faktur i Korekt,
 - e-mail,
 - rejestr sprzedaży,
 - JPK,
