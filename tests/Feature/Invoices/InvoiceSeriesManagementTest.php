@@ -5,6 +5,7 @@ namespace Tests\Feature\Invoices;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
+use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Tests\TestCase;
 
@@ -190,6 +191,24 @@ class InvoiceSeriesManagementTest extends TestCase
             ->assertRedirect(route('invoices.series.index'))
             ->assertSessionHas('success', 'Seria numeracji została usunięta.');
         $this->assertDatabaseMissing('invoice_series', ['id' => $series->id]);
+    }
+
+    public function test_series_used_by_a_document_cannot_be_deleted_by_direct_request(): void
+    {
+        $series = $this->createCustomSeries('Seria użyta przez dokument');
+        Invoice::query()->create([
+            'invoice_series_id' => $series->id,
+            'document_type' => InvoiceDocumentType::Invoice,
+        ]);
+
+        $response = $this->delete(route('invoices.series.destroy', $series));
+
+        $response
+            ->assertRedirect(route('invoices.series.index'))
+            ->assertSessionHasErrors([
+                'series' => 'Nie można usunąć serii numeracji, ponieważ została użyta w dokumentach. Serię można ukryć i później ponownie aktywować.',
+            ]);
+        $this->assertDatabaseHas('invoice_series', ['id' => $series->id]);
     }
 
     public function test_series_are_sorted_by_system_status_type_name_and_id(): void

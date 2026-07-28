@@ -184,6 +184,36 @@ class InvoiceSeriesFormTest extends TestCase
         }
     }
 
+    public function test_store_and_update_requests_reject_unsafe_reset_period_formats(): void
+    {
+        $monthlyMessage = 'Przy miesięcznym resetowaniu numeracji format musi zawierać token miesiąca %M oraz token roku %Y lub %y.';
+
+        $this->from(route('invoices.series.index'))
+            ->post(route('invoices.series.store'), $this->validPayload([
+                'name' => 'Miesięczna bez miesiąca',
+                'number_format' => 'FA %N/%Y',
+                'reset_period' => InvoiceSeriesResetPeriod::Monthly->value,
+            ]))
+            ->assertSessionHasErrors(['number_format' => $monthlyMessage]);
+
+        $series = $this->createCustomSeries('Roczna do błędnej edycji');
+        $yearlyFiscalMessage = 'Przy rocznym resetowaniu z początkiem roku innym niż styczeń format musi zawierać token miesiąca %M oraz token roku %Y lub %y.';
+
+        $this->from(route('invoices.series.index'))
+            ->patch(route('invoices.series.update', $series), $this->validPayload([
+                'document_type' => $series->document_type->value,
+                'name' => $series->name,
+                'number_format' => 'FA %N/%Y',
+                'reset_period' => InvoiceSeriesResetPeriod::Yearly->value,
+                'fiscal_year_start_month' => 7,
+                'form_mode' => 'edit',
+                'editing_series_id' => $series->id,
+            ]))
+            ->assertSessionHasErrors(['number_format' => $yearlyFiscalMessage]);
+
+        $this->assertSame(1, $series->refresh()->fiscal_year_start_month);
+    }
+
     public function test_currency_must_contain_exactly_three_letters(): void
     {
         foreach (['PL', 'PLN1', '12A'] as $currency) {
@@ -207,7 +237,7 @@ class InvoiceSeriesFormTest extends TestCase
         $this->patch(route('invoices.series.update', $series), $this->validPayload([
             'document_type' => InvoiceDocumentType::Correction->value,
             'name' => 'Faktury główne',
-            'number_format' => 'FV %NN/%Y',
+            'number_format' => 'FV %NN/%M/%Y',
             'reset_period' => InvoiceSeriesResetPeriod::Monthly->value,
             'fiscal_year_start_month' => 4,
             'default_currency' => 'eur',
@@ -222,7 +252,7 @@ class InvoiceSeriesFormTest extends TestCase
 
         $series->refresh();
         $this->assertSame('Faktury główne', $series->name);
-        $this->assertSame('FV %NN/%Y', $series->number_format);
+        $this->assertSame('FV %NN/%M/%Y', $series->number_format);
         $this->assertSame(InvoiceSeriesResetPeriod::Monthly, $series->reset_period);
         $this->assertSame(4, $series->fiscal_year_start_month);
         $this->assertSame('EUR', $series->default_currency);

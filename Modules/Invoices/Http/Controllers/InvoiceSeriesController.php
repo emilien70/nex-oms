@@ -53,8 +53,11 @@ class InvoiceSeriesController extends Controller
             ->withQueryString();
 
         $reopenForm = $this->reopenFormData($request);
+        $reopenNextNumberSeries = InvoiceSeries::query()->find(
+            (int) $request->old('next_number_series_id'),
+        );
 
-        return view('invoices.series.index', compact('series', 'reopenForm'));
+        return view('invoices.series.index', compact('series', 'reopenForm', 'reopenNextNumberSeries'));
     }
 
     public function form(Request $request): View
@@ -230,6 +233,7 @@ class InvoiceSeriesController extends Controller
             'correctionPaymentMethodSources' => CorrectionPaymentMethodSource::cases(),
             'correctionSeries' => $correctionSeries,
             'series' => $series,
+            'numberingStarted' => $series?->numberingHasStarted() ?? false,
             'showValidationErrors' => $showValidationErrors,
             'useOldInput' => $showValidationErrors,
             'values' => [

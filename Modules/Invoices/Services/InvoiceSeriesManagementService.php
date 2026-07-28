@@ -8,11 +8,21 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Enums\InvoiceSeriesResetPeriod;
 use Modules\Invoices\Models\InvoiceSeries;
 use Throwable;
 
 class InvoiceSeriesManagementService
 {
+    private const NUMBERING_IDENTITY_FIELDS = [
+        'document_type',
+        'number_format',
+        'reset_period',
+        'fiscal_year_start_month',
+    ];
+
+    private const NUMBERING_IDENTITY_LOCK_MESSAGE = 'Nie można zmienić parametrów numeracji, ponieważ seria została już użyta do numerowania dokumentów.';
+
     private const COMMON_EDITABLE_FIELDS = [
         'name',
         'number_format',
@@ -105,6 +115,10 @@ class InvoiceSeriesManagementService
         'copies_count',
     ];
 
+    public function __construct(
+        private readonly InvoiceNumberingConfigurationValidator $numberingConfigurationValidator,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -115,8 +129,10 @@ class InvoiceSeriesManagementService
         try {
             return DB::transaction(function () use ($data, &$newLogoPath): InvoiceSeries {
                 $editableFields = $this->editableFieldsForData($data, self::CUSTOM_EDITABLE_FIELDS);
+                $normalizedData = $this->normalizeData(Arr::only($data, $editableFields));
+                $this->ensureNumberingConfigurationIsValid($normalizedData);
                 $series = new InvoiceSeries;
-                $series->fill($this->normalizeData(Arr::only($data, $editableFields)));
+                $series->fill($normalizedData);
                 $series->is_system = false;
                 $series->system_key = null;
                 $series->save();
@@ -170,12 +186,15 @@ class InvoiceSeriesManagementService
         try {
             $updatedSeries = DB::transaction(function () use ($series, $data, $newLogoPath, $removeLogo): InvoiceSeries {
                 $managedSeries = $this->lockSeries($series);
+                $this->ensureNumberingIdentityCanBeChanged($managedSeries, $data);
                 $baseFields = $managedSeries->is_system
                     ? self::COMMON_EDITABLE_FIELDS
                     : self::CUSTOM_EDITABLE_FIELDS;
                 $editableFields = $this->editableFieldsForData($data, $baseFields, $managedSeries);
+                $normalizedData = $this->normalizeData(Arr::only($data, $editableFields));
+                $this->ensureNumberingConfigurationIsValid($normalizedData, $managedSeries);
 
-                $managedSeries->fill($this->normalizeData(Arr::only($data, $editableFields)));
+                $managedSeries->fill($normalizedData);
 
                 if ($this->finalDocumentType($data, $managedSeries) === InvoiceDocumentType::Proforma->value) {
                     $managedSeries->default_correction_series_id = null;
@@ -220,6 +239,10 @@ class InvoiceSeriesManagementService
                 throw new DomainException('Seria systemowa jest zawsze aktywna i nie może zostać ukryta.');
             }
 
+            if ($active) {
+                $this->numberingConfigurationValidator->validateSeries($managedSeries);
+            }
+
             $managedSeries->is_active = $active;
             $managedSeries->save();
         });
@@ -257,11 +280,61 @@ class InvoiceSeriesManagementService
             throw new DomainException('Nie można usunąć aktywnej serii numeracji. Najpierw ją ukryj.');
         }
 
+        if ($series->invoices()->exists()) {
+            throw new DomainException(
+                'Nie można usunąć serii numeracji, ponieważ została użyta w dokumentach. Serię można ukryć i później ponownie aktywować.'
+            );
+        }
+
         if ($series->seriesUsingAsDefaultCorrection()->exists()) {
             throw new DomainException('Nie można usunąć serii numeracji, ponieważ jest przypisana jako seria korekt.');
         }
 
-        // Kontrole dokumentów, liczników i automatyzacji zostaną dopisane po utworzeniu ich tabel.
+        // Przyszłe kontrole automatyzacji należy dodać w tym miejscu.
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function ensureNumberingIdentityCanBeChanged(InvoiceSeries $series, array $data): void
+    {
+        if (! $series->numberingHasStarted()) {
+            return;
+        }
+
+        foreach (self::NUMBERING_IDENTITY_FIELDS as $field) {
+            if (! array_key_exists($field, $data)) {
+                continue;
+            }
+
+            $current = $series->{$field};
+            if ($current instanceof \BackedEnum) {
+                $current = $current->value;
+            }
+
+            $incoming = $data[$field];
+            if ($incoming instanceof \BackedEnum) {
+                $incoming = $incoming->value;
+            }
+
+            if ((string) $current !== (string) $incoming) {
+                throw new DomainException(self::NUMBERING_IDENTITY_LOCK_MESSAGE);
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function ensureNumberingConfigurationIsValid(
+        array $data,
+        ?InvoiceSeries $series = null,
+    ): void {
+        $this->numberingConfigurationValidator->validate(
+            (string) ($data['number_format'] ?? $series?->number_format ?? ''),
+            $data['reset_period'] ?? $series?->reset_period ?? InvoiceSeriesResetPeriod::Yearly,
+            (int) ($data['fiscal_year_start_month'] ?? $series?->fiscal_year_start_month ?? 1),
+        );
     }
 
     /**

@@ -673,46 +673,27 @@ Wyjątkiem są trzy serie systemowe tworzone przez migrację. Są zawsze aktywne
 
 # 12. Liczniki numeracji
 
-Liczniki nie należą do Etapu 1A.
-
-Docelowa tabela:
-
-```text
-invoice_series_counters
-```
-
-Przykładowe pola:
+Etap 2B wdraża tabelę `invoice_number_counters`. Każda seria ma niezależny licznik dla każdego okresu:
 
 ```text
 id
 invoice_series_id
-period_key
-last_number
+numbering_period_key
+last_sequence_number
+protected_floor_sequence_number
 created_at
 updated_at
 ```
 
-`period_key` zależy od `reset_period`:
+Obowiązuje `UNIQUE(invoice_series_id, numbering_period_key)`. Klucz okresu ma wartość `YYYY-MM` dla resetu miesięcznego, rok rozpoczęcia okresu fiskalnego dla resetu rocznego oraz `none` dla braku resetu.
 
-```text
-yearly  → 2026
-monthly → 2026-07
-none    → global
-```
+`last_sequence_number` wskazuje ostatnią techniczną sekwencję przygotowaną do kontynuacji, a następny numer to `last_sequence_number + 1`. `protected_floor_sequence_number` jest ręcznie ustanawianym progiem, poniżej którego przyszłe cofnięcie wolnego końca numeracji nie może zejść.
 
-Rekomendowane ograniczenie:
+Ręczne operacje „Ustaw następny numer” są zapisywane w niezmiennej tabeli `invoice_number_counter_adjustments` razem z poprzednim i nowym stanem, powodem, snapshotem serii, aktora i metadanymi. Źródłem bieżącego stanu pozostaje licznik, nie historia.
 
-```text
-UNIQUE(invoice_series_id, period_key)
-```
+`InvoiceNumberingPeriodResolver` centralnie ustala okres, a `InvoiceNumberFormatter` centralnie składa numer zgodnie z tokenami `%N`, `%NN...`, `%M`, `%Y` i `%y`. `InvoiceNumberingService` nadaje numer istniejącemu szkicowi w transakcji, z blokadą rekordu licznika i obsługą konfliktów. Nie ustawia statusu `issued`, nie tworzy pozycji ani snapshotów zamówienia.
 
-Nadawanie numeru musi odbywać się:
-
-- w transakcji,
-- z blokadą rekordu,
-- bez `max(number) + 1`,
-- bez generowania numeru w przeglądarce,
-- dopiero przy finalnym wystawieniu.
+Ograniczenia `UNIQUE(invoice_series_id, numbering_period_key, sequence_number)` oraz istniejące `UNIQUE(invoice_series_id, number)` są końcową ochroną przed duplikatem, również na SQLite, gdzie `lockForUpdate()` ma ograniczone działanie. Numer nie jest obliczany przez niezabezpieczone `MAX + 1` i nie jest generowany w przeglądarce.
 
 ---
 
@@ -784,7 +765,7 @@ Rekomendacja:
 - pełne snapshoty przechowywać dodatkowo w JSON,
 - nie polegać wyłącznie na relacjach do bieżących danych.
 
-Przykładowe jawne pola dokumentu:
+Zaimplementowane w Etapie 2A jawne pola dokumentu obejmują:
 
 ```text
 number
@@ -793,57 +774,65 @@ invoice_series_id
 order_id
 issue_date
 sale_date
-due_date
+payment_due_date
 currency
 total_net
-total_tax
+total_vat
 total_gross
-buyer_name
-buyer_tax_id
+paid_amount
+amount_due
+buyer_name_snapshot
+buyer_tax_id_snapshot
 status
-additional_information
+additional_information_text
 ```
 
-Dokładna struktura zostanie ustalona przed etapem modelu faktury.
+Pełne dane historyczne są przechowywane równolegle w jawnych polach wyszukiwalnych oraz walidowanych snapshotach JSON. Model nie synchronizuje ich automatycznie z zamówieniem ani serią.
 
 ---
 
 # 15. Pozycje faktury
 
-Planowana tabela:
+Zaimplementowana tabela:
 
 ```text
 invoice_items
 ```
 
-Planowane pola:
+Najważniejsze zaimplementowane pola:
 
 ```text
 id
 invoice_id
+order_item_id nullable
 product_id nullable
+source_invoice_item_id nullable
+line_type
+position
 name
 description
 quantity
-unit
+unit_name
 unit_price_net
 unit_price_gross
 vat_rate
 vat_code
-net_amount
-tax_amount
-gross_amount
-discount_amount
-currency
+total_net
+total_vat
+total_gross
 gtu_codes
-position_order
+product_snapshot
+metadata
+correction_before_snapshot
+correction_after_snapshot
+correction_difference_snapshot
 created_at
 updated_at
 ```
 
 Ważne zasady:
 
-- `product_id` jest opcjonalne,
+- `product_id` jest opcjonalne, indeksowane i nie posiada jeszcze klucza obcego,
 - nazwa i dane podatkowe są snapshotem,
 - usunięcie produktu nie usuwa pozycji,
 - ilość może być dziesiętna,
@@ -1077,7 +1066,7 @@ Pro forma używa tego samego modelu dokumentu z typem:
 proforma
 ```
 
-Nie tworzymy osobnej tabeli pro form, chyba że przyszłe wymagania wykażą silną potrzebę.
+Pro forma jest przechowywana w tabeli `invoices`; nie istnieje osobna tabela pro form.
 
 Pro forma:
 
@@ -1085,26 +1074,27 @@ Pro forma:
 - ma własny numer,
 - ma własny snapshot,
 - nie zwiększa rejestru sprzedaży VAT,
-- może zostać powiązana z fakturą.
+- posiada pola rewizji,
+- jedno zamówienie ma docelowo jedną bieżącą logiczną Pro formę z kolejnymi wersjami zachowującymi numer.
 
 ---
 
 # 23. Korekty
 
-Korekta powinna być dokumentem w tej samej tabeli `invoices` z typem:
+Korekta jest dokumentem w tabeli `invoices` z typem:
 
 ```text
 correction
 ```
 
-Planowane powiązania:
+Zaimplementowane powiązania:
 
 ```text
 corrected_invoice_id
-correction_parent_id nullable
+previous_correction_id nullable
 ```
 
-Dokładna struktura wymaga osobnego projektu procesu korekt.
+`corrected_invoice_id` zawsze wskazuje pierwotną Fakturę, a `previous_correction_id` bezpośrednio poprzednią Korektę. Unikalność niepustego `previous_correction_id` blokuje dwa następne ogniwa wskazujące ten sam poprzedni stan; pełna ochrona współbieżności pozostaje zadaniem przyszłego serwisu.
 
 Korekta przechowuje:
 
@@ -1117,6 +1107,8 @@ Korekta przechowuje:
 - własną historię.
 
 Nie należy nadpisywać dokumentu źródłowego.
+
+Korekty tworzą liniowy łańcuch. Faktura posiadająca Korektę nie będzie zwyczajnie edytowalna, a przyszłe usuwanie Korekt będzie możliwe wyłącznie od końca łańcucha.
 
 ---
 
@@ -1270,7 +1262,7 @@ Nie należy wykonywać częściowego zapisu dokumentu poza transakcją.
 - usuwa rekord z aktywnych list, ale zapisuje osobny ślad audytowy,
 - po dozwolonym usunięciu zamówienie ponownie może otrzymać fakturę VAT.
 
-Dozwolone usunięcie zwalnia numer dla tej samej serii i tego samego okresu numeracji. Przyszły generator najpierw wybiera zwolniony numer, a dopiero przy jego braku zwiększa licznik. Wybór oraz oznaczenie numeru jako wykorzystanego muszą odbywać się transakcyjnie z ochroną przed współbieżnością. Usunięta faktura nie pozostaje jako wyszarzony dokument; historia jest zachowywana w audycie.
+Dozwolone usunięcie nie utworzy ogólnej puli zwolnionych numerów i nie uzupełni wewnętrznych luk. Przyszły serwis usuwania będzie mógł transakcyjnie cofnąć wyłącznie wolny koniec licznika do większej z wartości: najwyższa pozostała sekwencja albo `protected_floor_sequence_number`. Usunięta faktura nie pozostanie jako wyszarzony dokument; historia będzie zachowywana w audycie.
 
 ## Produkty
 
@@ -1508,21 +1500,59 @@ Etap nie tworzy dokumentów, liczników, PDF, JPK ani KSeF. Pro forma posiada w�
 - widoczność VAT,
 - elementy wydruku.
 
-## Etap 2
+## Etap 2A — fundament dokumentów sprzedaży
 
-- liczniki,
-- generator numerów,
-- testy współbieżności.
+Zaimplementowane elementy:
+
+- migracje `invoices` i `invoice_items`,
+- modele `Modules\Invoices\Models\Invoice` i `InvoiceItem`,
+- enumy `InvoiceDocumentStatus` oraz `InvoiceItemType`,
+- casty enumów, dat, tablic JSON i wartości dziesiętnych,
+- relacje `Order -> invoices`, `OrderItem -> invoiceItems` i `InvoiceSeries -> invoices`,
+- relacje dokumentu do serii, zamówienia i pozycji,
+- relacje Faktury i liniowego łańcucha Korekt,
+- snapshoty sprzedawcy, nabywcy, odbiorcy, wystawiającego, zamówienia, płatności, dostawy, ustawień serii i podatków,
+- snapshoty pozycji Korekty przed, po i różnicy,
+- pola rewizji Pro formy,
+- blokada usunięcia serii posiadającej dokument lub szkic.
+
+Tabela `invoices` obsługuje `invoice`, `proforma` i `correction`. `order_id` jest nullable z `nullOnDelete`, `invoice_series_id` jest wymagane i chronione przed usunięciem serii, a pozycje dokumentu są usuwane kaskadowo wyłącznie wraz z dokumentem. `order_items` używa `nullOnDelete`, więc usunięcie pozycji zamówienia nie niszczy snapshotu dokumentu.
+
+`previous_correction_id` posiada przenośny unikalny indeks. SQLite i obsługiwane silniki dopuszczają wiele wartości `NULL`, dlatego pierwsze Korekty różnych Faktur są możliwe, natomiast jedna poprzednia Korekta nie może mieć dwóch następnych rekordów na poziomie tego ograniczenia. Pełna walidacja typu dokumentu i blokada współbieżności będą należały do centralnego serwisu Korekt.
+
+`invoice_items.product_id` jest nullable i nie posiada FK, ponieważ tabela `products` nie istnieje. Nie ma relacji `product()` w modelu. Powiązanie historyczne z `OrderItem` jest opcjonalne, a dane pozycji pozostają snapshotem.
+
+Nie użyto SoftDeletes i nie dodano pól KSeF. Nie ma tabeli ani ogólnej puli zwolnionych numerów, rewizji Pro formy ani audytu edycji Faktury.
+
+## Etap 2B — liczniki i silnik numeracji
+
+Zaimplementowano:
+
+- `invoice_number_counters` i `invoice_number_counter_adjustments`,
+- niezależne liczniki dla `invoice_series_id` i `numbering_period_key`,
+- `last_sequence_number` i `protected_floor_sequence_number`,
+- centralny resolver okresu i centralny formatter numeru,
+- centralny walidator zgodności formatu z okresem resetowania,
+- transakcyjne nadawanie numeru istniejącemu szkicowi,
+- unikalność sekwencji w serii i okresie,
+- serwerowy, niezapisujący podgląd,
+- operację „Ustaw następny numer” z obowiązkowym powodem i historią,
+- blokadę parametrów definiujących numerację po jej rozpoczęciu,
+- zamrożenie `numbering_period_key` po nadaniu numeru.
+
+Parametry tożsamości numeracji to `document_type`, `number_format`, `reset_period` i `fiscal_year_start_month`. Po rozpoczęciu numeracji są zablokowane, natomiast nazwa oraz pozostałe ustawienia biznesowe serii pozostają edytowalne. Operacja ręczna działa dla serii systemowych, własnych, aktywnych i ukrytych, oddzielnie dla każdego okresu.
+
+Walidacja konfiguracji jest wykonywana poza warstwą formularza. Reset `monthly` wymaga `%M` i jednego z tokenów roku `%Y`/`%y`. Reset `yearly` od stycznia wymaga tokenu roku, a przy początku roku fiskalnego innym niż styczeń także `%M`. Reset `none` nie wymaga tokenu okresu. Nieprawidłowa seria jest odrzucana kontrolowanym błędem przed podglądem, zmianą licznika lub nadaniem numeru.
+
+Wewnętrzne luki nie są ponownie używane. Usuwanie dokumentów i rzeczywiste cofanie wolnego końca licznika nie są jeszcze wdrożone. Przyszłe cofnięcie będzie transakcyjne i nie zejdzie poniżej `protected_floor_sequence_number`. Nie ma OSS ani kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru. Zmiana `issue_date` nie przeniesie ponumerowanego dokumentu do innego okresu. Pierwsza logiczna Pro forma zużyje jeden numer, jej przyszłe odświeżenie zachowa numer, a każda Korekta otrzyma osobny numer. KSeF pozostaje planowany w wariantach `send` i `exclude`.
 
 ## Kolejne etapy
 
-- model faktury,
-- pozycje,
 - kalkulator,
 - wystawianie z zamówienia,
-- pro formy,
+- odświeżanie wersji Pro formy,
 - edycja,
-- korekty,
+- centralny proces Korekt,
 - PDF,
 - pliki zewnętrzne,
 - historia,
@@ -1531,6 +1561,8 @@ Etap nie tworzy dokumentów, liczników, PDF, JPK ani KSeF. Pro forma posiada w�
 - JPK,
 - audyt KSeF,
 - KSeF.
+
+Przyszła edycja dokumentu będzie modyfikowała snapshoty `invoices` i `invoice_items`, nigdy automatycznie `orders`, `order_items` ani `invoice_series`. Kopiowanie aktualnych danych zamówienia będzie jawne. Edytowalność nie będzie zależeć od NIP-u; zostanie oparta na przyszłym snapshotcie trybu KSeF serii. Faktura `exclude` będzie edytowalna tylko bez Korekt i innych blokad, wystawiona Faktura `send` będzie zmieniana przez Korektę, Pro forma nie podlega KSeF, a Korekta dziedziczy decyzję Faktury źródłowej. Etap 2A nie dodaje tych pól ani procesów.
 
 ---
 
@@ -1564,8 +1596,8 @@ Do rozstrzygnięcia w odpowiednich etapach:
 - biblioteka PDF,
 - dokładna reguła zaokrągleń,
 - strategia decimal/money,
-- dokładne pola faktury,
-- model korekt,
+- szczegółowe reguły procesu wystawiania i edycji Faktury,
+- walidacja i współbieżność centralnego procesu Korekt,
 - zasady anulowania,
 - statusy dokumentów,
 - obsługa częściowych płatności,

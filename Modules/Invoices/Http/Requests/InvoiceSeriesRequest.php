@@ -2,10 +2,12 @@
 
 namespace Modules\Invoices\Http\Requests;
 
+use DomainException;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Unique;
+use Illuminate\Validation\Validator;
 use Modules\Invoices\Enums\CorrectionIssuerSource;
 use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
 use Modules\Invoices\Enums\CorrectionSaleDateSource;
@@ -21,6 +23,7 @@ use Modules\Invoices\Enums\InvoiceShippingVatMode;
 use Modules\Invoices\Enums\InvoiceUnitPriceMode;
 use Modules\Invoices\Enums\InvoiceVatRateSource;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Services\InvoiceNumberingConfigurationValidator;
 
 abstract class InvoiceSeriesRequest extends FormRequest
 {
@@ -168,6 +171,32 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'correction_payment_method_source.required' => 'Wybierz sposób prezentowania płatności.',
             'correction_payment_method_source.enum' => 'Wybrany sposób prezentowania płatności jest nieprawidłowy.',
         ];
+    }
+
+    /**
+     * @return array<int, callable(Validator): void>
+     */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if ($validator->errors()->hasAny([
+                'number_format',
+                'reset_period',
+                'fiscal_year_start_month',
+            ])) {
+                return;
+            }
+
+            try {
+                app(InvoiceNumberingConfigurationValidator::class)->validate(
+                    (string) $this->input('number_format'),
+                    (string) $this->input('reset_period'),
+                    (int) $this->input('fiscal_year_start_month'),
+                );
+            } catch (DomainException $exception) {
+                $validator->errors()->add('number_format', $exception->getMessage());
+            }
+        }];
     }
 
     protected function prepareForValidation(): void

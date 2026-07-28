@@ -186,6 +186,54 @@
             width: 30px;
         }
 
+        .invoice-series-numbering-action {
+            align-items: center;
+            display: inline-flex;
+            font-size: 12px;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .invoice-numbering-series-summary,
+        .invoice-numbering-preview-grid {
+            display: grid;
+            gap: 8px 16px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .invoice-numbering-series-summary {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .invoice-numbering-series-summary div,
+        .invoice-numbering-preview-grid div {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .invoice-numbering-series-summary span,
+        .invoice-numbering-preview-grid span {
+            color: #6b7280;
+            font-size: 11px;
+        }
+
+        .invoice-numbering-series-summary strong,
+        .invoice-numbering-preview-grid strong {
+            color: #1f2937;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .invoice-numbering-preview-grid {
+            border-bottom: 1px solid #e5e7eb;
+            border-top: 1px solid #e5e7eb;
+            padding: 12px 0;
+        }
+
         .invoice-series-action {
             background: #ffffff;
             color: #4e565f;
@@ -240,6 +288,11 @@
                 align-items: flex-start;
                 flex-direction: column;
             }
+
+            .invoice-numbering-series-summary,
+            .invoice-numbering-preview-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 
@@ -275,6 +328,7 @@
                                 <th scope="col">Rodzaj</th>
                                 <th scope="col">Nazwa</th>
                                 <th scope="col">Format</th>
+                                <th class="text-center" scope="col">Numeracja</th>
                                 <th class="text-center" scope="col">Pokaż/ukryj</th>
                                 <th class="text-center" scope="col">Edytuj</th>
                                 <th class="text-center" scope="col">Usuń</th>
@@ -299,6 +353,20 @@
                                         </span>
                                     </td>
                                     <td>{{ $item->number_format }}</td>
+                                    <td class="text-center">
+                                        <button
+                                            class="btn btn-outline-primary btn-sm invoice-series-numbering-action"
+                                            type="button"
+                                            data-next-number-open
+                                            data-series-id="{{ $item->id }}"
+                                            data-form-url="{{ route('invoices.series.next-number.form', $item) }}"
+                                            data-store-url="{{ route('invoices.series.next-number.store', $item) }}"
+                                            aria-label="Ustaw następny numer dla serii {{ $item->name }}"
+                                        >
+                                            <i class="bi bi-123" aria-hidden="true"></i>
+                                            Ustaw następny numer
+                                        </button>
+                                    </td>
                                     <td class="text-center">
                                         @if ($item->is_system)
                                             <span
@@ -401,6 +469,7 @@
     </div>
 
     @include('invoices.series._modal')
+    @include('invoices.series._next-number-modal')
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -651,6 +720,179 @@
                 setSubmitEnabled(body.querySelector('[data-series-form-fragment]') !== null);
                 updateInvoiceDependencies();
                 focusFirstField();
+            }
+        });
+    </script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const modalElement = document.querySelector('[data-next-number-modal]');
+
+            if (!modalElement || typeof bootstrap === 'undefined') {
+                return;
+            }
+
+            const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+            const form = modalElement.querySelector('[data-next-number-modal-form]');
+            const body = modalElement.querySelector('[data-next-number-modal-body]');
+            const submit = modalElement.querySelector('[data-next-number-submit]');
+            let formRequest = null;
+            let previewRequest = null;
+            let previewTimer = null;
+
+            const showLoading = () => {
+                body.innerHTML = `
+                    <div class="invoice-series-modal-loading" role="status" aria-live="polite">
+                        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                        <span>Ładowanie danych numeracji…</span>
+                    </div>
+                `;
+                submit.disabled = true;
+            };
+
+            const showLoadError = () => {
+                body.innerHTML = '<div class="alert alert-danger mb-0" role="alert">Nie udało się pobrać danych numeracji. Spróbuj ponownie.</div>';
+                submit.disabled = true;
+            };
+
+            const renderPreview = (data) => {
+                const fragment = body.querySelector('[data-next-number-form-fragment]');
+                if (!fragment) {
+                    return;
+                }
+
+                fragment.querySelector('[data-preview-last]').textContent = data.current_last_sequence_number;
+                fragment.querySelector('[data-preview-floor]').textContent = data.protected_floor_sequence_number;
+                fragment.querySelector('[data-preview-next]').textContent = data.current_next_sequence_number;
+                fragment.querySelector('[data-preview-formatted]').textContent = data.formatted_number;
+                fragment.querySelector('[data-next-number-period-description]').textContent = data.period_description;
+            };
+
+            const showPreviewError = (message) => {
+                const alert = body.querySelector('[data-next-number-preview-error]');
+                if (!alert) {
+                    return;
+                }
+
+                alert.textContent = message;
+                alert.classList.remove('d-none');
+            };
+
+            const hidePreviewError = () => {
+                body.querySelector('[data-next-number-preview-error]')?.classList.add('d-none');
+            };
+
+            const refreshPreview = async () => {
+                const fragment = body.querySelector('[data-next-number-form-fragment]');
+                const nextNumber = fragment?.querySelector('[data-next-sequence-number]');
+                if (!fragment || !nextNumber || nextNumber.value === '') {
+                    submit.disabled = true;
+                    return;
+                }
+
+                previewRequest?.abort();
+                previewRequest = new AbortController();
+                const url = new URL(fragment.dataset.previewUrl, window.location.origin);
+                const period = fragment.querySelector('[data-next-number-period]');
+                if (period) {
+                    url.searchParams.set(period.name, period.value);
+                }
+                url.searchParams.set('next_sequence_number', nextNumber.value);
+                hidePreviewError();
+                submit.disabled = true;
+
+                try {
+                    const response = await fetch(url.toString(), {
+                        headers: {
+                            Accept: 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        cache: 'no-store',
+                        signal: previewRequest.signal,
+                    });
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        const validationMessage = Object.values(data.errors || {}).flat()[0];
+                        throw new Error(validationMessage || data.message || 'Nie udało się przygotować podglądu numeru.');
+                    }
+
+                    renderPreview(data);
+                    submit.disabled = false;
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        return;
+                    }
+
+                    showPreviewError(error.message || 'Nie udało się przygotować podglądu numeru.');
+                    submit.disabled = true;
+                }
+            };
+
+            const schedulePreview = () => {
+                window.clearTimeout(previewTimer);
+                previewTimer = window.setTimeout(refreshPreview, 220);
+            };
+
+            const loadForm = async (formUrl, storeUrl) => {
+                formRequest?.abort();
+                formRequest = new AbortController();
+                form.action = storeUrl;
+                showLoading();
+
+                try {
+                    const response = await fetch(formUrl, {
+                        headers: {
+                            Accept: 'text/html',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        cache: 'no-store',
+                        signal: formRequest.signal,
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Form request failed.');
+                    }
+
+                    body.innerHTML = await response.text();
+                    submit.disabled = false;
+                    window.setTimeout(() => body.querySelector('.is-invalid, [data-next-sequence-number]')?.focus(), 120);
+                } catch (error) {
+                    if (error.name !== 'AbortError') {
+                        showLoadError();
+                    }
+                }
+            };
+
+            document.querySelectorAll('[data-next-number-open]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    modal.show();
+                    loadForm(button.dataset.formUrl, button.dataset.storeUrl);
+                });
+            });
+
+            body.addEventListener('input', (event) => {
+                if (event.target.closest('[data-next-sequence-number], [data-next-number-period]')) {
+                    schedulePreview();
+                }
+            });
+
+            body.addEventListener('change', (event) => {
+                if (event.target.closest('[data-next-number-period]')) {
+                    schedulePreview();
+                }
+            });
+
+            modalElement.addEventListener('hidden.bs.modal', () => {
+                formRequest?.abort();
+                previewRequest?.abort();
+                window.clearTimeout(previewTimer);
+                showLoading();
+            });
+
+            if (modalElement.dataset.reopenSeriesId && modalElement.dataset.reopenFormUrl) {
+                modal.show();
+                loadForm(modalElement.dataset.reopenFormUrl, modalElement.dataset.reopenStoreUrl);
             }
         });
     </script>

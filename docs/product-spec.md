@@ -32,7 +32,7 @@ Główne cele:
 - obsługa danych klientów, płatności i dostawy,
 - organizacja statusów zamówień,
 - przygotowanie wysyłek,
-- przechowywanie numerów seryjnych,
+- przechowywanie uwag sprzedawcy, w których właściciel może umieszczać numery seryjne jako zwykły tekst,
 - wystawianie dokumentów sprzedaży,
 - generowanie PDF,
 - rejestrowanie historii operacji,
@@ -514,7 +514,7 @@ Domyślne propozycje:
 
 Resetowania nie ustalamy wyłącznie na podstawie tokenów formatu.
 
-Numer dokumentu jest nadawany dopiero przy finalnym wystawieniu.
+Numer dokumentu jest przygotowywany przez centralny silnik numeracji. Etap 2B potrafi transakcyjnie nadać numer istniejącemu szkicowi, ale nie zmienia jego statusu na wystawiony i nie zastępuje przyszłego procesu finalnego wystawiania.
 
 Mechanizm numeracji musi być:
 
@@ -756,7 +756,7 @@ Fakturę będzie można usunąć wyłącznie, gdy jednocześnie:
 
 Podczas wysyłania albo oczekiwania na odpowiedź KSeF operacja będzie tymczasowo zablokowana. Automatyzacja nie może usuwać faktur. Po potwierdzonym ręcznym usunięciu dokument znika z listy i zamówienia, ponownie można wystawić fakturę VAT, a techniczny audyt zachowuje numer, serię, zamówienie, datę, użytkownika i powód operacji.
 
-Usunięta faktura nie pozostaje jako wyszarzony rekord. Jej numer trafia do przyszłego mechanizmu numerów zwolnionych i może zostać użyty dla dowolnego zamówienia wyłącznie w tej samej serii oraz tym samym okresie resetowania. Generator najpierw pobiera najniższy dostępny zwolniony numer, a dopiero później zwiększa licznik; operacja musi być transakcyjna i odporna na równoległe procesy.
+Usunięta faktura nie pozostanie jako wyszarzony rekord. Wewnętrzne luki numeracji nie będą ponownie używane: usunięcie dokumentu 11 przy istniejących dokumentach 10, 12 i 13 nie zmieni kolejnego numeru 14. Przyszły serwis usuwania będzie mógł transakcyjnie cofnąć wyłącznie wolny koniec numeracji, czyli po usunięciu ostatniego dokumentu 13 kolejny numer będzie mógł ponownie wynosić 13. Cofnięcie nie będzie mogło zejść poniżej `protected_floor_sequence_number`. Nie powstanie tabela ani ogólna pula zwolnionych numerów.
 
 Te zasady są wymaganiami przyszłych etapów. Etap 1C.1 nie implementuje tabel faktur, usuwania, liczników ani KSeF.
 
@@ -899,7 +899,7 @@ Pro forma:
 - nie jest traktowana jak faktura VAT,
 - może być powiązana z późniejszą fakturą.
 
-Pro forma zawsze posiada własny numer wynikający z własnej serii. Nie zużywa numeru faktury VAT, nie jest wysyłana do KSeF i nie trafia do rejestru VAT ani JPK jako faktura sprzedaży.
+Pro forma zawsze posiada własny numer wynikający z własnej serii. Jedno zamówienie posiada maksymalnie jedną bieżącą logiczną Pro formę; przyszłe odświeżenia tworzą kolejne wersje tego samego dokumentu bez zmiany numeru. Pro forma nie zużywa numeru faktury VAT, nie jest wysyłana do KSeF i nie trafia do rejestru VAT ani JPK jako faktura sprzedaży.
 
 ---
 
@@ -928,7 +928,7 @@ Planowane przypadki:
 - pełny zwrot,
 - częściowy zwrot.
 
-Kolejna korekta odnosi się do skutecznego stanu dokumentu po wcześniejszych korektach.
+Kolejna korekta odnosi się do skutecznego stanu dokumentu po wcześniejszych korektach. Wszystkie Korekty wskazują pierwotną Fakturę, a druga i kolejne wskazują również bezpośrednio poprzednią Korektę. Faktura posiadająca co najmniej jedną Korektę nie będzie zwyczajnie edytowalna. Przyszłe usuwanie Korekt będzie możliwe wyłącznie od końca liniowego łańcucha.
 
 Numer korekty jest nadawany przy finalnym wystawieniu.
 
@@ -1344,16 +1344,43 @@ Etap nie tworzy dokumentów, nie nadaje numerów i nie generuje PDF. Pro forma n
 
 ## Etap 1G — wygląd dokumentu
 
-## Etap 2 — liczniki i generator numerów
+## Etap 2A — fundament dokumentów sprzedaży
+
+Zaimplementowano jedną tabelę `invoices` dla Faktur VAT, Pro form i Korekt oraz tabelę `invoice_items` dla wszystkich pozycji dokumentów. Dodano modele, enumy statusu i typu pozycji, relacje z `Order`, `OrderItem` i `InvoiceSeries`, snapshoty dokumentu, pola rewizji Pro formy oraz relacje liniowego łańcucha Korekt.
+
+Dokument zachowuje własne dane sprzedawcy, nabywcy, odbiorcy, wystawiającego, zamówienia, płatności, dostawy, ustawień serii i podatków. Zmiana zamówienia, pozycji zamówienia lub serii nie aktualizuje tych snapshotów. Pole `additional_information_text` przechowuje finalną treść dokumentu, a nie szablon serii.
+
+`Order` posiada relację `hasMany Invoices`; tabela `orders` nie posiada `invoice_id`. `invoice_items.product_id` jest nullable i nie posiada jeszcze klucza obcego, ponieważ moduł Produkty nie istnieje. Historyczne pozycje działają bez katalogu produktów. Dokumenty nie używają SoftDeletes.
+
+Jedna Faktura może posiadać wiele kolejnych Korekt. Każda wskazuje pierwotną Fakturę przez `corrected_invoice_id`, a druga i kolejne wskazują bezpośrednio poprzednią Korektę przez `previous_correction_id`. Pozycje Korekty posiadają miejsce na stan przed, po i różnicę. Obliczanie skutecznego stanu oraz centralny serwis Korekt nie są jeszcze zaimplementowane.
+
+Użytej serii, również posiadającej tylko szkic, nie można usunąć. Można ją ukryć i później reaktywować z tym samym `id` i przyszłym licznikiem.
+
+Nie zaimplementowano jeszcze pełnego wystawiania, tworzenia snapshotów z zamówienia, kalkulatora, odświeżania Pro formy, historii rewizji, listy dokumentów, edycji, usuwania dokumentów, PDF, audytu dokumentów, automatyzacji, JPK XML ani KSeF.
+
+## Etap 2B — liczniki i silnik numeracji
+
+Zaimplementowano niezależne, trwałe liczniki `invoice_number_counters` dla każdej pary seria–okres oraz niezmienną historię ręcznych zmian w `invoice_number_counter_adjustments`. Licznik przechowuje `last_sequence_number` i chroniony próg `protected_floor_sequence_number`. Unikalne indeksy zabezpieczają zarówno pojedynczy licznik okresu, jak i techniczną sekwencję dokumentu w serii i okresie.
+
+Centralny resolver ustala klucz okresu: `YYYY-MM` dla resetu miesięcznego, rok rozpoczęcia okresu fiskalnego dla resetu rocznego oraz `none` dla braku resetu. Centralny formatter zachowuje składnię `%N`, `%NN...`, `%M`, `%Y` i `%y`. Podgląd numeru nie zapisuje ani nie rezerwuje danych.
+
+Centralny walidator konfiguracji wymaga, aby format identyfikował okres resetowania: `monthly` musi zawierać `%M` oraz `%Y` lub `%y`, `yearly` od stycznia wymaga `%Y` lub `%y`, a `yearly` rozpoczynany w innym miesiącu wymaga dodatkowo `%M`. Dla `none` nie są wymagane tokeny miesiąca ani roku. Reguła chroni formularze, serwis zarządzania seriami, podgląd, ręczne ustawianie następnego numeru i właściwe nadawanie numeru.
+
+`InvoiceNumberingService` transakcyjnie nadaje numer istniejącemu szkicowi, zapisuje jego sekwencję, okres i snapshot formatu oraz nazwy serii, ale nie wystawia dokumentu, nie tworzy pozycji i nie buduje snapshotów zamówienia. Numer nie jest wyznaczany przez niezabezpieczone `MAX + 1`; końcowym zabezpieczeniem pozostają ograniczenia unikalne, także na SQLite.
+
+Operacja „Ustaw następny numer” działa oddzielnie dla każdego okresu, wymaga powodu i zapisuje historię poprzedniego oraz nowego stanu wraz ze snapshotem aktora. Dla okresu bez dokumentów pozwala skorygować licznik także w dół. Dla okresu z dokumentami pozwala wyłącznie bezpiecznie przesunąć numerację do przodu. Ustawiony ręcznie poziom staje się chronionym progiem. Po rozpoczęciu numeracji nie można zmienić typu dokumentu, formatu, sposobu resetu ani początku roku fiskalnego; nazwa i pozostałe ustawienia biznesowe serii nadal mogą być zmieniane.
+
+Wewnętrzne luki nie są automatycznie uzupełniane. Usuwanie dokumentów i rzeczywiste cofanie wolnego końca licznika nie zostały jeszcze wdrożone. Przyszły serwis usuwania będzie mógł cofnąć wyłącznie ostatnią, wolną część numeracji, nigdy poniżej `protected_floor_sequence_number`. Zmiana `issue_date` ponumerowanego dokumentu nie przeniesie go automatycznie do innego okresu. Pierwsze utworzenie logicznej Pro formy zużyje jeden numer, jej przyszłe odświeżanie zachowa ten numer, a każda Korekta zużyje osobny numer własnej serii.
+
+Etap 2B nie dodaje OSS ani kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru. KSeF pozostaje planowany w trybach `send` i `exclude` i nie jest częścią silnika numeracji.
 
 ## Dalsze etapy
 
-- model faktury,
-- pozycje faktury,
+- kalkulator dokumentów,
 - wystawianie z zamówienia,
 - edycja,
-- pro formy,
-- korekty,
+- odświeżanie wersji Pro formy,
+- centralny proces Korekt,
 - PDF,
 - dokumenty zewnętrzne,
 - historia,
@@ -1362,6 +1389,8 @@ Etap nie tworzy dokumentów, nie nadaje numerów i nie generuje PDF. Pro forma n
 - JPK,
 - audyt KSeF,
 - KSeF.
+
+Przyszła edycja Faktury będzie działać wyłącznie na snapshotach i nie zmieni zamówienia. Kopiowanie aktualnych danych zamówienia będzie ręczną operacją. Edytowalność nie zależy od NIP-u: docelowo będzie wynikać ze snapshotu decyzji KSeF serii. Faktura z trybem `exclude` będzie mogła być edytowana tylko bez Korekt i innych blokad, a wystawiona Faktura z trybem `send` będzie zmieniana przez Korektę. Pro forma nie podlega KSeF, natomiast Korekta dziedziczy sposób obsługi KSeF z Faktury źródłowej. Pola i procesy KSeF nie zostały dodane w Etapie 2A.
 
 ---
 

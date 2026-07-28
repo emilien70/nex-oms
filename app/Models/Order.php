@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Automation\Models\AutomationRun;
+use Modules\Invoices\Models\Invoice;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Models\ShipmentCreationAttempt;
 
@@ -181,5 +182,10 @@ class Order extends Model
     public function automationRuns(): HasMany
     {
         return $this->hasMany(AutomationRun::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
     }
 }

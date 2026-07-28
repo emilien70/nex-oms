@@ -20,6 +20,7 @@ use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
 use Modules\Invoices\Http\Controllers\InvoiceController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesController;
+use Modules\Invoices\Http\Controllers\InvoiceSeriesNextNumberController;
 
 Route::get('/', function () {
     $dashboardStats = [
@@ -91,6 +92,9 @@ Route::get('/invoices/settings/series', [InvoiceSeriesController::class, 'index'
 Route::get('/invoices/settings/series/form', [InvoiceSeriesController::class, 'form'])->name('invoices.series.form');
 Route::post('/invoices/settings/series', [InvoiceSeriesController::class, 'store'])->name('invoices.series.store');
 Route::get('/invoices/settings/series/{series}/edit', [InvoiceSeriesController::class, 'edit'])->name('invoices.series.edit');
+Route::get('/invoices/settings/series/{series}/next-number', [InvoiceSeriesNextNumberController::class, 'show'])->name('invoices.series.next-number.form');
+Route::get('/invoices/settings/series/{series}/next-number/preview', [InvoiceSeriesNextNumberController::class, 'preview'])->name('invoices.series.next-number.preview');
+Route::post('/invoices/settings/series/{series}/next-number', [InvoiceSeriesNextNumberController::class, 'store'])->name('invoices.series.next-number.store');
 Route::patch('/invoices/settings/series/{series}', [InvoiceSeriesController::class, 'update'])->name('invoices.series.update');
 Route::patch('/invoices/settings/series/{series}/active', [InvoiceSeriesController::class, 'updateActive'])->name('invoices.series.active');
 Route::delete('/invoices/settings/series/{series}', [InvoiceSeriesController::class, 'destroy'])->name('invoices.series.destroy');

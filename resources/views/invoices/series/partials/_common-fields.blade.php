@@ -1,4 +1,5 @@
 @php
+    $numberingStarted = $numberingStarted ?? false;
     $fieldValue = static fn (string $field): mixed => $useOldInput
         ? old($field, $values[$field] ?? null)
         : ($values[$field] ?? null);
@@ -8,9 +9,12 @@
 <div class="row g-3">
     <div class="col-12">
         <label class="form-label" for="invoice-series-document-type">Typ dokumentu</label>
-        @if ($series?->is_system)
+        @if ($series?->is_system || $numberingStarted)
             <input type="hidden" name="document_type" value="{{ $series->document_type->value }}">
-            <div class="form-control form-control-sm bg-light" data-role="system-document-type">
+            <div
+                class="form-control form-control-sm bg-light"
+                data-role="{{ $series?->is_system ? 'system-document-type' : 'locked-document-type' }}"
+            >
                 {{ $series->document_type->label() }}
             </div>
         @else
@@ -51,16 +55,22 @@
 
     <div class="col-12">
         <label class="form-label" for="invoice-series-number-format">Format numeracji</label>
+        @if ($numberingStarted)
+            <input type="hidden" name="number_format" value="{{ $series->number_format }}">
+        @endif
         <input
             class="form-control form-control-sm {{ $fieldHasError('number_format') ? 'is-invalid' : '' }}"
             id="invoice-series-number-format"
-            name="number_format"
+            @unless ($numberingStarted) name="number_format" @endunless
             type="text"
             value="{{ $fieldValue('number_format') }}"
             maxlength="120"
+            @disabled($numberingStarted)
             required
         >
-        <div class="form-text">Format musi zawierać token %N, np. {{ $documentType->defaultNumberFormat() }}.</div>
+        <div class="form-text">
+            Format musi zawierać token %N. Reset miesięczny wymaga także %M i %Y lub %y. Reset roczny wymaga %Y lub %y, a przy roku fiskalnym innym niż styczeń także %M. Przykład: {{ $documentType->defaultNumberFormat() }}.
+        </div>
         @if ($fieldHasError('number_format'))
             <div class="invalid-feedback">{{ $errors->first('number_format') }}</div>
         @endif
@@ -68,10 +78,14 @@
 
     <div class="col-md-6">
         <label class="form-label" for="invoice-series-reset-period">Resetowanie numeracji</label>
+        @if ($numberingStarted)
+            <input type="hidden" name="reset_period" value="{{ $series->reset_period->value }}">
+        @endif
         <select
             class="form-select form-select-sm {{ $fieldHasError('reset_period') ? 'is-invalid' : '' }}"
             id="invoice-series-reset-period"
-            name="reset_period"
+            @unless ($numberingStarted) name="reset_period" @endunless
+            @disabled($numberingStarted)
             required
         >
             @foreach ($resetPeriods as $period)
@@ -87,10 +101,14 @@
 
     <div class="col-md-6">
         <label class="form-label" for="invoice-series-fiscal-month">Początek roku fiskalnego</label>
+        @if ($numberingStarted)
+            <input type="hidden" name="fiscal_year_start_month" value="{{ $series->fiscal_year_start_month }}">
+        @endif
         <select
             class="form-select form-select-sm {{ $fieldHasError('fiscal_year_start_month') ? 'is-invalid' : '' }}"
             id="invoice-series-fiscal-month"
-            name="fiscal_year_start_month"
+            @unless ($numberingStarted) name="fiscal_year_start_month" @endunless
+            @disabled($numberingStarted)
             required
         >
             @foreach (range(1, 12) as $month)
@@ -103,6 +121,15 @@
             <div class="invalid-feedback">{{ $errors->first('fiscal_year_start_month') }}</div>
         @endif
     </div>
+
+    @if ($numberingStarted)
+        <div class="col-12">
+            <div class="invoice-series-system-note" role="note" data-role="numbering-identity-locked">
+                <i class="bi bi-lock" aria-hidden="true"></i>
+                Parametrów definiujących numerację nie można zmienić, ponieważ seria została już użyta do numerowania dokumentów.
+            </div>
+        </div>
+    @endif
 
     <div class="col-md-6">
         <label class="form-label" for="invoice-series-currency">Domyślna waluta</label>

@@ -167,4 +167,30 @@ class InvoiceSeries extends Model
     {
         return $this->hasMany(self::class, 'default_correction_series_id');
     }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class, 'invoice_series_id');
+    }
+
+    public function numberCounters(): HasMany
+    {
+        return $this->hasMany(InvoiceNumberCounter::class, 'invoice_series_id');
+    }
+
+    public function numberingHasStarted(): bool
+    {
+        if ($this->invoices()->whereNotNull('sequence_number')->exists()) {
+            return true;
+        }
+
+        return $this->numberCounters()
+            ->where(function ($query): void {
+                $query
+                    ->where('last_sequence_number', '>', 0)
+                    ->orWhere('protected_floor_sequence_number', '>', 0)
+                    ->orWhereHas('adjustments');
+            })
+            ->exists();
+    }
 }
