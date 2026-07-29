@@ -102,6 +102,24 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         }
     }
 
+    public function test_correction_print_header_is_saved_and_restored_in_edit_form(): void
+    {
+        $series = $this->systemCorrection();
+
+        $this->patch(route('invoices.series.update', $series), $this->validPayload([
+            'print_header' => 'Multi-Click Korekta',
+            'form_mode' => 'edit',
+            'editing_series_id' => $series->id,
+        ]))->assertSessionDoesntHaveErrors();
+
+        $this->assertSame('Multi-Click Korekta', $series->refresh()->print_header);
+
+        $this->get(route('invoices.series.edit', $series))
+            ->assertOk()
+            ->assertSee('name="print_header"', false)
+            ->assertSee('value="Multi-Click Korekta"', false);
+    }
+
     public function test_invoice_and_proforma_forms_remain_extended_without_correction_settings(): void
     {
         $this->get(route('invoices.series.form', ['document_type' => 'invoice']))

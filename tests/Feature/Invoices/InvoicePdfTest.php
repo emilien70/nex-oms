@@ -63,12 +63,16 @@ class InvoicePdfTest extends TestCase
 
     public function test_invoice_html_contains_snapshot_data_complete_table_and_no_generator_footer(): void
     {
-        $invoice = $this->issueInvoice();
+        $invoice = $this->issueInvoice([
+            'seller_bank_name' => 'Bank testowy',
+            'seller_bank_account' => '12 3456 7890 1234 5678 9012 3456',
+        ]);
         $html = app(InvoicePdfRenderer::class)->html($invoice);
 
         foreach ([
             'Faktura VAT', $invoice->number, 'Data sprzedaży', 'Data wystawienia', 'Katowice',
-            'Przelew', 'SHOP-100', 'Sprzedawca:', 'Nabywca:', 'Nazwa towaru/usługi',
+            'Przelew', 'Bank testowy', '12 3456 7890 1234 5678 9012 3456', 'SHOP-100',
+            'Sprzedawca:', 'Nabywca:', 'Nazwa towaru/usługi',
             'Przesyłka:', 'Netto', 'VAT', 'Brutto', 'Razem:', 'Słownie:',
             'Operator NEX-OMS', 'SN-001',
         ] as $expected) {
@@ -86,13 +90,17 @@ class InvoicePdfTest extends TestCase
     {
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
-        $series = $this->createDocumentSeries(attributes: ['print_header' => 'Nagłówek historyczny']);
+        $series = $this->createDocumentSeries(attributes: [
+            'document_title' => 'Faktura historyczna',
+            'print_header' => 'Nagłówek historyczny',
+        ]);
         $invoice = app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext());
         $renderer = app(InvoicePdfRenderer::class);
         $before = $renderer->html($invoice);
 
         $order->update(['billing_name' => 'Zmieniony klient', 'external_id' => 'NOWY-NUMER']);
         $series->update([
+            'document_title' => 'Zmieniona nazwa dokumentu',
             'seller_name' => 'Zmieniony sprzedawca',
             'issuer_name' => 'Inna osoba',
             'print_header' => 'Zmieniony nagłówek',
@@ -100,6 +108,8 @@ class InvoicePdfTest extends TestCase
         $after = $renderer->html($invoice->refresh());
 
         $this->assertSame($before, $after);
+        $this->assertStringContainsString('Faktura historyczna', $after);
+        $this->assertStringNotContainsString('Zmieniona nazwa dokumentu', $after);
         $this->assertStringContainsString('Nagłówek historyczny', $after);
         $this->assertStringNotContainsString('Zmieniony klient', $after);
         $this->assertStringNotContainsString('Zmieniony sprzedawca', $after);
@@ -173,14 +183,17 @@ class InvoicePdfTest extends TestCase
         Storage::fake('local');
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
-        $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma, [
+            'document_title' => 'Pro forma testowa',
+        ]);
         $service = app(ProformaService::class);
         $invoice = $service->createOrRefresh($order, $series, $this->documentContext())->invoice;
         $order->update(['notes' => 'Nowe uwagi']);
         $invoice = $service->createOrRefresh($order, $series, $this->documentContext())->invoice;
 
         $html = app(InvoicePdfRenderer::class)->html($invoice);
-        $this->assertStringContainsString('Faktura PRO FORMA', $html);
+        $this->assertStringContainsString('Pro forma testowa', $html);
+        $this->assertStringNotContainsString('Faktura PRO FORMA', $html);
         $this->assertStringNotContainsString('Wersja', $html);
         $this->assertStringNotContainsString('Numer płatności:', $html);
         $this->assertStringNotContainsString('Osoba upoważniona', $html);
@@ -200,13 +213,15 @@ class InvoicePdfTest extends TestCase
         $html = app(InvoicePdfRenderer::class)->html($correction);
 
         foreach ([
-            'Faktura korygująca', 'KOR 1/2026', 'do faktury '.$source->number,
+            'Korekta testowa', 'KOR 1/2026', 'do faktury '.$source->number,
             'Błąd w cenie', 'Było:', 'Powinno być:', 'Podsumowanie:',
             'Kwota zmniejszająca podstawę opodatkowania', 'Do zwrotu', '-20.00',
             '- Dwadzieścia PLN 00/100 PLN', 'Operator korekty',
         ] as $expected) {
             $this->assertStringContainsString($expected, $html);
         }
+
+        $this->assertStringNotContainsString('Faktura korygująca', $html);
 
         $response = $this->get(route('invoices.pdf', $correction))->assertOk();
         $this->assertStringStartsWith('%PDF-', $response->getContent());
@@ -268,18 +283,23 @@ class InvoicePdfTest extends TestCase
             ->assertSeeText('dane dokumentu są niekompletne');
     }
 
-    private function issueInvoice(): Invoice
+    /**
+     * @param  array<string, mixed>  $seriesAttributes
+     */
+    private function issueInvoice(array $seriesAttributes = []): Invoice
     {
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
-        $series = $this->createDocumentSeries();
+        $series = $this->createDocumentSeries(attributes: $seriesAttributes);
 
         return app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext());
     }
 
     private function createCorrection(Invoice $source): Invoice
     {
-        $series = $this->createDocumentSeries(InvoiceDocumentType::Correction);
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Correction, [
+            'document_title' => 'Korekta testowa',
+        ]);
         $correction = Invoice::query()->create([
             'order_id' => $source->order_id,
             'invoice_series_id' => $series->getKey(),
@@ -314,7 +334,10 @@ class InvoicePdfTest extends TestCase
             ]],
             'payment_snapshot' => $source->payment_snapshot,
             'shipping_snapshot' => $source->shipping_snapshot,
-            'series_settings_snapshot' => $source->series_settings_snapshot,
+            'series_settings_snapshot' => array_merge(
+                $source->series_settings_snapshot,
+                ['document_title' => $series->document_title],
+            ),
             'tax_summary_snapshot' => [],
             'currency' => 'PLN',
             'total_net' => '-16.26',

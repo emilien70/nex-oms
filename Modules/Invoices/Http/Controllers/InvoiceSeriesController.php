@@ -291,6 +291,7 @@ class InvoiceSeriesController extends Controller
                     InvoiceDocumentType::Correction => 'Faktura korygująca',
                     InvoiceDocumentType::Proforma => 'Faktura pro forma',
                 },
+                'print_header' => $series?->print_header,
                 'copies_count' => $series?->copies_count ?? 1,
                 'additional_information_template' => $series?->additional_information_template,
                 'logo_path' => $series?->logo_path,

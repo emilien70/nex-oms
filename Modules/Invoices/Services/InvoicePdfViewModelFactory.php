@@ -38,7 +38,8 @@ class InvoicePdfViewModelFactory
 
         return [
             'type' => $invoice->document_type->value,
-            'title' => $invoice->isProforma() ? 'Faktura PRO FORMA' : 'Faktura VAT',
+            'title' => $this->text($settings['document_title'] ?? null)
+                ?: ($invoice->isProforma() ? 'Faktura PRO FORMA' : 'Faktura VAT'),
             'header' => $this->text($settings['print_header'] ?? null)
                 ?: $this->text($seller['name'] ?? null)
                 ?: $this->text($invoice->seller_name_snapshot),
@@ -77,7 +78,7 @@ class InvoicePdfViewModelFactory
 
         return [
             'type' => InvoiceDocumentType::Correction->value,
-            'title' => 'Faktura korygująca',
+            'title' => $this->text($settings['document_title'] ?? null) ?: 'Faktura korygująca',
             'header' => $this->text($settings['print_header'] ?? null)
                 ?: $this->text($seller['name'] ?? null)
                 ?: $this->text($invoice->seller_name_snapshot),

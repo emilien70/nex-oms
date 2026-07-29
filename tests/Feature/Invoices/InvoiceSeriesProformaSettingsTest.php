@@ -53,6 +53,17 @@ class InvoiceSeriesProformaSettingsTest extends TestCase
         }
     }
 
+    public function test_proforma_edit_form_restores_the_saved_print_header(): void
+    {
+        $series = $this->systemProforma();
+        $series->update(['print_header' => 'Multi-Click Pro Forma']);
+
+        $this->get(route('invoices.series.edit', $series))
+            ->assertOk()
+            ->assertSee('name="print_header"', false)
+            ->assertSee('value="Multi-Click Pro Forma"', false);
+    }
+
     public function test_invoice_and_correction_forms_keep_their_existing_sections(): void
     {
         $this->get(route('invoices.series.form', ['document_type' => 'invoice']))
