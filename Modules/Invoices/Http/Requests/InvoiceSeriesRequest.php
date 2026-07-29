@@ -47,6 +47,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
         'issuer_name',
         'fixed_payment_method',
         'additional_information_template',
+        'print_header',
         'secondary_language',
     ];
 
@@ -156,6 +157,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'seller_email.email' => 'Adres e-mail sprzedawcy jest nieprawidłowy.',
             'seller_bank_swift.max' => 'Kod SWIFT/BIC nie może być dłuższy niż 11 znaków.',
             'document_title.required' => 'Podaj nazwę dokumentu.',
+            'print_header.max' => 'Nagłówek nie może być dłuższy niż 255 znaków.',
             'copies_count.required' => 'Podaj liczbę kopii.',
             'copies_count.between' => 'Liczba kopii musi mieścić się w zakresie od 1 do 10.',
             'secondary_language.different' => 'Język dodatkowy musi być inny niż język główny.',
@@ -355,6 +357,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
                 'different:primary_language',
             ],
             'document_title' => ['required', 'string', 'max:120'],
+            'print_header' => ['nullable', 'string', 'max:255'],
             'copies_count' => ['required', 'integer', 'between:1,10'],
             'additional_information_template' => ['nullable', 'string'],
             'logo' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:2048'],
@@ -407,6 +410,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'show_return_id_in_header' => ['required', 'boolean'],
             'show_payment_identifier' => ['required', 'boolean'],
             'document_title' => ['required', 'string', 'max:120'],
+            'print_header' => ['nullable', 'string', 'max:255'],
             'print_template' => ['required', Rule::enum(InvoicePrintTemplate::class)],
             'primary_language' => ['required', Rule::enum(InvoicePrimaryLanguage::class)],
             'secondary_language' => [
@@ -438,6 +442,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'issuer_name',
             'fixed_payment_method',
             'additional_information_template',
+            'print_header',
             'secondary_language',
         ] as $field) {
             if ($this->exists($field)) {
@@ -484,6 +489,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'show_return_id_in_header' => false,
             'show_payment_identifier' => false,
             'document_title' => 'Faktura korygująca',
+            'print_header' => null,
             'print_template' => InvoicePrintTemplate::Standard->value,
             'primary_language' => InvoicePrimaryLanguage::BuyerCountry->value,
             'secondary_language' => null,
@@ -570,6 +576,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'primary_language' => InvoicePrimaryLanguage::BuyerCountry->value,
             'secondary_language' => null,
             'document_title' => 'Faktura VAT',
+            'print_header' => null,
             'copies_count' => 1,
             'additional_information_template' => null,
             'remove_logo' => false,

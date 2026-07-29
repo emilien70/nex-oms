@@ -25,6 +25,7 @@ class InvoiceSeriesProformaSettingsTest extends TestCase
         $response = $this->get(route('invoices.series.form', ['document_type' => 'proforma']));
 
         $response->assertOk();
+        $response->assertSee('name="print_header"', false);
         foreach ([
             'Dane sprzedawcy',
             'Rachunek bankowy',
@@ -115,6 +116,7 @@ class InvoiceSeriesProformaSettingsTest extends TestCase
             'primary_language' => 'pl',
             'secondary_language' => 'en',
             'document_title' => 'Pro forma eksportowa',
+            'print_header' => 'Multi-Click Pro Forma',
             'copies_count' => 2,
             'additional_information_template' => $template,
         ]))->assertSessionDoesntHaveErrors();
@@ -129,6 +131,7 @@ class InvoiceSeriesProformaSettingsTest extends TestCase
         $this->assertSame('23.00', $series->default_vat_rate);
         $this->assertSame('8.00', $series->default_shipping_vat_rate);
         $this->assertTrue($series->show_payment_identifier);
+        $this->assertSame('Multi-Click Pro Forma', $series->print_header);
         $this->assertSame($template, $series->additional_information_template);
         $this->assertNull($series->default_correction_series_id);
     }
@@ -471,6 +474,7 @@ class InvoiceSeriesProformaSettingsTest extends TestCase
             'primary_language' => 'buyer_country',
             'secondary_language' => null,
             'document_title' => 'Faktura pro forma',
+            'print_header' => null,
             'copies_count' => 1,
             'remove_logo' => false,
         ], $overrides);

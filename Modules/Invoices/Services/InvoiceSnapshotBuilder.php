@@ -196,6 +196,7 @@ class InvoiceSnapshotBuilder
             'seller' => $seller,
             'additional_information_template' => $series->additional_information_template,
             'document_title' => $series->document_title,
+            'print_header' => $series->print_header,
             'unit_price_mode' => $this->enumValue($series->unit_price_mode),
             'show_vat_column' => (bool) $series->show_vat_column,
             'show_order_number' => (bool) $series->show_order_number,

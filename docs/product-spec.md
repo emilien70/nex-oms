@@ -989,9 +989,7 @@ PDF powinien zawierać:
 - wynikową treść uwag sprzedawcy, w której mogą znajdować się numery seryjne,
 - oznaczenie duplikatu, jeśli dotyczy.
 
-Pliki są przechowywane prywatnie.
-
-Biblioteka PDF zostanie wybrana w osobnym etapie.
+Pliki są przechowywane prywatnie. Etap 2D używa biblioteki `tecnickcom/tcpdf`; plik jest generowany na żądanie wyłącznie z zapisanych snapshotów dokumentu i pozycji, atomowo zapisywany na prywatnym dysku `local` i udostępniany inline przez kontrolowaną trasę. Faktura VAT, Pro forma i przygotowany renderer Korekty nie zawierają stopki generatora ani numerów stron.
 
 ---
 
@@ -1386,13 +1384,24 @@ Faktura VAT i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie us
 
 Waluta dokumentu pochodzi z zamówienia z fallbackiem `PLN`. Brak NIP-u, telefonu, e-maila lub części opcjonalnych danych adresowych nie blokuje utworzenia dokumentu. Etap nie dodaje kontroli kompletności zamówienia ani OSS.
 
-Etap 2C nie implementuje UI, kontrolerów i tras wystawiania, list i szczegółów dokumentów, PDF, e-maila, usuwania dokumentów, cofania licznika, ręcznej edycji i zmiany numeru, Korekt, automatyzacji, publicznego API, JPK XML, OSS, KSeF ani Fakturowni.
+Etap 2C sam nie implementował UI, kontrolerów i tras wystawiania ani PDF; elementy te dla Faktury VAT i Pro formy zostały dodane w Etapie 2D. Nadal nie ma list i szczegółów dokumentów, e-maila, usuwania dokumentów, cofania licznika, ręcznej edycji i zmiany numeru, wystawiania Korekt, automatyzacji, publicznego API, JPK XML, OSS, KSeF ani Fakturowni.
+
+## Etap 2D — AJAX z kafelka „Zarządzanie” i prywatne PDF
+
+Istniejące przyciski `WYSTAW FAKTURĘ` i `PRO FORMA` w kafelku „Zarządzanie” natychmiast wykonują operację przez AJAX. Nie ma modala, podglądu ani dodatkowego formularza. Tekst przycisku nie zmienia się podczas żądania, cała strona zamówienia nie jest przeładowywana i nie pojawia się komunikat sukcesu. Backend zwraca świeżo wyrenderowany fragment Blade, który zastępuje poprzedni fragment akcji; błędy pozostają widoczne wewnątrz kafelka.
+
+Dla jednej aktywnej serii działa zwykły przycisk, a przy wielu seriach pojawia się dropdown z nazwą i formatem. Po utworzeniu Pro formy jej numer otwiera aktualny prywatny PDF w nowej karcie. W UI nie ma numeru rewizji ani ręcznego odświeżania Pro formy. Po wystawieniu Faktury przycisk zostaje zastąpiony jej numerem, a akcja i numer Pro formy są całkowicie ukryte.
+
+PDF jest generowany na żądanie przez TCPDF z `Invoice` i `InvoiceItem`, bez odczytywania aktualnego zamówienia, serii lub użytkownika. Faktura VAT i Pro forma odwzorowują przyjęte wzory A4; renderer dla istniejącego rekordu typu `correction` obsługuje kompletne snapshoty „Było”, „Powinno być” i różnicy, ale samo wystawianie Korekt nadal nie istnieje. Pliki są prywatne, zapisywane atomowo i zwracane inline. Cache Pro formy rozróżnia `revision_number`. Żaden wariant nie pokazuje stopki generatora ani numeru strony.
+
+Pozycja przesyłki jest tworzona również dla kosztu `0.00`, jeśli metoda dostawy jest znana i seria uwzględnia wysyłkę. Faktura zapisuje snapshot istniejącej Pro formy w `order_snapshot.related_documents.proforma`.
+
+Poza Etapem 2D pozostają: wystawianie i UI Korekt, edycja i usuwanie Faktury, zewnętrzne PDF, załączniki, e-mail, automatyzacje, listy dokumentów, JPK XML oraz KSeF.
 
 ## Dalsze etapy
 
 - edycja,
 - centralny proces Korekt,
-- PDF,
 - dokumenty zewnętrzne,
 - historia edycji Faktur i Korekt,
 - e-mail,
@@ -1426,7 +1435,6 @@ Funkcja jest gotowa dopiero, gdy:
 Do rozstrzygnięcia w odpowiednich etapach:
 
 - dokładny zestaw pól poza Etapem 1A,
-- wybór biblioteki PDF,
 - dokładna reguła zaokrągleń VAT,
 - obsługa częściowych płatności,
 - szczegółowe zasady anulowania dokumentów,

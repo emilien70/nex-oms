@@ -81,6 +81,7 @@ class InvoiceSeriesManagementService
         'primary_language',
         'secondary_language',
         'document_title',
+        'print_header',
         'copies_count',
     ];
 
@@ -104,6 +105,7 @@ class InvoiceSeriesManagementService
         'show_return_id_in_header',
         'show_payment_identifier',
         'document_title',
+        'print_header',
         'print_template',
         'primary_language',
         'secondary_language',
@@ -376,6 +378,7 @@ class InvoiceSeriesManagementService
             'default_correction_reason',
             'additional_information_template',
             'document_title',
+            'print_header',
         ] as $field) {
             if (array_key_exists($field, $data) && is_string($data[$field])) {
                 $data[$field] = trim($data[$field]);

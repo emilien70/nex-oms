@@ -835,9 +835,7 @@ Zewnętrzny dokument:
 - z sumą kontrolną,
 - z informacją, który plik jest podstawowy dla klienta.
 
-Nie instaluj biblioteki PDF bez osobnego zatwierdzenia.
-
-Aktualnie biblioteka PDF nie jest zainstalowana.
+Etap 2D korzysta z `tecnickcom/tcpdf` do generowania prywatnych plików PDF na żądanie. Nie dodawaj drugiego silnika PDF bez osobnej decyzji architektonicznej.
 
 ---
 
@@ -1191,3 +1189,17 @@ Etap 2C nie implementuje:
 - wystawiania Korekt,
 - automatyzacji ani publicznego API,
 - JPK XML, OSS, KSeF ani Fakturowni.
+
+---
+
+# 38. Granice Etapu 2D
+
+Etap 2D udostępnia AJAX-owe wystawianie Faktury VAT i tworzenie Pro formy z istniejących przycisków `WYSTAW FAKTURĘ` oraz `PRO FORMA` w kafelku „Zarządzanie” zamówienia. Nie powstaje drugi panel dokumentów. Operacja nie używa modala ani podglądu, nie przeładowuje całej strony, nie zmienia tekstu przycisku podczas żądania i nie pokazuje komunikatu sukcesu. Backend zwraca ponownie wyrenderowany fragment Blade, a potwierdzeniem powodzenia jest numer dokumentu zastępujący akcję.
+
+Dla jednej aktywnej serii widoczny jest zwykły przycisk, a dla wielu serii dropdown zawierający nazwę i format. Po Pro formie jej numer otwiera prywatny PDF w nowej karcie, bez numeru rewizji i bez ręcznego odświeżania w UI. Po wystawieniu Faktury akcja i numer Pro formy są całkowicie ukryte w kafelku, chociaż dokument oraz rewizje pozostają w bazie.
+
+PDF Faktury VAT, Pro formy i gotowy wariant renderera Korekty są generowane przez TCPDF wyłącznie z zapisanych snapshotów `Invoice` i `InvoiceItem`. Pliki trafiają atomowo na prywatny dysk `local`; kontrolowana trasa zwraca je inline z `Cache-Control: private, no-store`. Pro forma używa ścieżki zależnej od aktualnego `revision_number`. Dokumenty są A4, nie zawierają stopki generatora ani numerów stron. Nagłówki używają Helvetica, a tekst Verdana, jeśli jest zarejestrowana i dostępna, albo DejaVu Sans jako Unicode fallback.
+
+Pozycja dostawy jest zachowywana również dla kosztu `0.00`, jeżeli seria uwzględnia dostawę i zamówienie ma rozpoznaną metodę wysyłki. Faktura wystawiona po Pro formie zapisuje w `order_snapshot.related_documents.proforma` jej `invoice_id`, numer, rewizję i datę wystawienia z chwili operacji.
+
+Etap 2D nie implementuje wystawiania ani UI Korekt, edycji i usuwania Faktury, zewnętrznych PDF, załączników, wysyłki e-mail, automatyzacji dokumentów, list dokumentów, JPK XML ani KSeF.

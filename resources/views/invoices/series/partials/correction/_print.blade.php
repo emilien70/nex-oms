@@ -15,6 +15,12 @@
             </select>
             @if ($correctionHasError('print_template'))<div class="invalid-feedback">{{ $errors->first('print_template') }}</div>@endif
         </div>
+        <div class="col-12">
+            <label class="form-label" for="correction-print-header">Nagłówek</label>
+            <input class="form-control form-control-sm {{ $correctionHasError('print_header') ? 'is-invalid' : '' }}" id="correction-print-header" name="print_header" type="text" value="{{ $correctionValue('print_header') }}" maxlength="255">
+            <div class="form-text">Tekst wyświetlany u góry dokumentu. Jeśli pole pozostanie puste, użyta zostanie nazwa sprzedawcy dokumentu źródłowego.</div>
+            @if ($correctionHasError('print_header'))<div class="invalid-feedback">{{ $errors->first('print_header') }}</div>@endif
+        </div>
         <div class="col-md-5">
             <label class="form-label" for="correction-primary-language">Język główny</label>
             <select class="form-select form-select-sm {{ $correctionHasError('primary_language') ? 'is-invalid' : '' }}" id="correction-primary-language" name="primary_language" required>

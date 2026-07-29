@@ -254,6 +254,11 @@
             justify-content: stretch;
         }
 
+        .management-status-fields,
+        .management-sales-document-actions {
+            display: contents;
+        }
+
         .management-status-label,
         .management-invoice-label,
         .management-meta-label {
@@ -296,6 +301,23 @@
             margin-top: 8px;
             min-height: 30px;
             width: 150px;
+        }
+
+        .management-document-action .btn,
+        .management-document-dropdown > .btn {
+            min-height: 30px;
+            width: 100%;
+        }
+
+        .management-document-dropdown .dropdown-menu {
+            min-width: 220px;
+        }
+
+        .management-sales-document-error {
+            font-size: 12px;
+            grid-column: 1 / 4;
+            margin: 6px 0 0;
+            padding: 7px 9px;
         }
 
         .management-proforma-button {
@@ -1564,7 +1586,8 @@
                 </div>
                 <div class="nex-card-body">
                     @if (! $order->trashed())
-                        <form method="POST" action="{{ route('orders.status.update', $order) }}" class="management-status-form" data-management-status-form>
+                        <div class="management-status-form">
+                        <form method="POST" action="{{ route('orders.status.update', $order) }}" class="management-status-fields" data-management-status-form>
                             @csrf
                             @method('PATCH')
                             <label class="management-status-label" for="managementStatus">Status:</label>
@@ -1591,9 +1614,11 @@
                                 </div>
                             </div>
                             <button class="btn btn-sm btn-primary management-status-submit" type="submit" data-management-status-submit>Zapisz</button>
-                            <div class="management-invoice-label">Faktura:</div>
-                            <button class="btn btn-sm btn-outline-secondary management-invoice-button" type="button">WYSTAW FAKTUR&#280;</button>
-                            <button class="btn btn-sm btn-outline-secondary management-proforma-button" type="button">PRO FORMA</button>
+                        </form>
+                            @include('orders.partials.sales-document-actions', [
+                                'order' => $order,
+                                'salesDocumentActions' => $salesDocumentActions,
+                            ])
                             @if ($order->source === 'prestashop')
                                 <div class="management-meta-label">Numer w sklepie:</div>
                                 <div class="management-meta-value">{{ $order->external_id ?: '...' }}</div>
@@ -1617,7 +1642,7 @@
                                     <span data-management-status-date-value>...</span><span class="management-meta-time" data-management-status-time-value></span>
                                 @endif
                             </div>
-                        </form>
+                        </div>
                     @else
                         <div class="management-placeholder">Zam&oacute;wienie jest w koszu.</div>
                     @endif
@@ -2918,6 +2943,68 @@
                     }
                 });
             }
+
+            document.addEventListener('submit', async (event) => {
+                const form = event.target.closest('[data-sales-document-form]');
+
+                if (!form) {
+                    return;
+                }
+
+                event.preventDefault();
+                const container = form.closest('[data-sales-document-actions]');
+                const errorBox = container?.querySelector('[data-sales-document-error]');
+                const actions = Array.from(container?.querySelectorAll('button') || []);
+
+                if (!container) {
+                    return;
+                }
+
+                if (errorBox) {
+                    errorBox.textContent = '';
+                    errorBox.hidden = true;
+                }
+
+                actions.forEach((action) => { action.disabled = true; });
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        headers: {
+                            Accept: 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: new FormData(form),
+                    });
+                    const isJson = response.headers.get('content-type')?.includes('application/json');
+                    const payload = isJson ? await response.json() : {};
+
+                    if (!response.ok) {
+                        throw new Error(payload.message || 'Nie udało się wykonać operacji na dokumencie. Spróbuj ponownie.');
+                    }
+
+                    if (typeof payload.html !== 'string' || payload.html.trim() === '') {
+                        throw new Error('Nie udało się odświeżyć akcji dokumentów.');
+                    }
+
+                    const template = document.createElement('template');
+                    template.innerHTML = payload.html.trim();
+                    const replacement = template.content.firstElementChild;
+
+                    if (!replacement) {
+                        throw new Error('Nie udało się odświeżyć akcji dokumentów.');
+                    }
+
+                    container.replaceWith(replacement);
+                } catch (error) {
+                    if (errorBox) {
+                        errorBox.textContent = error.message || 'Nie udało się wykonać operacji na dokumencie. Spróbuj ponownie.';
+                        errorBox.hidden = false;
+                    }
+
+                    actions.forEach((action) => { action.disabled = false; });
+                }
+            });
 
             if (orderStateUrl) {
                 fetchOrderState(['history', 'shipments']).catch(() => {});

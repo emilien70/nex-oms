@@ -19,8 +19,11 @@ use Illuminate\Support\Facades\Route;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
 use Modules\Invoices\Http\Controllers\InvoiceController;
+use Modules\Invoices\Http\Controllers\InvoicePdfController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesNextNumberController;
+use Modules\Invoices\Http\Controllers\OrderInvoiceController;
+use Modules\Invoices\Http\Controllers\OrderProformaController;
 
 Route::get('/', function () {
     $dashboardStats = [
@@ -88,6 +91,7 @@ Route::delete('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderSta
 Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])->name('settings.variables.index');
 
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+Route::get('/invoices/{invoice}/pdf', [InvoicePdfController::class, 'show'])->name('invoices.pdf');
 Route::get('/invoices/settings/series', [InvoiceSeriesController::class, 'index'])->name('invoices.series.index');
 Route::get('/invoices/settings/series/form', [InvoiceSeriesController::class, 'form'])->name('invoices.series.form');
 Route::post('/invoices/settings/series', [InvoiceSeriesController::class, 'store'])->name('invoices.series.store');
@@ -119,6 +123,8 @@ Route::post('/orders/bulk-force-delete', [OrdersController::class, 'bulkForceDel
 Route::post('/orders/bulk-status', [OrdersController::class, 'bulkUpdateStatus'])->name('orders.bulk-status');
 Route::post('/orders/{order}/create-for-customer', [OrdersController::class, 'createForCustomer'])->name('orders.create-for-customer');
 Route::post('/orders/{order}/duplicate', [OrdersController::class, 'duplicate'])->name('orders.duplicate');
+Route::post('/orders/{order}/invoice', [OrderInvoiceController::class, 'store'])->name('orders.invoice.store');
+Route::post('/orders/{order}/proforma', [OrderProformaController::class, 'store'])->name('orders.proforma.store');
 Route::post('/orders/{order}/products', [OrderProductController::class, 'store'])->name('orders.products.store');
 Route::get('/orders/{order}/shipments/{provider}/form', [ShipmentController::class, 'form'])
     ->where('provider', 'inpost_lockers|inpost_courier|dpd|allegro_shipping')

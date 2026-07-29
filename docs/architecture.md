@@ -986,7 +986,11 @@ Istotne operacje powinny zapisywać dokument i zdarzenia w jednej transakcji.
 
 # 20. PDF i pliki
 
-Aktualnie biblioteka PDF nie jest zainstalowana.
+Etap 2D korzysta z `tecnickcom/tcpdf`. `InvoicePdfService` orkiestruje `InvoicePdfRenderer`, prywatny `InvoicePdfStorage`, deterministyczne nazwy plików, fonty i centralne formatowanie kwoty słownie. Renderer czyta wyłącznie snapshoty `Invoice` i `InvoiceItem`; zmiana aktualnego `Order` lub `InvoiceSeries` nie zmienia historycznego PDF.
+
+Pliki powstają na żądanie, poza transakcją wystawiania dokumentu. Najpierw zapisywany jest plik tymczasowy, a następnie atomowo przenoszony pod docelową ścieżkę na prywatnym dysku `local`. Faktura, Korekta i każda rewizja Pro formy mają deterministyczne, osobne ścieżki. Kontrolowana trasa `GET /invoices/{invoice}/pdf` odrzuca szkice i niekompletne snapshoty, nie ujawnia ścieżki storage oraz zwraca `application/pdf`, `Content-Disposition: inline` i prywatne nagłówki bez cache.
+
+TCPDF generuje A4 w orientacji pionowej bez domyślnego nagłówka i stopki, numerów stron oraz oznaczenia generatora. Nagłówki korzystają z Helvetica. Tekst korzysta z Verdany tylko wtedy, gdy font jest zarejestrowany i rzeczywiście dostępny; bezpiecznym fallbackiem Unicode jest DejaVu Sans.
 
 Docelowa tabela plików:
 
@@ -1560,13 +1564,22 @@ Faktura i Pro forma mogą istnieć równolegle. `proforma_superseded_at` jest tr
 
 Snapshoty są niezależne od późniejszych zmian `orders`, `order_items` i `invoice_series`. Waluta pochodzi z Order z fallbackiem `PLN`. Brak opcjonalnych danych kontrahenta nie blokuje operacji, natomiast brak stawki VAT wymaganej przez konfigurację serii powoduje kontrolowany błąd i pełny rollback. Nie ma OSS ani kontroli kompletności zamówienia.
 
-Etap 2C nie dodaje UI, kontrolerów ani tras wystawiania, PDF, e-maila, usuwania dokumentów, ręcznej edycji, Korekt, automatyzacji, publicznego API, JPK XML, OSS, KSeF ani Fakturowni.
+Etap 2C sam nie dodawał UI, kontrolerów, tras wystawiania ani PDF; ścieżki ręczne Faktury VAT i Pro formy oraz PDF zostały dodane w Etapie 2D. Nadal nie ma e-maila, usuwania dokumentów, ręcznej edycji, wystawiania Korekt, automatyzacji, publicznego API, JPK XML, OSS, KSeF ani Fakturowni.
+
+## Etap 2D — warstwa HTTP, fragment zamówienia i PDF
+
+`OrderInvoiceController` i `OrderProformaController` przyjmują wyłącznie `invoice_series_id`, budują ręczny `InvoiceOperationContext` i delegują odpowiednio do `InvoiceIssuingService` oraz `ProformaService`. Kontrolery nie tworzą dokumentów, pozycji, slotów, numerów ani rewizji. Kontrolowane błędy domenowe mają stabilny kod i polski komunikat, a nieoczekiwane wyjątki są logowane bez ujawniania SQL użytkownikowi.
+
+Stan akcji dokumentów jest centralnie budowany przez `OrderSalesDocumentActionsView` i jeden partial Blade używany zarówno przy pierwszym renderze, jak i w odpowiedzi AJAX. Event delegation przechwytuje formularz, blokuje akcje bez zmiany tekstu, wysyła `fetch()` i zastępuje wyłącznie stabilny kontener fragmentu. Nie ma przeładowania całej strony, modala, preview ani komunikatu sukcesu. Jedna aktywna seria daje zwykły przycisk, wiele serii daje dropdown. Po Fakturze Pro forma jest całkowicie ukryta w kafelku; rewizje pozostają w bazie.
+
+`InvoicePdfViewModelFactory` tworzy warianty Faktury VAT, Pro formy i Korekty wyłącznie z zapisanych danych. Pro forma nie pokazuje rewizji, osoby wystawiającej ani dodatkowych informacji. Korekta wymaga kompletnych snapshotów stanu przed, po i różnicy; jej renderer jest gotowy, ale serwis wystawiania i UI Korekt nie istnieją. `InvoiceAmountInWordsFormatter` wykonuje konwersję bez `float`, zachowuje grosze i znak wartości ujemnych.
+
+`InvoiceItemBuilder` zachowuje pozycję dostawy o wartości `0.00`, jeśli metoda dostawy istnieje i seria ją uwzględnia. `InvoiceIssuingService` kopiuje do `order_snapshot.related_documents.proforma` identyfikator, numer, rewizję i datę istniejącej Pro formy przed jej oznaczeniem jako zastąpionej.
 
 ## Kolejne etapy
 
 - edycja,
 - centralny proces Korekt,
-- PDF,
 - pliki zewnętrzne,
 - historia edycji Faktur i Korekt,
 - e-mail,
@@ -1590,7 +1603,7 @@ Bez wyraźnej decyzji nie należy:
 - dodawać `orders.serial_numbers_text`,
 - używać `float` w fakturach,
 - tworzyć publicznych URL-i do PDF,
-- instalować biblioteki PDF,
+- instalować drugi silnik PDF obok TCPDF bez decyzji architektonicznej,
 - implementować KSeF,
 - implementować paragony,
 - tworzyć osobnych tabel dla pro form wyłącznie z powodu typu,
@@ -1606,7 +1619,6 @@ Bez wyraźnej decyzji nie należy:
 
 Do rozstrzygnięcia w odpowiednich etapach:
 
-- biblioteka PDF,
 - dokładna reguła zaokrągleń,
 - strategia decimal/money,
 - szczegółowe reguły procesu wystawiania i edycji Faktury,

@@ -15,6 +15,12 @@
             </select>
             @if ($invoiceHasError('print_template'))<div class="invalid-feedback">{{ $errors->first('print_template') }}</div>@endif
         </div>
+        <div class="col-12">
+            <label class="form-label" for="invoice-series-print-header">Nagłówek</label>
+            <input class="form-control form-control-sm {{ $invoiceHasError('print_header') ? 'is-invalid' : '' }}" id="invoice-series-print-header" name="print_header" type="text" value="{{ $invoiceValue('print_header') }}" maxlength="255">
+            <div class="form-text">Tekst wyświetlany u góry dokumentu. Jeśli pole pozostanie puste, użyta zostanie nazwa sprzedawcy.</div>
+            @if ($invoiceHasError('print_header'))<div class="invalid-feedback">{{ $errors->first('print_header') }}</div>@endif
+        </div>
         <div class="col-md-5">
             <label class="form-label" for="invoice-series-primary-language">Język główny</label>
             <select class="form-select form-select-sm {{ $invoiceHasError('primary_language') ? 'is-invalid' : '' }}" id="invoice-series-primary-language" name="primary_language" required>

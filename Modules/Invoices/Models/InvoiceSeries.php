@@ -75,6 +75,7 @@ class InvoiceSeries extends Model
         'primary_language',
         'secondary_language',
         'document_title',
+        'print_header',
         'copies_count',
         'default_correction_reason',
         'correction_sale_date_source',

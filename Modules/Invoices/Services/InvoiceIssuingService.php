@@ -34,6 +34,7 @@ class InvoiceIssuingService
                 $managedSeries = InvoiceSeries::query()->lockForUpdate()->findOrFail($series->getKey());
                 $this->assertInvoiceDoesNotExist($managedOrder);
                 $this->assertSeries($managedSeries);
+                $relatedProforma = $this->relatedProforma($managedOrder);
 
                 $slot = OrderDocumentSlot::query()->create([
                     'order_id' => $managedOrder->getKey(),
@@ -48,7 +49,11 @@ class InvoiceIssuingService
                     'revision_number' => 1,
                 ]);
                 $prepared = $this->preparation->forCreation($managedOrder, $managedSeries, $context);
-                $invoice->fill($prepared->invoiceAttributes);
+                $invoiceAttributes = $this->withRelatedProformaSnapshot(
+                    $prepared->invoiceAttributes,
+                    $relatedProforma,
+                );
+                $invoice->fill($invoiceAttributes);
                 $invoice->save();
 
                 $invoice->items()->createMany($prepared->itemAttributes);
@@ -58,7 +63,7 @@ class InvoiceIssuingService
                 $invoice->save();
                 $slot->update(['invoice_id' => $invoice->getKey()]);
 
-                $supersededProforma = $this->supersedeProforma($managedOrder, $invoice, $context);
+                $supersededProforma = $this->supersedeProforma($relatedProforma, $invoice, $context);
                 $this->createOrderEvent($managedOrder, $invoice, $managedSeries, $context, $supersededProforma);
 
                 return $invoice->refresh()->load('items');
@@ -135,13 +140,42 @@ class InvoiceIssuingService
         }
     }
 
-    private function supersedeProforma(Order $order, Invoice $invoice, InvoiceOperationContext $context): ?Invoice
+    private function relatedProforma(Order $order): ?Invoice
     {
-        $proforma = Invoice::query()
+        return Invoice::query()
             ->where('order_id', $order->getKey())
             ->where('document_type', InvoiceDocumentType::Proforma)
             ->lockForUpdate()
             ->first();
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private function withRelatedProformaSnapshot(array $attributes, ?Invoice $proforma): array
+    {
+        if ($proforma === null || $proforma->number === null) {
+            return $attributes;
+        }
+
+        $orderSnapshot = $attributes['order_snapshot'] ?? [];
+        $orderSnapshot['related_documents']['proforma'] = [
+            'invoice_id' => $proforma->getKey(),
+            'number' => $proforma->number,
+            'revision_number' => $proforma->revision_number,
+            'issue_date' => $proforma->issue_date?->toDateString(),
+        ];
+        $attributes['order_snapshot'] = $orderSnapshot;
+
+        return $attributes;
+    }
+
+    private function supersedeProforma(
+        ?Invoice $proforma,
+        Invoice $invoice,
+        InvoiceOperationContext $context,
+    ): ?Invoice {
 
         if ($proforma === null || $proforma->isProformaSuperseded()) {
             return $proforma;

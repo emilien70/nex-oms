@@ -60,8 +60,9 @@ class InvoiceItemBuilder
             ], $amounts);
         }
 
-        if ($series->include_shipping
-            && $this->decimal->compare((string) $order->delivery_cost_gross, '0.00') > 0) {
+        $shippingMethod = trim((string) $order->shipping_method);
+
+        if ($series->include_shipping && $shippingMethod !== '') {
             $shippingVatRate = $this->shippingVatRate($items, $series);
             $shippingGross = $this->decimal->normalize((string) $order->delivery_cost_gross, 2);
             $amounts = $this->totals->calculateLine(
@@ -76,9 +77,7 @@ class InvoiceItemBuilder
                 'source_invoice_item_id' => null,
                 'line_type' => InvoiceItemType::Shipping->value,
                 'position' => $position,
-                'name' => trim((string) $order->shipping_method) !== ''
-                    ? (string) $order->shipping_method
-                    : 'Dostawa',
+                'name' => $shippingMethod,
                 'description' => null,
                 'unit_name' => 'usł.',
                 'quantity' => '1.0000',

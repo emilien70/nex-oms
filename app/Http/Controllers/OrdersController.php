@@ -15,6 +15,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
+use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
 
@@ -22,7 +23,10 @@ class OrdersController extends Controller
 {
     use RespondsToOrderAjax;
 
-    public function __construct(private readonly OrderTrackingLookupService $trackingLookup) {}
+    public function __construct(
+        private readonly OrderTrackingLookupService $trackingLookup,
+        private readonly OrderSalesDocumentActionsView $salesDocumentActionsView,
+    ) {}
 
     public function index(Request $request): View|RedirectResponse
     {
@@ -665,6 +669,7 @@ class OrdersController extends Controller
             'sourceOptions' => $this->sourceOptions(),
             'paymentStatusOptions' => $this->paymentStatusOptions(),
             'itemRows' => $this->itemRows($order),
+            'salesDocumentActions' => $this->salesDocumentActionsView->data($order),
         ]);
     }
 

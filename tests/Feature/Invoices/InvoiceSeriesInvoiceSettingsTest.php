@@ -39,6 +39,7 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
             'primary_language',
             'secondary_language',
             'document_title',
+            'print_header',
             'copies_count',
         ]));
 
@@ -53,6 +54,7 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
         $invoice = $this->get(route('invoices.series.form', ['document_type' => 'invoice']));
 
         $invoice->assertOk();
+        $invoice->assertSee('name="print_header"', false);
         foreach ([
             'Dane sprzedawcy',
             'Rachunek bankowy',
@@ -75,6 +77,7 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
 
         $this->get(route('invoices.series.form', ['document_type' => 'proforma']))
             ->assertOk()
+            ->assertSee('name="print_header"', false)
             ->assertSee('Dane sprzedawcy')
             ->assertSee('VAT i pozycje')
             ->assertSee('Płatność i daty')
@@ -113,6 +116,7 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
             'primary_language' => 'pl',
             'secondary_language' => 'en',
             'document_title' => 'Faktura sprzedaży',
+            'print_header' => 'Multi-Click.pl',
             'copies_count' => 2,
             'additional_information_template' => $template,
         ]))
@@ -131,6 +135,7 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
         $this->assertSame('8.00', $series->default_shipping_vat_rate);
         $this->assertSame(14, $series->payment_due_days);
         $this->assertSame(2, $series->copies_count);
+        $this->assertSame('Multi-Click.pl', $series->print_header);
         $this->assertSame($template, $series->additional_information_template);
     }
 
@@ -428,6 +433,7 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
             'primary_language' => 'buyer_country',
             'secondary_language' => null,
             'document_title' => 'Faktura VAT',
+            'print_header' => null,
             'copies_count' => 1,
             'remove_logo' => false,
             'form_mode' => 'create',

@@ -79,6 +79,7 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         $response = $this->get(route('invoices.series.form', ['document_type' => 'correction']));
 
         $response->assertOk();
+        $response->assertSee('name="print_header"', false);
         foreach ([
             'Ustawienia korekty',
             'Wystawiający i płatność',
@@ -138,6 +139,7 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
             'copies_count' => 2,
             'primary_language' => 'pl',
             'secondary_language' => 'en',
+            'print_header' => 'Multi-Click Korekta',
             'additional_information_template' => $template,
         ]))->assertSessionDoesntHaveErrors();
 
@@ -151,6 +153,7 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         $this->assertTrue($series->show_correction_item_sequence);
         $this->assertTrue($series->show_return_id_in_header);
         $this->assertTrue($series->show_payment_identifier);
+        $this->assertSame('Multi-Click Korekta', $series->print_header);
         $this->assertSame($template, $series->additional_information_template);
     }
 
@@ -405,6 +408,7 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
             'show_return_id_in_header' => false,
             'show_payment_identifier' => false,
             'document_title' => 'Faktura korygująca',
+            'print_header' => null,
             'print_template' => 'standard',
             'primary_language' => 'buyer_country',
             'secondary_language' => null,
