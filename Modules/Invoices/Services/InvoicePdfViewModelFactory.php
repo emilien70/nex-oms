@@ -47,7 +47,7 @@ class InvoicePdfViewModelFactory
             'sale_date' => $invoice->sale_date->format('d.m.Y'),
             'issue_date' => $invoice->issue_date->format('d.m.Y'),
             'place_of_issue' => $this->text($invoice->issuer_snapshot['place_of_issue'] ?? null),
-            'payment_lines' => $this->paymentLines($invoice),
+            'payment_method' => $this->paymentMethod($invoice),
             'payment_identifier' => $this->text($payment['payment_identifier'] ?? null),
             'order_number' => $this->text($order['external_id'] ?? null)
                 ?: $this->text($invoice->order_reference_snapshot),
@@ -91,7 +91,7 @@ class InvoicePdfViewModelFactory
             'issue_date' => $invoice->issue_date->format('d.m.Y'),
             'reason' => $invoice->correction_reason,
             'place_of_issue' => $this->text($invoice->issuer_snapshot['place_of_issue'] ?? null),
-            'payment_lines' => $this->paymentLines($invoice),
+            'payment_method' => $this->paymentMethod($invoice),
             'seller' => $this->party($seller, includeCountry: false, includeRegon: false),
             'buyer' => $this->party($invoice->buyer_snapshot, includeCountry: false),
             'before_items' => $this->correctionItems($invoice->items, 'correction_before_snapshot'),
@@ -271,21 +271,6 @@ class InvoicePdfViewModelFactory
         return ['number' => $source->number, 'issue_date' => $source->issue_date->format('d.m.Y')];
     }
 
-    /** @return array<int, string> */
-    private function paymentLines(Invoice $invoice): array
-    {
-        $payment = $invoice->payment_snapshot;
-        $seller = $invoice->seller_snapshot;
-        $lines = array_filter([
-            $this->text($payment['effective_payment_method'] ?? null),
-            $invoice->payment_due_date?->format('d.m.Y'),
-            $this->text($seller['bank_name'] ?? null),
-            $this->text($seller['bank_account'] ?? null),
-        ], fn (?string $line): bool => $line !== null && $line !== '');
-
-        return array_values(array_unique($lines));
-    }
-
     /** @param array<string, mixed> $party */
     private function party(
         array $party,
@@ -358,6 +343,11 @@ class InvoicePdfViewModelFactory
         $text = trim((string) ($value ?? ''));
 
         return $text !== '' ? $text : null;
+    }
+
+    private function paymentMethod(Invoice $invoice): ?string
+    {
+        return $this->text($invoice->payment_snapshot['effective_payment_method'] ?? null);
     }
 
     private function enumValue(mixed $value): mixed

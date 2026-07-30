@@ -71,7 +71,7 @@ class InvoicePdfTest extends TestCase
 
         foreach ([
             'Faktura VAT', $invoice->number, 'Data sprzedaży', 'Data wystawienia', 'Katowice',
-            'Przelew', 'Bank testowy', '12 3456 7890 1234 5678 9012 3456', 'SHOP-100',
+            'Przelew', 'SHOP-100',
             'Sprzedawca:', 'Nabywca:', 'Nazwa towaru/usługi',
             'Przesyłka:', 'Netto', 'VAT', 'Brutto', 'Razem:', 'Słownie:',
             'Operator NEX-OMS', 'SN-001',
@@ -85,6 +85,28 @@ class InvoicePdfTest extends TestCase
         $this->assertStringNotContainsString('REGON:', $html);
         $this->assertStringNotContainsString('>PL<br>', preg_replace('/\s+/', '', $html));
         $this->assertStringNotContainsString('Faktura do faktury pro forma:', $html);
+        $this->assertStringNotContainsString('Bank testowy', $html);
+        $this->assertStringNotContainsString('12 3456 7890 1234 5678 9012 3456', $html);
+    }
+
+    public function test_invoice_pdf_uses_effective_payment_method_selected_by_series(): void
+    {
+        $order = $this->createDocumentOrder(['payment_method' => 'Metoda z zamówienia']);
+        $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries(attributes: [
+            'payment_method_source' => 'fixed',
+            'fixed_payment_method' => 'Metoda stała serii',
+            'seller_bank_name' => 'Bank ukryty',
+            'seller_bank_account' => '00 1111 2222 3333 4444 5555 6666',
+        ]);
+        $invoice = app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext());
+
+        $html = app(InvoicePdfRenderer::class)->html($invoice);
+
+        $this->assertStringContainsString('Metoda stała serii', $html);
+        $this->assertStringNotContainsString('Metoda z zamówienia', $html);
+        $this->assertStringNotContainsString('Bank ukryty', $html);
+        $this->assertStringNotContainsString('00 1111 2222 3333 4444 5555 6666', $html);
     }
 
     public function test_invoice_pdf_uses_snapshots_after_order_and_series_change(): void
@@ -217,6 +239,8 @@ class InvoicePdfTest extends TestCase
         $this->createDocumentItem($order);
         $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma, [
             'document_title' => 'Pro forma testowa',
+            'seller_bank_name' => 'Bank pro formy',
+            'seller_bank_account' => '98 7654 3210 9876 5432 1098 7654',
         ]);
         $service = app(ProformaService::class);
         $invoice = $service->createOrRefresh($order, $series, $this->documentContext())->invoice;
@@ -230,6 +254,9 @@ class InvoicePdfTest extends TestCase
         $this->assertStringNotContainsString('Numer płatności:', $html);
         $this->assertStringNotContainsString('Osoba upoważniona', $html);
         $this->assertStringNotContainsString('Nowe uwagi', $html);
+        $this->assertStringContainsString('Przelew', $html);
+        $this->assertStringNotContainsString('Bank pro formy', $html);
+        $this->assertStringNotContainsString('98 7654 3210 9876 5432 1098 7654', $html);
         $this->assertStringContainsString('<td width="15%" class="muted-label">Razem:</td>', $html);
         $this->assertStringContainsString('<td width="15%" class="muted-label">Słownie:</td>', $html);
         $this->assertGreaterThanOrEqual(2, substr_count($html, '<td width="2%"></td>'));
@@ -243,7 +270,10 @@ class InvoicePdfTest extends TestCase
     public function test_correction_pdf_uses_complete_before_after_and_difference_snapshots(): void
     {
         Storage::fake('local');
-        $source = $this->issueInvoice();
+        $source = $this->issueInvoice([
+            'seller_bank_name' => 'Bank korekty',
+            'seller_bank_account' => '11 2222 3333 4444 5555 6666 7777',
+        ]);
         $correction = $this->createCorrection($source);
         $html = app(InvoicePdfRenderer::class)->html($correction);
 
@@ -257,6 +287,9 @@ class InvoicePdfTest extends TestCase
         }
 
         $this->assertStringNotContainsString('Faktura korygująca', $html);
+        $this->assertStringContainsString('Przelew', $html);
+        $this->assertStringNotContainsString('Bank korekty', $html);
+        $this->assertStringNotContainsString('11 2222 3333 4444 5555 6666 7777', $html);
 
         $response = $this->get(route('invoices.pdf', $correction))->assertOk();
         $this->assertStringStartsWith('%PDF-', $response->getContent());

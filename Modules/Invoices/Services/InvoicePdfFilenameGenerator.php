@@ -6,7 +6,7 @@ use Modules\Invoices\Models\Invoice;
 
 class InvoicePdfFilenameGenerator
 {
-    private const LAYOUT_VERSION = 'v31';
+    private const LAYOUT_VERSION = 'v32';
 
     public function storagePath(Invoice $invoice): string
     {

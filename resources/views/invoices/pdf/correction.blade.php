@@ -24,7 +24,7 @@
             <td width="45%">
                 <table class="meta-table" cellpadding="2" cellspacing="0" width="100%">
                     <tr><td width="42%">Miejsce wystawienia:</td><td width="58%" align="center">{{ $document['place_of_issue'] ?: '-' }}</td></tr>
-                    <tr><td>Sposób płatności:</td><td align="center">{{ $document['payment_lines'][0] ?? '-' }}</td></tr>
+                    <tr><td>Sposób płatności:</td><td align="center">{{ $document['payment_method'] ?: '-' }}</td></tr>
                 </table>
             </td>
         </tr>
