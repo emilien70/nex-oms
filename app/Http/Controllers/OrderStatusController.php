@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderStatusSetting;
 use App\Services\OrderStatusService;
 use App\Support\AddressLineFormatter;
+use App\Support\CountryCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,8 @@ use Illuminate\Validation\Rule;
 
 class OrderStatusController extends Controller
 {
+    public function __construct(private readonly CountryCatalog $countries) {}
+
     public function state(Request $request, Order $order): JsonResponse
     {
         return $this->stateResponse($order, $request);
@@ -94,7 +97,8 @@ class OrderStatusController extends Controller
             $fragments['shipping'] = view('orders.partials.address', [
                 'address' => $order->shippingAddressData(),
                 'showTaxId' => false,
-                'showCountry' => false,
+                'showCountry' => true,
+                'countryName' => $this->countries->name($order->shipping_country_code),
                 'showProvince' => false,
                 'showPhone' => false,
                 'showEmail' => false,
@@ -105,7 +109,8 @@ class OrderStatusController extends Controller
             $fragments['billing'] = view('orders.partials.address', [
                 'address' => $order->billingAddressData(),
                 'showTaxId' => true,
-                'showCountry' => false,
+                'showCountry' => true,
+                'countryName' => $this->countries->name($order->billing_country_code),
                 'showProvince' => false,
                 'showPhone' => false,
                 'showEmail' => false,

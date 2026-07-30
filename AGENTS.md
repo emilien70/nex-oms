@@ -1203,3 +1203,13 @@ PDF Faktury VAT, Pro formy i gotowy wariant renderera Korekty są generowane prz
 Pozycja dostawy jest zachowywana również dla kosztu `0.00`, jeżeli seria uwzględnia dostawę i zamówienie ma rozpoznaną metodę wysyłki. Faktura wystawiona po Pro formie zapisuje w `order_snapshot.related_documents.proforma` jej `invoice_id`, numer, rewizję i datę wystawienia z chwili operacji.
 
 Etap 2D nie implementuje wystawiania ani UI Korekt, edycji i usuwania Faktury, zewnętrznych PDF, załączników, wysyłki e-mail, automatyzacji dokumentów, list dokumentów, JPK XML ani KSeF.
+
+---
+
+# 39. Kraje adresów i dokumentów
+
+Adres dostawy i dane do faktury posiadają niezależne pola `shipping_country_code` oraz `billing_country_code`. Są to kody ISO 3166-1 alpha-2. Polskie nazwy krajów pochodzą wyłącznie z centralnego `App\Support\CountryCatalog`, opartego na Symfony Intl; nie twórz równoległych list w Blade, JavaScript ani kontrolerach.
+
+Przy zapisie edytowanej sekcji kraj jest wymagany, normalizowany przez `trim` i `uppercase` oraz walidowany względem katalogu. Nie stosuj fallbacku `PL` dla pustych danych historycznych. Kopiowanie adresów kopiuje także kod kraju, a poprawne pobranie polskiej firmy z GUS ustawia jawnie `billing_country_code = PL`.
+
+Snapshoty dokumentów zapisują `country_code` i `country_name` osobno dla Nabywcy i Odbiorcy. PDF Faktury VAT, Pro formy i Korekty pokazuje kraj tylko w bloku Nabywcy, np. `32-545 Psary, Polska`, i korzysta wyłącznie ze snapshotu. Starszy snapshot może rozwiązać nazwę z prawidłowego kodu bez modyfikacji bazy. Obsługa kraju nie zmienia VAT, OSS, sposobu płatności ani powiązania Faktury VAT z Pro formą.

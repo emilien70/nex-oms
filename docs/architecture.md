@@ -1592,7 +1592,19 @@ Przyszła edycja dokumentu będzie modyfikowała snapshoty `invoices` i `invoice
 
 ---
 
-# 34. Zakazy architektoniczne
+# 34. Kraje adresów i snapshoty dokumentów
+
+`orders.shipping_country_code` i `orders.billing_country_code` są niezależnymi, nullable polami ISO 3166-1 alpha-2. Warstwa zapisu normalizuje kod przez `trim` i `uppercase`, a dla edytowanych sekcji wymaga wartości istniejącej w centralnym `App\Support\CountryCatalog`. Historyczny brak kraju pozostaje brakiem; backend nie stosuje ukrytego fallbacku `PL`.
+
+`CountryCatalog` korzysta z `Symfony\Component\Intl\Countries` i zwraca polskie nazwy. Polska jest pierwszą pozycją interfejsu. Kopiowanie danych między adresem dostawy i danymi faktury przenosi kod kraju, a integracja GUS ustawia dla pobranej polskiej firmy `billing_country_code = PL`.
+
+`InvoiceSnapshotBuilder` zapisuje w `buyer_snapshot` kraj z danych faktury, a w `recipient_snapshot` kraj dostawy jako pary `country_code` i `country_name`. Poprawny kod jest rozwiązywany w chwili tworzenia snapshotu, pusty pozostaje pusty, a nieprawidłowy niepusty kod kończy operację kontrolowanym błędem domenowym. Wystawione dokumenty nie odczytują kraju z aktualnego Order.
+
+`InvoicePdfViewModelFactory` formatuje gotową linię miejscowości Nabywcy, np. `32-545 Psary, Polska`, dla Faktury VAT, Pro formy i Korekty. Starszy snapshot bez `country_name` może rozwiązać prawidłowy `country_code` podczas renderowania bez zapisu do bazy. Kraj Sprzedawcy i Odbiorcy nie został dodany do wydruku. Ta zmiana nie wpływa na VAT, OSS, sposób płatności ani snapshot powiązania Faktury z Pro formą.
+
+---
+
+# 35. Zakazy architektoniczne
 
 Bez wyraźnej decyzji nie należy:
 
@@ -1615,7 +1627,7 @@ Bez wyraźnej decyzji nie należy:
 
 ---
 
-# 35. Decyzje wymagające późniejszego zatwierdzenia
+# 36. Decyzje wymagające późniejszego zatwierdzenia
 
 Do rozstrzygnięcia w odpowiednich etapach:
 

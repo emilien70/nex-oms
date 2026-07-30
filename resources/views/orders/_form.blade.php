@@ -3,6 +3,9 @@
     $billingAddress = $order->billingAddressData();
     $formItems = old('items', $itemRows);
     $formItems = array_slice(array_pad($formItems, 5, []), 0, 5);
+    $countryCatalog = app(\App\Support\CountryCatalog::class);
+    $shippingCountryCode = $countryCatalog->normalize(old('shipping_country_code', $shippingAddress?->country_code));
+    $billingCountryCode = $countryCatalog->normalize(old('billing_country_code', $billingAddress?->country_code));
 
     $dateValue = fn ($value) => $value ? $value->format('Y-m-d\TH:i') : null;
 @endphp
@@ -109,7 +112,15 @@
                         </div>
                         <div class="col-6">
                             <label class="form-label" for="shipping_country_code">Kraj</label>
-                            <input id="shipping_country_code" type="text" name="shipping_country_code" class="form-control" value="{{ old('shipping_country_code', $shippingAddress?->country_code ?? 'PL') }}">
+                            <select id="shipping_country_code" name="shipping_country_code" class="form-select @error('shipping_country_code') is-invalid @enderror" required>
+                                <option value="">&mdash; Wybierz kraj &mdash;</option>
+                                @foreach ($countries as $code => $name)
+                                    <option value="{{ $code }}" @selected($shippingCountryCode === $code)>{{ $name }}</option>
+                                @endforeach
+                            </select>
+                            @error('shipping_country_code')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
                         </div>
                     </div>
                 </div>
@@ -159,7 +170,15 @@
                         </div>
                         <div class="col-4">
                             <label class="form-label" for="billing_country_code">Kraj</label>
-                            <input id="billing_country_code" type="text" name="billing_country_code" class="form-control" value="{{ old('billing_country_code', $billingAddress?->country_code ?? 'PL') }}">
+                            <select id="billing_country_code" name="billing_country_code" class="form-select @error('billing_country_code') is-invalid @enderror" required>
+                                <option value="">&mdash; Wybierz kraj &mdash;</option>
+                                @foreach ($countries as $code => $name)
+                                    <option value="{{ $code }}" @selected($billingCountryCode === $code)>{{ $name }}</option>
+                                @endforeach
+                            </select>
+                            @error('billing_country_code')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
                         </div>
                         <div class="col-8">
                             <label class="form-label" for="billing_phone">Telefon</label>

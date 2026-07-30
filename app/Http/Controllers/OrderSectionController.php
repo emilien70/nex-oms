@@ -6,15 +6,19 @@ use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
 use App\Services\OrderTotalService;
 use App\Support\AddressLineFormatter;
+use App\Support\CountryCatalog;
 use App\Support\PhoneNumberFormatter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class OrderSectionController extends Controller
 {
     use RespondsToOrderAjax;
+
+    public function __construct(private readonly CountryCatalog $countries) {}
 
     public function updateOrderInfo(Request $request, Order $order, OrderTotalService $orderTotalService): JsonResponse|RedirectResponse
     {
@@ -60,7 +64,7 @@ class OrderSectionController extends Controller
 
     public function updateShippingAddress(Request $request, Order $order): JsonResponse|RedirectResponse
     {
-        $validated = $request->validate($this->addressRules('shipping'));
+        $validated = $this->validateAddress($request, 'shipping');
 
         DB::transaction(function () use ($order, $validated): void {
             $order->update($this->addressData($validated, 'shipping'));
@@ -78,7 +82,7 @@ class OrderSectionController extends Controller
 
     public function updateBillingAddress(Request $request, Order $order): JsonResponse|RedirectResponse
     {
-        $validated = $request->validate($this->addressRules('billing') + [
+        $validated = $this->validateAddress($request, 'billing', [
             'billing_tax_id' => ['nullable', 'string', 'max:32'],
         ]);
 
@@ -167,6 +171,26 @@ class OrderSectionController extends Controller
         return back()->with('success', 'Produkty zostaly zapisane.');
     }
 
+    private function validateAddress(Request $request, string $prefix, array $additionalRules = []): array
+    {
+        $countryField = $prefix.'_country_code';
+        $countryCode = $request->input($countryField);
+
+        if (is_string($countryCode)) {
+            $request->merge([$countryField => $this->countries->normalize($countryCode)]);
+        }
+
+        return $request->validate(
+            $this->addressRules($prefix) + $additionalRules,
+            [
+                $countryField.'.required' => 'Wybierz prawidłowy kraj.',
+                $countryField.'.string' => 'Wybierz prawidłowy kraj.',
+                $countryField.'.size' => 'Wybierz prawidłowy kraj.',
+                $countryField.'.in' => 'Wybierz prawidłowy kraj.',
+            ],
+        );
+    }
+
     private function addressRules(string $prefix): array
     {
         return [
@@ -180,7 +204,7 @@ class OrderSectionController extends Controller
             $prefix.'_postal_code' => ['nullable', 'string', 'max:255'],
             $prefix.'_city' => ['nullable', 'string', 'max:255'],
             $prefix.'_province' => ['nullable', 'string', 'max:255'],
-            $prefix.'_country_code' => ['nullable', 'string', 'max:2'],
+            $prefix.'_country_code' => ['required', 'string', 'size:2', Rule::in($this->countries->codes())],
             $prefix.'_phone' => ['nullable', 'string', 'max:255'],
             $prefix.'_email' => ['nullable', 'email', 'max:255'],
         ];
@@ -212,7 +236,7 @@ class OrderSectionController extends Controller
             $prefix.'_postal_code' => $postalCityParts['postal_code'],
             $prefix.'_city' => $postalCityParts['city'],
             $prefix.'_province' => $validated[$prefix.'_province'] ?? null,
-            $prefix.'_country_code' => $validated[$prefix.'_country_code'] ?? 'PL',
+            $prefix.'_country_code' => $validated[$prefix.'_country_code'],
         ];
 
         if ($prefix === 'billing') {

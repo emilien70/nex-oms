@@ -10,6 +10,9 @@
     $headerCustomerName = $shippingAddress?->name ?: $order->customer_login;
     $formatAddressLine = fn ($address) => $address ? \App\Support\AddressLineFormatter::formatAddressLine($address->street, $address->building_number, $address->apartment_number) : null;
     $formatPostalCity = fn ($address) => $address ? \App\Support\AddressLineFormatter::formatPostalCity($address->postal_code, $address->city) : null;
+    $countryCatalog = app(\App\Support\CountryCatalog::class);
+    $shippingCountryCode = $countryCatalog->normalize(old('shipping_country_code', $shippingAddress?->country_code));
+    $billingCountryCode = $countryCatalog->normalize(old('billing_country_code', $billingAddress?->country_code));
     $moneyValue = fn ($value) => number_format((float) $value, 2, ',', ' ');
     $paidAmount = (float) $order->paid_amount;
     $totalGross = (float) $order->total_gross;
@@ -1671,7 +1674,7 @@
                     </div>
                 </div>
                 <div class="nex-card-body">
-                    <div class="inline-section-view inline-edit-trigger" data-edit-section="shipping">@include('orders.partials.address', ['address' => $shippingAddress, 'showTaxId' => false, 'showCountry' => false, 'showProvince' => false, 'showPhone' => false, 'showEmail' => false])<span class="inline-pencil">&#9998;</span></div>
+                    <div class="inline-section-view inline-edit-trigger" data-edit-section="shipping">@include('orders.partials.address', ['address' => $shippingAddress, 'showTaxId' => false, 'showCountry' => true, 'countryName' => $countryCatalog->name($shippingAddress?->country_code), 'showProvince' => false, 'showPhone' => false, 'showEmail' => false])<span class="inline-pencil">&#9998;</span></div>
                     <form method="POST" action="{{ route('orders.sections.shipping-address', $order) }}" class="inline-section-edit" data-order-ajax-form data-refresh-courier-defaults>
                         @csrf
                         @method('PATCH')
@@ -1681,6 +1684,18 @@
                             <div class="col-12"><label class="form-label">Adres</label><input type="text" name="shipping_address_line" class="form-control form-control-sm" value="{{ old('shipping_address_line', $formatAddressLine($shippingAddress)) }}"></div>
                             <div class="col-12"><label class="form-label">Kod pocztowy</label><input type="text" name="shipping_postal_code" class="form-control form-control-sm" value="{{ old('shipping_postal_code', $shippingAddress?->postal_code) }}"></div>
                             <div class="col-12"><label class="form-label">Miasto</label><input type="text" name="shipping_city" class="form-control form-control-sm" value="{{ old('shipping_city', $shippingAddress?->city) }}"></div>
+                            <div class="col-12">
+                                <label class="form-label">Kraj</label>
+                                <select name="shipping_country_code" class="form-select form-select-sm @error('shipping_country_code') is-invalid @enderror" required>
+                                    <option value="">&mdash; Wybierz kraj &mdash;</option>
+                                    @foreach ($countries as $code => $name)
+                                        <option value="{{ $code }}" @selected($shippingCountryCode === $code)>{{ $name }}</option>
+                                    @endforeach
+                                </select>
+                                @error('shipping_country_code')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
                         </div>
                         <div class="inline-actions"><button type="button" class="btn btn-sm btn-light border inline-cancel">Anuluj</button><button type="submit" class="btn btn-sm btn-primary">Zapisz</button></div>
                     </form>
@@ -1704,6 +1719,7 @@
                             <div class="inline-field-row"><div class="nex-label">Firma</div><div class="nex-value {{ $billingAddress?->company_name ? '' : 'nex-empty' }}">{{ $billingAddress?->company_name ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
                             <div class="inline-field-row"><div class="nex-label">Adres</div><div class="nex-value {{ $formatAddressLine($billingAddress) ? '' : 'nex-empty' }}">{{ $formatAddressLine($billingAddress) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
                             <div class="inline-field-row"><div class="nex-label">Kod i miasto</div><div class="nex-value {{ $formatPostalCity($billingAddress) ? '' : 'nex-empty' }}">{{ $formatPostalCity($billingAddress) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+                            <div class="inline-field-row"><div class="nex-label">Kraj</div><div class="nex-value {{ $countryCatalog->name($billingAddress?->country_code) ? '' : 'nex-empty' }}">{{ $countryCatalog->name($billingAddress?->country_code) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
                             <div class="inline-field-row"><div class="nex-label">NIP</div><div class="nex-value {{ $billingAddress?->tax_id ? '' : 'nex-empty' }}">{{ $billingAddress?->tax_id ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
                         </div>
                     </div>
@@ -1716,6 +1732,18 @@
                             <div class="col-12"><label class="form-label">Adres</label><input type="text" name="billing_address_line" class="form-control form-control-sm" value="{{ old('billing_address_line', $formatAddressLine($billingAddress)) }}"></div>
                             <div class="col-12"><label class="form-label">Kod pocztowy</label><input type="text" name="billing_postal_code" class="form-control form-control-sm" value="{{ old('billing_postal_code', $billingAddress?->postal_code) }}"></div>
                             <div class="col-12"><label class="form-label">Miasto</label><input type="text" name="billing_city" class="form-control form-control-sm" value="{{ old('billing_city', $billingAddress?->city) }}"></div>
+                            <div class="col-12">
+                                <label class="form-label">Kraj</label>
+                                <select name="billing_country_code" class="form-select form-select-sm @error('billing_country_code') is-invalid @enderror" required>
+                                    <option value="">&mdash; Wybierz kraj &mdash;</option>
+                                    @foreach ($countries as $code => $name)
+                                        <option value="{{ $code }}" @selected($billingCountryCode === $code)>{{ $name }}</option>
+                                    @endforeach
+                                </select>
+                                @error('billing_country_code')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
                             <div class="col-12">
                                 <label class="form-label">NIP</label>
                                 <div>
@@ -1998,6 +2026,7 @@
                     setFormValue(billingForm, 'billing_address_line', getFormValue(shippingForm, 'shipping_address_line'));
                     setFormValue(billingForm, 'billing_postal_code', getFormValue(shippingForm, 'shipping_postal_code'));
                     setFormValue(billingForm, 'billing_city', getFormValue(shippingForm, 'shipping_city'));
+                    setFormValue(billingForm, 'billing_country_code', getFormValue(shippingForm, 'shipping_country_code'));
                     setFormValue(billingForm, 'billing_tax_id', '');
                     setGusMessage('');
                 });
@@ -2017,6 +2046,7 @@
                     setFormValue(shippingForm, 'shipping_address_line', getFormValue(billingForm, 'billing_address_line'));
                     setFormValue(shippingForm, 'shipping_postal_code', getFormValue(billingForm, 'billing_postal_code'));
                     setFormValue(shippingForm, 'shipping_city', getFormValue(billingForm, 'billing_city'));
+                    setFormValue(shippingForm, 'shipping_country_code', getFormValue(billingForm, 'billing_country_code'));
                 });
             }
 
@@ -2058,6 +2088,7 @@
                         setBillingValue('billing_address_line', addressLine);
                         setBillingValue('billing_postal_code', payload.postalCode);
                         setBillingValue('billing_city', payload.city);
+                        setBillingValue('billing_country_code', 'PL');
                         setGusMessage('Dane z GUS uzupelnily formularz. Kliknij Zapisz, aby je zapisac.', false);
                     } catch (error) {
                         setGusMessage(error.message || 'Nie udalo sie pobrac danych z GUS.');

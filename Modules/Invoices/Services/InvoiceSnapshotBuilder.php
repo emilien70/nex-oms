@@ -3,12 +3,16 @@
 namespace Modules\Invoices\Services;
 
 use App\Models\Order;
+use App\Support\CountryCatalog;
 use BackedEnum;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
 
 class InvoiceSnapshotBuilder
 {
+    public function __construct(private readonly CountryCatalog $countries) {}
+
     /**
      * @param  array{issue_date: string, sale_date: string, payment_due_date: ?string, issued_at: mixed}  $dates
      * @param  array<string, mixed>  $totals
@@ -140,10 +144,9 @@ class InvoiceSnapshotBuilder
             'postal_code' => $order->billing_postal_code,
             'city' => $order->billing_city,
             'province' => $order->billing_province,
-            'country_code' => $order->billing_country_code,
             'email' => $order->billing_email,
             'phone' => $order->billing_phone,
-        ];
+        ] + $this->countrySnapshot($order->billing_country_code, 'danych do faktury');
     }
 
     /** @return array<string, mixed> */
@@ -158,10 +161,31 @@ class InvoiceSnapshotBuilder
             'postal_code' => $order->shipping_postal_code,
             'city' => $order->shipping_city,
             'province' => $order->shipping_province,
-            'country_code' => $order->shipping_country_code,
             'email' => $order->shipping_email,
             'phone' => $order->shipping_phone,
-        ];
+        ] + $this->countrySnapshot($order->shipping_country_code, 'adresu dostawy');
+    }
+
+    /** @return array{country_code: ?string, country_name: ?string} */
+    private function countrySnapshot(?string $code, string $context): array
+    {
+        $normalized = $this->countries->normalize($code);
+
+        if ($normalized === null) {
+            return ['country_code' => null, 'country_name' => null];
+        }
+
+        $name = $this->countries->name($normalized);
+
+        if ($name === null) {
+            throw new InvoiceDomainException(
+                'invoice_country_invalid',
+                'Nie można przygotować dokumentu, ponieważ kraj '.$context.' jest nieprawidłowy.',
+                ['country_code' => $normalized, 'context' => $context],
+            );
+        }
+
+        return ['country_code' => $normalized, 'country_name' => $name];
     }
 
     /**

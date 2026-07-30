@@ -42,6 +42,7 @@ class OrderAddressIsolationTest extends TestCase
             'shipping_address_line' => 'Nowa 7',
             'shipping_postal_code' => '11-111',
             'shipping_city' => 'Krakow',
+            'shipping_country_code' => 'PL',
         ])->assertRedirect();
 
         $firstOrder->refresh();

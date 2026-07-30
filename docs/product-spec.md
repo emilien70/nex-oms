@@ -174,9 +174,8 @@ Widoczne i edytowalne:
 - numer budynku,
 - numer lokalu,
 - kod pocztowy,
-- miasto.
-
-Kraj może być przechowywany technicznie, ale nie musi być stale eksponowany w prostym formularzu.
+- miasto,
+- kraj wybierany z polskiej listy krajów.
 
 ## 5.2. Dane dostawy
 
@@ -188,9 +187,14 @@ Widoczne i edytowalne:
 - numer budynku,
 - numer lokalu,
 - kod pocztowy,
-- miasto.
+- miasto,
+- kraj wybierany z polskiej listy krajów.
 
 E-mail i telefon odbiorcy powinny być prezentowane w sekcji informacji o zamówieniu, a nie powielane w głównym bloku adresu.
+
+Kraj dostawy i kraj danych do faktury są niezależnymi wartościami. Są zapisywane jako kody ISO 3166-1 alpha-2, a interfejs rozwiązuje ich polskie nazwy przez centralny `CountryCatalog`. Kopiowanie adresu kopiuje również kod kraju w wybranym kierunku. Pobranie danych polskiej firmy z GUS ustawia jawnie kraj danych do faktury na `PL`; historyczny pusty kraj nie otrzymuje automatycznego fallbacku.
+
+Snapshot dokumentu przechowuje zarówno `country_code`, jak i polską `country_name` nabywcy oraz odbiorcy. PDF Faktury VAT, Pro formy i Korekty drukuje kraj wyłącznie w bloku Nabywcy, np. `32-545 Psary, Polska`, na podstawie snapshotu. Kraj nie wpływa jeszcze na VAT ani OSS. Sposób płatności i powiązanie Faktury VAT z Pro formą pozostają bez zmian.
 
 ## 5.3. GUS/REGON
 

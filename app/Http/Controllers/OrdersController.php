@@ -8,12 +8,14 @@ use App\Models\OrderStatusSetting;
 use App\Services\OrderStatusService;
 use App\Services\OrderTrackingLookupService;
 use App\Services\OrderTrashService;
+use App\Support\CountryCatalog;
 use App\Support\PhoneNumberFormatter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Shipments\Models\CourierAccount;
@@ -26,6 +28,7 @@ class OrdersController extends Controller
     public function __construct(
         private readonly OrderTrackingLookupService $trackingLookup,
         private readonly OrderSalesDocumentActionsView $salesDocumentActionsView,
+        private readonly CountryCatalog $countries,
     ) {}
 
     public function index(Request $request): View|RedirectResponse
@@ -152,6 +155,7 @@ class OrdersController extends Controller
             'sourceOptions' => $this->sourceOptions(),
             'paymentStatusOptions' => $this->paymentStatusOptions(),
             'itemRows' => $this->emptyItemRows(),
+            'countries' => $this->countries->all(),
         ]);
     }
 
@@ -670,6 +674,7 @@ class OrdersController extends Controller
             'paymentStatusOptions' => $this->paymentStatusOptions(),
             'itemRows' => $this->itemRows($order),
             'salesDocumentActions' => $this->salesDocumentActionsView->data($order),
+            'countries' => $this->countries->all(),
         ]);
     }
 
@@ -683,6 +688,7 @@ class OrdersController extends Controller
             'sourceOptions' => $this->sourceOptions(),
             'paymentStatusOptions' => $this->paymentStatusOptions(),
             'itemRows' => $this->itemRows($order),
+            'countries' => $this->countries->all(),
         ]);
     }
 
@@ -727,6 +733,8 @@ class OrdersController extends Controller
         $request->merge([
             'source' => $request->input('source', 'manual'),
             'status' => $request->input('status', Order::STATUS_NEW),
+            'shipping_country_code' => $this->normalizeCountryInput($request->input('shipping_country_code')),
+            'billing_country_code' => $this->normalizeCountryInput($request->input('billing_country_code')),
         ]);
 
         return $request->validate([
@@ -746,7 +754,7 @@ class OrdersController extends Controller
             'shipping_postal_code' => ['nullable', 'string', 'max:255'],
             'shipping_city' => ['nullable', 'string', 'max:255'],
             'shipping_province' => ['nullable', 'string', 'max:255'],
-            'shipping_country_code' => ['nullable', 'string', 'max:2'],
+            'shipping_country_code' => ['required', 'string', 'size:2', Rule::in($this->countries->codes())],
             'billing_name' => ['nullable', 'string', 'max:255'],
             'billing_company_name' => ['nullable', 'string', 'max:255'],
             'billing_tax_id' => ['nullable', 'string', 'max:32'],
@@ -756,7 +764,7 @@ class OrdersController extends Controller
             'billing_postal_code' => ['nullable', 'string', 'max:255'],
             'billing_city' => ['nullable', 'string', 'max:255'],
             'billing_province' => ['nullable', 'string', 'max:255'],
-            'billing_country_code' => ['nullable', 'string', 'max:2'],
+            'billing_country_code' => ['required', 'string', 'size:2', Rule::in($this->countries->codes())],
             'billing_phone' => ['nullable', 'string', 'max:255'],
             'billing_email' => ['nullable', 'email', 'max:255'],
             'currency' => ['nullable', 'string', 'max:10'],
@@ -777,6 +785,15 @@ class OrdersController extends Controller
             'items.*.product_name' => ['nullable', 'string', 'max:255'],
             'items.*.quantity' => ['nullable', 'integer', 'min:1'],
             'items.*.unit_price_gross' => ['nullable', 'numeric', 'min:0'],
+        ], [
+            'shipping_country_code.required' => 'Wybierz prawidłowy kraj.',
+            'shipping_country_code.string' => 'Wybierz prawidłowy kraj.',
+            'shipping_country_code.size' => 'Wybierz prawidłowy kraj.',
+            'shipping_country_code.in' => 'Wybierz prawidłowy kraj.',
+            'billing_country_code.required' => 'Wybierz prawidłowy kraj.',
+            'billing_country_code.string' => 'Wybierz prawidłowy kraj.',
+            'billing_country_code.size' => 'Wybierz prawidłowy kraj.',
+            'billing_country_code.in' => 'Wybierz prawidłowy kraj.',
         ]);
     }
 
@@ -793,7 +810,7 @@ class OrdersController extends Controller
             $prefix.'_postal_code' => $validated[$prefix.'_postal_code'] ?? null,
             $prefix.'_city' => $validated[$prefix.'_city'] ?? null,
             $prefix.'_province' => $validated[$prefix.'_province'] ?? null,
-            $prefix.'_country_code' => $validated[$prefix.'_country_code'] ?? 'PL',
+            $prefix.'_country_code' => $validated[$prefix.'_country_code'],
         ];
 
         if ($type === 'billing') {
@@ -814,6 +831,11 @@ class OrdersController extends Controller
     private function copyOrderAddressData(Order $order): array
     {
         return $order->only($this->orderAddressFieldNames());
+    }
+
+    private function normalizeCountryInput(mixed $value): mixed
+    {
+        return is_string($value) ? $this->countries->normalize($value) : $value;
     }
 
     private function orderAddressFieldNames(): array

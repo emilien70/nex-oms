@@ -89,6 +89,83 @@ class InvoicePdfTest extends TestCase
         $this->assertStringNotContainsString('12 3456 7890 1234 5678 9012 3456', $html);
     }
 
+    public function test_buyer_country_is_formatted_from_snapshot_for_invoice_proforma_and_correction(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $proforma = app(ProformaService::class)->createOrRefresh(
+            $order,
+            $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+            $this->documentContext(),
+        )->invoice;
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+        $correction = $this->createCorrection($invoice);
+
+        foreach ([$invoice, $proforma, $correction] as $document) {
+            $html = app(InvoicePdfRenderer::class)->html($document);
+
+            $this->assertStringContainsString('00-001 Warszawa, Polska', $html);
+            $this->assertStringNotContainsString('00-001, Warszawa, Polska', $html);
+            $this->assertStringNotContainsString('>PL<br>', preg_replace('/\s+/', '', $html));
+        }
+    }
+
+    public function test_buyer_country_uses_polish_name_for_foreign_country(): void
+    {
+        $invoice = $this->issueInvoiceForOrder(['billing_country_code' => 'DE']);
+        $html = app(InvoicePdfRenderer::class)->html($invoice);
+
+        $this->assertStringContainsString('00-001 Warszawa, Niemcy', $html);
+        $this->assertStringNotContainsString('>DE<br>', preg_replace('/\s+/', '', $html));
+    }
+
+    public function test_legacy_buyer_snapshot_resolves_country_name_from_country_code(): void
+    {
+        $invoice = $this->issueInvoiceForOrder(['billing_country_code' => 'DE']);
+        $snapshot = $invoice->buyer_snapshot;
+        unset($snapshot['country_name']);
+        $invoice->update(['buyer_snapshot' => $snapshot]);
+
+        $html = app(InvoicePdfRenderer::class)->html($invoice->refresh());
+
+        $this->assertStringContainsString('00-001 Warszawa, Niemcy', $html);
+    }
+
+    public function test_missing_buyer_country_does_not_add_poland_to_pdf(): void
+    {
+        $invoice = $this->issueInvoiceForOrder(['billing_country_code' => null]);
+        $html = app(InvoicePdfRenderer::class)->html($invoice);
+
+        $this->assertStringContainsString('00-001 Warszawa', $html);
+        $this->assertStringNotContainsString('Polska', $html);
+    }
+
+    public function test_buyer_locality_handles_partial_address_snapshots(): void
+    {
+        $invoice = $this->issueInvoiceForOrder();
+        $base = $invoice->buyer_snapshot;
+        $scenarios = [
+            [['postal_code' => null, 'city' => 'Psary'], 'Psary, Polska'],
+            [['postal_code' => '32-545', 'city' => null], '32-545, Polska'],
+            [['postal_code' => '32-545', 'city' => 'Psary', 'country_code' => null, 'country_name' => null], '32-545 Psary'],
+            [['postal_code' => null, 'city' => 'Psary', 'country_code' => null, 'country_name' => null], 'Psary'],
+            [['postal_code' => null, 'city' => null], 'Polska'],
+        ];
+
+        foreach ($scenarios as [$changes, $expected]) {
+            $invoice->update(['buyer_snapshot' => array_merge($base, $changes)]);
+
+            $this->assertStringContainsString(
+                $expected,
+                app(InvoicePdfRenderer::class)->html($invoice->refresh()),
+            );
+        }
+    }
+
     public function test_invoice_pdf_uses_effective_payment_method_selected_by_series(): void
     {
         $order = $this->createDocumentOrder(['payment_method' => 'Metoda z zamówienia']);
@@ -121,7 +198,11 @@ class InvoicePdfTest extends TestCase
         $renderer = app(InvoicePdfRenderer::class);
         $before = $renderer->html($invoice);
 
-        $order->update(['billing_name' => 'Zmieniony klient', 'external_id' => 'NOWY-NUMER']);
+        $order->update([
+            'billing_name' => 'Zmieniony klient',
+            'billing_country_code' => 'DE',
+            'external_id' => 'NOWY-NUMER',
+        ]);
         $series->update([
             'document_title' => 'Zmieniona nazwa dokumentu',
             'seller_name' => 'Zmieniony sprzedawca',
@@ -131,6 +212,8 @@ class InvoicePdfTest extends TestCase
         $after = $renderer->html($invoice->refresh());
 
         $this->assertSame($before, $after);
+        $this->assertSame('PL', $invoice->refresh()->buyer_snapshot['country_code']);
+        $this->assertSame('Polska', $invoice->buyer_snapshot['country_name']);
         $this->assertStringContainsString('Faktura historyczna', $after);
         $this->assertStringNotContainsString('Zmieniona nazwa dokumentu', $after);
         $this->assertStringContainsString('Nagłówek historyczny', $after);
@@ -361,6 +444,18 @@ class InvoicePdfTest extends TestCase
         $series = $this->createDocumentSeries(attributes: $seriesAttributes);
 
         return app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext());
+    }
+
+    private function issueInvoiceForOrder(array $orderAttributes = []): Invoice
+    {
+        $order = $this->createDocumentOrder($orderAttributes);
+        $this->createDocumentItem($order);
+
+        return app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
     }
 
     private function createCorrection(Invoice $source): Invoice

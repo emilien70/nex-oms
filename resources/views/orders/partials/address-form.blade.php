@@ -4,6 +4,10 @@
     $showPhone = $showPhone ?? true;
     $showEmail = $showEmail ?? true;
     $taxIdLast = $taxIdLast ?? false;
+    $countryCatalog = app(\App\Support\CountryCatalog::class);
+    $countries = $countries ?? $countryCatalog->all();
+    $countryField = $prefix.'_country_code';
+    $selectedCountryCode = $countryCatalog->normalize(old($countryField, $address?->country_code));
 @endphp
 
 <div class="row g-2">
@@ -50,7 +54,15 @@
     @if ($showCountry)
         <div class="col-{{ $showProvince ? '6' : '4' }}">
             <label class="form-label">Kraj</label>
-            <input type="text" name="{{ $prefix }}_country_code" class="form-control form-control-sm" value="{{ old($prefix . '_country_code', $address?->country_code ?? 'PL') }}">
+            <select name="{{ $countryField }}" class="form-select form-select-sm @error($countryField) is-invalid @enderror" required>
+                <option value="">&mdash; Wybierz kraj &mdash;</option>
+                @foreach ($countries as $code => $name)
+                    <option value="{{ $code }}" @selected($selectedCountryCode === $code)>{{ $name }}</option>
+                @endforeach
+            </select>
+            @error($countryField)
+                <div class="invalid-feedback">{{ $message }}</div>
+            @enderror
         </div>
     @endif
     @if ($showPhone)

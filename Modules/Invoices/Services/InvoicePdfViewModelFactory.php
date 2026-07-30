@@ -2,6 +2,7 @@
 
 namespace Modules\Invoices\Services;
 
+use App\Support\CountryCatalog;
 use BackedEnum;
 use Illuminate\Support\Collection;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
@@ -14,6 +15,7 @@ class InvoicePdfViewModelFactory
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceAmountInWordsFormatter $amountInWords,
+        private readonly CountryCatalog $countries,
     ) {}
 
     /** @return array<string, mixed> */
@@ -55,7 +57,7 @@ class InvoicePdfViewModelFactory
                 ? $this->text($order['related_documents']['proforma']['number'] ?? null)
                 : null,
             'seller' => $this->party($seller, includeCountry: false, includeRegon: false),
-            'buyer' => $this->party($invoice->buyer_snapshot, includeCountry: false),
+            'buyer' => $this->party($invoice->buyer_snapshot),
             'items' => $this->items($invoice->items),
             'tax_rows' => $this->taxRows($invoice->tax_summary_snapshot),
             'totals' => $this->totals($invoice),
@@ -93,7 +95,7 @@ class InvoicePdfViewModelFactory
             'place_of_issue' => $this->text($invoice->issuer_snapshot['place_of_issue'] ?? null),
             'payment_method' => $this->paymentMethod($invoice),
             'seller' => $this->party($seller, includeCountry: false, includeRegon: false),
-            'buyer' => $this->party($invoice->buyer_snapshot, includeCountry: false),
+            'buyer' => $this->party($invoice->buyer_snapshot),
             'before_items' => $this->correctionItems($invoice->items, 'correction_before_snapshot'),
             'after_items' => $this->correctionItems($invoice->items, 'correction_after_snapshot'),
             'before_totals' => $this->snapshotTotals($totals['before']),
@@ -293,8 +295,7 @@ class InvoicePdfViewModelFactory
                 $name,
                 $person !== $name ? $person : null,
                 $street,
-                $this->postalCity($party),
-                $includeCountry ? $this->text($party['country_code'] ?? null) : null,
+                $includeCountry ? $this->buyerLocality($party) : $this->postalCity($party),
                 $includeRegon && $this->text($party['regon'] ?? null)
                     ? 'REGON: '.$this->text($party['regon'])
                     : null,
@@ -315,6 +316,22 @@ class InvoicePdfViewModelFactory
         }
 
         return $postalCode ?? $city;
+    }
+
+    /** @param array<string, mixed> $party */
+    private function buyerLocality(array $party): ?string
+    {
+        $postalCode = $this->text($party['postal_code'] ?? null);
+        $city = $this->text($party['city'] ?? null);
+        $country = $this->text($party['country_name'] ?? null)
+            ?: $this->countries->name($this->text($party['country_code'] ?? null));
+        $locality = trim(implode(' ', array_filter([$postalCode, $city])));
+
+        if ($locality !== '' && $country !== null) {
+            return $locality.', '.$country;
+        }
+
+        return $locality !== '' ? $locality : $country;
     }
 
     private function vatLabel(mixed $rate, mixed $code): string

@@ -56,7 +56,11 @@ class InvoiceDocumentPreparationTest extends TestCase
 
     public function test_preparation_builds_snapshots_items_shipping_tax_totals_and_payment_without_float(): void
     {
-        $order = $this->createDocumentOrder(['paid_amount' => '999.00', 'currency' => 'eur']);
+        $order = $this->createDocumentOrder([
+            'paid_amount' => '999.00',
+            'currency' => 'eur',
+            'shipping_country_code' => 'DE',
+        ]);
         $this->createDocumentItem($order);
         $series = $this->createDocumentSeries();
 
@@ -66,6 +70,10 @@ class InvoiceDocumentPreparationTest extends TestCase
         $this->assertSame('NEX Seller sp. z o.o.', $prepared->invoiceAttributes['seller_snapshot']['name']);
         $this->assertSame('Kowalski Handel', $prepared->invoiceAttributes['buyer_snapshot']['company_name']);
         $this->assertSame('Anna Nowak', $prepared->invoiceAttributes['recipient_snapshot']['name']);
+        $this->assertSame('PL', $prepared->invoiceAttributes['buyer_snapshot']['country_code']);
+        $this->assertSame('Polska', $prepared->invoiceAttributes['buyer_snapshot']['country_name']);
+        $this->assertSame('DE', $prepared->invoiceAttributes['recipient_snapshot']['country_code']);
+        $this->assertSame('Niemcy', $prepared->invoiceAttributes['recipient_snapshot']['country_name']);
         $this->assertSame((string) $order->getKey(), $prepared->invoiceAttributes['order_reference_snapshot']);
         $this->assertSame('SHOP-100', $prepared->invoiceAttributes['order_snapshot']['external_id']);
         $this->assertSame('manual', $prepared->invoiceAttributes['order_snapshot']['source']);
@@ -83,6 +91,44 @@ class InvoiceDocumentPreparationTest extends TestCase
         $this->assertSame('123.00', $prepared->invoiceAttributes['tax_summary_snapshot'][0]['gross']);
         $this->assertSnapshotContainsNoFloat($prepared->invoiceAttributes);
         $this->assertSnapshotContainsNoFloat($prepared->itemAttributes);
+    }
+
+    public function test_preparation_does_not_replace_empty_country_with_poland(): void
+    {
+        $order = $this->createDocumentOrder([
+            'billing_country_code' => null,
+            'shipping_country_code' => null,
+        ]);
+        $this->createDocumentItem($order);
+
+        $prepared = app(InvoiceDocumentPreparationService::class)->forCreation(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+
+        $this->assertNull($prepared->invoiceAttributes['buyer_snapshot']['country_code']);
+        $this->assertNull($prepared->invoiceAttributes['buyer_snapshot']['country_name']);
+        $this->assertNull($prepared->invoiceAttributes['recipient_snapshot']['country_code']);
+        $this->assertNull($prepared->invoiceAttributes['recipient_snapshot']['country_name']);
+    }
+
+    public function test_preparation_rejects_invalid_nonempty_country_with_controlled_error(): void
+    {
+        $order = $this->createDocumentOrder(['billing_country_code' => 'XX']);
+        $this->createDocumentItem($order);
+
+        try {
+            app(InvoiceDocumentPreparationService::class)->forCreation(
+                $order,
+                $this->createDocumentSeries(),
+                $this->documentContext(),
+            );
+            $this->fail('Nieprawidłowy kraj został zapisany w snapshocie dokumentu.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('invoice_country_invalid', $exception->errorCode());
+            $this->assertStringContainsString('kraj danych do faktury', $exception->getMessage());
+        }
     }
 
     public function test_missing_required_order_item_vat_is_not_replaced_with_23_percent(): void

@@ -5,6 +5,7 @@
     $showPhone = $showPhone ?? true;
     $showEmail = $showEmail ?? true;
     $taxIdLast = $taxIdLast ?? false;
+    $resolvedCountryName = $countryName ?? app(\App\Support\CountryCatalog::class)->name($address?->country_code);
     $streetLine = trim(($address?->street ?? '') . ' ' . ($address?->building_number ?? ''));
     if ($address?->apartment_number) {
         $streetLine .= '/' . $address->apartment_number;
@@ -25,7 +26,7 @@
         $rows['Wojewodztwo'] = $address?->province;
     }
     if ($showCountry) {
-        $rows['Kraj'] = $address?->country_code;
+        $rows['Kraj'] = $resolvedCountryName;
     }
     if ($showPhone) {
         $rows['Telefon'] = $address?->phone;
