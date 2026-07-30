@@ -7,6 +7,7 @@
     .document-title { font-size: 17pt; }
     .number-box { border: 1px solid #bdbdbd; font-size: 11pt; font-weight: normal; line-height: 1; padding: 6px; text-align: center; }
     .number-box-value { font-size: 11pt; }
+    .related-document { font-size: 7.5pt; line-height: 1.25; padding-left: 8px; vertical-align: middle; }
     .section-label { font-weight: bold; }
     .meta-table td { border-bottom: 1px solid #c9c9c9; padding: 3px 4px; }
     .party-title { border-right: 1px solid #c7c7c7; font-size: 8.5pt; font-weight: normal; padding: 2px 7px 2px 5px; vertical-align: top; }

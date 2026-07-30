@@ -51,6 +51,9 @@ class InvoicePdfViewModelFactory
             'payment_identifier' => $this->text($payment['payment_identifier'] ?? null),
             'order_number' => $this->text($order['external_id'] ?? null)
                 ?: $this->text($invoice->order_reference_snapshot),
+            'related_proforma_number' => $invoice->isInvoice()
+                ? $this->text($order['related_documents']['proforma']['number'] ?? null)
+                : null,
             'seller' => $this->party($seller, includeCountry: false, includeRegon: false),
             'buyer' => $this->party($invoice->buyer_snapshot, includeCountry: false),
             'items' => $this->items($invoice->items),

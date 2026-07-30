@@ -41,16 +41,22 @@
     @include('invoices.pdf.partials.items-table')
     @include('invoices.pdf.partials.summary')
 
-    <br><br>
-    <table cellpadding="0" cellspacing="0" width="100%">
+    <br><br><br>
+    <table class="final-details" cellpadding="0" cellspacing="0" width="100%">
         <tr>
-            <td width="16%" class="muted-label">Razem:</td>
-            <td width="39%" class="grand-total">{{ $document['totals']['gross'] }} {{ $document['currency'] }}</td>
+            <td width="15%" class="muted-label">Razem:</td>
+            <td width="2%"></td>
+            <td width="38%" class="grand-total">{{ $document['totals']['gross'] }} {{ $document['currency'] }}</td>
             <td width="45%"></td>
         </tr>
+    </table>
+
+    <br><br>
+    <table class="final-details" cellpadding="0" cellspacing="0" width="100%">
         <tr>
-            <td class="muted-label">Słownie:</td>
-            <td colspan="2">{{ $document['amount_in_words'] }}</td>
+            <td width="15%" class="muted-label">Słownie:</td>
+            <td width="2%"></td>
+            <td width="83%" class="final-value">{{ $document['amount_in_words'] }}</td>
         </tr>
     </table>
 </body>

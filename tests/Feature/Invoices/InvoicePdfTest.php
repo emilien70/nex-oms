@@ -84,6 +84,7 @@ class InvoicePdfTest extends TestCase
         $this->assertStringNotContainsString('Odbiorca:', $html);
         $this->assertStringNotContainsString('REGON:', $html);
         $this->assertStringNotContainsString('>PL<br>', preg_replace('/\s+/', '', $html));
+        $this->assertStringNotContainsString('Faktura do faktury pro forma:', $html);
     }
 
     public function test_invoice_pdf_uses_snapshots_after_order_and_series_change(): void
@@ -114,6 +115,37 @@ class InvoicePdfTest extends TestCase
         $this->assertStringNotContainsString('Zmieniony klient', $after);
         $this->assertStringNotContainsString('Zmieniony sprzedawca', $after);
         $this->assertStringNotContainsString('Zmieniony nagłówek', $after);
+    }
+
+    public function test_invoice_pdf_shows_related_proforma_number_from_its_snapshot(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $proforma = app(ProformaService::class)->createOrRefresh(
+            $order,
+            $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+            $this->documentContext(),
+        )->invoice;
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+
+        $html = app(InvoicePdfRenderer::class)->html($invoice);
+
+        $this->assertMatchesRegularExpression(
+            '/Faktura do faktury pro forma:\s*<br>\s*'.preg_quote($proforma->number, '/').'/',
+            $html,
+        );
+        $this->assertStringContainsString($proforma->number, $html);
+
+        $snapshotNumber = $invoice->order_snapshot['related_documents']['proforma']['number'];
+        $proforma->update(['number' => 'PF ZMIENIONA']);
+
+        $html = app(InvoicePdfRenderer::class)->html($invoice->refresh());
+        $this->assertStringContainsString($snapshotNumber, $html);
+        $this->assertStringNotContainsString('PF ZMIENIONA', $html);
     }
 
     public function test_invoice_with_many_items_generates_a_multi_page_pdf(): void
@@ -198,6 +230,9 @@ class InvoicePdfTest extends TestCase
         $this->assertStringNotContainsString('Numer płatności:', $html);
         $this->assertStringNotContainsString('Osoba upoważniona', $html);
         $this->assertStringNotContainsString('Nowe uwagi', $html);
+        $this->assertStringContainsString('<td width="15%" class="muted-label">Razem:</td>', $html);
+        $this->assertStringContainsString('<td width="15%" class="muted-label">Słownie:</td>', $html);
+        $this->assertGreaterThanOrEqual(2, substr_count($html, '<td width="2%"></td>'));
 
         $this->get(route('invoices.pdf', $invoice))->assertOk();
         Storage::disk('local')->assertExists(
