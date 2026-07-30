@@ -1,198 +1,119 @@
 # NEX-OMS
 
-NEX-OMS to rozwijany system OMS do zarządzania zamówieniami, produktami zamówień, danymi klientów, płatnościami, wysyłkami, dokumentami sprzedaży i przyszłymi integracjami z kanałami sprzedaży.
+NEX-OMS to lokalnie rozwijany system OMS do obsługi zamówień, przesyłek i dokumentów sprzedaży. Aplikacja powstaje jako modularny monolit oparty na Laravel 12 i PHP 8.2 lub nowszym.
 
-Nie wszystkie wymienione obszary są ukończone. Poniższy dokument rozdziela funkcje działające, będące w budowie i planowane.
+Projekt jest aktywnie rozwijany i nie jest jeszcze gotowym produktem produkcyjnym. Aktualny kod należy uruchamiać w kontrolowanym środowisku lokalnym; przed publicznym wdrożeniem konieczne jest między innymi wdrożenie pełnego uwierzytelniania i autoryzacji.
 
-## Status projektu
+## Aktualny zakres funkcjonalny
 
-Projekt jest aktywnie rozwijany i nie jest jeszcze gotową wersją produkcyjną. Nie ma obecnie logowania ani kontroli dostępu, dlatego nie powinien być publicznie udostępniany bez dodatkowych zabezpieczeń.
+### Zamówienia
 
-- Głównym środowiskiem rozwoju jest środowisko lokalne.
-- Kolejne sprawdzone i stabilne wersje będą mogły być wdrażane na VPS.
-- Git przechowuje historię zmian kodu.
-- Projekt nie wymaga Dockera ani n8n.
+- lista zamówień z wyszukiwaniem, filtrowaniem, paginacją, oznaczeniami i operacjami zbiorczymi;
+- karta szczegółów zamówienia z częściowymi aktualizacjami AJAX;
+- ręczne tworzenie zamówień, edycja sekcji oraz kosz z przywracaniem i trwałym usuwaniem;
+- konfigurowalne statusy zamówień wraz z kolorami, opisami i kolejnością;
+- dane klienta przechowywane bezpośrednio w zamówieniu;
+- informacje o zamówieniu, adres dostawy, dane do faktury, punkt odbioru i uwagi;
+- kopiowanie danych pomiędzy adresem dostawy i danymi do faktury;
+- pozycje zamówienia z ilością, ceną, VAT i wagą oraz przeliczaniem wartości;
+- obsługa kwoty wpłaconej, kosztu dostawy, sposobu płatności i pobrania;
+- historia zdarzeń zamówienia;
+- wyszukiwanie po numerze zamówienia i numerze przesyłki, także z użyciem skanera kodów;
+- pobieranie danych polskiej firmy z GUS/REGON po NIP do edytowanych danych fakturowych.
 
-Projekt nie ma obecnie jednoznacznie zdefiniowanego numeru wydania w kodzie, dlatego README nie przypisuje mu sztucznej wersji.
+### Kraje adresów
 
-## Aktualne funkcje
+Adres dostawy i dane do faktury mają niezależne pola kraju. W bazie przechowywany jest kod ISO 3166-1 alpha-2, na przykład `PL` albo `DE`, natomiast użytkownik widzi polską nazwę kraju.
 
-Na podstawie aktualnych tras, kontrolerów, modeli, widoków, migracji i testów działają:
+Centralny `CountryCatalog` korzysta z Symfony Intl. Polska znajduje się na początku listy, a pozostałe kraje są sortowane według polskich nazw. Kopiowanie adresu kopiuje również kod kraju, a pobranie polskiej firmy z GUS jawnie ustawia `PL` dla danych do faktury. Historyczne zamówienie bez kraju pozostaje bez kraju i nie otrzymuje automatycznie Polski.
 
-- dashboard z licznikami podstawowych statusów zamówień;
-- lista zamówień z filtrowaniem, wyszukiwaniem, paginacją, oznaczeniami kolorową gwiazdką i operacjami zbiorczymi;
-- wyszukiwanie zamówień między innymi po numerze zamówienia i numerze przesyłki oraz obsługa skanera kodów;
-- szczegóły zamówienia z częściowym odświeżaniem danych przez żądania AJAX;
-- tworzenie pustego zamówienia ręcznego, klasyczny formularz tworzenia oraz edycja istniejącego zamówienia;
-- kosz zamówień, przywracanie i trwałe usuwanie zaznaczonych zamówień;
-- dane kontaktowe kupującego, adres dostawy, dane do faktury, punkt odbioru i uwagi zapisane bezpośrednio w zamówieniu;
-- sekcyjna edycja informacji o zamówieniu, adresów, punktu odbioru i kwoty wpłaty;
-- pobieranie danych firmy z GUS/REGON po NIP do roboczych danych fakturowych;
-- produkty zamówienia: dodawanie, edycja, usuwanie, ilość, cena, VAT, waga i przeliczanie wartości zamówienia;
-- rejestrowanie historii zdarzeń zamówienia;
-- płatności: kwota wpłacona, koszt dostawy, metoda płatności, pobranie i wizualna informacja o stanie wpłaty;
-- zarządzanie statusami zamówień, ich kolorami, opisami i kolejnością;
-- tworzenie, synchronizacja, etykiety, śledzenie i anulowanie przesyłek dla skonfigurowanych integracji kurierskich;
-- integracje kurierskie: InPost Paczkomaty, InPost Kurier, DPD oraz Wysyłam z Allegro;
-- konfiguracja kont kurierskich i szablonów wymiarów przesyłek tam, gdzie obsługuje je dana integracja;
-- automatyczne akcje oparte na zdarzeniach, warunkach i uporządkowanych krokach;
-- akcje automatyczne: zmiana statusu, utworzenie przesyłki, opóźnienie i wywołanie adresu URL metodą GET;
-- zmienne zamówienia możliwe do wykorzystania między innymi w akcjach URL;
-- kolejki dla operacji przesyłek, synchronizacji i automatyzacji;
-- logowanie komunikacji z zewnętrznymi API oraz okresowe czyszczenie logów integracyjnych.
+### Przesyłki i integracje
 
-### Ograniczenia aktualnego stanu
+- wspólny model przesyłek, paczek składowych, zdarzeń i prób utworzenia;
+- nadawanie, etykiety, śledzenie, synchronizacja statusów i anulowanie przesyłek;
+- konfiguracja kont kurierskich i szablonów wymiarów;
+- integracje kurierskie: InPost Paczkomaty, InPost Kurier, DPD i Wysyłam z Allegro;
+- integracja GUS/REGON do pobierania danych firmy;
+- logowanie komunikacji z zewnętrznymi API.
 
-- Nie istnieje osobna baza klientów. Dane kupującego należą wyłącznie do konkretnego zamówienia.
-- Nie istnieje osobna tabela adresów w docelowym schemacie. Dane dostawy i faktury znajdują się w `orders`.
-- Moduł faktur ma tylko wejście w menu, trasę, kontroler, ekran początkowy i test dostępności. Nie wystawia jeszcze dokumentów.
-- Import zamówień z Allegro i PrestaShop nie jest jeszcze zaimplementowany.
-- Katalog produktów niezależny od zamówień nie jest jeszcze zaimplementowany.
+Wysyłam z Allegro obsługuje przesyłki. Import zamówień z Allegro i PrestaShop nie jest obecnie wdrożony.
 
-## Statusy zamówień
+### Automatyczne akcje
 
-Kod definiuje cztery statusy bazowe:
+Moduł automatyzacji obsługuje reguły złożone ze zdarzeń, warunków i uporządkowanych kroków. Dostępne akcje obejmują między innymi zmianę statusu, utworzenie przesyłki, opóźnienie i wywołanie adresu URL metodą GET. Operacje przesyłek, synchronizacji i automatyzacji korzystają z kolejek.
 
-| Kod | Nazwa |
+### Faktury — Etapy 2A–2D
+
+Moduł Faktur nie jest już pustym szkieletem. Aktualna implementacja obejmuje:
+
+- serie numeracji dla Faktur VAT, Pro form i Korekt;
+- trzy chronione serie systemowe oraz dodatkowe serie użytkownika;
+- konfigurację danych sprzedawcy i ustawień dokumentu bezpośrednio w serii;
+- centralne liczniki numeracji i okresy resetowania;
+- walidację formatu numeru oraz tokenów `%N`, `%NN...`, `%M`, `%Y` i `%y`;
+- podgląd i bezpieczne ustawienie następnego numeru wraz z historią korekt licznika;
+- wspólny model dokumentów `invoice`, `proforma` i `correction` oraz ich pozycji;
+- niezmienne snapshoty sprzedawcy, nabywcy, odbiorcy, zamówienia, płatności, wysyłki i pozycji;
+- jedną istniejącą Fakturę VAT na zamówienie;
+- jedną logiczną Pro formę na zamówienie, z kolejnymi rewizjami zachowującymi ten sam numer;
+- trwałe zablokowanie dalszego odświeżania Pro formy po wystawieniu Faktury VAT;
+- wystawianie Faktury VAT i tworzenie Pro formy z kafelka „Zarządzanie” na karcie zamówienia;
+- operacje przez AJAX bez przeładowania strony, modalnego formularza ani komunikatu sukcesu;
+- zwykły przycisk dla jednej aktywnej serii i dropdown wyboru przy wielu aktywnych seriach;
+- prywatne PDF-y otwierane przez kontrolowaną trasę Laravel;
+- generowanie PDF Faktury VAT i Pro formy wyłącznie z zapisanych snapshotów;
+- renderer PDF Korekty dla kompletnego, istniejącego rekordu Korekty;
+- kraj Nabywcy w formacie takim jak `32-545 Psary, Polska`;
+- PDF bez stopki „Wygenerowano w...” i bez ujawniania ścieżki prywatnego storage.
+
+Renderer PDF Korekty jest gotowy, ale wystawianie Korekt i ich interfejs nie są jeszcze wdrożone. Główna strona listy Faktur pozostaje ekranem początkowym; pełne listy i rejestry dokumentów również nie są jeszcze dostępne.
+
+## Zasady dokumentów
+
+- Faktura VAT jest snapshotem danych z momentu wystawienia. Późniejsza zmiana zamówienia lub serii nie zmienia dokumentu.
+- Jedno zamówienie może mieć najwyżej jedną istniejącą Fakturę VAT.
+- Pro forma zachowuje jeden numer, a zmiana danych może utworzyć kolejną rewizję tej samej logicznej Pro formy.
+- Po wystawieniu Faktury VAT akcja i numer Pro formy są ukrywane w kafelku „Zarządzanie”, ale historyczne dane Pro formy pozostają zachowane.
+- Faktura VAT może przechowywać w snapshocie powiązanie z wcześniejszą Pro formą.
+- PDF nie odczytuje aktualnych danych z zamówienia ani serii.
+- Kraj Nabywcy oraz sposób płatności pochodzą ze snapshotu dokumentu.
+- PDF nie drukuje osobno nazwy banku ani numeru rachunku.
+
+## Architektura i technologie
+
+Projekt jest modularnym monolitem Laravel. Główna logika aplikacji znajduje się w `app`, a wydzielone obszary domenowe w `Modules`.
+
+| Obszar | Technologia |
 |---|---|
-| `new` | Nowe |
-| `pending` | Oczekujące |
-| `shipped` | Wysłane |
-| `cancelled` | Anulowane |
+| Backend | PHP `^8.2`, Laravel `12.63.0` |
+| Widoki | Blade, Bootstrap 5, Bootstrap Icons |
+| Zasoby frontendowe | Vite 7, JavaScript, Axios |
+| Lokalna baza | SQLite |
+| Baza testowa | SQLite `:memory:` |
+| PDF | TCPDF `6.11.3` |
+| Katalog krajów | Symfony Intl `7.2.0` |
+| Zależności | Composer, npm |
 
-Panel ustawień pozwala również dodawać własne statusy, ustalać ich kolor i opis, zmieniać kolejność oraz usuwać status po wskazaniu statusu zastępczego dla istniejących zamówień.
+Aktywne moduły:
 
-## Moduły
+- `Modules/Automation` — reguły i wykonania automatycznych akcji;
+- `Modules/Integrations` — klienci i sterowniki integracji;
+- `Modules/Invoices` — serie, numeracja, dokumenty, snapshoty i PDF;
+- `Modules/Shipments` — wspólna domena przesyłek.
 
-| Moduł | Stan | Opis |
-|---|---|---|
-| Dashboard | Działa | Liczniki zamówień według podstawowych statusów. |
-| Orders | Działa | Lista, wyszukiwanie, filtry, kosz, karta zamówienia, dane kupującego i adresowe, płatności oraz historia. |
-| Produkty zamówienia | Działa | Pozycje należące do zamówienia, ich ceny, ilości, VAT i waga. Nie jest to jeszcze samodzielny katalog produktów. |
-| Statusy zamówień | Działa | Konfigurowalne nazwy, opisy, kolory i kolejność statusów. |
-| Shipments | Działa | Wspólny model przesyłek, paczki składowe, etykiety, statusy OMS, synchronizacja i zdarzenia. |
-| Integrations | Działa | Sterowniki InPost Paczkomaty, InPost Kurier, DPD i Wysyłam z Allegro oraz logowanie API. |
-| Automation | Działa | Reguły zdarzeń, warunki, akcje, wykonania i podgląd aktywności. |
-| GUS/REGON | Działa | Pobranie danych firmy po NIP przez backendowy klient HTTP/XML; wymaga klucza API. |
-| Invoices | W budowie | Utworzone wejście do modułu i ekran początkowy; pełna obsługa dokumentów jest w przygotowaniu. |
-| Katalog Products | Planowany | Katalog produktów niezależny od pozycji konkretnego zamówienia. |
-| Emails | Planowany | Moduł wiadomości i szablonów nie ma jeszcze implementacji. |
-| Zwroty | Planowany | Pozycja jest widoczna jako element przyszłej nawigacji, bez obsługi domenowej. |
+Szczegółowe reguły projektu opisują:
 
-Aktywną implementację wewnątrz `Modules/` zawierają obecnie `Automation`, `Integrations`, `Invoices` i `Shipments`. Katalogi `Customers`, `Dashboard`, `Emails`, `Orders` i `Products` są pustymi punktami organizacyjnymi; sama obecność katalogu nie oznacza gotowego modułu.
+- [`AGENTS.md`](AGENTS.md),
+- [`docs/product-spec.md`](docs/product-spec.md),
+- [`docs/architecture.md`](docs/architecture.md).
 
-## Model danych w skrócie
+## Uruchomienie lokalne — Windows/XAMPP
 
-Najważniejsze aktywne obszary bazy danych to:
-
-- `orders` — zamówienie wraz z danymi kupującego, dostawy, faktury, płatności i punktu odbioru;
-- `order_items` — produkty przypisane do zamówienia;
-- `order_events` — historia operacji na zamówieniu;
-- `order_status_settings` — konfiguracja statusów;
-- `courier_accounts`, `shipments`, `shipment_parcels`, `shipment_events` i `shipment_creation_attempts` — konfiguracja i obsługa przesyłek;
-- `integration_api_logs` — logi komunikacji z integracjami;
-- `automation_rules`, `automation_actions`, `automation_runs` i `automation_run_steps` — reguły i przebiegi automatyzacji;
-- tabele systemowe Laravel dla kolejek, cache, sesji i użytkowników.
-
-Migracje tworzące dawne tabele `customers` i `addresses` pozostają w historii, ale późniejsze migracje przenoszą dane do `orders` i usuwają te tabele.
-
-## Moduł dokumentów sprzedaży
-
-### Stan obecny
-
-Moduł faktur jest szkieletem. Dostępne są pozycja `Faktury` w menu zamówień, trasa `/invoices`, kontroler, ekran informacyjny oraz test dostępności strony. Nie istnieją jeszcze modele, tabele, numeracja, generowanie PDF ani zapis wystawionych dokumentów.
-
-### Założenia planowanej implementacji
-
-- System będzie obsługiwał jedną firmę sprzedającą.
-- Nie będzie tabeli ani funkcji wielu profili sprzedawców.
-- Dane jednej firmy będą przechowywane w konfiguracji firmy.
-- Wystawiona faktura będzie przechowywała snapshot danych sprzedawcy i nabywcy, aby późniejsze zmiany zamówienia nie zmieniały historycznego dokumentu.
-- Faktura będzie tworzona z danych zamówienia.
-- Użytkownik będzie wystawiał dokument przyciskiem z karty zamówienia.
-
-Planowane typy dokumentów:
-
-- faktura VAT;
-- faktura pro forma;
-- korekta;
-- duplikat.
-
-Planowane funkcje:
-
-- serie numeracji;
-- generowanie i pobieranie PDF;
-- rejestr sprzedaży;
-- dokument zewnętrzny;
-- wysyłka e-mail;
-- historia zmian;
-- przyszła integracja z Fakturownią.
-
-Poza obecnym zakresem pozostają: KSeF, paragony, e-paragony, drukarki fiskalne i JPK.
-
-## Planowane integracje
-
-### Istniejące
-
-| Integracja | Zakres |
-|---|---|
-| GUS/REGON | Wyszukiwanie danych firmy po NIP. |
-| InPost Paczkomaty | Konfiguracja konta, nadawanie, etykiety, anulowanie, śledzenie i synchronizacja statusów. |
-| InPost Kurier | Konfiguracja konta i szablonów, nadawanie paczek, etykiety, anulowanie, śledzenie i synchronizacja. |
-| DPD | Konfiguracja konta i szablonów, nadawanie, etykiety, anulowanie, śledzenie i synchronizacja. |
-| Wysyłam z Allegro | Połączenie OAuth Device Flow, propozycje przewoźnika, nadawanie, etykiety, anulowanie, śledzenie i synchronizacja. |
-
-Integracje kurierskie wymagają poprawnej konfiguracji konta i danych dostępowych. Wysyłam z Allegro dotyczy obsługi przesyłek i nie oznacza importowania zamówień z Allegro.
-
-### Rozpoczęte
-
-W aktualnym kodzie nie ma odrębnej integracji pozostającej wyłącznie na etapie pustego konfiguratora lub placeholdera. Moduł faktur jest w budowie, ale nie stanowi jeszcze integracji z zewnętrznym systemem.
-
-### Planowane
-
-- import i synchronizacja zamówień z Allegro;
-- import i synchronizacja zamówień z PrestaShop;
-- Fakturownia jako integracja dokumentów sprzedaży;
-- obsługa wysyłki wiadomości przez skonfigurowany transport pocztowy w przyszłym module e-mail.
-
-## Technologie
-
-| Obszar | Technologia wykryta w projekcie |
-|---|---|
-| Backend | PHP `^8.2`, Laravel `^12.0` (wersja w `composer.lock`: `12.63.0`) |
-| Widoki | Blade |
-| Interfejs panelu | Bootstrap `5.3.3` i Bootstrap Icons `1.11.3` przez CDN oraz lokalny CSS/JavaScript |
-| Frontend build | Vite `^7.0.7`, Tailwind CSS `^4.0.0`, Axios `^1.11.0` |
-| Zależności PHP | Composer |
-| Zależności frontendowe | Node.js i npm; projekt nie przypina ich wersji w `package.json` |
-| Baza lokalna testów | SQLite w pamięci |
-| Baza aplikacji | `.env.example` domyślnie wskazuje SQLite; konfiguracja zawiera również MySQL i MariaDB, zalecane dla XAMPP i przyszłego VPS |
-| Kolejki | Sterownik bazodanowy Laravel |
-
-## Wymagania lokalne
-
-- PHP `8.2` lub nowsze zgodne z ograniczeniem `^8.2` w `composer.json`;
-- Composer;
-- Node.js i npm;
-- MySQL/MariaDB dla instalacji XAMPP albo SQLite dla prostego środowiska lokalnego;
-- rozszerzenia PHP wymagane przez Laravel: `ctype`, `filter`, `hash`, `mbstring`, `openssl`, `session` i `tokenizer`;
-- `PDO` oraz `pdo_mysql` przy korzystaniu z MySQL/MariaDB;
-- rozszerzenia XML udostępniające `SimpleXML` i `DOMDocument`, używane przez GUS/REGON i DPD.
-
-Aktualna integracja GUS buduje komunikaty SOAP samodzielnie i wysyła je klientem HTTP Laravel. Rozszerzenie PHP SOAP nie jest przez nią używane.
-
-## Instalacja lokalna — Windows/XAMPP
-
-Przykładowy katalog projektu:
-
-```text
-C:\projekty\nex-oms
-```
-
-1. Przejdź do katalogu projektu:
+1. Sklonuj repozytorium i przejdź do jego katalogu:
 
 ```powershell
-cd C:\projekty\nex-oms
+git clone <adres-repozytorium>
+cd nex-oms
 ```
 
 2. Zainstaluj zależności PHP:
@@ -201,231 +122,97 @@ cd C:\projekty\nex-oms
 composer install
 ```
 
-3. Utwórz lokalny plik środowiska:
+3. Utwórz lokalną konfigurację i klucz aplikacji:
 
 ```powershell
 Copy-Item .env.example .env
-```
-
-4. Wygeneruj klucz aplikacji:
-
-```powershell
-php artisan key:generate
-```
-
-Jeśli PHP nie jest dostępne globalnie w `PATH`, użyj:
-
-```powershell
 C:\xampp\php\php.exe artisan key:generate
 ```
 
-5. Utwórz pustą bazę, na przykład `nex_oms`, w MySQL/MariaDB przez phpMyAdmin i ustaw połączenie w `.env`:
-
-```env
-DB_CONNECTION=mysql
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_DATABASE=nex_oms
-DB_USERNAME=root
-DB_PASSWORD=
-```
-
-Przy świadomym użyciu sterownika MariaDB można ustawić `DB_CONNECTION=mariadb`. Szablon `.env.example` domyślnie korzysta z SQLite, więc przed migracją trzeba wybrać właściwe połączenie.
-
-6. Uruchom migracje:
+4. Utwórz pusty plik SQLite, jeżeli jeszcze nie istnieje:
 
 ```powershell
-php artisan migrate
+New-Item database\database.sqlite -ItemType File -ErrorAction SilentlyContinue
 ```
 
-Wariant XAMPP:
+Domyślne `.env.example` używa `DB_CONNECTION=sqlite`. Własną bazę MySQL lub MariaDB można skonfigurować przez odpowiednie zmienne `DB_*` w lokalnym `.env`.
+
+5. Uruchom migracje na świadomie wybranej, lokalnej bazie:
 
 ```powershell
 C:\xampp\php\php.exe artisan migrate
 ```
 
-Nie używaj `migrate:fresh` na bazie zawierającej dane.
+Nie używaj `migrate:fresh` ani innych komend resetujących bazę zawierającą dane.
 
-7. Zainstaluj zależności frontendowe:
+6. Zainstaluj zależności frontendowe i zbuduj zasoby:
 
 ```powershell
 npm install
+npm.cmd run build
 ```
 
-8. Zbuduj zasoby albo uruchom serwer Vite na czas pracy:
+W trakcie pracy można zamiast buildu uruchomić:
 
 ```powershell
-npm run build
+npm.cmd run dev
 ```
 
-lub:
-
-```powershell
-npm run dev
-```
-
-9. Uruchom aplikację:
-
-```powershell
-php artisan serve
-```
-
-Wariant XAMPP:
+7. Uruchom aplikację:
 
 ```powershell
 C:\xampp\php\php.exe artisan serve
 ```
 
-Domyślny adres serwera deweloperskiego Laravel to `http://127.0.0.1:8000`.
+Jeżeli PHP jest dostępne globalnie w `PATH`, prefiks `C:\xampp\php\php.exe` można zastąpić poleceniem `php`.
 
-## Konfiguracja `.env`
+Do obsługi operacji asynchronicznych potrzebny jest worker kolejek, a do zadań cyklicznych scheduler. Dostępny jest również skrypt `composer run dev`, który uruchamia lokalny serwer, kolejkę, logi i Vite.
 
-Najważniejsze grupy zmiennych:
-
-- `APP_*` — nazwa, środowisko, klucz, tryb debugowania, adres i strefa czasowa aplikacji;
-- `DB_*` — sterownik i dane dostępowe do bazy;
-- `MAIL_*` — transport pocztowy, host, port, użytkownik, hasło i dane nadawcy;
-- `QUEUE_CONNECTION`, `CACHE_STORE` i `SESSION_DRIVER` — kolejki, cache i sesje;
-- `GUS_API_KEY`, `GUS_API_URL` — dostęp do GUS/REGON;
-- `INPOST_*` — ShipX, organizacja, środowiska API, timeout, limit zapytań, synchronizacja i retencja logów;
-- `DPD_*` — dane konta, adresy usług, timeout, limit zapytań i synchronizacja;
-- `ALLEGRO_*` — OAuth, API produkcyjne/sandbox, timeout, limit zapytań i synchronizacja przesyłek;
-- `AUTOMATION_URL_*` — timeouty akcji automatycznej wywołującej URL;
-- `AWS_*` — opcjonalne ustawienia usług AWS obecne w bazowej konfiguracji Laravel;
-- `VITE_APP_NAME` — nazwa dostępna dla zasobów frontendowych.
-
-Zasady bezpieczeństwa konfiguracji:
-
-- `.env` nie może trafiać do Git;
-- tokenów, kluczy API i haseł nie wolno wpisywać do README ani commitów;
-- `.env.example` powinien zawierać wyłącznie puste lub przykładowe wartości.
-
-## Uruchamianie projektu
-
-Podstawowe komendy dostępne w projekcie:
-
-```powershell
-php artisan serve
-npm run dev
-npm run build
-```
-
-Skrypt Composer uruchamia równolegle serwer Laravel, worker kolejek, Pail i Vite:
-
-```powershell
-composer run dev
-```
-
-Wymaga on wcześniej zainstalowanych zależności oraz skonfigurowanej bazy. Projekt ma też skrypt `composer run setup`, który instaluje zależności, tworzy `.env`, generuje klucz, uruchamia migracje i buduje frontend. Przy istniejącej instalacji bezpieczniej wykonać kroki ręcznie i świadomie sprawdzić konfigurację bazy.
-
-Operacje kurierskie i automatyczne akcje wymagają działającego workera kolejek, na przykład:
-
-```powershell
-php artisan queue:work --queue=shipments-actions,shipments-sync,integrations,automation,default --tries=1
-```
-
-Zadania cyklicznej synchronizacji można lokalnie obsłużyć przez:
-
-```powershell
-php artisan schedule:work
-```
-
-## Testy
-
-Pełny zestaw testów PHP:
+## Testy i jakość
 
 ```powershell
 php artisan test
+npm run build
+composer validate
+composer audit --locked
+vendor\bin\pint
 ```
 
-Wariant XAMPP:
+Odpowiedniki przydatne w Windows/XAMPP:
 
 ```powershell
 C:\xampp\php\php.exe artisan test
+npm.cmd run build
+C:\xampp\php\php.exe vendor\bin\pint
 ```
 
-Dostępny jest również skrypt Composer:
+Testy używają SQLite `:memory:` i synchronicznej kolejki. Nie należy uruchamiać ich na produkcyjnej bazie danych.
 
-```powershell
-composer test
-```
+## Bezpieczeństwo i dane prywatne
 
-Testy obejmują między innymi zamówienia, wyszukiwanie, kosz, statusy, aktualizacje AJAX, integracje kurierskie, automatyzacje, zmienne i dostępność strony faktur. `phpunit.xml` wymusza dla testów SQLite w pamięci oraz synchroniczne kolejki. Testów nie należy konfigurować ani uruchamiać na produkcyjnej bazie danych.
+- `.env`, bazy danych, kopie SQL, dane klientów, logi lokalne i wygenerowane dokumenty nie mogą trafiać do repozytorium.
+- PDF-y dokumentów są zapisywane na prywatnym dysku `local` i zwracane przez kontroler z prywatnymi nagłówkami bez cache.
+- Trasy nie ujawniają fizycznej ścieżki pliku w `storage`.
+- Projekt nie ma jeszcze kompletnej produkcyjnej warstwy uwierzytelniania i autoryzacji użytkowników.
+- Przed publicznym wdrożeniem panel i trasy dokumentów muszą zostać objęte pełną kontrolą dostępu.
+- Sekrety integracji i klucze API należy przechowywać wyłącznie w zmiennych środowiskowych.
 
-Projekt nie definiuje obecnie skryptów `npm test` ani `npm run lint`.
+## Funkcje jeszcze niewdrożone
 
-## Struktura projektu
+- wystawianie Korekt i ich interfejs użytkownika;
+- pełne listy Faktur, Pro form i Korekt oraz rejestr sprzedaży;
+- ręczna edycja i usuwanie wystawionych dokumentów;
+- generowanie duplikatów;
+- wysyłka dokumentów e-mailem;
+- załączniki i zewnętrzne pliki PDF;
+- automatyczne wystawianie dokumentów;
+- eksport JPK i integracja KSeF;
+- integracja z Fakturownią;
+- import zamówień z Allegro i PrestaShop;
+- produkcyjne uwierzytelnianie i autoryzacja użytkowników;
+- samodzielny katalog produktów niezależny od pozycji zamówień.
 
-- `app/` — modele zamówień, kontrolery HTTP, serwisy wspólne, zdarzenia i klasy pomocnicze;
-- `Modules/Automation/` — reguły, akcje, wykonania, kolejki i panel automatyzacji;
-- `Modules/Integrations/` — klienci i sterowniki InPost, DPD oraz Wysyłam z Allegro;
-- `Modules/Invoices/` — obecnie wyłącznie kontroler startowego ekranu faktur;
-- `Modules/Shipments/` — wspólny model domenowy przesyłek i usługi kurierskie;
-- `database/migrations/` — pełna historia zmian schematu bazy;
-- `resources/views/` — widoki Blade panelu, zamówień, przesyłek, integracji, ustawień i faktur;
-- `resources/css/` i `resources/js/` — zasoby budowane przez Vite;
-- `routes/` — trasy webowe i harmonogram zadań konsolowych;
-- `tests/Unit/` — testy jednostkowe;
-- `tests/Feature/` — testy funkcjonalne aplikacji i integracji;
-- `docs/` — dokumentacja architektury, bazy, modułów, integracji, rozwoju i wdrożenia.
-
-## Praca z Git
-
-Typowy schemat pracy:
-
-1. Zmień kod lokalnie.
-2. Sprawdź działanie aplikacji.
-3. Uruchom testy.
-4. Sprawdź zmienione pliki.
-5. Dodaj świadomie wybrane pliki do commitu.
-6. Utwórz commit.
-7. Wyślij commit do zdalnego repozytorium.
-
-```powershell
-git status
-git add README.md
-git commit -m "docs: update project README"
-git push origin main
-```
-
-Git przechowuje historię kodu, ale nie zastępuje kopii bazy danych ani katalogu `storage`. Pliki `.env`, eksporty SQL, dane klientów, etykiety i inne dane operacyjne nie mogą trafiać do repozytorium.
-
-## Wdrożenie na VPS
-
-- Kod jest rozwijany i sprawdzany lokalnie, a na VPS trafiają tylko zweryfikowane wersje.
-- Katalog główny serwera WWW musi wskazywać na katalog `public` projektu.
-- Produkcja ma własny plik `.env` z `APP_ENV=production`, `APP_DEBUG=false` i osobnymi sekretami.
-- Produkcyjnej bazy nie wolno nadpisywać bazą lokalną.
-- Zmiany struktury bazy wykonuje się migracjami po wcześniejszym backupie.
-- Należy wykonywać kopie bazy danych oraz potrzebnych plików z `storage`.
-- Po wdrożeniu należy wyczyścić stare cache i odbudować cache produkcyjny, na przykład przez `php artisan optimize:clear` i `php artisan optimize`.
-- Scheduler wymaga wpisu cron wywołującego co minutę `php artisan schedule:run`.
-- Workery kolejek powinny działać jako nadzorowane procesy, na przykład pod kontrolą Supervisor.
-- Aktualizacja kodu nie może ujawniać ani zastępować produkcyjnego `.env`.
-
-Docker nie jest wymagany przez projekt.
-
-## Dokumentacja
-
-- [`docs/000-Roadmap.md`](docs/000-Roadmap.md) — etapy rozwoju i planowane obszary.
-- [`docs/001-Architecture.md`](docs/001-Architecture.md) — architektura modularnego monolitu i podział odpowiedzialności.
-- [`docs/002-Database.md`](docs/002-Database.md) — opis modelu danych i relacji.
-- [`docs/003-Modules.md`](docs/003-Modules.md) — zakres modułów aplikacji.
-- [`docs/004-Integrations.md`](docs/004-Integrations.md) — zasady oraz aktualny zakres integracji.
-- [`docs/005-Development.md`](docs/005-Development.md) — informacje dla lokalnego rozwoju.
-- [`docs/006-Deployment.md`](docs/006-Deployment.md) — podstawowe założenia wdrożenia na serwer.
-
-README opisuje stan potwierdzony w aktualnym kodzie. Pliki roadmapy mogą dodatkowo opisywać funkcje przyszłe.
-
-## Bezpieczeństwo
-
-- Nie publikuj pliku `.env`.
-- Nie commituj eksportów SQL ani kopii bazy.
-- Nie umieszczaj danych klientów, tokenów, etykiet i logów API w repozytorium.
-- Regularnie wykonuj kopie bazy danych i potrzebnych plików `storage`.
-- Na produkcji ustaw `APP_DEBUG=false`.
-- Klucze API przechowuj wyłącznie w zmiennych środowiskowych lub bezpiecznej konfiguracji serwera.
-- Przed publicznym wdrożeniem dodaj uwierzytelnianie, autoryzację i zabezpieczenia dostępu do panelu.
+Paragony, e-paragony i drukarki fiskalne pozostają poza aktualnym zakresem projektu.
 
 ## Licencja
 

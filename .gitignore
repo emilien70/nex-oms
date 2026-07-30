@@ -25,3 +25,4 @@ Thumbs.db
 /database/*.sqlite
 /database/*.sqlite-*
 /storage/framework/psysh/PsySH/
+/vlc-log.txt
