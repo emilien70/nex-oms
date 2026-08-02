@@ -26,3 +26,4 @@ Thumbs.db
 /database/*.sqlite-*
 /storage/framework/psysh/PsySH/
 /vlc-log.txt
+/composer-audit.txt

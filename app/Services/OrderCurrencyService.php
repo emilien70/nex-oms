@@ -90,6 +90,31 @@ class OrderCurrencyService
         return (string) $candidate;
     }
 
+    public function currencyForPaymentUpdate(Order $order, mixed $requestedCurrency): string
+    {
+        $current = $this->currencies->normalize($order->currency);
+
+        if ($current === null) {
+            throw new OrderCurrencyException(
+                'Nie można zaktualizować płatności, ponieważ zamówienie nie ma ustalonej waluty.',
+            );
+        }
+
+        $candidate = $this->currencies->normalize($requestedCurrency);
+
+        if (! $this->currencies->isAllowed($candidate, $current)) {
+            throw new OrderCurrencyException(CurrencyCatalog::INVALID_CURRENCY_MESSAGE);
+        }
+
+        if ($candidate !== $current) {
+            throw new OrderCurrencyException(
+                'Nie można zmienić waluty zamówienia podczas aktualizacji danych płatności.',
+            );
+        }
+
+        return $current;
+    }
+
     public function isMoneyEmpty(Order $order): bool
     {
         return ! $order->items()->exists()

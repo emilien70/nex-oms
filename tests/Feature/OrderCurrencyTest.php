@@ -161,6 +161,95 @@ class OrderCurrencyTest extends TestCase
         $this->assertSame('40.17', $totals->remainingDue($order->refresh()));
     }
 
+    public function test_payment_update_without_currency_preserves_eur(): void
+    {
+        Currency::query()->updateOrCreate(['code' => 'EUR'], ['name' => 'euro', 'nbp_table' => 'A']);
+        $order = $this->order(['currency' => 'EUR', 'payment_method' => 'Stara metoda']);
+
+        $this->patch(route('orders.sections.payment', $order), [
+            'payment_status' => 'paid',
+            'payment_method' => 'Przelew',
+        ])->assertSessionDoesntHaveErrors();
+
+        $order->refresh();
+        $this->assertSame('EUR', $order->currency);
+        $this->assertSame('Przelew', $order->payment_method);
+        $this->assertSame('paid', $order->payment_status);
+    }
+
+    public function test_payment_update_without_currency_preserves_pln(): void
+    {
+        $order = $this->order(['currency' => 'PLN']);
+
+        $this->patch(route('orders.sections.payment', $order), [
+            'payment_status' => 'paid',
+            'payment_method' => 'Gotówka',
+        ])->assertSessionDoesntHaveErrors();
+
+        $this->assertSame('PLN', $order->refresh()->currency);
+    }
+
+    public function test_payment_update_without_currency_preserves_unknown_historical_code(): void
+    {
+        $order = $this->order(['currency' => 'XYZ', 'payment_method' => 'Stara metoda']);
+
+        $this->patch(route('orders.sections.payment', $order), [
+            'payment_status' => 'paid',
+            'payment_method' => 'Historyczna płatność',
+        ])->assertSessionDoesntHaveErrors();
+
+        $order->refresh();
+        $this->assertSame('XYZ', $order->currency);
+        $this->assertSame('Historyczna płatność', $order->payment_method);
+    }
+
+    public function test_empty_currency_cannot_clear_existing_order_currency(): void
+    {
+        Currency::query()->updateOrCreate(['code' => 'EUR'], ['name' => 'euro', 'nbp_table' => 'A']);
+        $order = $this->order(['currency' => 'EUR', 'payment_method' => 'Stara metoda']);
+
+        $this->patch(route('orders.sections.payment', $order), [
+            'currency' => '',
+            'payment_status' => 'paid',
+            'payment_method' => 'Nowa metoda',
+        ])->assertSessionHasErrors('currency');
+
+        $order->refresh();
+        $this->assertSame('EUR', $order->currency);
+        $this->assertSame('Stara metoda', $order->payment_method);
+    }
+
+    public function test_payment_update_cannot_change_order_currency_through_manipulated_request(): void
+    {
+        Currency::query()->updateOrCreate(['code' => 'EUR'], ['name' => 'euro', 'nbp_table' => 'A']);
+        Currency::query()->updateOrCreate(['code' => 'USD'], ['name' => 'dolar amerykański', 'nbp_table' => 'A']);
+        $order = $this->order(['currency' => 'EUR', 'payment_method' => 'Stara metoda']);
+
+        $this->patch(route('orders.sections.payment', $order), [
+            'currency' => 'USD',
+            'payment_status' => 'paid',
+            'payment_method' => 'Nowa metoda',
+        ])->assertSessionHasErrors('currency');
+
+        $order->refresh();
+        $this->assertSame('EUR', $order->currency);
+        $this->assertSame('Stara metoda', $order->payment_method);
+    }
+
+    public function test_payment_update_does_not_fallback_to_pln_when_order_has_no_currency(): void
+    {
+        $order = $this->order(['currency' => '', 'payment_method' => 'Stara metoda']);
+
+        $this->patch(route('orders.sections.payment', $order), [
+            'payment_status' => 'paid',
+            'payment_method' => 'Nowa metoda',
+        ])->assertSessionHasErrors('currency');
+
+        $order->refresh();
+        $this->assertSame('', $order->currency);
+        $this->assertSame('Stara metoda', $order->payment_method);
+    }
+
     private function order(array $attributes = []): Order
     {
         return Order::query()->create(array_replace([

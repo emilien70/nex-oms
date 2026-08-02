@@ -122,7 +122,11 @@ class OrderSectionController extends Controller
         OrderCurrencyService $orderCurrencyService,
     ): RedirectResponse {
         $this->normalizeDecimalFields($request, ['total_gross', 'delivery_cost_gross']);
-        $request->merge(['currency' => $this->currencies->normalize($request->input('currency'))]);
+        $request->merge([
+            'currency' => $this->currencies->normalize(
+                $request->exists('currency') ? $request->input('currency') : $order->currency,
+            ),
+        ]);
 
         $validated = $request->validate([
             'currency' => [
@@ -137,12 +141,14 @@ class OrderSectionController extends Controller
             'payment_status' => ['required', 'string', 'in:unpaid,paid,refunded'],
             'payment_method' => ['nullable', 'string', 'max:255'],
             'paid_at' => ['nullable', 'date'],
+        ], [
+            'currency.required' => 'Zamówienie nie ma ustalonej waluty.',
         ]);
 
         try {
             DB::transaction(function () use ($order, $validated, $orderCurrencyService): void {
                 $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
-                $currency = $orderCurrencyService->currencyForOrder($managedOrder, $validated['currency']);
+                $currency = $orderCurrencyService->currencyForPaymentUpdate($managedOrder, $validated['currency']);
 
                 $managedOrder->update([
                     'currency' => $currency,
