@@ -200,7 +200,22 @@
             <div class="row g-3">
                 <div class="col-6 col-md-3">
                     <label class="form-label" for="currency">Waluta</label>
-                    <input id="currency" type="text" name="currency" class="form-control" value="{{ old('currency', $order->currency ?? 'PLN') }}">
+                    @php
+                        $selectedCurrency = strtoupper((string) old('currency', $order->currency ?? 'PLN'));
+                        $hasHistoricalCurrency = $selectedCurrency !== '' && ! array_key_exists($selectedCurrency, $currencyOptions);
+                    @endphp
+                    <select id="currency" name="currency" class="form-select" required>
+                        @if ($hasHistoricalCurrency)
+                            <option value="{{ $selectedCurrency }}" selected disabled class="text-secondary">
+                                {{ $selectedCurrency }}
+                            </option>
+                        @endif
+                        @foreach ($currencyOptions as $currencyCode)
+                            <option value="{{ $currencyCode }}" @selected($selectedCurrency === $currencyCode)>
+                                {{ $currencyCode }}
+                            </option>
+                        @endforeach
+                    </select>
                 </div>
                 <div class="col-6 col-md-3">
                     <label class="form-label" for="total_gross">Kwota brutto</label>

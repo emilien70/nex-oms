@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\OrderCurrencyException;
+use App\Http\Controllers\Concerns\NormalizesDecimalInput;
 use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
 use App\Services\OrderTotalService;
@@ -9,15 +11,24 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Modules\Invoices\Services\InvoiceDecimalCalculator;
 
 class OrderMetaController extends Controller
 {
+    use NormalizesDecimalInput;
     use RespondsToOrderAjax;
 
-    public function updatePaidAmount(Request $request, Order $order): JsonResponse|RedirectResponse
-    {
+    public function updatePaidAmount(
+        Request $request,
+        Order $order,
+        InvoiceDecimalCalculator $decimal,
+    ): JsonResponse|RedirectResponse {
+        $this->normalizeDecimalFields($request, ['paid_amount']);
+        $maximum = $decimal->max((string) ($order->total_gross ?? '0'), '0.00');
+
         $validated = $request->validate([
-            'paid_amount' => ['required', 'numeric', 'min:0', 'max:'.max((float) $order->total_gross, 0)],
+            'paid_amount' => ['required', 'numeric', 'min:0', 'max:'.$maximum],
         ]);
 
         $order->update([
@@ -38,7 +49,11 @@ class OrderMetaController extends Controller
 
     public function recalculateTotal(Request $request, Order $order, OrderTotalService $orderTotalService): JsonResponse|RedirectResponse
     {
-        $totalGross = $orderTotalService->recalculate($order);
+        try {
+            $totalGross = $orderTotalService->recalculate($order);
+        } catch (OrderCurrencyException $exception) {
+            throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        }
 
         $order->events()->create([
             'event_type' => 'order_total_recalculated',

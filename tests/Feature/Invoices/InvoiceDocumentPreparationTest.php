@@ -93,6 +93,24 @@ class InvoiceDocumentPreparationTest extends TestCase
         $this->assertSnapshotContainsNoFloat($prepared->itemAttributes);
     }
 
+    public function test_preparation_rejects_missing_order_currency_without_inventing_pln(): void
+    {
+        $order = $this->createDocumentOrder(['currency' => '']);
+        $this->createDocumentItem($order, ['currency' => '']);
+
+        try {
+            app(InvoiceDocumentPreparationService::class)->forCreation(
+                $order,
+                $this->createDocumentSeries(),
+                $this->documentContext(),
+            );
+            $this->fail('Brak waluty zamówienia został zastąpiony domyślnym kodem.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('invoice_currency_missing', $exception->errorCode());
+            $this->assertStringContainsString('nie ma ustawionej waluty', $exception->getMessage());
+        }
+    }
+
     public function test_preparation_does_not_replace_empty_country_with_poland(): void
     {
         $order = $this->createDocumentOrder([

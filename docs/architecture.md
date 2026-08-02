@@ -1489,6 +1489,18 @@ Etap nie tworzy dokumentów, liczników, PDF, JPK ani KSeF. Pro forma posiada w�
 - płatności,
 - daty.
 
+### Etap 1E.1 — lokalny katalog walut
+
+Tabela `currencies` jest niezależnym katalogiem referencyjnym bez klucza liczbowego, timestampów oraz flag `is_active`, `is_system` i `last_seen_at`. Jej kluczem głównym jest trzyliterowy `code`; przechowuje także `name` i nullable `nbp_table`. Istniejące pola walutowe zamówień, pozycji, serii i dokumentów nie mają kluczy obcych do katalogu, dzięki czemu dane historyczne pozostają czytelne również po zmianie listy źródłowej.
+
+`App\Support\CurrencyCatalog` odpowiada za normalizację, walidację, kolejność `PLN` jako pierwszej pozycji i alfabetyczne uporządkowanie pozostałych kodów. `App\Rules\ValidCurrencyCode` udostępnia tę samą regułę warstwie HTTP. Nie tworzy się równoległych list walut w kontrolerach ani Blade.
+
+`NbpCurrencySyncService` pobiera przez klienta HTTP Laravel tabele A i B z adresu HTTPS zdefiniowanego w `config/nbp.php`. Waliduje komplet obu odpowiedzi przed transakcją, wykrywa konflikty kodów, wykonuje upsert bez usuwania rekordów i zawsze zachowuje `PLN`. Komenda `currencies:sync-nbp` jest cienkim ręcznym wejściem; nie istnieje scheduler ani automatyczne odświeżanie. Testy używają `Http::fake()` i nie łączą się z NBP.
+
+`OrderCurrencyService` egzekwuje jedną walutę zamówienia i jego pozycji. Waluta może zostać ustalona przez pierwszą pozycję tylko dla zamówienia pustego finansowo. Historyczny kod nieobecny w katalogu może zostać zachowany bez zmiany, lecz nie jest dostępny dla nowych wartości. `OrderTotalService` wykrywa mieszane waluty i korzysta z `InvoiceDecimalCalculator` do obliczeń pozycji, kosztu dostawy, sumy oraz pozostałej należności bez `float`.
+
+Etap nie dodaje kursów walut, przewalutowań, automatycznej synchronizacji, kluczy obcych do katalogu ani zmian w snapshotach i PDF wystawionych dokumentów.
+
 ## Etap 1F
 
 - dane sprzedawcy,
@@ -1562,7 +1574,7 @@ Tabela `order_document_slots` posiada unikalność `(order_id, document_type)` i
 
 Faktura i Pro forma mogą istnieć równolegle. `proforma_superseded_at` jest trwałym znacznikiem blokady; `superseded_by_invoice_id` używa `nullOnDelete`, więc usunięcie Faktury w przyszłości nie usuwa informacji, że Pro forma została zastąpiona. Historia rewizji pozostaje dostępna.
 
-Snapshoty są niezależne od późniejszych zmian `orders`, `order_items` i `invoice_series`. Waluta pochodzi z Order z fallbackiem `PLN`. Brak opcjonalnych danych kontrahenta nie blokuje operacji, natomiast brak stawki VAT wymaganej przez konfigurację serii powoduje kontrolowany błąd i pełny rollback. Nie ma OSS ani kontroli kompletności zamówienia.
+Snapshoty są niezależne od późniejszych zmian `orders`, `order_items` i `invoice_series`. Waluta pochodzi z Order; domyślne `PLN` dotyczy wyłącznie tworzenia nowych, pustych danych, a nie naprawiania historii podczas wystawiania dokumentu. Brak opcjonalnych danych kontrahenta nie blokuje operacji, natomiast brak stawki VAT wymaganej przez konfigurację serii powoduje kontrolowany błąd i pełny rollback. Nie ma OSS ani kontroli kompletności zamówienia.
 
 Etap 2C sam nie dodawał UI, kontrolerów, tras wystawiania ani PDF; ścieżki ręczne Faktury VAT i Pro formy oraz PDF zostały dodane w Etapie 2D. Nadal nie ma e-maila, usuwania dokumentów, ręcznej edycji, wystawiania Korekt, automatyzacji, publicznego API, JPK XML, OSS, KSeF ani Fakturowni.
 

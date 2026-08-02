@@ -27,6 +27,22 @@ class InvoiceDecimalCalculator
         );
     }
 
+    public function multiply(string $left, string|int $right, int $scale = 2): string
+    {
+        $leftScaled = $this->toScaledInteger($left, $scale);
+        $rightScaled = $this->toScaledInteger($right, $scale);
+        $factor = 10 ** $scale;
+
+        if ($leftScaled !== 0 && abs($rightScaled) > intdiv(PHP_INT_MAX, abs($leftScaled))) {
+            throw $this->calculationException();
+        }
+
+        return $this->formatScaled(
+            $this->divideHalfUpSigned($leftScaled * $rightScaled, $factor),
+            $scale,
+        );
+    }
+
     public function compare(string $left, string $right, int $scale = 2): int
     {
         return $this->toScaledInteger($left, $scale) <=> $this->toScaledInteger($right, $scale);
@@ -118,6 +134,14 @@ class InvoiceDecimalCalculator
         $remainder = $numerator % $denominator;
 
         return $remainder * 2 >= $denominator ? $quotient + 1 : $quotient;
+    }
+
+    private function divideHalfUpSigned(int $numerator, int $denominator): int
+    {
+        $negative = $numerator < 0;
+        $rounded = $this->divideHalfUp(abs($numerator), $denominator);
+
+        return $negative ? -$rounded : $rounded;
     }
 
     private function calculationException(): InvoiceDomainException

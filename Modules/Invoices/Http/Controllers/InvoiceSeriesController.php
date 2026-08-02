@@ -3,6 +3,7 @@
 namespace Modules\Invoices\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Support\CurrencyCatalog;
 use DomainException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -32,6 +33,7 @@ class InvoiceSeriesController extends Controller
 {
     public function __construct(
         private readonly InvoiceSeriesManagementService $seriesManagement,
+        private readonly CurrencyCatalog $currencies,
     ) {}
 
     public function index(Request $request): View
@@ -232,6 +234,7 @@ class InvoiceSeriesController extends Controller
             'correctionIssuerSources' => CorrectionIssuerSource::cases(),
             'correctionPaymentMethodSources' => CorrectionPaymentMethodSource::cases(),
             'correctionSeries' => $correctionSeries,
+            'currencyOptions' => $this->currencies->all(),
             'series' => $series,
             'numberingStarted' => $series?->numberingHasStarted() ?? false,
             'showValidationErrors' => $showValidationErrors,

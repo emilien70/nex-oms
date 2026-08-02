@@ -1502,7 +1502,26 @@
                         </div>
                         <div class="col-6 col-lg-1">
                             <label class="form-label">Waluta</label>
-                            <input type="text" name="currency" class="form-control form-control-sm" value="{{ old('currency', $order->currency) }}">
+                            @php
+                                $newProductCurrency = strtoupper((string) old('currency', $order->currency));
+                                $newProductCurrencyKnown = array_key_exists($newProductCurrency, $currencyOptions);
+                                if (! $newProductCurrencyKnown && $order->items->isEmpty() && (string) $order->total_gross === '0.00') {
+                                    $newProductCurrency = 'PLN';
+                                    $newProductCurrencyKnown = true;
+                                }
+                            @endphp
+                            <select name="currency" class="form-select form-select-sm" required>
+                                @if (! $newProductCurrencyKnown && $newProductCurrency !== '')
+                                    <option value="{{ $newProductCurrency }}" selected disabled class="text-secondary">
+                                        {{ $newProductCurrency }}
+                                    </option>
+                                @endif
+                                @foreach ($currencyOptions as $currencyCode)
+                                    <option value="{{ $currencyCode }}" @selected($newProductCurrency === $currencyCode)>
+                                        {{ $currencyCode }}
+                                    </option>
+                                @endforeach
+                            </select>
                         </div>
                         <div class="col-6 col-lg-1">
                             <label class="form-label">VAT (%)</label>

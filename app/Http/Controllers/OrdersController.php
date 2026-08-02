@@ -2,13 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\OrderCurrencyException;
+use App\Http\Controllers\Concerns\NormalizesDecimalInput;
 use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
 use App\Models\OrderStatusSetting;
+use App\Rules\ValidCurrencyCode;
+use App\Services\OrderCurrencyService;
 use App\Services\OrderStatusService;
+use App\Services\OrderTotalService;
 use App\Services\OrderTrackingLookupService;
 use App\Services\OrderTrashService;
 use App\Support\CountryCatalog;
+use App\Support\CurrencyCatalog;
 use App\Support\PhoneNumberFormatter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +22,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Shipments\Models\CourierAccount;
@@ -23,12 +30,14 @@ use Modules\Shipments\Models\Shipment;
 
 class OrdersController extends Controller
 {
+    use NormalizesDecimalInput;
     use RespondsToOrderAjax;
 
     public function __construct(
         private readonly OrderTrackingLookupService $trackingLookup,
         private readonly OrderSalesDocumentActionsView $salesDocumentActionsView,
         private readonly CountryCatalog $countries,
+        private readonly CurrencyCatalog $currencies,
     ) {}
 
     public function index(Request $request): View|RedirectResponse
@@ -156,14 +165,18 @@ class OrdersController extends Controller
             'paymentStatusOptions' => $this->paymentStatusOptions(),
             'itemRows' => $this->emptyItemRows(),
             'countries' => $this->countries->all(),
+            'currencyOptions' => $this->currencies->all(),
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
-    {
+    public function store(
+        Request $request,
+        OrderCurrencyService $orderCurrencyService,
+        OrderTotalService $orderTotalService,
+    ): RedirectResponse {
         $validated = $this->validateOrder($request);
 
-        $order = DB::transaction(function () use ($validated): Order {
+        $order = DB::transaction(function () use ($validated, $orderCurrencyService, $orderTotalService): Order {
             $order = Order::create($this->orderData($validated)
                 + $this->orderAddressData($validated, 'shipping')
                 + $this->orderAddressData($validated, 'billing')
@@ -171,7 +184,10 @@ class OrdersController extends Controller
                     'status_changed_at' => now(),
                 ]);
 
-            $this->syncItems($order, $validated['items'] ?? []);
+            $order->currency = $orderCurrencyService->currencyForOrder($order, $validated['currency']);
+            $order->save();
+            $this->syncItems($order, $validated['items'] ?? [], $orderTotalService);
+            $orderTotalService->recalculate($order);
 
             $order->events()->create([
                 'event_type' => 'order_created',
@@ -288,7 +304,9 @@ class OrdersController extends Controller
                 'customer_login' => $order->customer_login,
                 'customer_email' => $order->customer_email,
                 'customer_phone' => $order->customer_phone,
-                'currency' => $order->currency ?: 'PLN',
+                'currency' => $this->currencies->exists($order->currency)
+                    ? $this->currencies->normalize($order->currency)
+                    : CurrencyCatalog::SYSTEM_CURRENCY,
                 'total_gross' => 0,
                 'paid_amount' => 0,
                 'delivery_cost_gross' => 0,
@@ -675,6 +693,7 @@ class OrdersController extends Controller
             'itemRows' => $this->itemRows($order),
             'salesDocumentActions' => $this->salesDocumentActionsView->data($order),
             'countries' => $this->countries->all(),
+            'currencyOptions' => $this->currencies->all(),
         ]);
     }
 
@@ -689,52 +708,71 @@ class OrdersController extends Controller
             'paymentStatusOptions' => $this->paymentStatusOptions(),
             'itemRows' => $this->itemRows($order),
             'countries' => $this->countries->all(),
+            'currencyOptions' => $this->currencies->all(),
         ]);
     }
 
-    public function update(Request $request, Order $order, OrderStatusService $orderStatusService): RedirectResponse
-    {
-        $validated = $this->validateOrder($request);
+    public function update(
+        Request $request,
+        Order $order,
+        OrderStatusService $orderStatusService,
+        OrderCurrencyService $orderCurrencyService,
+        OrderTotalService $orderTotalService,
+    ): RedirectResponse {
+        $validated = $this->validateOrder($request, $order);
 
-        DB::transaction(function () use ($order, $validated, $orderStatusService): void {
-            $orderData = $this->orderData($validated)
-                + $this->orderAddressData($validated, 'shipping')
-                + $this->orderAddressData($validated, 'billing');
-            $newStatus = $orderData['status'] ?? $order->status;
+        try {
+            DB::transaction(function () use ($order, $validated, $orderStatusService, $orderCurrencyService, $orderTotalService): void {
+                $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
+                $validated['currency'] = $orderCurrencyService->currencyForOrder($managedOrder, $validated['currency']);
+                $orderData = $this->orderData($validated)
+                    + $this->orderAddressData($validated, 'shipping')
+                    + $this->orderAddressData($validated, 'billing');
+                $newStatus = $orderData['status'] ?? $order->status;
 
-            unset($orderData['status'], $orderData['status_changed_at']);
+                unset($orderData['status'], $orderData['status_changed_at']);
 
-            $order->update($orderData);
-            $orderStatusService->change($order, $newStatus, 'order_edit');
+                $managedOrder->update($orderData);
+                $orderStatusService->change($managedOrder, $newStatus, 'order_edit');
 
-            $order->items()->delete();
-            $this->syncItems($order, $validated['items'] ?? []);
+                $managedOrder->items()->delete();
+                $this->syncItems($managedOrder, $validated['items'] ?? [], $orderTotalService);
+                $orderTotalService->recalculate($managedOrder);
 
-            $order->events()->create([
-                'event_type' => 'order_updated',
-                'title' => html_entity_decode('Zam&oacute;wienie zaktualizowane', ENT_QUOTES, 'UTF-8'),
-                'description' => html_entity_decode('Zaktualizowano dane zam&oacute;wienia', ENT_QUOTES, 'UTF-8'),
-                'payload' => [
-                    'source' => $order->source,
-                    'order_id' => $order->id,
-                ],
-            ]);
-        });
+                $managedOrder->events()->create([
+                    'event_type' => 'order_updated',
+                    'title' => html_entity_decode('Zam&oacute;wienie zaktualizowane', ENT_QUOTES, 'UTF-8'),
+                    'description' => html_entity_decode('Zaktualizowano dane zam&oacute;wienia', ENT_QUOTES, 'UTF-8'),
+                    'payload' => [
+                        'source' => $managedOrder->source,
+                        'order_id' => $managedOrder->id,
+                    ],
+                ]);
+            });
+        } catch (OrderCurrencyException $exception) {
+            throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        }
 
         return redirect()
             ->route('orders.show', $order)
             ->with('success', html_entity_decode('Zam&oacute;wienie zosta&#322;o zaktualizowane.', ENT_QUOTES, 'UTF-8'));
     }
 
-    private function validateOrder(Request $request): array
+    private function validateOrder(Request $request, ?Order $order = null): array
     {
         $statuses = array_keys(OrderStatusSetting::orderedStatuses());
+
+        $this->normalizeDecimalFields($request, ['total_gross', 'paid_amount', 'delivery_cost_gross']);
+        $this->normalizeNestedDecimalFields($request, 'items', ['unit_price_gross']);
 
         $request->merge([
             'source' => $request->input('source', 'manual'),
             'status' => $request->input('status', Order::STATUS_NEW),
             'shipping_country_code' => $this->normalizeCountryInput($request->input('shipping_country_code')),
             'billing_country_code' => $this->normalizeCountryInput($request->input('billing_country_code')),
+            'currency' => $this->currencies->normalize(
+                $request->input('currency', $order?->currency ?? CurrencyCatalog::SYSTEM_CURRENCY),
+            ),
         ]);
 
         return $request->validate([
@@ -767,7 +805,13 @@ class OrdersController extends Controller
             'billing_country_code' => ['required', 'string', 'size:2', Rule::in($this->countries->codes())],
             'billing_phone' => ['nullable', 'string', 'max:255'],
             'billing_email' => ['nullable', 'email', 'max:255'],
-            'currency' => ['nullable', 'string', 'max:10'],
+            'currency' => [
+                'required',
+                'string',
+                'size:3',
+                'regex:/^[A-Z]{3}$/',
+                new ValidCurrencyCode($this->currencies, $order?->currency),
+            ],
             'total_gross' => ['nullable', 'numeric', 'min:0'],
             'paid_amount' => ['nullable', 'numeric', 'min:0'],
             'delivery_cost_gross' => ['nullable', 'numeric', 'min:0'],
@@ -794,6 +838,9 @@ class OrdersController extends Controller
             'billing_country_code.string' => 'Wybierz prawidłowy kraj.',
             'billing_country_code.size' => 'Wybierz prawidłowy kraj.',
             'billing_country_code.in' => 'Wybierz prawidłowy kraj.',
+            'currency.required' => CurrencyCatalog::INVALID_CURRENCY_MESSAGE,
+            'currency.size' => CurrencyCatalog::INVALID_CURRENCY_MESSAGE,
+            'currency.regex' => CurrencyCatalog::INVALID_CURRENCY_MESSAGE,
         ]);
     }
 
@@ -876,7 +923,7 @@ class OrdersController extends Controller
             'customer_login' => $validated['login'] ?? null,
             'customer_email' => $validated['email'] ?? null,
             'customer_phone' => PhoneNumberFormatter::normalize($validated['phone'] ?? null),
-            'currency' => $validated['currency'] ?? 'PLN',
+            'currency' => $validated['currency'],
             'total_gross' => $validated['total_gross'] ?? 0,
             'paid_amount' => $validated['paid_amount'] ?? 0,
             'delivery_cost_gross' => $validated['delivery_cost_gross'] ?? 0,
@@ -895,7 +942,7 @@ class OrdersController extends Controller
         ];
     }
 
-    private function syncItems(Order $order, array $items): void
+    private function syncItems(Order $order, array $items, OrderTotalService $orderTotalService): void
     {
         foreach (array_slice($items, 0, 5) as $item) {
             if (empty($item['product_name'])) {
@@ -903,7 +950,7 @@ class OrdersController extends Controller
             }
 
             $quantity = (int) ($item['quantity'] ?? 1);
-            $unitPriceGross = (float) ($item['unit_price_gross'] ?? 0);
+            $unitPriceGross = (string) ($item['unit_price_gross'] ?? '0');
 
             $order->items()->create([
                 'product_name' => $item['product_name'],
@@ -911,7 +958,8 @@ class OrdersController extends Controller
                 'ean' => null,
                 'quantity' => $quantity,
                 'unit_price_gross' => $unitPriceGross,
-                'total_price_gross' => round($quantity * $unitPriceGross, 2),
+                'total_price_gross' => $orderTotalService->lineTotal($unitPriceGross, $quantity),
+                'currency' => $order->currency,
             ]);
         }
     }

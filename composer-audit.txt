@@ -1,0 +1,41 @@
+﻿Found 4 security vulnerability advisories affecting 1 package:
++-------------------+----------------------------------------------------------------------------------+
+| Package           | guzzlehttp/guzzle                                                                |
+| Severity          | medium                                                                           |
+| Advisory ID       | PKSA-fy2t-3c5f-827y                                                              |
+| CVE               | NO CVE                                                                           |
+| Title             | Guzzle: URI fragments disclosed in redirect Referer headers                      |
+| URL               | https://github.com/advisories/GHSA-h95v-h523-3mw8                                |
+| Affected versions | <7.15.1                                                                          |
+| Reported at       | 2026-07-20T23:28:36+00:00                                                        |
++-------------------+----------------------------------------------------------------------------------+
++-------------------+----------------------------------------------------------------------------------+
+| Package           | guzzlehttp/guzzle                                                                |
+| Severity          | medium                                                                           |
+| Advisory ID       | PKSA-qxvb-2bpp-dnk6                                                              |
+| CVE               | NO CVE                                                                           |
+| Title             | Guzzle: Host-only cookie scope is not preserved                                  |
+| URL               | https://github.com/advisories/GHSA-wm3w-8rrp-j577                                |
+| Affected versions | <7.15.1                                                                          |
+| Reported at       | 2026-07-20T23:27:49+00:00                                                        |
++-------------------+----------------------------------------------------------------------------------+
++-------------------+----------------------------------------------------------------------------------+
+| Package           | guzzlehttp/guzzle                                                                |
+| Severity          | medium                                                                           |
+| Advisory ID       | PKSA-bbs6-q5q9-f3t4                                                              |
+| CVE               | NO CVE                                                                           |
+| Title             | Guzzle: Unbounded response cookies risk denial of service                        |
+| URL               | https://github.com/advisories/GHSA-f283-ghqc-fg79                                |
+| Affected versions | <7.15.1                                                                          |
+| Reported at       | 2026-07-20T23:27:02+00:00                                                        |
++-------------------+----------------------------------------------------------------------------------+
++-------------------+----------------------------------------------------------------------------------+
+| Package           | guzzlehttp/guzzle                                                                |
+| Severity          | medium                                                                           |
+| Advisory ID       | PKSA-pwsk-hy21-4gby                                                              |
+| CVE               | NO CVE                                                                           |
+| Title             | Guzzle: Proxy-Authorization headers can be sent to origin servers                |
+| URL               | https://github.com/advisories/GHSA-94pj-82f3-465w                                |
+| Affected versions | <7.14.2                                                                          |
+| Reported at       | 2026-07-20T21:46:02+00:00                                                        |
++-------------------+----------------------------------------------------------------------------------+

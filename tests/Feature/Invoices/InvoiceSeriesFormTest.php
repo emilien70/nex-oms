@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Invoices;
 
+use App\Models\Currency;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesResetPeriod;
@@ -118,6 +119,8 @@ class InvoiceSeriesFormTest extends TestCase
 
     public function test_store_trims_text_and_uppercases_currency(): void
     {
+        Currency::query()->create(['code' => 'EUR', 'name' => 'euro', 'nbp_table' => 'A']);
+
         $this->post(route('invoices.series.store'), $this->validPayload([
             'name' => '  Seria przycięta  ',
             'number_format' => '  TEST %NN/%Y  ',
@@ -223,13 +226,15 @@ class InvoiceSeriesFormTest extends TestCase
                     'default_currency' => $currency,
                 ]))
                 ->assertSessionHasErrors([
-                    'default_currency' => 'Waluta musi składać się z trzech liter.',
+                    'default_currency' => 'Wybierz prawidłową walutę.',
                 ]);
         }
     }
 
     public function test_system_series_can_update_business_fields_but_not_protected_fields(): void
     {
+        Currency::query()->create(['code' => 'EUR', 'name' => 'euro', 'nbp_table' => 'A']);
+
         $series = $this->systemSeries(InvoiceSeriesSystemKey::Invoice);
         $originalType = $series->document_type;
         $originalKey = $series->system_key;

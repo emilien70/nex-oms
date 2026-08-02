@@ -27,6 +27,12 @@ Adres dostawy i dane do faktury mają niezależne pola kraju. W bazie przechowyw
 
 Centralny `CountryCatalog` korzysta z Symfony Intl. Polska znajduje się na początku listy, a pozostałe kraje są sortowane według polskich nazw. Kopiowanie adresu kopiuje również kod kraju, a pobranie polskiej firmy z GUS jawnie ustawia `PL` dla danych do faktury. Historyczne zamówienie bez kraju pozostaje bez kraju i nie otrzymuje automatycznie Polski.
 
+### Waluty zamówień
+
+Waluty są wybierane z lokalnego katalogu i przechowywane jako trzyliterowe kody ISO, na przykład `PLN` lub `EUR`. Polska złotówka jest zawsze dostępna i znajduje się na początku listy; pozostałe waluty można pobrać ręcznie z tabel A i B NBP.
+
+Jedno zamówienie oraz wszystkie jego pozycje używają jednej waluty. Backend blokuje mieszanie walut i nie przelicza automatycznie danych historycznych. Nieznany historyczny kod pozostaje widoczny do czasu świadomej zmiany, ale nie może zostać wybrany dla nowej pozycji. Moduł nie przechowuje jeszcze kursów ani nie wykonuje przewalutowań.
+
 ### Przesyłki i integracje
 
 - wspólny model przesyłek, paczek składowych, zdarzeń i prób utworzenia;
@@ -144,6 +150,14 @@ C:\xampp\php\php.exe artisan migrate
 ```
 
 Nie używaj `migrate:fresh` ani innych komend resetujących bazę zawierającą dane.
+
+Po utworzeniu tabeli walut można ręcznie pobrać aktualny katalog walut z tabel A i B NBP:
+
+```powershell
+C:\xampp\php\php.exe artisan currencies:sync-nbp
+```
+
+Synchronizacja katalogu nie jest wykonywana automatycznie i nie pobiera kursów walut.
 
 6. Zainstaluj zależności frontendowe i zbuduj zasoby:
 

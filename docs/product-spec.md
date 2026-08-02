@@ -1342,6 +1342,18 @@ Etap nie tworzy dokumentów, nie nadaje numerów i nie generuje PDF. Pro forma n
 
 ## Etap 1E — wysyłka, waluty, płatności i daty
 
+### Etap 1E.1 — lokalny katalog walut
+
+System posiada lokalny katalog kodów walut w tabeli `currencies`. Katalog przechowuje wyłącznie kod ISO 4217, nazwę z NBP i opcjonalne oznaczenie tabeli `A` albo `B`. Nie posiada liczbowego `id`, timestampów ani flag `is_active`, `is_system` i `last_seen_at`. `PLN` jest rekordem systemowym dodawanym przez migrację, zawsze znajduje się na początku list wyboru i nie zależy od odpowiedzi sieciowej.
+
+Polecenie `currencies:sync-nbp` ręcznie pobiera tabele A i B przez HTTPS. Obie odpowiedzi są sprawdzane przed rozpoczęciem transakcji. Synchronizacja wykonuje atomowy upsert, nie usuwa istniejących kodów i nie zmienia rekordu `PLN`. Brak automatycznego harmonogramu, kursów walut i przewalutowań.
+
+`CurrencyCatalog` jest centralnym źródłem listy i walidacji. Kod jest normalizowany przez `trim` i `uppercase`, musi zawierać dokładnie trzy litery `A-Z` oraz istnieć lokalnie. Formularze zamówienia, pozycji i serii numeracji korzystają z tego samego katalogu.
+
+Jedno zamówienie i wszystkie jego pozycje mają jedną walutę. Pierwsza pozycja może ustalić walutę wyłącznie pustego finansowo zamówienia. Kolejne pozycje muszą być zgodne z walutą zamówienia, a przeliczenie sumy wykrywa dane mieszane i kończy operację kontrolowanym błędem. Nowe puste zamówienie może użyć `PLN`, ale nie ma automatycznego przypisywania ani konwersji danych historycznych. Nieznany historyczny kod może być zachowany bez zmiany, lecz nie może zostać wybrany dla nowego lub zmienianego pola.
+
+Kwoty w zmienionym przepływie zapisu pozycji, kosztu dostawy, sumy zamówienia i pozostałej należności są obliczane przez współdzieloną arytmetykę dziesiętną bez `float`. Etap nie zmienia snapshotów wystawionych dokumentów, ich waluty ani PDF.
+
 ## Etap 1F — dane sprzedawcy i informacje dodatkowe
 
 ## Etap 1G — wygląd dokumentu
@@ -1386,7 +1398,7 @@ Zaimplementowano centralne przygotowanie danych dokumentu z `Order`: snapshoty s
 
 Faktura VAT i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie usuwa Pro formy ani jej rewizji, lecz oznacza ją jako historycznie zastąpioną i trwale blokuje dalsze odświeżanie. Późniejsze usunięcie Faktury zastępującej nie odblokuje Pro formy. Zdarzenia zamówienia powstają wyłącznie po udanej operacji: `invoice_issued`, `proforma_issued` albo `proforma_refreshed`.
 
-Waluta dokumentu pochodzi z zamówienia z fallbackiem `PLN`. Brak NIP-u, telefonu, e-maila lub części opcjonalnych danych adresowych nie blokuje utworzenia dokumentu. Etap nie dodaje kontroli kompletności zamówienia ani OSS.
+Waluta dokumentu pochodzi z zamówienia. Nowe puste zamówienie może otrzymać domyślnie `PLN`, ale brak lub nieznana waluta danych historycznych nie jest po cichu zastępowana podczas wystawiania dokumentu. Brak NIP-u, telefonu, e-maila lub części opcjonalnych danych adresowych nie blokuje utworzenia dokumentu. Etap nie dodaje kontroli kompletności zamówienia ani OSS.
 
 Etap 2C sam nie implementował UI, kontrolerów i tras wystawiania ani PDF; elementy te dla Faktury VAT i Pro formy zostały dodane w Etapie 2D. Nadal nie ma list i szczegółów dokumentów, e-maila, usuwania dokumentów, cofania licznika, ręcznej edycji i zmiany numeru, wystawiania Korekt, automatyzacji, publicznego API, JPK XML, OSS, KSeF ani Fakturowni.
 

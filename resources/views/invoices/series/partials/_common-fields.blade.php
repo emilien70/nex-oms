@@ -133,15 +133,27 @@
 
     <div class="col-md-6">
         <label class="form-label" for="invoice-series-currency">Domyślna waluta</label>
-        <input
-            class="form-control form-control-sm text-uppercase {{ $fieldHasError('default_currency') ? 'is-invalid' : '' }}"
+        @php
+            $selectedCurrency = strtoupper((string) $fieldValue('default_currency'));
+            $hasHistoricalCurrency = $selectedCurrency !== '' && ! array_key_exists($selectedCurrency, $currencyOptions);
+        @endphp
+        <select
+            class="form-select form-select-sm {{ $fieldHasError('default_currency') ? 'is-invalid' : '' }}"
             id="invoice-series-currency"
             name="default_currency"
-            type="text"
-            value="{{ $fieldValue('default_currency') }}"
-            maxlength="3"
             required
         >
+            @if ($hasHistoricalCurrency)
+                <option value="{{ $selectedCurrency }}" selected disabled class="text-secondary">
+                    {{ $selectedCurrency }}
+                </option>
+            @endif
+            @foreach ($currencyOptions as $currencyCode)
+                <option value="{{ $currencyCode }}" @selected($selectedCurrency === $currencyCode)>
+                    {{ $currencyCode }}
+                </option>
+            @endforeach
+        </select>
         @if ($fieldHasError('default_currency'))
             <div class="invalid-feedback">{{ $errors->first('default_currency') }}</div>
         @endif

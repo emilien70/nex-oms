@@ -1,3 +1,6 @@
+@php
+    $currencyOptions = $currencyOptions ?? app(\App\Support\CurrencyCatalog::class)->all();
+@endphp
 @forelse ($order->items as $item)
     <tr>
         <td><span class="product-thumb" aria-hidden="true">&#9633;</span></td>
@@ -50,7 +53,22 @@
                         </div>
                         <div class="col-6 col-lg-1">
                             <label class="form-label">Waluta</label>
-                            <input type="text" name="currency" class="form-control form-control-sm" value="{{ old('currency', $item->currency ?? $order->currency) }}">
+                            @php
+                                $itemCurrency = strtoupper((string) old('currency', $item->currency ?? $order->currency));
+                                $hasHistoricalItemCurrency = $itemCurrency !== '' && ! array_key_exists($itemCurrency, $currencyOptions);
+                            @endphp
+                            <select name="currency" class="form-select form-select-sm" required>
+                                @if ($hasHistoricalItemCurrency)
+                                    <option value="{{ $itemCurrency }}" selected disabled class="text-secondary">
+                                        {{ $itemCurrency }}
+                                    </option>
+                                @endif
+                                @foreach ($currencyOptions as $currencyCode)
+                                    <option value="{{ $currencyCode }}" @selected($itemCurrency === $currencyCode)>
+                                        {{ $currencyCode }}
+                                    </option>
+                                @endforeach
+                            </select>
                         </div>
                         <div class="col-6 col-lg-1">
                             <label class="form-label">VAT (%)</label>

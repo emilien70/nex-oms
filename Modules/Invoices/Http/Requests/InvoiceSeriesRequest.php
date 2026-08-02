@@ -2,6 +2,8 @@
 
 namespace Modules\Invoices\Http\Requests;
 
+use App\Rules\ValidCurrencyCode;
+use App\Support\CurrencyCatalog;
 use DomainException;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
@@ -98,7 +100,16 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'number_format' => ['required', 'string', 'max:120', 'regex:/%N+/'],
             'reset_period' => ['required', Rule::enum(InvoiceSeriesResetPeriod::class)],
             'fiscal_year_start_month' => ['required', 'integer', 'min:1', 'max:12'],
-            'default_currency' => ['required', 'string', 'regex:/^[A-Z]{3}$/'],
+            'default_currency' => [
+                'required',
+                'string',
+                'size:3',
+                'regex:/^[A-Z]{3}$/',
+                new ValidCurrencyCode(
+                    app(CurrencyCatalog::class),
+                    $this->existingSeries()?->default_currency,
+                ),
+            ],
             'is_active' => ['required', 'boolean'],
             'form_mode' => ['sometimes', Rule::in(['create', 'edit'])],
             'editing_series_id' => ['nullable', 'integer'],
@@ -138,7 +149,8 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'fiscal_year_start_month.min' => 'Początek roku fiskalnego musi być miesiącem od 1 do 12.',
             'fiscal_year_start_month.max' => 'Początek roku fiskalnego musi być miesiącem od 1 do 12.',
             'default_currency.required' => 'Podaj domyślną walutę.',
-            'default_currency.regex' => 'Waluta musi składać się z trzech liter.',
+            'default_currency.size' => CurrencyCatalog::INVALID_CURRENCY_MESSAGE,
+            'default_currency.regex' => CurrencyCatalog::INVALID_CURRENCY_MESSAGE,
             'is_active.required' => 'Wybierz stan aktywności serii.',
             'is_active.boolean' => 'Stan aktywności serii jest nieprawidłowy.',
             'default_correction_series_id.exists' => 'Wybrana seria korekt jest nieprawidłowa.',
@@ -206,7 +218,11 @@ abstract class InvoiceSeriesRequest extends FormRequest
         $this->merge([
             'name' => trim((string) $this->input('name', '')),
             'number_format' => trim((string) $this->input('number_format', '')),
-            'default_currency' => strtoupper(trim((string) $this->input('default_currency', ''))),
+            'default_currency' => app(CurrencyCatalog::class)->normalize(
+                $this->exists('default_currency')
+                    ? $this->input('default_currency')
+                    : $this->existingSeries()?->default_currency,
+            ),
         ]);
 
         if ($this->finalDocumentType() === InvoiceDocumentType::Correction) {
@@ -471,6 +487,13 @@ abstract class InvoiceSeriesRequest extends FormRequest
         }
 
         return InvoiceDocumentType::tryFrom((string) $this->input('document_type'));
+    }
+
+    private function existingSeries(): ?InvoiceSeries
+    {
+        $series = $this->route('series');
+
+        return $series instanceof InvoiceSeries ? $series : null;
     }
 
     /**

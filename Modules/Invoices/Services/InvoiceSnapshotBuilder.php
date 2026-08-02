@@ -37,7 +37,12 @@ class InvoiceSnapshotBuilder
             default => $order->payment_method,
         };
         $currency = strtoupper(trim((string) $order->currency));
-        $currency = $currency !== '' ? $currency : 'PLN';
+        if ($currency === '') {
+            throw new InvoiceDomainException(
+                'invoice_currency_missing',
+                'Nie można przygotować dokumentu, ponieważ zamówienie nie ma ustawionej waluty.',
+            );
+        }
         $shippingItem = collect($items)->firstWhere('line_type', 'shipping');
 
         return [

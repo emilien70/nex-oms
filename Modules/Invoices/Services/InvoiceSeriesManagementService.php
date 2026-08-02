@@ -2,6 +2,7 @@
 
 namespace Modules\Invoices\Services;
 
+use App\Support\CurrencyCatalog;
 use DomainException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
@@ -119,6 +120,7 @@ class InvoiceSeriesManagementService
 
     public function __construct(
         private readonly InvoiceNumberingConfigurationValidator $numberingConfigurationValidator,
+        private readonly CurrencyCatalog $currencies,
     ) {}
 
     /**
@@ -132,6 +134,9 @@ class InvoiceSeriesManagementService
             return DB::transaction(function () use ($data, &$newLogoPath): InvoiceSeries {
                 $editableFields = $this->editableFieldsForData($data, self::CUSTOM_EDITABLE_FIELDS);
                 $normalizedData = $this->normalizeData(Arr::only($data, $editableFields));
+                $normalizedData['default_currency'] = $this->currencies->require(
+                    $normalizedData['default_currency'] ?? null,
+                );
                 $this->ensureNumberingConfigurationIsValid($normalizedData);
                 $series = new InvoiceSeries;
                 $series->fill($normalizedData);
@@ -194,6 +199,10 @@ class InvoiceSeriesManagementService
                     : self::CUSTOM_EDITABLE_FIELDS;
                 $editableFields = $this->editableFieldsForData($data, $baseFields, $managedSeries);
                 $normalizedData = $this->normalizeData(Arr::only($data, $editableFields));
+                $normalizedData['default_currency'] = $this->currencies->require(
+                    $normalizedData['default_currency'] ?? $managedSeries->default_currency,
+                    $managedSeries->default_currency,
+                );
                 $this->ensureNumberingConfigurationIsValid($normalizedData, $managedSeries);
 
                 $managedSeries->fill($normalizedData);
@@ -354,7 +363,7 @@ class InvoiceSeriesManagementService
         }
 
         if (array_key_exists('default_currency', $data)) {
-            $data['default_currency'] = strtoupper(trim((string) $data['default_currency']));
+            $data['default_currency'] = $this->currencies->normalize($data['default_currency']);
         }
 
         foreach ([

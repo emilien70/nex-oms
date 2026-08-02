@@ -1177,7 +1177,7 @@ Jedno zamówienie może mieć najwyżej jedną istniejącą Fakturę VAT i jedn�
 
 Pierwsze utworzenie Pro formy zużywa numer i zapisuje rewizję nr 1. Kolejne wywołanie bez zmiany kanonicznego hasha niczego nie zapisuje. Zmiana treści odświeża ten sam dokument i dodaje rewizję, zachowując numer, serię, okres, `issue_date` i `issued_at`. Sama zmiana `orders.updated_at` nie tworzy rewizji.
 
-Waluta pochodzi z zamówienia z technicznym fallbackiem `PLN`. Brak NIP-u, telefonu, e-maila lub opcjonalnych danych adresowych nie blokuje dokumentu. Brak wymaganej stawki VAT nie jest zastępowany przypadkową wartością i kończy operację kontrolowanym błędem oraz pełnym rollbackiem. Etap nie dodaje OSS ani kontroli kompletności zamówienia.
+Waluta pochodzi z zamówienia. Domyślne `PLN` jest dozwolone wyłącznie przy tworzeniu nowych, pustych danych; nie wolno po cichu zastępować brakującej lub nieznanej waluty historycznej podczas wystawiania dokumentu. Brak NIP-u, telefonu, e-maila lub opcjonalnych danych adresowych nie blokuje dokumentu. Brak wymaganej stawki VAT nie jest zastępowany przypadkową wartością i kończy operację kontrolowanym błędem oraz pełnym rollbackiem. Etap nie dodaje OSS ani kontroli kompletności zamówienia.
 
 Etap 2C nie implementuje:
 
@@ -1213,3 +1213,23 @@ Adres dostawy i dane do faktury posiadają niezależne pola `shipping_country_co
 Przy zapisie edytowanej sekcji kraj jest wymagany, normalizowany przez `trim` i `uppercase` oraz walidowany względem katalogu. Nie stosuj fallbacku `PL` dla pustych danych historycznych. Kopiowanie adresów kopiuje także kod kraju, a poprawne pobranie polskiej firmy z GUS ustawia jawnie `billing_country_code = PL`.
 
 Snapshoty dokumentów zapisują `country_code` i `country_name` osobno dla Nabywcy i Odbiorcy. PDF Faktury VAT, Pro formy i Korekty pokazuje kraj tylko w bloku Nabywcy, np. `32-545 Psary, Polska`, i korzysta wyłącznie ze snapshotu. Starszy snapshot może rozwiązać nazwę z prawidłowego kodu bez modyfikacji bazy. Obsługa kraju nie zmienia VAT, OSS, sposobu płatności ani powiązania Faktury VAT z Pro formą.
+
+---
+
+# 40. Granice Etapu 1E.1
+
+Etap 1E.1 wdraża lokalny katalog walut:
+
+- tabelę `currencies` z kluczem `code`, nazwą i opcjonalnym oznaczeniem tabeli NBP `A` albo `B`,
+- systemowy rekord `PLN` tworzony bez połączenia sieciowego,
+- model `Currency`, centralny `CurrencyCatalog` i regułę `ValidCurrencyCode`,
+- ręczną komendę `currencies:sync-nbp`, która atomowo synchronizuje tabele A i B przez HTTPS,
+- jedną walutę dla zamówienia i wszystkich jego pozycji,
+- selecty lokalnego katalogu w zamówieniach, pozycjach i seriach numeracji,
+- zachowanie nieznanych historycznych kodów bez umożliwiania ich ponownego wyboru,
+- wykrywanie mieszanych walut przed przeliczeniem sumy,
+- dziesiętne obliczenia pozycji, dostawy, sumy i pozostałej należności bez `float`.
+
+Tabela nie posiada liczbowego `id`, timestampów ani pól `is_active`, `is_system` i `last_seen_at`. Synchronizacja nie usuwa walut i nie nadpisuje `PLN`. Obie tabele NBP muszą zostać poprawnie zwalidowane przed zapisem. Nie dodawaj kluczy obcych z istniejących pól walutowych do `currencies`.
+
+Etap 1E.1 nie obejmuje kursów walut, przewalutowań, harmonogramu, automatycznej synchronizacji, przycisku odświeżania, historii kursów ani zmian PDF i snapshotów wystawionych dokumentów. Etapy 1E.2 i 1E.3 pozostają poza bieżącym zakresem.
