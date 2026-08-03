@@ -1511,6 +1511,16 @@ Sam Etap 1E.1 nie dodawał kursów walut, przewalutowań, automatycznej synchron
 
 Przeliczenie jest wywoływane wyłącznie przez ścieżkę wystawiania Faktury VAT. `InvoiceDocumentPreparationService`, `InvoiceSnapshotBuilder`, `ProformaService` i renderer PDF nie wykonują HTTP. Faktura PLN i wszystkie Pro formy zachowują pusty `tax_metadata_snapshot`; kurs nie wpływa na hash ani rewizje Pro formy. PDF nie został zmieniony, a prezentacja kursu należy do Etapu 1E.3.
 
+### Etap 1E.3 — prezentacja snapshotu walutowego w PDF
+
+`InvoicePdfCurrencyConversionPresenter` jest jedyną warstwą interpretującą snapshot przeliczenia na potrzeby PDF. Dla Faktury VAT w walucie obcej waliduje kontrakt wersji 1, źródło NBP, waluty, tabelę, daty, dokładny dodatni tekst kursu, sposób zaokrąglenia, format kwot i niezmienniki sum. Następnie paruje źródłowe i przeliczone grupy po kluczu `code:<kod>` albo `rate:<stawka>`, zachowując kolejność grup źródłowych. Do Blade trafiają gotowe `pln_conversion` i `tax_row_pairs`; widok nie parsuje snapshotu i nie wykonuje arytmetyki.
+
+Generowanie PDF nie wywołuje klienta NBP ani `InvoiceCurrencyConversionService`, nie odczytuje modelu `Currency`, nie mnoży kwot przez kurs i nie zapisuje niczego do bazy. Kwoty PLN pochodzą bezpośrednio z `converted_tax_summary`, a kurs jest prezentowany dokładnie jak zapisano go w `currency_conversion.rate`. Główne sumy, pozycje i kwota słownie pozostają w walucie Faktury.
+
+Pusty `tax_metadata_snapshot` walutowej Faktury jest obsługiwany jako historyczny dokument bez sekcji PLN. Niepusty, częściowy lub niespójny snapshot zgłasza kontrolowany błąd `invoice_pdf_invalid_currency_conversion_snapshot`. Faktury PLN, Pro formy i Korekty nie otrzymują tej sekcji.
+
+`InvoicePdfFilenameGenerator` wersjonuje layout per typ dokumentu. Etap 1E.3 zmienia ścieżkę Faktury z `invoice-v33.pdf` na `invoice-v34.pdf`, pozostawiając `proforma-revision-<n>-v33.pdf` oraz `correction-v33.pdf`. Prywatny storage nie usuwa starych plików, a kolejne pobranie korzysta z cache bieżącej wersji.
+
 ## Etap 1F
 
 - dane sprzedawcy,

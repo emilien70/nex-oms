@@ -1247,3 +1247,15 @@ Kurs nie przechodzi przez `float`. Każda grupa VAT jest przeliczana osobno meto
 Pobranie HTTP odbywa się przed transakcją i numeracją. W transakcji kontekst waluty, dat i tabeli jest ponownie sprawdzany; zmiana powoduje pełny rollback i najwyżej jedną pełną ponowną próbę z nowym kursem. Błąd NBP nie tworzy slotu, szkicu, pozycji, numeru ani zdarzenia.
 
 Pro forma nie pobiera kursu, nie zapisuje przeliczenia PLN i nie zmienia hasha ani rewizji z powodu kursu. Faktura PLN oraz każda Pro forma zachowują pusty `tax_metadata_snapshot`. Etap 1E.2 nie zmienia PDF; prezentacja kursu i podsumowania PLN należy do Etapu 1E.3. Walutowe Korekty nie są jeszcze wystawiane.
+
+---
+
+# 42. Granice Etapu 1E.3
+
+Etap 1E.3 prezentuje na PDF Faktury VAT w walucie obcej wyłącznie dane zapisane wcześniej w `tax_metadata_snapshot`: dokładny tekst kursu NBP, datę publikacji, numer tabeli oraz dodatkowe podsumowanie grup VAT w `PLN`. Główne wartości, pozycje, blok „Razem” i kwota słownie pozostają w walucie Faktury. Nie przelicza się pozycji, wpłat ani pozostałej należności.
+
+`InvoicePdfCurrencyConversionPresenter` centralnie waliduje kontrakt snapshotu wersji 1, niezmienniki sum oraz paruje źródłowe i przeliczone grupy po znormalizowanym `vat_code` albo `vat_rate`. Renderer, view model i Blade nie kontaktują się z NBP, nie czytają bieżącego katalogu `currencies`, nie wykonują ponownych przeliczeń i nie modyfikują dokumentu. Kurs zachowuje dokładną tekstową precyzję NBP, a zapisane kwoty PLN muszą mieć dwa miejsca dziesiętne.
+
+Pusty snapshot Faktury walutowej oznacza historyczny dokument sprzed Etapu 1E.2 i pozwala wygenerować dotychczasowy PDF bez kursu i PLN. Niepusty, częściowy albo niespójny snapshot blokuje generowanie kontrolowanym błędem `invoice_pdf_invalid_currency_conversion_snapshot`.
+
+Faktura PLN, każda Pro forma i renderer Korekty pozostają bez dodatkowego kursu oraz podsumowania PLN. Cache PDF jest wersjonowany osobno: zmiana Etapu 1E.3 podnosi wyłącznie wersję layoutu Faktury, bez usuwania poprzednich plików i bez unieważniania cache Pro formy lub Korekty. Etap nie dodaje migracji, zależności, walutowej Korekty ani połączeń HTTP podczas generowania PDF.

@@ -19,6 +19,7 @@
     .items .number { text-align: right; white-space: nowrap; }
     .summary td { border: 1px solid #c8c8c8; padding: 5px 4px; text-align: right; }
     .summary .summary-heading { background-color: #eeeeee; }
+    .summary .summary-conversion-value { background-color: #f7f7f7; }
     .summary .plain { border: 1px solid #ffffff; }
     .grand-total { font-size: 14px; padding-left: 9px !important; }
     .final-value { padding-left: 9px !important; }
@@ -26,6 +27,7 @@
     .final-details td { padding: 3px 4px; vertical-align: middle; }
     .issuer-block { padding-top: 6px; }
     .additional-information { padding-top: 6px; }
+    .exchange-rate .final-value { line-height: 1.35; }
     .correction-section { font-size: 12pt; font-weight: bold; }
     .difference td { border-bottom: 1px solid #d0d0d0; padding: 4px; }
 </style>

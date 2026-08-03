@@ -33,7 +33,7 @@ Waluty są wybierane z lokalnego katalogu i przechowywane jako trzyliterowe kody
 
 Jedno zamówienie oraz wszystkie jego pozycje używają jednej waluty. Backend blokuje mieszanie walut i nie przelicza automatycznie danych historycznych. Nieznany historyczny kod pozostaje widoczny do czasu świadomej zmiany, ale nie może zostać wybrany dla nowej pozycji.
 
-Przy wystawianiu Faktury VAT w walucie obcej system pobiera historyczny średni kurs NBP z tabeli A albo B i zapisuje w niezmiennym snapshocie podsumowanie grup VAT przeliczone do PLN. Faktura nadal pozostaje w walucie zamówienia. Faktury PLN i wszystkie Pro formy nie wykonują zapytań o kurs; obecny PDF nie prezentuje jeszcze kursu ani podsumowania PLN.
+Przy wystawianiu Faktury VAT w walucie obcej system pobiera historyczny średni kurs NBP z tabeli A albo B i zapisuje w niezmiennym snapshocie podsumowanie grup VAT przeliczone do PLN. PDF pokazuje kurs, datę i numer tabeli oraz dodatkowe podsumowanie podatkowe PLN, ale pozycje, główna kwota i kwota słownie pozostają w walucie zamówienia. Generowanie PDF korzysta wyłącznie ze snapshotu i nie łączy się z NBP. Faktury PLN i wszystkie Pro formy nie pobierają ani nie prezentują kursu.
 
 ### Przesyłki i integracje
 

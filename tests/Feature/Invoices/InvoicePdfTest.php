@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Invoices;
 
+use App\Models\Currency;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
@@ -12,6 +14,7 @@ use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\Services\InvoicePdfRenderer;
 use Modules\Invoices\Services\InvoicePdfStorage;
+use Modules\Invoices\Services\InvoicePdfViewModelFactory;
 use Modules\Invoices\Services\ProformaService;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
@@ -42,6 +45,105 @@ class InvoicePdfTest extends TestCase
             Storage::disk('local')->allFiles('invoices/'.$invoice->getKey()),
             fn (string $path): bool => str_ends_with($path, '.tmp'),
         )));
+    }
+
+    public function test_foreign_invoice_view_model_and_html_use_only_stored_conversion_snapshot(): void
+    {
+        Http::preventStrayRequests();
+        $invoice = $this->foreignInvoice();
+        $before = $invoice->getAttributes();
+        Currency::query()->whereKey('EUR')->delete();
+
+        $document = app(InvoicePdfViewModelFactory::class)->make($invoice->fresh());
+        $html = app(InvoicePdfRenderer::class)->html($invoice->fresh());
+
+        $this->assertSame('4.3420', $document['pln_conversion']['rate']);
+        $this->assertSame('1 EUR = 4.3420 PLN', $document['pln_conversion']['rate_text']);
+        $this->assertSame('434.20', $document['pln_conversion']['totals']['net']);
+        foreach (['Razem (EUR):', 'Razem (PLN):', 'W tym (EUR):', 'W tym (PLN):', '1 EUR = 4.3420 PLN', '2026-07-17', '137/A/NBP/2026'] as $text) {
+            $this->assertStringContainsString($text, $html);
+        }
+        $this->assertStringContainsString('123.00 EUR', $html);
+        $this->assertStringContainsString('EUR 00/100 EUR', $html);
+        $this->assertSame(1, substr_count($html, '1 EUR = 4.3420 PLN'));
+        $this->assertSame(1, substr_count($html, '137/A/NBP/2026'));
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public function test_pln_invoice_proforma_and_legacy_foreign_invoice_keep_layout_without_pln_conversion(): void
+    {
+        Http::preventStrayRequests();
+        $pln = $this->issueInvoice();
+        $legacy = $this->issueInvoice();
+        $legacy->update(['currency' => 'EUR', 'tax_metadata_snapshot' => []]);
+        $order = $this->createDocumentOrder(['currency' => 'EUR']);
+        $this->createDocumentItem($order, ['currency' => 'EUR']);
+        $proforma = app(ProformaService::class)->createOrRefresh(
+            $order,
+            $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+            $this->documentContext(),
+        )->invoice;
+
+        foreach ([$pln, $legacy->fresh(), $proforma] as $document) {
+            $viewModel = app(InvoicePdfViewModelFactory::class)->make($document);
+            $html = app(InvoicePdfRenderer::class)->html($document);
+
+            $this->assertNull($viewModel['pln_conversion']);
+            $this->assertSame([], $viewModel['tax_row_pairs']);
+            $this->assertStringNotContainsString('Kurs waluty:', $html);
+            $this->assertStringNotContainsString('W tym (PLN):', $html);
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_invoice_cache_uses_v34_without_removing_old_v33_and_other_documents_keep_v33(): void
+    {
+        Storage::fake('local');
+        Http::preventStrayRequests();
+        $invoice = $this->foreignInvoice();
+        $oldPath = 'invoices/'.$invoice->getKey().'/invoice-v33.pdf';
+        Storage::disk('local')->put($oldPath, '%PDF-1.7 old layout');
+
+        $first = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
+        $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
+        $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
+
+        $this->assertStringEndsWith('/invoice-v34.pdf', $newPath);
+        $this->assertSame($first, $second);
+        Storage::disk('local')->assertExists($oldPath);
+        Storage::disk('local')->assertExists($newPath);
+        $this->assertCount(2, Storage::disk('local')->allFiles('invoices/'.$invoice->getKey()));
+
+        $proforma = $invoice->replicate();
+        $proforma->id = 9001;
+        $proforma->document_type = InvoiceDocumentType::Proforma;
+        $proforma->revision_number = 3;
+        $correction = $invoice->replicate();
+        $correction->id = 9002;
+        $correction->document_type = InvoiceDocumentType::Correction;
+        $filenames = app(InvoicePdfFilenameGenerator::class);
+        $this->assertStringEndsWith('/proforma-revision-3-v33.pdf', $filenames->storagePath($proforma));
+        $this->assertStringEndsWith('/correction-v33.pdf', $filenames->storagePath($correction));
+        Http::assertNothingSent();
+    }
+
+    public function test_invalid_nonempty_conversion_snapshot_returns_controlled_error_and_cleans_temporary_file(): void
+    {
+        Storage::fake('local');
+        Http::preventStrayRequests();
+        $invoice = $this->foreignInvoice();
+        $metadata = $invoice->tax_metadata_snapshot;
+        unset($metadata['converted_tax_summary']);
+        $invoice->update(['tax_metadata_snapshot' => $metadata]);
+
+        $this->get(route('invoices.pdf', $invoice->fresh()))
+            ->assertUnprocessable()
+            ->assertSeeText('zapisane dane przeliczenia walutowego są niekompletne');
+
+        $this->assertSame([], Storage::disk('local')->allFiles('invoices/'.$invoice->getKey()));
+        Http::assertNothingSent();
     }
 
     public function test_concurrent_pdf_winner_is_returned_without_leaving_a_partial_file(): void
@@ -456,6 +558,45 @@ class InvoicePdfTest extends TestCase
             $this->createDocumentSeries(),
             $this->documentContext(),
         );
+    }
+
+    private function foreignInvoice(): Invoice
+    {
+        $invoice = $this->issueInvoice();
+        $invoice->update([
+            'currency' => 'EUR',
+            'tax_metadata_snapshot' => [
+                'currency_conversion' => [
+                    'version' => 1,
+                    'source' => 'NBP',
+                    'source_currency' => 'EUR',
+                    'target_currency' => 'PLN',
+                    'table_type' => 'A',
+                    'table_number' => '137/A/NBP/2026',
+                    'effective_date' => '2026-07-17',
+                    'reference_date' => '2026-07-20',
+                    'rate' => '4.3420',
+                    'rate_rule' => 'vat_art_31a_standard_v1',
+                    'rounding_mode' => 'half_up',
+                    'result_scale' => 2,
+                ],
+                'converted_tax_summary' => [
+                    'currency' => 'PLN',
+                    'groups' => [[
+                        'vat_rate' => '23.00',
+                        'vat_code' => null,
+                        'net' => '434.20',
+                        'vat' => '99.87',
+                        'gross' => '534.07',
+                    ]],
+                    'total_net' => '434.20',
+                    'total_vat' => '99.87',
+                    'total_gross' => '534.07',
+                ],
+            ],
+        ]);
+
+        return $invoice->fresh('items');
     }
 
     private function createCorrection(Invoice $source): Invoice

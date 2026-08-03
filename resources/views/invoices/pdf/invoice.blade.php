@@ -54,6 +54,21 @@
         </tr>
     </table>
 
+    @if ($document['pln_conversion'])
+        <br><br>
+        <table class="final-details exchange-rate" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+                <td width="15%" class="muted-label">Kurs waluty:</td>
+                <td width="2%"></td>
+                <td width="38%" class="final-value">
+                    {{ $document['pln_conversion']['rate_text'] }}<br>
+                    {{ $document['pln_conversion']['effective_date'] }} ({{ $document['pln_conversion']['table_number'] }})
+                </td>
+                <td width="45%"></td>
+            </tr>
+        </table>
+    @endif
+
     @if ($document['payment_identifier'])
         <br><br><br>
         <table class="final-details" cellpadding="0" cellspacing="0" width="100%">

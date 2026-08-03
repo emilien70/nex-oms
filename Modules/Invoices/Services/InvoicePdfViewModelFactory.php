@@ -16,6 +16,7 @@ class InvoicePdfViewModelFactory
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceAmountInWordsFormatter $amountInWords,
         private readonly CountryCatalog $countries,
+        private readonly InvoicePdfCurrencyConversionPresenter $currencyConversion,
     ) {}
 
     /** @return array<string, mixed> */
@@ -37,6 +38,7 @@ class InvoicePdfViewModelFactory
         $seller = $invoice->seller_snapshot;
         $payment = $invoice->payment_snapshot;
         $order = $invoice->order_snapshot;
+        $plnConversion = $this->currencyConversion->present($invoice);
 
         return [
             'type' => $invoice->document_type->value,
@@ -60,6 +62,8 @@ class InvoicePdfViewModelFactory
             'buyer' => $this->party($invoice->buyer_snapshot),
             'items' => $this->items($invoice->items),
             'tax_rows' => $this->taxRows($invoice->tax_summary_snapshot),
+            'tax_row_pairs' => $plnConversion['tax_row_pairs'] ?? [],
+            'pln_conversion' => $plnConversion,
             'totals' => $this->totals($invoice),
             'currency' => $invoice->currency,
             'amount_in_words' => $this->amountInWords->format($invoice->total_gross, $invoice->currency),

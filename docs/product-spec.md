@@ -1366,6 +1366,16 @@ Pobranie i walidacja kursu muszą zakończyć się przed utworzeniem trwałych d
 
 Pro forma w każdej walucie pozostaje całkowicie niezależna od NBP: nie pobiera kursu, nie zapisuje wartości PLN i nie zmienia hasha ani rewizji z powodu kursu. Etap nie zmienia PDF. Wyświetlenie kursu i podsumowania PLN na Fakturze będzie zakresem Etapu 1E.3. Nie wdraża się lokalnej tabeli kursów, cache kursów ani walutowej Korekty.
 
+### Etap 1E.3 — kurs NBP i podsumowanie PLN na PDF Faktury VAT
+
+PDF Faktury VAT w walucie obcej pokazuje główne wartości, pozycje, kwotę „Razem” oraz kwotę słownie w walucie dokumentu. Obok źródłowych sum i grup VAT prezentuje dodatkowe sumy i odpowiadające im grupy w `PLN`, a po kwocie słownie pokazuje dokładny tekst kursu, datę publikacji i numer tabeli NBP zapisane w niezmiennym snapshocie Etapu 1E.2.
+
+PDF nie kontaktuje się z NBP, nie odczytuje bieżącego rekordu waluty, nie wykonuje ponownego mnożenia ani zaokrąglania i nie modyfikuje dokumentu. Kurs zachowuje dokładną tekstową wartość, w tym końcowe zera, bez wymuszania sześciu miejsc; gotowe kwoty PLN muszą mieć dokładnie dwa miejsca. Pozycje, `paid_amount` i `amount_due` nie są prezentowane w PLN.
+
+Grupy są parowane po znormalizowanym kodzie VAT albo stawce VAT, niezależnie od ich kolejności w snapshocie. Pusty snapshot historycznej Faktury walutowej nadal pozwala wygenerować poprzedni układ bez PLN i kursu. Niepusty, niekompletny albo niespójny snapshot kończy generowanie kontrolowanym błędem. Faktura PLN nie otrzymuje drugiego podsumowania, Pro forma nie pokazuje kursu ani PLN, a Korekta nie posiada jeszcze prezentacji walutowej.
+
+Cache PDF jest wersjonowany per typ layoutu. Etap podnosi wyłącznie wersję Faktury VAT; stare pliki pozostają prywatnie na dysku, a cache Pro formy i Korekty nie jest niepotrzebnie unieważniany.
+
 ## Etap 1F — dane sprzedawcy i informacje dodatkowe
 
 ## Etap 1G — wygląd dokumentu
