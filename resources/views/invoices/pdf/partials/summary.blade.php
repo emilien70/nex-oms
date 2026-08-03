@@ -1,5 +1,5 @@
 @if ($document['pln_conversion'] ?? null)
-    <table class="summary" cellpadding="1" cellspacing="0" width="98%" align="center">
+    <table class="summary conversion-summary" cellpadding="1" cellspacing="0" width="98%" align="center">
         <tr>
             <td width="48%" class="plain" style="border: 1px solid #ffffff;"></td>
             <td width="14%" class="plain" style="border: 1px solid #ffffff;"></td>
@@ -27,7 +27,7 @@
     </table>
     @if ($document['tax_row_pairs'])
         <br><br>
-        <table class="summary" cellpadding="1" cellspacing="0" width="98%" align="center">
+        <table class="summary conversion-summary" cellpadding="1" cellspacing="0" width="98%" align="center">
             @foreach ($document['tax_row_pairs'] as $pair)
                 <tr>
                     <td width="48%" class="plain" style="border: 1px solid #ffffff;"></td>

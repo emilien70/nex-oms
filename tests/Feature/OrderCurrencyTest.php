@@ -8,6 +8,13 @@ use App\Models\Order;
 use App\Services\OrderTotalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use Mockery;
+use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Models\OrderDocumentSlot;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
 use Tests\TestCase;
 
 class OrderCurrencyTest extends TestCase
@@ -40,6 +47,13 @@ class OrderCurrencyTest extends TestCase
     {
         Currency::query()->create(['code' => 'EUR', 'name' => 'euro', 'nbp_table' => 'A']);
         $order = $this->order(['currency' => 'PLN']);
+        $order->items()->create([
+            'product_name' => 'Istniejący produkt',
+            'quantity' => 1,
+            'unit_price_gross' => '10.00',
+            'total_price_gross' => '10.00',
+            'currency' => 'PLN',
+        ]);
 
         $this->from(route('orders.show', $order))->post(route('orders.products.store', $order), [
             'product_name' => 'Produkt',
@@ -55,23 +69,179 @@ class OrderCurrencyTest extends TestCase
             'currency' => 'XXX',
         ])->assertSessionHasErrors('currency');
 
-        $this->assertDatabaseCount('order_items', 0);
+        $this->assertDatabaseCount('order_items', 1);
+        $this->assertSame('PLN', $order->refresh()->currency);
     }
 
-    public function test_first_item_can_set_currency_only_for_money_empty_order(): void
+    public function test_first_item_sets_currency_of_economically_empty_pln_order(): void
     {
         Currency::query()->create(['code' => 'EUR', 'name' => 'euro', 'nbp_table' => 'A']);
-        $order = $this->order(['currency' => '']);
+        $order = $this->order(['currency' => 'PLN']);
+        Http::preventStrayRequests();
 
         $this->post(route('orders.products.store', $order), [
             'product_name' => 'Produkt',
             'quantity' => 1,
-            'unit_price_gross' => '10.00',
+            'unit_price_gross' => '25.00',
             'currency' => 'EUR',
         ])->assertSessionDoesntHaveErrors();
 
+        $order->refresh();
+        $item = $order->items()->firstOrFail();
+        $event = $order->events()->where('event_type', 'product_added')->firstOrFail();
+
+        $this->assertSame('EUR', $order->currency);
+        $this->assertSame('25.00', $order->total_gross);
+        $this->assertSame('0.00', $order->paid_amount);
+        $this->assertSame('0.00', $order->delivery_cost_gross);
+        $this->assertSame('EUR', $item->currency);
+        $this->assertSame('25.00', $item->unit_price_gross);
+        $this->assertSame('25.00', $item->total_price_gross);
+        $this->assertSame('EUR', $event->payload['currency']);
+        $this->assertTrue($event->payload['order_currency_adopted']);
+        $this->assertSame('PLN', $event->payload['previous_order_currency']);
+        $this->assertCount(1, $order->items);
+        Http::assertNothingSent();
+    }
+
+    public function test_second_item_must_use_adopted_order_currency(): void
+    {
+        Currency::query()->create(['code' => 'EUR', 'name' => 'euro', 'nbp_table' => 'A']);
+        $order = $this->order(['currency' => 'PLN']);
+
+        $this->postProduct($order, 'EUR')->assertSessionDoesntHaveErrors();
+        $this->postProduct($order, 'EUR')->assertSessionDoesntHaveErrors();
+        $this->postProduct($order, 'PLN')->assertSessionHasErrors('currency');
+
         $this->assertSame('EUR', $order->refresh()->currency);
-        $this->assertSame('EUR', $order->items()->firstOrFail()->currency);
+        $this->assertCount(2, $order->items);
+    }
+
+    public function test_non_zero_delivery_cost_blocks_first_item_currency_adoption(): void
+    {
+        $order = $this->foreignCurrencyOrder(['delivery_cost_gross' => '10.00']);
+
+        $this->postProduct($order, 'EUR')->assertSessionHasErrors('currency');
+
+        $this->assertCurrencyAdoptionWasBlocked($order);
+    }
+
+    public function test_non_zero_paid_amount_blocks_first_item_currency_adoption(): void
+    {
+        $order = $this->foreignCurrencyOrder(['paid_amount' => '5.00']);
+
+        $this->postProduct($order, 'EUR')->assertSessionHasErrors('currency');
+
+        $this->assertCurrencyAdoptionWasBlocked($order);
+    }
+
+    public function test_non_zero_total_blocks_first_item_currency_adoption(): void
+    {
+        $order = $this->foreignCurrencyOrder(['total_gross' => '10.00']);
+
+        $this->postProduct($order, 'EUR')->assertSessionHasErrors('currency');
+
+        $this->assertCurrencyAdoptionWasBlocked($order);
+    }
+
+    public function test_existing_invoice_or_proforma_blocks_first_item_currency_adoption(): void
+    {
+        $this->ensureCurrency('EUR');
+
+        foreach ([InvoiceDocumentType::Invoice, InvoiceDocumentType::Proforma] as $documentType) {
+            $order = $this->order();
+            $series = InvoiceSeries::query()->where('document_type', $documentType->value)->firstOrFail();
+            Invoice::query()->create([
+                'order_id' => $order->id,
+                'invoice_series_id' => $series->id,
+                'document_type' => $documentType,
+                'currency' => 'PLN',
+            ]);
+
+            $this->postProduct($order, 'EUR')->assertSessionHasErrors('currency');
+            $this->assertCurrencyAdoptionWasBlocked($order);
+        }
+    }
+
+    public function test_existing_document_slot_blocks_first_item_currency_adoption(): void
+    {
+        $order = $this->foreignCurrencyOrder();
+        OrderDocumentSlot::query()->create([
+            'order_id' => $order->id,
+            'document_type' => InvoiceDocumentType::Invoice,
+        ]);
+
+        $this->postProduct($order, 'EUR')->assertSessionHasErrors('currency');
+
+        $this->assertCurrencyAdoptionWasBlocked($order);
+    }
+
+    public function test_existing_shipment_blocks_first_item_currency_adoption(): void
+    {
+        $order = $this->foreignCurrencyOrder();
+        $order->shipments()->create([
+            'provider' => 'test',
+            'service' => 'test',
+            'currency' => 'PLN',
+            'request_uuid' => (string) Str::uuid(),
+        ]);
+
+        $this->postProduct($order, 'EUR')->assertSessionHasErrors('currency');
+
+        $this->assertCurrencyAdoptionWasBlocked($order);
+    }
+
+    public function test_existing_shipment_creation_attempt_blocks_first_item_currency_adoption(): void
+    {
+        $order = $this->foreignCurrencyOrder();
+        $order->shipmentCreationAttempts()->create([
+            'provider' => 'test',
+            'request_uuid' => (string) Str::uuid(),
+            'status' => ShipmentCreationAttempt::STATUS_QUEUED,
+        ]);
+
+        $this->postProduct($order, 'EUR')->assertSessionHasErrors('currency');
+
+        $this->assertCurrencyAdoptionWasBlocked($order);
+    }
+
+    public function test_first_pln_item_does_not_change_order_currency(): void
+    {
+        $order = $this->order(['currency' => 'PLN']);
+
+        $this->postProduct($order, 'PLN')->assertSessionDoesntHaveErrors();
+
+        $event = $order->events()->where('event_type', 'product_added')->firstOrFail();
+        $this->assertSame('PLN', $order->refresh()->currency);
+        $this->assertSame('PLN', $order->items()->firstOrFail()->currency);
+        $this->assertFalse($event->payload['order_currency_adopted']);
+    }
+
+    public function test_failed_product_creation_rolls_back_adopted_currency_item_total_and_event(): void
+    {
+        $this->ensureCurrency('EUR');
+        $order = $this->order(['currency' => 'PLN']);
+        $totals = Mockery::mock(OrderTotalService::class);
+        $totals->shouldReceive('lineTotal')->once()->andReturn('25.00');
+        $totals->shouldReceive('recalculate')->once()->andThrow(new \RuntimeException('Kontrolowany błąd testowy.'));
+        $this->instance(OrderTotalService::class, $totals);
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postProduct($order, 'EUR');
+            $this->fail('Oczekiwany błąd nie został zgłoszony.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Kontrolowany błąd testowy.', $exception->getMessage());
+        }
+
+        $order->refresh();
+        $this->assertSame('PLN', $order->currency);
+        $this->assertSame('0.00', $order->total_gross);
+        $this->assertDatabaseCount('order_items', 0);
+        $this->assertDatabaseMissing('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'product_added',
+        ]);
     }
 
     public function test_historical_unknown_currency_is_shown_but_cannot_be_selected_as_new_value(): void
@@ -262,5 +432,36 @@ class OrderCurrencyTest extends TestCase
             'cash_on_delivery' => false,
             'payment_status' => 'unpaid',
         ], $attributes));
+    }
+
+    private function ensureCurrency(string $code): void
+    {
+        Currency::query()->updateOrCreate(
+            ['code' => $code],
+            ['name' => strtolower($code), 'nbp_table' => 'A'],
+        );
+    }
+
+    private function foreignCurrencyOrder(array $attributes = []): Order
+    {
+        $this->ensureCurrency('EUR');
+
+        return $this->order(array_replace(['currency' => 'PLN'], $attributes));
+    }
+
+    private function postProduct(Order $order, string $currency)
+    {
+        return $this->from(route('orders.show', $order))->post(route('orders.products.store', $order), [
+            'product_name' => 'Produkt',
+            'quantity' => 1,
+            'unit_price_gross' => '25.00',
+            'currency' => $currency,
+        ]);
+    }
+
+    private function assertCurrencyAdoptionWasBlocked(Order $order): void
+    {
+        $this->assertSame('PLN', $order->refresh()->currency);
+        $this->assertCount(0, $order->items);
     }
 }

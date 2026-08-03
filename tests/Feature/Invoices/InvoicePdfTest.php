@@ -63,6 +63,11 @@ class InvoicePdfTest extends TestCase
         foreach (['Razem (EUR):', 'Razem (PLN):', 'W tym (EUR):', 'W tym (PLN):', '1 EUR = 4.3420 PLN', '2026-07-17', '137/A/NBP/2026'] as $text) {
             $this->assertStringContainsString($text, $html);
         }
+        $this->assertSame(2, substr_count($html, 'class="summary conversion-summary"'));
+        $this->assertStringContainsString('.conversion-summary td { font-size: 7.5pt; }', $html);
+        $this->assertStringContainsString('.exchange-rate td { font-size: 8.5pt; }', $html);
+        $this->assertStringContainsString('.grand-total-label { vertical-align: bottom !important; }', $html);
+        $this->assertStringContainsString('class="muted-label grand-total-label">Razem:</td>', $html);
         $this->assertStringContainsString('123.00 EUR', $html);
         $this->assertStringContainsString('EUR 00/100 EUR', $html);
         $this->assertSame(1, substr_count($html, '1 EUR = 4.3420 PLN'));
@@ -98,19 +103,19 @@ class InvoicePdfTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_invoice_cache_uses_v34_without_removing_old_v33_and_other_documents_keep_v33(): void
+    public function test_invoice_cache_uses_v39_without_removing_old_v38_and_other_documents_keep_v33(): void
     {
         Storage::fake('local');
         Http::preventStrayRequests();
         $invoice = $this->foreignInvoice();
-        $oldPath = 'invoices/'.$invoice->getKey().'/invoice-v33.pdf';
+        $oldPath = 'invoices/'.$invoice->getKey().'/invoice-v38.pdf';
         Storage::disk('local')->put($oldPath, '%PDF-1.7 old layout');
 
         $first = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
         $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
 
-        $this->assertStringEndsWith('/invoice-v34.pdf', $newPath);
+        $this->assertStringEndsWith('/invoice-v39.pdf', $newPath);
         $this->assertSame($first, $second);
         Storage::disk('local')->assertExists($oldPath);
         Storage::disk('local')->assertExists($newPath);

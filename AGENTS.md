@@ -1259,3 +1259,13 @@ Etap 1E.3 prezentuje na PDF Faktury VAT w walucie obcej wyłącznie dane zapisan
 Pusty snapshot Faktury walutowej oznacza historyczny dokument sprzed Etapu 1E.2 i pozwala wygenerować dotychczasowy PDF bez kursu i PLN. Niepusty, częściowy albo niespójny snapshot blokuje generowanie kontrolowanym błędem `invoice_pdf_invalid_currency_conversion_snapshot`.
 
 Faktura PLN, każda Pro forma i renderer Korekty pozostają bez dodatkowego kursu oraz podsumowania PLN. Cache PDF jest wersjonowany osobno: zmiana Etapu 1E.3 podnosi wyłącznie wersję layoutu Faktury, bez usuwania poprzednich plików i bez unieważniania cache Pro formy lub Korekty. Etap nie dodaje migracji, zależności, walutowej Korekty ani połączeń HTTP podczas generowania PDF.
+
+---
+
+# 43. Waluta pierwszej pozycji pustego zamówienia
+
+Nowe puste zamówienie może technicznie rozpoczynać się w `PLN`. Waluta pierwszej pozycji może atomowo ustawić inną walutę całego zamówienia wyłącznie wtedy, gdy zamówienie nie ma pozycji, niezerowej sumy, wpłaty ani kosztu wysyłki oraz nie ma Faktury VAT, Pro formy, slotu dokumentu, przesyłki ani próby utworzenia przesyłki.
+
+Ustalenie waluty odbywa się w `OrderCurrencyService`, pod blokadą zamówienia i w tej samej transakcji co zapis pozycji, przeliczenie sumy oraz zdarzenie. Nie jest to przewalutowanie: zerowe wartości pozostają zerowe, a istniejące kwoty nie są reinterpretowane. Po pierwszej pozycji wszystkie kolejne pozycje muszą używać waluty zamówienia.
+
+Stan AJAX zamówienia przekazuje `fields.currency`. Istniejący mechanizm synchronizacji ustawia tę wartość w selectach i jako ich wartość domyślną przed resetem formularza, dzięki czemu kafel informacji oraz kolejna pozycja używają aktualnej waluty bez przeładowania strony. Mechanizm nie wykonuje zewnętrznych połączeń HTTP i nie zmienia wystawionych dokumentów, snapshotów ani PDF.

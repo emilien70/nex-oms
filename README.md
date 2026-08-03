@@ -31,7 +31,7 @@ Centralny `CountryCatalog` korzysta z Symfony Intl. Polska znajduje się na pocz
 
 Waluty są wybierane z lokalnego katalogu i przechowywane jako trzyliterowe kody ISO, na przykład `PLN` lub `EUR`. Polska złotówka jest zawsze dostępna i znajduje się na początku listy; pozostałe waluty można pobrać ręcznie z tabel A i B NBP.
 
-Jedno zamówienie oraz wszystkie jego pozycje używają jednej waluty. Backend blokuje mieszanie walut i nie przelicza automatycznie danych historycznych. Nieznany historyczny kod pozostaje widoczny do czasu świadomej zmiany, ale nie może zostać wybrany dla nowej pozycji.
+Jedno zamówienie oraz wszystkie jego pozycje używają jednej waluty. Nowe puste zamówienie może początkowo pokazywać techniczne `PLN`, jednak waluta pierwszego produktu ustala walutę zamówienia, jeżeli nie ma ono pozycji, wartości pieniężnych, dokumentów ani rozpoczętej obsługi przesyłki. Jest to atomowe ustalenie waluty zerowych wartości, a nie przewalutowanie. Kolejne produkty muszą używać ustalonej waluty; backend blokuje mieszanie walut i nie przelicza automatycznie danych historycznych. Nieznany historyczny kod pozostaje widoczny do czasu świadomej zmiany, ale nie może zostać wybrany dla nowej pozycji.
 
 Przy wystawianiu Faktury VAT w walucie obcej system pobiera historyczny średni kurs NBP z tabeli A albo B i zapisuje w niezmiennym snapshocie podsumowanie grup VAT przeliczone do PLN. PDF pokazuje kurs, datę i numer tabeli oraz dodatkowe podsumowanie podatkowe PLN, ale pozycje, główna kwota i kwota słownie pozostają w walucie zamówienia. Generowanie PDF korzysta wyłącznie ze snapshotu i nie łączy się z NBP. Faktury PLN i wszystkie Pro formy nie pobierają ani nie prezentują kursu.
 

@@ -6,7 +6,7 @@ use Modules\Invoices\Models\Invoice;
 
 class InvoicePdfFilenameGenerator
 {
-    private const INVOICE_LAYOUT_VERSION = 'v34';
+    private const INVOICE_LAYOUT_VERSION = 'v39';
 
     private const PROFORMA_LAYOUT_VERSION = 'v33';
 

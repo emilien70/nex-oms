@@ -38,7 +38,7 @@
     <br><br><br>
     <table class="final-details" cellpadding="0" cellspacing="0" width="100%">
         <tr>
-            <td width="15%" class="muted-label">Razem:</td>
+            <td width="15%" class="muted-label grand-total-label">Razem:</td>
             <td width="2%"></td>
             <td width="38%" class="grand-total">{{ $document['totals']['gross'] }} {{ $document['currency'] }}</td>
             <td width="45%"></td>

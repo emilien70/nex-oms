@@ -20,27 +20,24 @@ class OrderCurrencyService
         $currency = $this->currencies->require($requestedCurrency);
         $orderCurrency = $this->currencies->normalize($order->currency);
 
-        if ($orderCurrency !== null) {
-            if (! $this->currencies->exists($orderCurrency) && $this->isMoneyEmpty($order)) {
-                $order->currency = $currency;
-                $order->save();
+        if ($orderCurrency === $currency) {
+            return $currency;
+        }
 
-                return $currency;
-            }
-
-            $this->ensureMatchesOrder($currency, $orderCurrency);
+        if ($this->canAdoptFirstItemCurrency($order)) {
+            $order->currency = $currency;
+            $order->save();
 
             return $currency;
         }
 
-        if (! $this->isMoneyEmpty($order)) {
+        if ($orderCurrency === null) {
             throw new OrderCurrencyException(
-                'Nie można ustawić waluty pierwszej pozycji, ponieważ zamówienie zawiera już wartości pieniężne.',
+                'Nie można ustawić waluty pierwszej pozycji, ponieważ zamówienie zawiera już dane finansowe, dokumenty lub przesyłki.',
             );
         }
 
-        $order->currency = $currency;
-        $order->save();
+        $this->ensureMatchesOrder($currency, $orderCurrency);
 
         return $currency;
     }
@@ -130,5 +127,14 @@ class OrderCurrencyService
                 "Waluta produktu musi być zgodna z walutą zamówienia: {$orderCurrency}.",
             );
         }
+    }
+
+    private function canAdoptFirstItemCurrency(Order $order): bool
+    {
+        return $this->isMoneyEmpty($order)
+            && ! $order->invoices()->exists()
+            && ! $order->documentSlots()->exists()
+            && ! $order->shipments()->exists()
+            && ! $order->shipmentCreationAttempts()->exists();
     }
 }

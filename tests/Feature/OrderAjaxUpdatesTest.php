@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Currency;
 use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -135,6 +136,46 @@ class OrderAjaxUpdatesTest extends TestCase
 
         $this->assertStringContainsString('bg-danger', $orderInfo);
         $this->assertStringContainsString('40,00 PLN', $orderInfo);
+    }
+
+    public function test_first_eur_product_refreshes_currency_fields_fragments_and_next_product_form(): void
+    {
+        Currency::query()->create(['code' => 'EUR', 'name' => 'euro', 'nbp_table' => 'A']);
+        $order = $this->order([
+            'currency' => 'PLN',
+            'total_gross' => '0.00',
+            'paid_amount' => '0.00',
+            'delivery_cost_gross' => '0.00',
+        ]);
+
+        $this->postJson(route('orders.products.store', $order), [
+            'product_name' => 'Produkt EUR',
+            'quantity' => 1,
+            'unit_price_gross' => '25.00',
+            'currency' => 'EUR',
+        ])
+            ->assertOk()
+            ->assertJsonPath('refresh.0', 'products')
+            ->assertJsonPath('refresh.1', 'order-info')
+            ->assertJsonPath('refresh.2', 'history');
+
+        $state = $this->getJson(route('orders.state', $order).'?fragments=products,order-info')
+            ->assertOk()
+            ->assertJsonPath('fields.currency', 'EUR');
+
+        $orderInfo = $state->json('fragments.order-info');
+        $products = $state->json('fragments.products');
+
+        $this->assertStringContainsString('0,00 EUR', $orderInfo);
+        $this->assertGreaterThanOrEqual(2, substr_count($orderInfo, '0,00 EUR'));
+        $this->assertStringContainsString('25,00 EUR', $orderInfo);
+        $this->assertStringContainsString('Produkt EUR', $products);
+        $this->assertStringContainsString('25,00 EUR', $products);
+
+        $this->get(route('orders.show', $order))
+            ->assertOk()
+            ->assertSee('value="EUR" selected', false)
+            ->assertDontSee('value="PLN" selected', false);
     }
 
     private function order(array $overrides = []): Order

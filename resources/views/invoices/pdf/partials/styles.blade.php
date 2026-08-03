@@ -18,15 +18,18 @@
     .items .name { text-align: left; }
     .items .number { text-align: right; white-space: nowrap; }
     .summary td { border: 1px solid #c8c8c8; padding: 5px 4px; text-align: right; }
+    .conversion-summary td { font-size: 7.5pt; }
     .summary .summary-heading { background-color: #eeeeee; }
     .summary .summary-conversion-value { background-color: #f7f7f7; }
     .summary .plain { border: 1px solid #ffffff; }
     .grand-total { font-size: 14px; padding-left: 9px !important; }
+    .grand-total-label { vertical-align: bottom !important; }
     .final-value { padding-left: 9px !important; }
     .muted-label { border-bottom: 1px solid #bcbcbc; font-weight: normal; padding: 1px 4px; }
     .final-details td { padding: 3px 4px; vertical-align: middle; }
     .issuer-block { padding-top: 6px; }
     .additional-information { padding-top: 6px; }
+    .exchange-rate td { font-size: 8.5pt; }
     .exchange-rate .final-value { line-height: 1.35; }
     .correction-section { font-size: 12pt; font-weight: bold; }
     .difference td { border-bottom: 1px solid #d0d0d0; padding: 4px; }

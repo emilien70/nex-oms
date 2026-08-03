@@ -50,7 +50,9 @@ class OrderProductController extends Controller
                 $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
                 $quantity = (int) $validated['quantity'];
                 $unitPriceGross = (string) $validated['unit_price_gross'];
+                $previousOrderCurrency = $this->currencies->normalize($managedOrder->currency);
                 $currency = $orderCurrencyService->currencyForNewItem($managedOrder, $validated['currency']);
+                $orderCurrencyAdopted = $previousOrderCurrency !== $currency;
 
                 $item = $managedOrder->items()->create([
                     'product_name' => $validated['product_name'],
@@ -72,6 +74,9 @@ class OrderProductController extends Controller
                         'product_name' => $item->product_name,
                         'quantity' => $item->quantity,
                         'unit_price_gross' => $item->unit_price_gross,
+                        'currency' => $currency,
+                        'order_currency_adopted' => $orderCurrencyAdopted,
+                        'previous_order_currency' => $previousOrderCurrency,
                     ],
                 ]);
             });

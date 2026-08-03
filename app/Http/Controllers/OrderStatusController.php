@@ -152,6 +152,7 @@ class OrderStatusController extends Controller
             'payment_method' => $order->payment_method,
             'notes' => $order->notes,
             'paid_amount' => $order->paid_amount,
+            'currency' => $order->currency,
             'shipping_name' => $order->shipping_name,
             'shipping_company_name' => $order->shipping_company_name,
             'shipping_address_line' => AddressLineFormatter::formatAddressLine($order->shipping_street, $order->shipping_building_number, $order->shipping_apartment_number),
