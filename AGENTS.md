@@ -1232,4 +1232,18 @@ Etap 1E.1 wdraża lokalny katalog walut:
 
 Tabela nie posiada liczbowego `id`, timestampów ani pól `is_active`, `is_system` i `last_seen_at`. Synchronizacja nie usuwa walut i nie nadpisuje `PLN`. Obie tabele NBP muszą zostać poprawnie zwalidowane przed zapisem. Nie dodawaj kluczy obcych z istniejących pól walutowych do `currencies`.
 
-Etap 1E.1 nie obejmuje kursów walut, przewalutowań, harmonogramu, automatycznej synchronizacji, przycisku odświeżania, historii kursów ani zmian PDF i snapshotów wystawionych dokumentów. Etapy 1E.2 i 1E.3 pozostają poza bieżącym zakresem.
+Sam Etap 1E.1 nie obejmował kursów walut, przewalutowań, harmonogramu, automatycznej synchronizacji, przycisku odświeżania, historii kursów ani zmian PDF i snapshotów wystawionych dokumentów.
+
+---
+
+# 41. Granice Etapu 1E.2
+
+Etap 1E.2 dodaje historyczny średni kurs NBP wyłącznie do procesu wystawiania Faktury VAT w walucie obcej. Faktura zachowuje walutę zamówienia, a podsumowanie grup VAT jest dodatkowo przeliczane zawsze do `PLN`. `invoice_series.default_currency` nie jest walutą docelową tego przeliczenia.
+
+Tabela `A` albo `B` wynika wyłącznie z `currencies.nbp_table`. Klient pobiera przez HTTPS zakres maksymalnie 93 dni, wybiera najnowszą publikację wcześniejszą od daty odniesienia i zachowuje dokładny tekst pola XML `Mid`, łącznie z końcowymi zerami. Data odniesienia wynika z finalnych `issue_date` i `sale_date`: standardowo jest to data sprzedaży, a gdy Fakturę wystawiono przed datą sprzedaży — data wystawienia. Szczególne przypadki obowiązku podatkowego pozostają poza zakresem.
+
+Kurs nie przechodzi przez `float`. Każda grupa VAT jest przeliczana osobno metodą half-up do dwóch miejsc, przy czym brutto PLN jest sumą zaokrąglonego netto i VAT. Kurs, reguła daty, tabela, data publikacji oraz podsumowanie PLN są niezmiennym `tax_metadata_snapshot` Faktury. Nie istnieje lokalna tabela ani cache kursów.
+
+Pobranie HTTP odbywa się przed transakcją i numeracją. W transakcji kontekst waluty, dat i tabeli jest ponownie sprawdzany; zmiana powoduje pełny rollback i najwyżej jedną pełną ponowną próbę z nowym kursem. Błąd NBP nie tworzy slotu, szkicu, pozycji, numeru ani zdarzenia.
+
+Pro forma nie pobiera kursu, nie zapisuje przeliczenia PLN i nie zmienia hasha ani rewizji z powodu kursu. Faktura PLN oraz każda Pro forma zachowują pusty `tax_metadata_snapshot`. Etap 1E.2 nie zmienia PDF; prezentacja kursu i podsumowania PLN należy do Etapu 1E.3. Walutowe Korekty nie są jeszcze wystawiane.

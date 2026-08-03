@@ -12,6 +12,7 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceNumberCounter;
 use Modules\Invoices\Models\OrderDocumentSlot;
+use Modules\Invoices\Services\InvoiceCurrencyConversionService;
 use Modules\Invoices\Services\InvoiceDocumentPreparationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceNumberingService;
@@ -148,7 +149,7 @@ class InvoiceIssuingServiceTest extends TestCase
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
         $series = $this->createDocumentSeries();
-        $service = new class(app(InvoiceDocumentPreparationService::class), app(InvoiceNumberingService::class)) extends InvoiceIssuingService
+        $service = new class(app(InvoiceDocumentPreparationService::class), app(InvoiceNumberingService::class), app(InvoiceCurrencyConversionService::class)) extends InvoiceIssuingService
         {
             protected function afterNumberAssigned(Invoice $invoice): void
             {

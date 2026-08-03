@@ -1352,7 +1352,19 @@ Polecenie `currencies:sync-nbp` ręcznie pobiera tabele A i B przez HTTPS. Obie 
 
 Jedno zamówienie i wszystkie jego pozycje mają jedną walutę. Pierwsza pozycja może ustalić walutę wyłącznie pustego finansowo zamówienia. Kolejne pozycje muszą być zgodne z walutą zamówienia, a przeliczenie sumy wykrywa dane mieszane i kończy operację kontrolowanym błędem. Nowe puste zamówienie może użyć `PLN`, ale nie ma automatycznego przypisywania ani konwersji danych historycznych. Nieznany historyczny kod może być zachowany bez zmiany, lecz nie może zostać wybrany dla nowego lub zmienianego pola.
 
-Kwoty w zmienionym przepływie zapisu pozycji, kosztu dostawy, sumy zamówienia i pozostałej należności są obliczane przez współdzieloną arytmetykę dziesiętną bez `float`. Etap nie zmienia snapshotów wystawionych dokumentów, ich waluty ani PDF.
+Kwoty w zmienionym przepływie zapisu pozycji, kosztu dostawy, sumy zamówienia i pozostałej należności są obliczane przez współdzieloną arytmetykę dziesiętną bez `float`. Sam Etap 1E.1 nie zmienił snapshotów wystawionych dokumentów, ich waluty ani PDF.
+
+### Etap 1E.2 — historyczny kurs średni NBP Faktury VAT
+
+Faktura VAT w walucie obcej zachowuje walutę zamówienia i otrzymuje dodatkowy, niezmienny snapshot przeliczenia grup VAT do `PLN`. Walutą docelową jest zawsze `PLN`; ustawienie `default_currency` serii nie steruje przeliczeniem. Faktura PLN nie kontaktuje się z NBP i zachowuje pusty `tax_metadata_snapshot`.
+
+Tabela `A` lub `B` pochodzi z `currencies.nbp_table`. System pobiera historyczny średni kurs pojedynczej waluty z maksymalnie 93-dniowego zakresu i wybiera najnowszą publikację wcześniejszą od daty odniesienia. Dla Faktury wystawionej w dniu sprzedaży albo później datą odniesienia jest data sprzedaży. Dla Faktury wystawionej przed datą sprzedaży datą odniesienia jest data wystawienia. Reguła zakłada standardową sprzedaż towarów; szczególne przypadki obowiązku podatkowego pozostają poza zakresem.
+
+Pełna tekstowa wartość `Mid` z XML NBP jest używana do obliczeń i zapisywana bez wymuszania sześciu miejsc oraz bez przejścia przez `float`. Netto i VAT każdej grupy są zaokrąglane half-up do dwóch miejsc, brutto jest ich sumą, a sumy dokumentu wynikają z gotowych grup. Nie przelicza się pozycji, wpłaconej kwoty ani pozostałej należności.
+
+Pobranie i walidacja kursu muszą zakończyć się przed utworzeniem trwałych danych Faktury i przed numeracją. Zmiana waluty, dat albo tabeli pomiędzy pobraniem kursu a blokadą transakcyjną wymaga ponownego pobrania dla aktualnego kontekstu. Błąd nie może zużyć numeru ani pozostawić slotu, szkicu, pozycji lub zdarzenia.
+
+Pro forma w każdej walucie pozostaje całkowicie niezależna od NBP: nie pobiera kursu, nie zapisuje wartości PLN i nie zmienia hasha ani rewizji z powodu kursu. Etap nie zmienia PDF. Wyświetlenie kursu i podsumowania PLN na Fakturze będzie zakresem Etapu 1E.3. Nie wdraża się lokalnej tabeli kursów, cache kursów ani walutowej Korekty.
 
 ## Etap 1F — dane sprzedawcy i informacje dodatkowe
 

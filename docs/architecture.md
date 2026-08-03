@@ -1499,7 +1499,17 @@ Tabela `currencies` jest niezależnym katalogiem referencyjnym bez klucza liczbo
 
 `OrderCurrencyService` egzekwuje jedną walutę zamówienia i jego pozycji. Waluta może zostać ustalona przez pierwszą pozycję tylko dla zamówienia pustego finansowo. Historyczny kod nieobecny w katalogu może zostać zachowany bez zmiany, lecz nie jest dostępny dla nowych wartości. `OrderTotalService` wykrywa mieszane waluty i korzysta z `InvoiceDecimalCalculator` do obliczeń pozycji, kosztu dostawy, sumy oraz pozostałej należności bez `float`.
 
-Etap nie dodaje kursów walut, przewalutowań, automatycznej synchronizacji, kluczy obcych do katalogu ani zmian w snapshotach i PDF wystawionych dokumentów.
+Sam Etap 1E.1 nie dodawał kursów walut, przewalutowań, automatycznej synchronizacji, kluczy obcych do katalogu ani zmian w snapshotach i PDF wystawionych dokumentów.
+
+### Etap 1E.2 — historyczny kurs średni NBP Faktury VAT
+
+`InvoiceExchangeRateReferenceDateResolver` wyznacza datę odniesienia i wersjonowaną regułę z finalnych `issue_date` oraz `sale_date`; nie korzysta z czasu bieżącego ani fallbacku do daty zamówienia. `NbpExchangeRateClient` jest niezależnym klientem HTTP bez znajomości modelu Faktury. Pobiera XML pojedynczej waluty dla zakresu maksymalnie 93 dni, waliduje kod, tabelę, numer publikacji, daty i dodatni dziesiętny `Mid`, po czym jawnie wybiera najnowszą publikację wcześniejszą od daty odniesienia. Konfiguracja HTTPS, timeoutów i retry znajduje się w `config/nbp.php`. Ponawiane są tylko błędy połączenia i 5xx; 404 oraz błędy treści nie są ponawiane.
+
+`InvoiceCurrencyConversionService` korzysta z `CurrencyCatalog`, `currencies.nbp_table`, resolvera i klienta. Dla waluty obcej przelicza istniejące grupy `tax_summary_snapshot`, używając pełnego tekstu kursu i arytmetyki dziesiętnej bez `float`. Netto i VAT są mnożone osobno oraz zaokrąglane half-up do dwóch miejsc, brutto jest ich sumą, a sumy dokumentu wynikają z gotowych grup. Wynik wraz z metadanymi kursu trafia do `invoices.tax_metadata_snapshot`; nie powstaje tabela ani cache kursów.
+
+`InvoiceIssuingService` działa dwufazowo. Przed transakcją przygotowuje podstawowy dokument, ustala kontekst i pobiera kurs. W transakcji blokuje zamówienie oraz serię, ponownie przygotowuje dokument i porównuje walutę, daty odniesienia oraz tabelę. Przy zmianie wycofuje próbę i maksymalnie raz ponawia cały proces poza transakcją. Dopiero po zgodnym przeliczeniu tworzy slot, szkic i pozycje, a następnie nadaje numer. Oczekiwanie na NBP nie odbywa się pod blokadami bazy.
+
+Przeliczenie jest wywoływane wyłącznie przez ścieżkę wystawiania Faktury VAT. `InvoiceDocumentPreparationService`, `InvoiceSnapshotBuilder`, `ProformaService` i renderer PDF nie wykonują HTTP. Faktura PLN i wszystkie Pro formy zachowują pusty `tax_metadata_snapshot`; kurs nie wpływa na hash ani rewizje Pro formy. PDF nie został zmieniony, a prezentacja kursu należy do Etapu 1E.3.
 
 ## Etap 1F
 

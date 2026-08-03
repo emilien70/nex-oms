@@ -14,4 +14,16 @@ final readonly class PreparedInvoiceDocument
         public array $itemAttributes,
         public array $hashPayload,
     ) {}
+
+    /** @param array<string, mixed> $taxMetadataSnapshot */
+    public function withTaxMetadataSnapshot(array $taxMetadataSnapshot): self
+    {
+        return new self(
+            invoiceAttributes: array_replace($this->invoiceAttributes, [
+                'tax_metadata_snapshot' => $taxMetadataSnapshot,
+            ]),
+            itemAttributes: $this->itemAttributes,
+            hashPayload: $this->hashPayload,
+        );
+    }
 }

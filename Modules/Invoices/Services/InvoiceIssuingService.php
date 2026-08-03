@@ -14,13 +14,18 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Models\OrderDocumentSlot;
+use Modules\Invoices\ValueObjects\InvoiceCurrencyConversionContext;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
+use Modules\Invoices\ValueObjects\NbpExchangeRate;
 
 class InvoiceIssuingService
 {
+    private const MAX_CONTEXT_ATTEMPTS = 2;
+
     public function __construct(
         private readonly InvoiceDocumentPreparationService $preparation,
         private readonly InvoiceNumberingService $numbering,
+        private readonly InvoiceCurrencyConversionService $currencyConversion,
     ) {}
 
     public function issue(Order $order, InvoiceSeries $series, InvoiceOperationContext $context): Invoice
@@ -29,48 +34,102 @@ class InvoiceIssuingService
         $this->assertSeries($series);
 
         try {
-            return DB::transaction(function () use ($order, $series, $context): Invoice {
-                $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
-                $managedSeries = InvoiceSeries::query()->lockForUpdate()->findOrFail($series->getKey());
-                $this->assertInvoiceDoesNotExist($managedOrder);
-                $this->assertSeries($managedSeries);
-                $relatedProforma = $this->relatedProforma($managedOrder);
+            for ($attempt = 1; $attempt <= self::MAX_CONTEXT_ATTEMPTS; $attempt++) {
+                $currentOrder = Order::query()->findOrFail($order->getKey());
+                $currentSeries = InvoiceSeries::query()->findOrFail($series->getKey());
+                $this->assertInvoiceDoesNotExist($currentOrder);
+                $this->assertSeries($currentSeries);
 
-                $slot = OrderDocumentSlot::query()->create([
-                    'order_id' => $managedOrder->getKey(),
-                    'document_type' => InvoiceDocumentType::Invoice,
-                    'invoice_id' => null,
-                ]);
-                $invoice = Invoice::query()->create([
-                    'order_id' => $managedOrder->getKey(),
-                    'invoice_series_id' => $managedSeries->getKey(),
-                    'document_type' => InvoiceDocumentType::Invoice,
-                    'status' => InvoiceDocumentStatus::Draft,
-                    'revision_number' => 1,
-                ]);
-                $prepared = $this->preparation->forCreation($managedOrder, $managedSeries, $context);
-                $invoiceAttributes = $this->withRelatedProformaSnapshot(
-                    $prepared->invoiceAttributes,
-                    $relatedProforma,
-                );
-                $invoice->fill($invoiceAttributes);
-                $invoice->save();
+                $prepared = $this->preparation->forCreation($currentOrder, $currentSeries, $context);
+                $conversionContext = $this->currencyConversion->contextFor($prepared);
+                $rate = $this->currencyConversion->fetchRate($conversionContext);
 
-                $invoice->items()->createMany($prepared->itemAttributes);
-                $invoice = $this->assignNumber($invoice, $prepared->invoiceAttributes['issue_date']);
-                $this->afterNumberAssigned($invoice);
-                $invoice->status = InvoiceDocumentStatus::Issued;
-                $invoice->save();
-                $slot->update(['invoice_id' => $invoice->getKey()]);
+                try {
+                    return $this->persist(
+                        $currentOrder,
+                        $currentSeries,
+                        $context,
+                        $conversionContext,
+                        $rate,
+                    );
+                } catch (InvoiceDomainException $exception) {
+                    if ($exception->errorCode() !== 'invoice_exchange_rate_context_changed'
+                        || $attempt === self::MAX_CONTEXT_ATTEMPTS) {
+                        throw $exception;
+                    }
+                }
+            }
 
-                $supersededProforma = $this->supersedeProforma($relatedProforma, $invoice, $context);
-                $this->createOrderEvent($managedOrder, $invoice, $managedSeries, $context, $supersededProforma);
-
-                return $invoice->refresh()->load('items');
-            }, 3);
+            throw $this->currencyConversion->contextChanged();
         } catch (QueryException $exception) {
             throw $this->mapQueryException($order, $exception);
         }
+    }
+
+    private function persist(
+        Order $order,
+        InvoiceSeries $series,
+        InvoiceOperationContext $operationContext,
+        InvoiceCurrencyConversionContext $expectedConversionContext,
+        ?NbpExchangeRate $rate,
+    ): Invoice {
+        return DB::transaction(function () use (
+            $order,
+            $series,
+            $operationContext,
+            $expectedConversionContext,
+            $rate,
+        ): Invoice {
+            $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
+            $managedSeries = InvoiceSeries::query()->lockForUpdate()->findOrFail($series->getKey());
+            $this->assertInvoiceDoesNotExist($managedOrder);
+            $this->assertSeries($managedSeries);
+
+            $prepared = $this->preparation->forCreation($managedOrder, $managedSeries, $operationContext);
+            $actualConversionContext = $this->currencyConversion->contextFor($prepared);
+            if (! $expectedConversionContext->equals($actualConversionContext)) {
+                throw $this->currencyConversion->contextChanged();
+            }
+
+            $prepared = $this->currencyConversion->apply($prepared, $actualConversionContext, $rate);
+            $relatedProforma = $this->relatedProforma($managedOrder);
+            $slot = OrderDocumentSlot::query()->create([
+                'order_id' => $managedOrder->getKey(),
+                'document_type' => InvoiceDocumentType::Invoice,
+                'invoice_id' => null,
+            ]);
+            $invoice = Invoice::query()->create([
+                'order_id' => $managedOrder->getKey(),
+                'invoice_series_id' => $managedSeries->getKey(),
+                'document_type' => InvoiceDocumentType::Invoice,
+                'status' => InvoiceDocumentStatus::Draft,
+                'revision_number' => 1,
+            ]);
+            $invoiceAttributes = $this->withRelatedProformaSnapshot(
+                $prepared->invoiceAttributes,
+                $relatedProforma,
+            );
+            $invoice->fill($invoiceAttributes);
+            $invoice->save();
+
+            $invoice->items()->createMany($prepared->itemAttributes);
+            $invoice = $this->assignNumber($invoice, $prepared->invoiceAttributes['issue_date']);
+            $this->afterNumberAssigned($invoice);
+            $invoice->status = InvoiceDocumentStatus::Issued;
+            $invoice->save();
+            $slot->update(['invoice_id' => $invoice->getKey()]);
+
+            $supersededProforma = $this->supersedeProforma($relatedProforma, $invoice, $operationContext);
+            $this->createOrderEvent(
+                $managedOrder,
+                $invoice,
+                $managedSeries,
+                $operationContext,
+                $supersededProforma,
+            );
+
+            return $invoice->refresh()->load('items');
+        }, 3);
     }
 
     /** Test seam proving that the outer transaction also owns numbering. */

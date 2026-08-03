@@ -2,6 +2,9 @@
 
 namespace Modules\Invoices\Services;
 
+use Brick\Math\BigDecimal;
+use Brick\Math\Exception\MathException;
+use Brick\Math\RoundingMode;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 
 class InvoiceDecimalCalculator
@@ -41,6 +44,17 @@ class InvoiceDecimalCalculator
             $this->divideHalfUpSigned($leftScaled * $rightScaled, $factor),
             $scale,
         );
+    }
+
+    public function multiplyAndRound(string $left, string $right, int $resultScale = 2): string
+    {
+        try {
+            return (string) BigDecimal::of($left)
+                ->multipliedBy(BigDecimal::of($right))
+                ->toScale($resultScale, RoundingMode::HalfUp);
+        } catch (MathException|\InvalidArgumentException $exception) {
+            throw $this->calculationException($exception);
+        }
     }
 
     public function compare(string $left, string $right, int $scale = 2): int
@@ -144,11 +158,13 @@ class InvoiceDecimalCalculator
         return $negative ? -$rounded : $rounded;
     }
 
-    private function calculationException(): InvoiceDomainException
+    private function calculationException(?\Throwable $previous = null): InvoiceDomainException
     {
         return new InvoiceDomainException(
             'invoice_tax_calculation_failed',
             'Nie można prawidłowo obliczyć wartości podatkowych dokumentu.',
+            [],
+            $previous,
         );
     }
 }
