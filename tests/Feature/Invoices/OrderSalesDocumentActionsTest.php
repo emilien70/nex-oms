@@ -94,6 +94,9 @@ class OrderSalesDocumentActionsTest extends TestCase
         $before = app(OrderSalesDocumentActionsView::class)->render($order);
         $this->assertStringContainsString($proforma->number, $before);
         $this->assertStringContainsString('WYSTAW FAKTUR', $before);
+        $this->assertStringContainsString('data-open-document-after-submit', $before);
+        $this->assertStringContainsString(route('orders.proforma.store', $order), $before);
+        $this->assertStringContainsString('value="'.$proforma->invoice_series_id.'"', $before);
 
         $invoice = app(InvoiceIssuingService::class)->issue($order, $invoiceSeries, $this->documentContext());
         $after = app(OrderSalesDocumentActionsView::class)->render($order);

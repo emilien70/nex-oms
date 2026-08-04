@@ -63,12 +63,12 @@ class InvoiceStage2DPreparationTest extends TestCase
         $snapshot = $invoice->order_snapshot['related_documents']['proforma'];
         $this->assertSame($proforma->getKey(), $snapshot['invoice_id']);
         $this->assertSame($proforma->number, $snapshot['number']);
-        $this->assertSame($proforma->revision_number, $snapshot['revision_number']);
+        $this->assertArrayNotHasKey('revision_number', $snapshot);
         $this->assertSame($proforma->issue_date->toDateString(), $snapshot['issue_date']);
 
         $proforma->update([
             'number' => 'PF ZMIENIONA',
-            'revision_number' => 99,
+            'lock_version' => 99,
             'issue_date' => '2027-01-01',
         ]);
 

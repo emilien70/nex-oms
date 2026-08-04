@@ -2,6 +2,7 @@
 
 namespace Modules\Invoices\Services;
 
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
@@ -20,6 +21,8 @@ class InvoicePdfStorage
         $path = $this->filenames->storagePath($invoice);
 
         if ($disk->exists($path)) {
+            $this->deleteStaleCacheFiles($disk, $path);
+
             return (string) $disk->get($path);
         }
 
@@ -36,6 +39,7 @@ class InvoicePdfStorage
 
             if ($disk->exists($path)) {
                 $disk->delete($temporary);
+                $this->deleteStaleCacheFiles($disk, $path);
 
                 return (string) $disk->get($path);
             }
@@ -52,6 +56,8 @@ class InvoicePdfStorage
                 }
             }
 
+            $this->deleteStaleCacheFiles($disk, $path);
+
             return (string) $disk->get($path);
         } catch (InvoiceDomainException $exception) {
             $disk->delete($temporary);
@@ -64,6 +70,28 @@ class InvoicePdfStorage
                 [],
                 $exception,
             );
+        }
+    }
+
+    public function delete(Invoice $invoice): void
+    {
+        $disk = Storage::disk('local');
+        $path = $this->filenames->storagePath($invoice);
+
+        $disk->delete($path);
+        $this->deleteStaleCacheFiles($disk, $path);
+    }
+
+    private function deleteStaleCacheFiles(FilesystemAdapter $disk, string $currentPath): void
+    {
+        $stalePaths = array_values(array_filter(
+            $disk->files(dirname($currentPath)),
+            static fn (string $candidate): bool => $candidate !== $currentPath
+                && preg_match('/^(invoice|proforma|correction|document)-v[^\\/]+\.pdf$/', basename($candidate)) === 1,
+        ));
+
+        if ($stalePaths !== []) {
+            $disk->delete($stalePaths);
         }
     }
 }

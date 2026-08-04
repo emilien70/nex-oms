@@ -257,7 +257,7 @@ Odpowiada za:
 - obliczenia podatkowe,
 - PDF,
 - pliki zewnętrzne,
-- historię dokumentu,
+- zdarzenia cyklu życia dokumentu bez kopii poprzednich stanów,
 - rejestr sprzedaży,
 - dane do JPK.
 
@@ -958,7 +958,7 @@ updated_at
 Podział odpowiedzialności:
 
 ```text
-invoice_events — pełna historia dokumentu
+invoice_events — wybrane zdarzenia cyklu życia dokumentu
 order_events   — skrócone zdarzenie widoczne na zamówieniu
 ```
 
@@ -967,8 +967,6 @@ Przykład:
 ```text
 invoice_events:
 - document_issued
-- buyer_updated
-- items_updated
 - pdf_generated
 - duplicate_generated
 - correction_issued
@@ -988,7 +986,7 @@ Istotne operacje powinny zapisywać dokument i zdarzenia w jednej transakcji.
 
 Etap 2D korzysta z `tecnickcom/tcpdf`. `InvoicePdfService` orkiestruje `InvoicePdfRenderer`, prywatny `InvoicePdfStorage`, deterministyczne nazwy plików, fonty i centralne formatowanie kwoty słownie. Renderer czyta wyłącznie snapshoty `Invoice` i `InvoiceItem`; zmiana aktualnego `Order` lub `InvoiceSeries` nie zmienia historycznego PDF.
 
-Pliki powstają na żądanie, poza transakcją wystawiania dokumentu. Najpierw zapisywany jest plik tymczasowy, a następnie atomowo przenoszony pod docelową ścieżkę na prywatnym dysku `local`. Faktura, Korekta i każda rewizja Pro formy mają deterministyczne, osobne ścieżki. Kontrolowana trasa `GET /invoices/{invoice}/pdf` odrzuca szkice i niekompletne snapshoty, nie ujawnia ścieżki storage oraz zwraca `application/pdf`, `Content-Disposition: inline` i prywatne nagłówki bez cache.
+Pliki powstają na żądanie, poza transakcją wystawiania dokumentu. Najpierw zapisywany jest plik tymczasowy, a następnie atomowo przenoszony pod docelową ścieżkę na prywatnym dysku `local`. Każdy dokument ma jedną deterministyczną ścieżkę bieżącego cache zależną od typu i wersji layoutu. Kontrolowana trasa `GET /invoices/{invoice}/pdf` odrzuca szkice i niekompletne snapshoty, nie ujawnia ścieżki storage oraz zwraca `application/pdf`, `Content-Disposition: inline` i prywatne nagłówki bez cache.
 
 TCPDF generuje A4 w orientacji pionowej bez domyślnego nagłówka i stopki, numerów stron oraz oznaczenia generatora. Nagłówki korzystają z Helvetica. Tekst korzysta z Verdany tylko wtedy, gdy font jest zarejestrowany i rzeczywiście dostępny; bezpiecznym fallbackiem Unicode jest DejaVu Sans.
 
@@ -1078,8 +1076,8 @@ Pro forma:
 - ma własny numer,
 - ma własny snapshot,
 - nie zwiększa rejestru sprzedaży VAT,
-- posiada pola rewizji,
-- jedno zamówienie ma docelowo jedną bieżącą logiczną Pro formę z kolejnymi wersjami zachowującymi numer.
+- posiada `source_snapshot_hash` i `last_refreshed_at`,
+- jedno zamówienie ma jedną bieżącą logiczną Pro formę zachowującą numer podczas odświeżenia.
 
 ---
 
@@ -1108,7 +1106,7 @@ Korekta przechowuje:
 - różnicę,
 - własne pozycje,
 - własny numer,
-- własną historię.
+- własny bieżący snapshot.
 
 Nie należy nadpisywać dokumentu źródłowego.
 
@@ -1187,7 +1185,7 @@ Architektura ma jednak zapewnić:
 - płatność,
 - korekty jako osobne dokumenty,
 - niezmienne snapshoty,
-- historię.
+- zdarzenia cyklu życia bez kopii poprzednich stanów.
 
 Po zakończeniu modułu faktur zostanie wykonany audyt gotowości KSeF.
 
@@ -1219,7 +1217,7 @@ Odpowiada za:
 - obliczenia,
 - wystawienie dokumentu,
 - korekty,
-- historię.
+- zdarzenia cyklu życia bez kopii poprzednich stanów.
 
 ## Kontroler
 
@@ -1255,7 +1253,7 @@ Nie należy wykonywać częściowego zapisu dokumentu poza transakcją.
 
 - nieużywaną serię można usunąć po walidacji,
 - używana seria powinna być dezaktywowana,
-- historia dokumentów nie może zostać usunięta.
+- użyta seria i bieżące dokumenty muszą zachować integralność.
 
 ## Faktury
 
@@ -1509,7 +1507,7 @@ Sam Etap 1E.1 nie dodawał kursów walut, przewalutowań, automatycznej synchron
 
 `InvoiceIssuingService` działa dwufazowo. Przed transakcją przygotowuje podstawowy dokument, ustala kontekst i pobiera kurs. W transakcji blokuje zamówienie oraz serię, ponownie przygotowuje dokument i porównuje walutę, daty odniesienia oraz tabelę. Przy zmianie wycofuje próbę i maksymalnie raz ponawia cały proces poza transakcją. Dopiero po zgodnym przeliczeniu tworzy slot, szkic i pozycje, a następnie nadaje numer. Oczekiwanie na NBP nie odbywa się pod blokadami bazy.
 
-Przeliczenie jest wywoływane wyłącznie przez ścieżkę wystawiania Faktury VAT. `InvoiceDocumentPreparationService`, `InvoiceSnapshotBuilder`, `ProformaService` i renderer PDF nie wykonują HTTP. Faktura PLN i wszystkie Pro formy zachowują pusty `tax_metadata_snapshot`; kurs nie wpływa na hash ani rewizje Pro formy. PDF nie został zmieniony, a prezentacja kursu należy do Etapu 1E.3.
+Przeliczenie jest wywoływane wyłącznie przez ścieżkę wystawiania Faktury VAT. `InvoiceDocumentPreparationService`, `InvoiceSnapshotBuilder`, `ProformaService` i renderer PDF nie wykonują HTTP. Faktura PLN i wszystkie Pro formy zachowują pusty `tax_metadata_snapshot`; kurs nie wpływa na hash Pro formy. PDF nie został zmieniony, a prezentacja kursu należy do Etapu 1E.3.
 
 ### Etap 1E.3 — prezentacja snapshotu walutowego w PDF
 
@@ -1519,7 +1517,7 @@ Generowanie PDF nie wywołuje klienta NBP ani `InvoiceCurrencyConversionService`
 
 Pusty `tax_metadata_snapshot` walutowej Faktury jest obsługiwany jako historyczny dokument bez sekcji PLN. Niepusty, częściowy lub niespójny snapshot zgłasza kontrolowany błąd `invoice_pdf_invalid_currency_conversion_snapshot`. Faktury PLN, Pro formy i Korekty nie otrzymują tej sekcji.
 
-`InvoicePdfFilenameGenerator` wersjonuje layout per typ dokumentu. Etap 1E.3 zmienia ścieżkę Faktury z `invoice-v33.pdf` na `invoice-v34.pdf`, pozostawiając `proforma-revision-<n>-v33.pdf` oraz `correction-v33.pdf`. Prywatny storage nie usuwa starych plików, a kolejne pobranie korzysta z cache bieżącej wersji.
+`InvoicePdfFilenameGenerator` wersjonuje layout per typ dokumentu. Bieżące nazwy cache nie zawierają technicznej wersji stanu dokumentu. Po rzeczywistej zmianie bieżący plik jest usuwany po commit, a kolejne pobranie generuje go ponownie.
 
 ## Etap 1F
 
@@ -1549,7 +1547,7 @@ Zaimplementowane elementy:
 - relacje Faktury i liniowego łańcucha Korekt,
 - snapshoty sprzedawcy, nabywcy, odbiorcy, wystawiającego, zamówienia, płatności, dostawy, ustawień serii i podatków,
 - snapshoty pozycji Korekty przed, po i różnicy,
-- pola rewizji Pro formy,
+- pola `source_snapshot_hash` i `last_refreshed_at` Pro formy,
 - blokada usunięcia serii posiadającej dokument lub szkic.
 
 Tabela `invoices` obsługuje `invoice`, `proforma` i `correction`. `order_id` jest nullable z `nullOnDelete`, `invoice_series_id` jest wymagane i chronione przed usunięciem serii, a pozycje dokumentu są usuwane kaskadowo wyłącznie wraz z dokumentem. `order_items` używa `nullOnDelete`, więc usunięcie pozycji zamówienia nie niszczy snapshotu dokumentu.
@@ -1590,9 +1588,9 @@ Tabela `order_document_slots` posiada unikalność `(order_id, document_type)` i
 
 `InvoiceIssuingService` wykonuje kontrolę typu i aktywności serii, ochronę duplikatu, tworzy szkic, snapshoty i pozycje, nadaje numer przez istniejący silnik Etapu 2B, wystawia dokument, wiąże slot, oznacza ewentualną Pro formę jako zastąpioną i zapisuje `OrderEvent`. Błąd na dowolnym etapie wycofuje również licznik numeracji.
 
-`ProformaService` tworzy pierwszy dokument i rewizję nr 1 albo porównuje kanoniczny SHA-256 z bieżącym stanem. Hash nie obejmuje technicznych ID, timestampów ani kontekstu operacji; sortuje klucze asocjacyjne, ale zachowuje kolejność pozycji. Brak zmiany niczego nie zapisuje. Zmiana zastępuje pozycje, aktualizuje snapshoty i dodaje niezmienną rewizję w `invoice_revisions`, zachowując tożsamość numeracji i pierwotne daty wystawienia.
+`ProformaService` tworzy pierwszy dokument albo porównuje kanoniczny SHA-256 z bieżącym stanem. Hash nie obejmuje technicznych ID, timestampów ani kontekstu operacji; sortuje klucze asocjacyjne, ale zachowuje kolejność pozycji. Brak zmiany niczego nie zapisuje. Zmiana zastępuje pozycje i aktualizuje bieżące snapshoty, zachowując tożsamość numeracji i pierwotne daty wystawienia.
 
-Faktura i Pro forma mogą istnieć równolegle. `proforma_superseded_at` jest trwałym znacznikiem blokady; `superseded_by_invoice_id` używa `nullOnDelete`, więc usunięcie Faktury w przyszłości nie usuwa informacji, że Pro forma została zastąpiona. Historia rewizji pozostaje dostępna.
+Faktura i Pro forma mogą istnieć równolegle. `proforma_superseded_at` jest trwałym znacznikiem blokady; `superseded_by_invoice_id` używa `nullOnDelete`, więc usunięcie Faktury w przyszłości nie usuwa informacji, że Pro forma została zastąpiona. Pro forma przechowuje wyłącznie jeden bieżący stan.
 
 Snapshoty są niezależne od późniejszych zmian `orders`, `order_items` i `invoice_series`. Waluta pochodzi z Order; domyślne `PLN` dotyczy wyłącznie tworzenia nowych, pustych danych, a nie naprawiania historii podczas wystawiania dokumentu. Brak opcjonalnych danych kontrahenta nie blokuje operacji, natomiast brak stawki VAT wymaganej przez konfigurację serii powoduje kontrolowany błąd i pełny rollback. Nie ma OSS ani kontroli kompletności zamówienia.
 
@@ -1600,27 +1598,37 @@ Etap 2C sam nie dodawał UI, kontrolerów, tras wystawiania ani PDF; ścieżki r
 
 ## Etap 2D — warstwa HTTP, fragment zamówienia i PDF
 
-`OrderInvoiceController` i `OrderProformaController` przyjmują wyłącznie `invoice_series_id`, budują ręczny `InvoiceOperationContext` i delegują odpowiednio do `InvoiceIssuingService` oraz `ProformaService`. Kontrolery nie tworzą dokumentów, pozycji, slotów, numerów ani rewizji. Kontrolowane błędy domenowe mają stabilny kod i polski komunikat, a nieoczekiwane wyjątki są logowane bez ujawniania SQL użytkownikowi.
+`OrderInvoiceController` i `OrderProformaController` przyjmują wyłącznie `invoice_series_id`, budują ręczny `InvoiceOperationContext` i delegują odpowiednio do `InvoiceIssuingService` oraz `ProformaService`. Kontrolery nie tworzą dokumentów, pozycji, slotów ani numerów. Kontrolowane błędy domenowe mają stabilny kod i polski komunikat, a nieoczekiwane wyjątki są logowane bez ujawniania SQL użytkownikowi.
 
-Stan akcji dokumentów jest centralnie budowany przez `OrderSalesDocumentActionsView` i jeden partial Blade używany zarówno przy pierwszym renderze, jak i w odpowiedzi AJAX. Event delegation przechwytuje formularz, blokuje akcje bez zmiany tekstu, wysyła `fetch()` i zastępuje wyłącznie stabilny kontener fragmentu. Nie ma przeładowania całej strony, modala, preview ani komunikatu sukcesu. Jedna aktywna seria daje zwykły przycisk, wiele serii daje dropdown. Po Fakturze Pro forma jest całkowicie ukryta w kafelku; rewizje pozostają w bazie.
+Stan akcji dokumentów jest centralnie budowany przez `OrderSalesDocumentActionsView` i jeden partial Blade używany zarówno przy pierwszym renderze, jak i w odpowiedzi AJAX. Event delegation przechwytuje formularz, blokuje akcje bez zmiany tekstu, wysyła `fetch()` i zastępuje wyłącznie stabilny kontener fragmentu. Nie ma przeładowania całej strony, modala, preview ani komunikatu sukcesu. Jedna aktywna seria daje zwykły przycisk, wiele serii daje dropdown. Kliknięcie numeru istniejącej Pro formy najpierw odświeża jej bieżący snapshot przez ten sam centralny endpoint, a po powodzeniu otwiera aktualny prywatny PDF. Po Fakturze Pro forma jest całkowicie ukryta w kafelku, a jej bieżący dokument pozostaje w bazie.
 
-`InvoicePdfViewModelFactory` tworzy warianty Faktury VAT, Pro formy i Korekty wyłącznie z zapisanych danych. Pro forma nie pokazuje rewizji, osoby wystawiającej ani dodatkowych informacji. Korekta wymaga kompletnych snapshotów stanu przed, po i różnicy; jej renderer jest gotowy, ale serwis wystawiania i UI Korekt nie istnieją. `InvoiceAmountInWordsFormatter` wykonuje konwersję bez `float`, zachowuje grosze i znak wartości ujemnych.
+`InvoicePdfViewModelFactory` tworzy warianty Faktury VAT, Pro formy i Korekty wyłącznie z zapisanych danych. Pro forma nie pokazuje technicznego stanu blokady, osoby wystawiającej ani dodatkowych informacji. Korekta wymaga kompletnych snapshotów stanu przed, po i różnicy; jej renderer jest gotowy, ale serwis wystawiania i UI Korekt nie istnieją. `InvoiceAmountInWordsFormatter` wykonuje konwersję bez `float`, zachowuje grosze i znak wartości ujemnych.
 
-`InvoiceItemBuilder` zachowuje pozycję dostawy o wartości `0.00`, jeśli metoda dostawy istnieje i seria ją uwzględnia. `InvoiceIssuingService` kopiuje do `order_snapshot.related_documents.proforma` identyfikator, numer, rewizję i datę istniejącej Pro formy przed jej oznaczeniem jako zastąpionej.
+`InvoiceItemBuilder` zachowuje pozycję dostawy o wartości `0.00`, jeśli metoda dostawy istnieje i seria ją uwzględnia. `InvoiceIssuingService` kopiuje do `order_snapshot.related_documents.proforma` identyfikator, numer i datę istniejącej Pro formy przed jej oznaczeniem jako zastąpionej.
+
+## Etap 2E — edycja Faktur VAT na snapshotach
+
+`InvoiceEditabilityPolicy` centralnie dopuszcza wyłącznie wystawioną Fakturę VAT z numerem, serią i zgodnym `OrderDocumentSlot`, bez Korekt. `InvoiceEditService` orkiestruje niezależne mutacje snapshotów i pozycji w transakcjach, zawsze blokując `Order` przed `Invoice`. Requesty blokują pola techniczne, a ukryte `expected_lock_version` chroni przed zasadą ostatniego zapisu.
+
+Pozycje są budowane przez `InvoiceEditableItemsService` i liczone przez istniejące kalkulatory dziesiętne. Kopiowanie z zamówienia czyta historyczny `series_settings_snapshot`, wymaga zgodnej waluty i zastępuje pozycje atomowo. Zmiana daty wystawienia jest weryfikowana przez `InvoiceNumberFormatter` oraz `InvoiceNumberingPeriodResolver`; nie dotyka licznika i jest odrzucana, gdy zmieniłaby numer lub okres.
+
+Każdy dokument sprzedaży przechowuje jeden bieżący stan. Rzeczywista edycja nadpisuje snapshoty lub pozycje i zwiększa `lock_version` dokładnie o jeden; brak semantycznej zmiany nie zapisuje dokumentu. `lock_version` jest wyłącznie niewidocznym dla użytkownika mechanizmem optimistic locking, nie historią ani wersją biznesową. Zwykła edycja Faktury nie tworzy `OrderEvent`.
+
+`InvoiceEditCurrencyConversionService` zachowuje snapshot NBP dla zmian tekstowych, przelicza zmienione kwoty zapisanym kursem bez HTTP i przygotowuje nowy kurs poza transakcją tylko po zmianie daty odniesienia. W transakcji ponownie sprawdza kontekst. Pusty historyczny snapshot walutowy blokuje tylko operacje pieniężne i daty kursowe, natomiast niepoprawny niepusty snapshot blokuje całą edycję.
+
+Warstwa HTTP zwraca tylko wymagane fragmenty Blade i aktualne `lock_version`, którym JavaScript aktualizuje wszystkie ukryte pola formularzy. Ekran edycji nie zapisuje automatycznie danych skopiowanych do formularza i nie pokazuje komunikatów sukcesu. Faktura, Pro forma i Korekta mają po jednym bieżącym pliku cache PDF zależnym od wersji layoutu. Rzeczywista zmiana usuwa bieżący cache dopiero po commit, a kolejne otwarcie odtwarza go z aktualnych snapshotów.
+
+`InvoiceRevision` nie jest używany. Migracja porządkująca usuwa tabelę `invoice_revisions` i kolumnę `revision_number`; standardowe `updated_at` oznacza jedynie ostatnią aktualizację rekordu. Pro forma zachowuje `source_snapshot_hash` do wykrywania zmiany źródła oraz `last_refreshed_at` dla czasu ostatniego rzeczywistego odświeżenia. System nie przechowuje poprzednich stanów ani poprzednich PDF-ów.
 
 ## Kolejne etapy
 
-- edycja,
-- centralny proces Korekt,
-- pliki zewnętrzne,
-- historia edycji Faktur i Korekt,
-- e-mail,
-- rejestr sprzedaży,
-- JPK,
-- audyt KSeF,
-- KSeF.
-
-Przyszła edycja dokumentu będzie modyfikowała snapshoty `invoices` i `invoice_items`, nigdy automatycznie `orders`, `order_items` ani `invoice_series`. Kopiowanie aktualnych danych zamówienia będzie jawne. Edytowalność nie będzie zależeć od NIP-u; zostanie oparta na przyszłym snapshotcie trybu KSeF serii. Faktura `exclude` będzie edytowalna tylko bez Korekt i innych blokad, wystawiona Faktura `send` będzie zmieniana przez Korektę, Pro forma nie podlega KSeF, a Korekta dziedziczy decyzję Faktury źródłowej. Etap 2A nie dodaje tych pól ani procesów.
+- Etap 2F — centralny proces Korekt,
+- Etap 2G — dokumenty zewnętrzne PDF,
+- Etap 2H — wysyłka dokumentów e-mailem,
+- Etap 3A — rejestr sprzedaży,
+- Etap 3B — JPK,
+- Etap 3C — audyt KSeF,
+- Etap 3D — integracja KSeF.
 
 ---
 

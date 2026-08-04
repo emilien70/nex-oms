@@ -35,7 +35,7 @@ class OrderSalesDocumentAjaxResponder
             'invoice_document_slot_conflict',
             'invoice_document_slot_inconsistent',
             'proforma_locked_by_invoice',
-            'proforma_revision_conflict',
+            'proforma_refresh_conflict',
         ];
 
         return response()->json([

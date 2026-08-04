@@ -23,8 +23,8 @@ class ProformaService
     public function __construct(
         private readonly InvoiceDocumentPreparationService $preparation,
         private readonly ProformaSourceSnapshotHasher $hasher,
-        private readonly InvoiceRevisionBuilder $revisionBuilder,
         private readonly InvoiceNumberingService $numbering,
+        private readonly InvoicePdfStorage $pdfStorage,
     ) {}
 
     public function createOrRefresh(
@@ -81,7 +81,7 @@ class ProformaService
                     'invoice_series_id' => $managedSeries->getKey(),
                     'document_type' => InvoiceDocumentType::Proforma,
                     'status' => InvoiceDocumentStatus::Draft,
-                    'revision_number' => 1,
+                    'lock_version' => 1,
                     'last_refreshed_at' => null,
                 ]);
                 $prepared = $this->preparation->forCreation($managedOrder, $managedSeries, $context);
@@ -97,8 +97,6 @@ class ProformaService
                 $invoice->save();
                 $slot->update(['invoice_id' => $invoice->getKey()]);
 
-                $invoice->unsetRelation('items');
-                $this->revisionBuilder->create($invoice, $context);
                 $this->createOrderEvent($managedOrder, $invoice, $managedSeries, $context, false);
 
                 return new ProformaOperationResult(
@@ -166,13 +164,12 @@ class ProformaService
                 $managedProforma->items()->createMany($prepared->itemAttributes);
                 $managedProforma->fill($prepared->invoiceAttributes);
                 $managedProforma->forceFill($preserved);
-                $managedProforma->revision_number++;
+                $managedProforma->lock_version++;
                 $managedProforma->source_snapshot_hash = $newHash;
                 $managedProforma->last_refreshed_at = $context->occurredAt;
                 $managedProforma->save();
                 $managedProforma->unsetRelation('items');
 
-                $this->revisionBuilder->create($managedProforma, $context);
                 $this->createOrderEvent(
                     $managedOrder,
                     $managedProforma,
@@ -181,6 +178,7 @@ class ProformaService
                     true,
                     $previousHash,
                 );
+                DB::afterCommit(fn () => $this->pdfStorage->delete($managedProforma));
 
                 return new ProformaOperationResult(
                     $managedProforma->refresh()->load('items'),
@@ -190,8 +188,8 @@ class ProformaService
         } catch (QueryException $exception) {
             if ($this->isUniqueConstraintViolation($exception)) {
                 throw new InvoiceDomainException(
-                    'proforma_revision_conflict',
-                    'Nie udało się zapisać nowej wersji Pro formy z powodu równoległej operacji.',
+                    'proforma_refresh_conflict',
+                    'Nie udało się odświeżyć Pro formy z powodu równoległej operacji.',
                     [],
                     $exception,
                 );
@@ -328,7 +326,6 @@ class ProformaService
         $payload = [
             'invoice_id' => $invoice->getKey(),
             'invoice_number' => $invoice->number,
-            'revision_number' => $invoice->revision_number,
             'invoice_series_id' => $series->getKey(),
             'invoice_series_name' => $series->name,
             'total_gross' => $invoice->total_gross,

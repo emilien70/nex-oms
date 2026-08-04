@@ -19,6 +19,9 @@ use Illuminate\Support\Facades\Route;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
 use Modules\Invoices\Http\Controllers\InvoiceController;
+use Modules\Invoices\Http\Controllers\InvoiceEditController;
+use Modules\Invoices\Http\Controllers\InvoiceItemController;
+use Modules\Invoices\Http\Controllers\InvoiceOrderItemsCopyController;
 use Modules\Invoices\Http\Controllers\InvoicePdfController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesNextNumberController;
@@ -91,6 +94,14 @@ Route::delete('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderSta
 Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])->name('settings.variables.index');
 
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
+Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');
+Route::patch('/invoices/{invoice}/recipient', [InvoiceEditController::class, 'updateRecipient'])->name('invoices.recipient.update');
+Route::patch('/invoices/{invoice}/details', [InvoiceEditController::class, 'updateDetails'])->name('invoices.details.update');
+Route::post('/invoices/{invoice}/items/copy-from-order', [InvoiceOrderItemsCopyController::class, 'store'])->name('invoices.items.copy-from-order');
+Route::post('/invoices/{invoice}/items', [InvoiceItemController::class, 'store'])->name('invoices.items.store');
+Route::patch('/invoices/{invoice}/items/{invoiceItem}', [InvoiceItemController::class, 'update'])->name('invoices.items.update');
+Route::delete('/invoices/{invoice}/items/{invoiceItem}', [InvoiceItemController::class, 'destroy'])->name('invoices.items.destroy');
 Route::get('/invoices/{invoice}/pdf', [InvoicePdfController::class, 'show'])->name('invoices.pdf');
 Route::get('/invoices/settings/series', [InvoiceSeriesController::class, 'index'])->name('invoices.series.index');
 Route::get('/invoices/settings/series/form', [InvoiceSeriesController::class, 'form'])->name('invoices.series.form');

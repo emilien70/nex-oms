@@ -3005,9 +3005,16 @@
                 const container = form.closest('[data-sales-document-actions]');
                 const errorBox = container?.querySelector('[data-sales-document-error]');
                 const actions = Array.from(container?.querySelectorAll('button') || []);
+                const openDocumentAfterSubmit = form.hasAttribute('data-open-document-after-submit');
+                const documentWindow = openDocumentAfterSubmit ? window.open('about:blank', '_blank') : null;
 
                 if (!container) {
+                    documentWindow?.close();
                     return;
+                }
+
+                if (documentWindow) {
+                    documentWindow.opener = null;
                 }
 
                 if (errorBox) {
@@ -3037,6 +3044,10 @@
                         throw new Error('Nie udało się odświeżyć akcji dokumentów.');
                     }
 
+                    if (openDocumentAfterSubmit && typeof payload.document?.pdf_url !== 'string') {
+                        throw new Error('Nie udało się otworzyć dokumentu PDF.');
+                    }
+
                     const template = document.createElement('template');
                     template.innerHTML = payload.html.trim();
                     const replacement = template.content.firstElementChild;
@@ -3046,7 +3057,17 @@
                     }
 
                     container.replaceWith(replacement);
+
+                    if (openDocumentAfterSubmit) {
+                        if (documentWindow) {
+                            documentWindow.location.replace(payload.document.pdf_url);
+                        } else {
+                            window.location.assign(payload.document.pdf_url);
+                        }
+                    }
                 } catch (error) {
+                    documentWindow?.close();
+
                     if (errorBox) {
                         errorBox.textContent = error.message || 'Nie udało się wykonać operacji na dokumencie. Spróbuj ponownie.';
                         errorBox.hidden = false;

@@ -25,7 +25,7 @@ class Invoice extends Model
         'sale_date',
         'payment_due_date',
         'issued_at',
-        'revision_number',
+        'lock_version',
         'source_snapshot_hash',
         'last_refreshed_at',
         'proforma_superseded_at',
@@ -68,7 +68,7 @@ class Invoice extends Model
         'issued_at' => 'datetime',
         'last_refreshed_at' => 'datetime',
         'proforma_superseded_at' => 'datetime',
-        'revision_number' => 'integer',
+        'lock_version' => 'integer',
         'sequence_number' => 'integer',
         'correction_totals_snapshot' => 'array',
         'seller_snapshot' => 'array',
@@ -101,11 +101,6 @@ class Invoice extends Model
     public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class)->orderBy('position')->orderBy('id');
-    }
-
-    public function revisions(): HasMany
-    {
-        return $this->hasMany(InvoiceRevision::class)->orderBy('revision_number');
     }
 
     public function documentSlots(): HasMany

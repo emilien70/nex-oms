@@ -103,33 +103,33 @@ class InvoicePdfTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_invoice_cache_uses_v39_without_removing_old_v38_and_other_documents_keep_v33(): void
+    public function test_documents_use_one_current_layout_versioned_cache_file(): void
     {
         Storage::fake('local');
         Http::preventStrayRequests();
         $invoice = $this->foreignInvoice();
-        $oldPath = 'invoices/'.$invoice->getKey().'/invoice-v38.pdf';
+        $oldPath = 'invoices/'.$invoice->getKey().'/invoice-v39.pdf';
         Storage::disk('local')->put($oldPath, '%PDF-1.7 old layout');
 
         $first = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
         $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
 
-        $this->assertStringEndsWith('/invoice-v39.pdf', $newPath);
+        $this->assertStringEndsWith('/invoice-v40.pdf', $newPath);
         $this->assertSame($first, $second);
-        Storage::disk('local')->assertExists($oldPath);
+        Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($newPath);
-        $this->assertCount(2, Storage::disk('local')->allFiles('invoices/'.$invoice->getKey()));
+        $this->assertSame([$newPath], Storage::disk('local')->allFiles('invoices/'.$invoice->getKey()));
 
         $proforma = $invoice->replicate();
         $proforma->id = 9001;
         $proforma->document_type = InvoiceDocumentType::Proforma;
-        $proforma->revision_number = 3;
+        $proforma->lock_version = 3;
         $correction = $invoice->replicate();
         $correction->id = 9002;
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
-        $this->assertStringEndsWith('/proforma-revision-3-v33.pdf', $filenames->storagePath($proforma));
+        $this->assertStringEndsWith('/proforma-v33.pdf', $filenames->storagePath($proforma));
         $this->assertStringEndsWith('/correction-v33.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
@@ -422,7 +422,7 @@ class InvoicePdfTest extends TestCase
         );
     }
 
-    public function test_proforma_pdf_uses_current_revision_path_and_hides_invoice_only_sections(): void
+    public function test_proforma_pdf_uses_current_cache_path_and_hides_invoice_only_sections(): void
     {
         Storage::fake('local');
         $order = $this->createDocumentOrder();

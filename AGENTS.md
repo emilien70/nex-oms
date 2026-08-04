@@ -347,7 +347,7 @@ Order hasMany Invoices
 
 Nie dodawaj pojedynczego `invoice_id` do tabeli `orders`.
 
-Relacja `hasMany` obsługuje różne typy dokumentów i ich historię. Jedno zamówienie może posiadać najwyżej jedną istniejącą fakturę VAT oraz jedną bieżącą logiczną Pro formę z kolejnymi wersjami zachowującymi ten sam numer. Jedna faktura VAT może posiadać wiele kolejnych Korekt tworzących liniowy łańcuch.
+Relacja `hasMany` obsługuje różne typy dokumentów. Jedno zamówienie może posiadać najwyżej jedną istniejącą fakturę VAT oraz jedną bieżącą logiczną Pro formę z jednym stanem i niezmiennym numerem. Jedna faktura VAT może posiadać wiele kolejnych Korekt tworzących liniowy łańcuch.
 
 ---
 
@@ -450,7 +450,7 @@ PDF
 dokumenty zewnętrzne
 wysyłka e-mail
 rejestr sprzedaży
-historia dokumentów
+zdarzenia cyklu życia dokumentów bez kopii poprzednich stanów
 JPK
 GTU
 wewnętrzne ID produktu
@@ -717,7 +717,7 @@ Musi posiadać:
 - dane po zmianie,
 - różnicę,
 - własny snapshot,
-- własną historię.
+- własny bieżący snapshot.
 
 Planowane są:
 
@@ -839,16 +839,16 @@ Etap 2D korzysta z `tecnickcom/tcpdf` do generowania prywatnych plików PDF na �
 
 ---
 
-# 27. Historia dokumentów
+# 27. Zdarzenia dokumentów
 
-Docelowy podział:
+Docelowy podział zdarzeń cyklu życia:
 
 ```text
-invoice_events — pełna historia dokumentu
+invoice_events — wybrane zdarzenia cyklu życia dokumentu
 order_events   — skrócone zdarzenia fakturowe widoczne przy zamówieniu
 ```
 
-Ważne operacje finansowe powinny wykonywać zapis dokumentu i zdarzenia w jednej transakcji.
+Zdarzenia nie przechowują kopii poprzednich stanów dokumentu. Zwykła edycja Faktury nie tworzy zdarzenia. Operacje wystawienia i inne przyszłe zdarzenia cyklu życia powinny być zapisywane w tej samej transakcji co dokument.
 
 ---
 
@@ -1098,7 +1098,7 @@ Model danych obsługuje liniowy łańcuch Korekt:
 - jedna Faktura może posiadać wiele kolejnych Korekt,
 - skuteczny stan po Korektach nie jest jeszcze obliczany.
 
-Pro forma posiada pola `revision_number`, `source_snapshot_hash` i `last_refreshed_at`. Przyszły serwis ma utrzymywać jedną logiczną Pro formę zamówienia, kolejne wersje i ten sam numer. Etap 2A nie odświeża Pro formy i nie tworzy historii rewizji.
+Pro forma posiada pola `source_snapshot_hash` i `last_refreshed_at`. Serwis utrzymuje jedną logiczną Pro formę zamówienia z jednym bieżącym stanem i niezmiennym numerem. Etap 2A nie odświeża jeszcze Pro formy.
 
 `invoice_items.product_id` jest nullable, indeksowane i nie posiada klucza obcego. Tabela oraz model `Product` nie istnieją. Historyczne pozycje dokumentów muszą działać bez katalogu produktów.
 
@@ -1162,20 +1162,19 @@ Przyszły serwis usuwania może cofnąć wyłącznie wolny koniec numeracji i ni
 Etap 2C wdraża centralne przygotowanie i wystawianie dokumentów z zamówienia:
 
 - `order_document_slots` jako bazodanową ochronę jednej Faktury VAT i jednej logicznej Pro formy na zamówienie,
-- `invoice_revisions` jako niezmienną historię wersji Pro formy,
 - pola trwałego zastąpienia Pro formy przez Fakturę VAT,
 - snapshoty sprzedawcy, nabywcy, odbiorcy, zamówienia, płatności, dostawy i ustawień serii,
 - pozycje produktów oraz opcjonalną pozycję dostawy,
 - deterministyczne obliczenia netto, VAT i brutto bez użycia `float`,
 - daty dokumentu i wyrenderowane informacje dodatkowe,
 - `InvoiceIssuingService` jako jedyne centralne wejście do przyszłych ścieżek wystawiania Faktury VAT,
-- `ProformaService` utrzymujący jedną logiczną Pro formę, jej kanoniczny hash oraz rewizje,
+- `ProformaService` utrzymujący jedną logiczną Pro formę i jej kanoniczny hash,
 - zdarzenia `invoice_issued`, `proforma_issued` i `proforma_refreshed`,
-- jedną transakcję obejmującą slot, dokument, pozycje, numerację, rewizję i zdarzenie zamówienia.
+- jedną transakcję obejmującą slot, dokument, pozycje, numerację i zdarzenie zamówienia.
 
 Jedno zamówienie może mieć najwyżej jedną istniejącą Fakturę VAT i jedną logiczną Pro formę. Faktura i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie usuwa Pro formy, lecz trwale oznacza ją jako zastąpioną i blokuje dalsze odświeżanie. Usunięcie Faktury zastępującej w przyszłości nie odblokuje Pro formy.
 
-Pierwsze utworzenie Pro formy zużywa numer i zapisuje rewizję nr 1. Kolejne wywołanie bez zmiany kanonicznego hasha niczego nie zapisuje. Zmiana treści odświeża ten sam dokument i dodaje rewizję, zachowując numer, serię, okres, `issue_date` i `issued_at`. Sama zmiana `orders.updated_at` nie tworzy rewizji.
+Pierwsze utworzenie Pro formy zużywa numer i zapisuje jej bieżący stan. Kolejne wywołanie bez zmiany kanonicznego hasha niczego nie zapisuje. Zmiana treści nadpisuje bieżące snapshoty i pozycje tego samego dokumentu, zachowując numer, serię, okres, `issue_date` i `issued_at`. Sama zmiana `orders.updated_at` nie wpływa na hash.
 
 Waluta pochodzi z zamówienia. Domyślne `PLN` jest dozwolone wyłącznie przy tworzeniu nowych, pustych danych; nie wolno po cichu zastępować brakującej lub nieznanej waluty historycznej podczas wystawiania dokumentu. Brak NIP-u, telefonu, e-maila lub opcjonalnych danych adresowych nie blokuje dokumentu. Brak wymaganej stawki VAT nie jest zastępowany przypadkową wartością i kończy operację kontrolowanym błędem oraz pełnym rollbackiem. Etap nie dodaje OSS ani kontroli kompletności zamówienia.
 
@@ -1196,13 +1195,27 @@ Etap 2C nie implementuje:
 
 Etap 2D udostępnia AJAX-owe wystawianie Faktury VAT i tworzenie Pro formy z istniejących przycisków `WYSTAW FAKTURĘ` oraz `PRO FORMA` w kafelku „Zarządzanie” zamówienia. Nie powstaje drugi panel dokumentów. Operacja nie używa modala ani podglądu, nie przeładowuje całej strony, nie zmienia tekstu przycisku podczas żądania i nie pokazuje komunikatu sukcesu. Backend zwraca ponownie wyrenderowany fragment Blade, a potwierdzeniem powodzenia jest numer dokumentu zastępujący akcję.
 
-Dla jednej aktywnej serii widoczny jest zwykły przycisk, a dla wielu serii dropdown zawierający nazwę i format. Po Pro formie jej numer otwiera prywatny PDF w nowej karcie, bez numeru rewizji i bez ręcznego odświeżania w UI. Po wystawieniu Faktury akcja i numer Pro formy są całkowicie ukryte w kafelku, chociaż dokument oraz rewizje pozostają w bazie.
+Dla jednej aktywnej serii widoczny jest zwykły przycisk, a dla wielu serii dropdown zawierający nazwę i format. Po utworzeniu Pro formy jej numer otwiera prywatny PDF w nowej karcie. Po wystawieniu Faktury akcja i numer Pro formy są całkowicie ukryte w kafelku, chociaż bieżący dokument pozostaje w bazie.
 
-PDF Faktury VAT, Pro formy i gotowy wariant renderera Korekty są generowane przez TCPDF wyłącznie z zapisanych snapshotów `Invoice` i `InvoiceItem`. Pliki trafiają atomowo na prywatny dysk `local`; kontrolowana trasa zwraca je inline z `Cache-Control: private, no-store`. Pro forma używa ścieżki zależnej od aktualnego `revision_number`. Dokumenty są A4, nie zawierają stopki generatora ani numerów stron. Nagłówki używają Helvetica, a tekst Verdana, jeśli jest zarejestrowana i dostępna, albo DejaVu Sans jako Unicode fallback.
+PDF Faktury VAT, Pro formy i gotowy wariant renderera Korekty są generowane przez TCPDF wyłącznie z zapisanych snapshotów `Invoice` i `InvoiceItem`. Pliki trafiają atomowo na prywatny dysk `local`; kontrolowana trasa zwraca je inline z `Cache-Control: private, no-store`. Każdy dokument posiada jeden bieżący plik cache zależny wyłącznie od wersji layoutu. Dokumenty są A4, nie zawierają stopki generatora ani numerów stron. Nagłówki używają Helvetica, a tekst Verdana, jeśli jest zarejestrowana i dostępna, albo DejaVu Sans jako Unicode fallback.
 
-Pozycja dostawy jest zachowywana również dla kosztu `0.00`, jeżeli seria uwzględnia dostawę i zamówienie ma rozpoznaną metodę wysyłki. Faktura wystawiona po Pro formie zapisuje w `order_snapshot.related_documents.proforma` jej `invoice_id`, numer, rewizję i datę wystawienia z chwili operacji.
+Pozycja dostawy jest zachowywana również dla kosztu `0.00`, jeżeli seria uwzględnia dostawę i zamówienie ma rozpoznaną metodę wysyłki. Faktura wystawiona po Pro formie zapisuje w `order_snapshot.related_documents.proforma` jej `invoice_id`, numer i datę wystawienia z chwili operacji.
 
 Etap 2D nie implementuje wystawiania ani UI Korekt, edycji i usuwania Faktury, zewnętrznych PDF, załączników, wysyłki e-mail, automatyzacji dokumentów, list dokumentów, JPK XML ani KSeF.
+
+---
+
+# 38A. Granice Etapu 2E
+
+Etap 2E udostępnia niezależną, sekcyjną edycję AJAX wyłącznie wystawionej Faktury VAT. Zmiany dotyczą tylko snapshotów `Invoice` i należących do niego `InvoiceItem`; nie aktualizują `Order`, `OrderItem`, `InvoiceSeries` ani liczników numeracji. Aktualne dane nabywcy i odbiorcy można jedynie skopiować do formularza, a aktualne pozycje zamówienia zastępują pozycje Faktury dopiero po jawnej operacji użytkownika.
+
+Edycja wymaga wystawionej Faktury z numerem, serią i zgodnym `OrderDocumentSlot` oraz jest blokowana po utworzeniu Korekty. Numer, seria, typ, status, waluta, sekwencja, okres numeracji i `issued_at` pozostają niezmienne. `issue_date` może zmienić się tylko wtedy, gdy zamrożony format nadal daje ten sam numer i ten sam okres numeracji. Każda mutacja przesyła ukryte `expected_lock_version`; nieaktualna wartość kończy się kontrolowanym konfliktem zamiast nadpisania zmian.
+
+Każdy dokument sprzedaży posiada tylko jeden bieżący stan. Rzeczywista zmiana nadpisuje snapshoty lub pozycje Faktury i zwiększa techniczne `lock_version` dokładnie o jeden. `lock_version` nie jest historią dokumentu ani wartością widoczną dla użytkownika. Brak zmiany niczego nie zapisuje, a zwykła edycja Faktury nie tworzy `OrderEvent`.
+
+Dla Faktury walutowej zmiany tekstowe zachowują snapshot NBP i nie wykonują HTTP. Zmiany pieniężne przeliczają podsumowanie PLN zapisanym kursem, a zmiana daty odniesienia pobiera nowy kurs przed transakcją i ponownie weryfikuje kontekst pod blokadą. Pusty historyczny snapshot pozwala tylko na zmiany niepieniężne, a niepoprawny niepusty snapshot blokuje całą edycję.
+
+Faktura, Pro forma i Korekta używają po jednym bieżącym pliku cache PDF. Po zatwierdzeniu rzeczywistej zmiany bieżący cache jest usuwany, a kolejne otwarcie generuje go ponownie z aktualnych snapshotów. System nie używa `InvoiceRevision`, usuwa tabelę `invoice_revisions` i kolumnę `revision_number`, a standardowe `updated_at` oznacza jedynie ostatnią aktualizację rekordu. Pro forma nadal używa `source_snapshot_hash` do wykrywania zmiany zamówienia. Etap 2E nie obejmuje edycji Pro formy lub Korekty, usuwania dokumentów, zewnętrznych PDF, e-maila, JPK ani KSeF. Kolejne etapy to 2F Korekty, 2G dokumenty zewnętrzne PDF, 2H wysyłka dokumentów e-mailem, 3A rejestr sprzedaży, 3B JPK, 3C audyt gotowości KSeF i 3D integracja KSeF.
 
 ---
 
@@ -1246,7 +1259,7 @@ Kurs nie przechodzi przez `float`. Każda grupa VAT jest przeliczana osobno meto
 
 Pobranie HTTP odbywa się przed transakcją i numeracją. W transakcji kontekst waluty, dat i tabeli jest ponownie sprawdzany; zmiana powoduje pełny rollback i najwyżej jedną pełną ponowną próbę z nowym kursem. Błąd NBP nie tworzy slotu, szkicu, pozycji, numeru ani zdarzenia.
 
-Pro forma nie pobiera kursu, nie zapisuje przeliczenia PLN i nie zmienia hasha ani rewizji z powodu kursu. Faktura PLN oraz każda Pro forma zachowują pusty `tax_metadata_snapshot`. Etap 1E.2 nie zmienia PDF; prezentacja kursu i podsumowania PLN należy do Etapu 1E.3. Walutowe Korekty nie są jeszcze wystawiane.
+Pro forma nie pobiera kursu, nie zapisuje przeliczenia PLN i nie zmienia hasha z powodu kursu. Faktura PLN oraz każda Pro forma zachowują pusty `tax_metadata_snapshot`. Etap 1E.2 nie zmienia PDF; prezentacja kursu i podsumowania PLN należy do Etapu 1E.3. Walutowe Korekty nie są jeszcze wystawiane.
 
 ---
 

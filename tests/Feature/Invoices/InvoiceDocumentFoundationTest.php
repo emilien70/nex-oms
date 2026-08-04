@@ -42,7 +42,7 @@ class InvoiceDocumentFoundationTest extends TestCase
             'sale_date',
             'payment_due_date',
             'issued_at',
-            'revision_number',
+            'lock_version',
             'source_snapshot_hash',
             'last_refreshed_at',
             'corrected_invoice_id',
@@ -164,7 +164,7 @@ class InvoiceDocumentFoundationTest extends TestCase
         $this->assertNull($invoice->number);
         $this->assertNull($invoice->sequence_number);
         $this->assertNull($invoice->numbering_period_key);
-        $this->assertSame(1, $invoice->revision_number);
+        $this->assertSame(1, $invoice->lock_version);
         $this->assertNull($invoice->source_snapshot_hash);
         $this->assertSame('PLN', $invoice->currency);
         $this->assertSame('0.00', $invoice->total_gross);
@@ -186,7 +186,7 @@ class InvoiceDocumentFoundationTest extends TestCase
         $this->assertNull($correction->previous_correction_id);
     }
 
-    public function test_json_dates_revision_and_decimal_values_are_cast_correctly(): void
+    public function test_json_dates_lock_version_and_decimal_values_are_cast_correctly(): void
     {
         $invoice = $this->createInvoice(InvoiceDocumentType::Invoice, [
             'status' => InvoiceDocumentStatus::Issued,
@@ -196,7 +196,7 @@ class InvoiceDocumentFoundationTest extends TestCase
             'issued_at' => '2026-07-28 12:30:00',
             'last_refreshed_at' => '2026-07-28 13:00:00',
             'sequence_number' => 15,
-            'revision_number' => 3,
+            'lock_version' => 3,
             'seller_snapshot' => ['name' => 'NEX'],
             'buyer_snapshot' => ['city' => 'Warszawa'],
             'recipient_snapshot' => ['name' => 'Odbiorca'],
@@ -222,7 +222,7 @@ class InvoiceDocumentFoundationTest extends TestCase
         $this->assertInstanceOf(Carbon::class, $invoice->issued_at);
         $this->assertInstanceOf(Carbon::class, $invoice->last_refreshed_at);
         $this->assertSame(15, $invoice->sequence_number);
-        $this->assertSame(3, $invoice->revision_number);
+        $this->assertSame(3, $invoice->lock_version);
         $this->assertSame(['name' => 'NEX'], $invoice->seller_snapshot);
         $this->assertSame(['city' => 'Warszawa'], $invoice->buyer_snapshot);
         $this->assertSame(['method' => 'Przelew'], $invoice->payment_snapshot);
@@ -602,13 +602,20 @@ class InvoiceDocumentFoundationTest extends TestCase
         }
     }
 
-    public function test_stage_does_not_add_document_editing_routes_or_controllers(): void
+    public function test_stage_adds_only_explicit_invoice_editing_routes(): void
     {
-        $this->assertFalse(Route::has('invoices.edit'));
+        $this->assertTrue(Route::has('invoices.edit'));
+        $this->assertTrue(Route::has('invoices.buyer.update'));
+        $this->assertTrue(Route::has('invoices.recipient.update'));
+        $this->assertTrue(Route::has('invoices.details.update'));
+        $this->assertTrue(Route::has('invoices.items.store'));
+        $this->assertTrue(Route::has('invoices.items.update'));
+        $this->assertTrue(Route::has('invoices.items.destroy'));
+        $this->assertTrue(Route::has('invoices.items.copy-from-order'));
         $this->assertFalse(Route::has('invoices.update'));
         $this->assertFalse(Route::has('invoices.issue'));
         $this->assertFalse(Route::has('invoices.destroy'));
-        $this->assertFileDoesNotExist(base_path('Modules/Invoices/Http/Controllers/InvoiceEditController.php'));
+        $this->assertFileExists(base_path('Modules/Invoices/Http/Controllers/InvoiceEditController.php'));
     }
 
     private function createOrder(array $attributes = []): Order

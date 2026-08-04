@@ -22,13 +22,10 @@ class InvoiceDocumentPreparationTest extends TestCase
         $this->assertTrue(Schema::hasColumns('order_document_slots', [
             'id', 'order_id', 'document_type', 'invoice_id', 'created_at', 'updated_at',
         ]));
-        $this->assertTrue(Schema::hasColumns('invoice_revisions', [
-            'id', 'invoice_id', 'revision_number', 'document_snapshot', 'items_snapshot',
-            'source_snapshot_hash', 'source', 'actor_snapshot', 'created_at',
-        ]));
+        $this->assertFalse(Schema::hasTable('invoice_revisions'));
         $this->assertFalse(Schema::hasColumn('order_document_slots', 'deleted_at'));
-        $this->assertFalse(Schema::hasColumn('invoice_revisions', 'deleted_at'));
-        $this->assertFalse(Schema::hasColumn('invoice_revisions', 'updated_at'));
+        $this->assertTrue(Schema::hasColumn('invoices', 'lock_version'));
+        $this->assertFalse(Schema::hasColumn('invoices', 'revision_number'));
         $this->assertTrue(Schema::hasColumn('invoices', 'proforma_superseded_at'));
         $this->assertTrue(Schema::hasColumn('invoices', 'superseded_by_invoice_id'));
         $this->assertFalse(Schema::hasColumn('invoices', 'ksef_number'));

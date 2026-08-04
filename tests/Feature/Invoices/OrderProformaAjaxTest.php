@@ -30,8 +30,8 @@ class OrderProformaAjaxTest extends TestCase
         $this->assertStringContainsString($response->json('document.number'), $html);
         $this->assertStringContainsString('WYSTAW FAKTUR', $html);
         $this->assertStringContainsString((string) $invoiceSeries->getKey(), $html);
-        $this->assertStringContainsString('target="_blank"', $html);
-        $this->assertStringContainsString('rel="noopener"', $html);
+        $this->assertStringContainsString('data-open-document-after-submit', $html);
+        $this->assertStringContainsString('Odśwież Pro formę i otwórz PDF', $html);
         $this->assertStringNotContainsString('Wersja', $html);
         $response->assertSessionMissing('success');
         $response->assertJsonMissingPath('message');
@@ -39,8 +39,11 @@ class OrderProformaAjaxTest extends TestCase
 
     public function test_existing_proforma_is_refreshed_without_changing_identity_or_number(): void
     {
-        $order = $this->createDocumentOrder();
-        $this->createDocumentItem($order);
+        $order = $this->createDocumentOrder(['total_gross' => '223.00']);
+        $item = $this->createDocumentItem($order, [
+            'quantity' => 2,
+            'total_price_gross' => '200.00',
+        ]);
         $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
 
         $first = $this->postJson(route('orders.proforma.store', $order), [
@@ -48,14 +51,25 @@ class OrderProformaAjaxTest extends TestCase
         ])->assertCreated();
         $invoiceId = $first->json('document.id');
 
-        $order->update(['notes' => 'Odświeżone dane']);
+        $item->update([
+            'quantity' => 1,
+            'total_price_gross' => '100.00',
+        ]);
+        $order->update([
+            'notes' => 'Odświeżone dane',
+            'total_gross' => '123.00',
+        ]);
         $second = $this->postJson(route('orders.proforma.store', $order), [
             'invoice_series_id' => $series->getKey(),
         ])->assertOk();
 
         $second->assertJsonPath('document.id', $invoiceId)
             ->assertJsonPath('document.number', $first->json('document.number'));
-        $this->assertSame(2, Invoice::query()->findOrFail($invoiceId)->revision_number);
+        $this->assertSame(2, Invoice::query()->findOrFail($invoiceId)->lock_version);
+        $this->assertSame(
+            '1.0000',
+            Invoice::query()->findOrFail($invoiceId)->items()->where('order_item_id', $item->getKey())->value('quantity'),
+        );
         $this->assertSame(1, Invoice::query()->where('document_type', 'proforma')->count());
         $this->assertStringNotContainsString('Wersja', $second->json('html'));
     }

@@ -44,7 +44,7 @@ class ProformaCurrencyConversionIsolationTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_nbp_availability_or_rate_changes_do_not_create_proforma_revision(): void
+    public function test_nbp_availability_or_rate_changes_do_not_change_proforma_state(): void
     {
         Http::preventStrayRequests();
         $order = $this->createDocumentOrder(['currency' => 'EUR']);
@@ -61,7 +61,7 @@ class ProformaCurrencyConversionIsolationTest extends TestCase
         );
 
         $this->assertSame(ProformaOperationStatus::Unchanged, $unchanged->status);
-        $this->assertSame(1, $unchanged->invoice->revision_number);
+        $this->assertSame(1, $unchanged->invoice->lock_version);
         $this->assertSame($created->number, $unchanged->invoice->number);
         $this->assertSame([], $unchanged->invoice->tax_metadata_snapshot);
         Http::assertNothingSent();

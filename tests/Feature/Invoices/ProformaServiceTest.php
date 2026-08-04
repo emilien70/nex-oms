@@ -4,6 +4,8 @@ namespace Tests\Feature\Invoices;
 
 use DomainException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\ProformaOperationStatus;
@@ -13,7 +15,8 @@ use Modules\Invoices\Models\InvoiceNumberCounter;
 use Modules\Invoices\Services\InvoiceDocumentPreparationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceNumberingService;
-use Modules\Invoices\Services\InvoiceRevisionBuilder;
+use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
+use Modules\Invoices\Services\InvoicePdfStorage;
 use Modules\Invoices\Services\ProformaService;
 use Modules\Invoices\Services\ProformaSourceSnapshotHasher;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
@@ -24,7 +27,7 @@ class ProformaServiceTest extends TestCase
     use CreatesInvoiceStage2CDocuments;
     use RefreshDatabase;
 
-    public function test_first_call_creates_one_numbered_proforma_slot_revision_and_event(): void
+    public function test_first_call_creates_one_numbered_proforma_slot_and_event(): void
     {
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
@@ -36,7 +39,7 @@ class ProformaServiceTest extends TestCase
         $this->assertSame(ProformaOperationStatus::Created, $result->status);
         $this->assertSame(InvoiceDocumentType::Proforma, $invoice->document_type);
         $this->assertSame(InvoiceDocumentStatus::Issued, $invoice->status);
-        $this->assertSame(1, $invoice->revision_number);
+        $this->assertSame(1, $invoice->lock_version);
         $this->assertSame(1, $invoice->sequence_number);
         $this->assertSame(64, strlen((string) $invoice->source_snapshot_hash));
         $this->assertNull($invoice->last_refreshed_at);
@@ -46,15 +49,7 @@ class ProformaServiceTest extends TestCase
             'document_type' => 'proforma',
             'invoice_id' => $invoice->getKey(),
         ]);
-        $this->assertDatabaseHas('invoice_revisions', [
-            'invoice_id' => $invoice->getKey(),
-            'revision_number' => 1,
-            'source_snapshot_hash' => $invoice->source_snapshot_hash,
-            'source' => 'manual',
-        ]);
-        $revision = $invoice->revisions()->firstOrFail();
-        $this->assertSame($invoice->number, $revision->document_snapshot['number']);
-        $this->assertCount(2, $revision->items_snapshot);
+        $this->assertFalse(Schema::hasTable('invoice_revisions'));
         $this->assertDatabaseHas('order_events', [
             'order_id' => $order->getKey(),
             'event_type' => 'proforma_issued',
@@ -77,11 +72,10 @@ class ProformaServiceTest extends TestCase
 
         $this->assertSame(ProformaOperationStatus::Unchanged, $result->status);
         $this->assertSame($created->getKey(), $result->invoice->getKey());
-        $this->assertSame(1, $result->invoice->revision_number);
+        $this->assertSame(1, $result->invoice->lock_version);
         $this->assertNull($result->invoice->last_refreshed_at);
         $this->assertSame($originalUpdatedAt, $result->invoice->updated_at->format('Y-m-d H:i:s.u'));
         $this->assertSame($itemIds, $result->invoice->items()->pluck('id')->all());
-        $this->assertSame(1, $result->invoice->revisions()->count());
         $this->assertSame(0, $order->events()->where('event_type', 'proforma_refreshed')->count());
         $this->assertSame($counter, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
     }
@@ -98,7 +92,6 @@ class ProformaServiceTest extends TestCase
             'number_format_snapshot', 'issue_date', 'issued_at',
         ]);
         $oldHash = $created->source_snapshot_hash;
-        $oldRevision = $created->revisions()->firstOrFail()->document_snapshot;
 
         $item->update([
             'unit_price_gross' => '200.00',
@@ -117,14 +110,45 @@ class ProformaServiceTest extends TestCase
         $this->assertSame($identity['number_format_snapshot'], $refreshed->number_format_snapshot);
         $this->assertSame($identity['issue_date']->toDateString(), $refreshed->issue_date->toDateString());
         $this->assertSame($identity['issued_at']->toIso8601String(), $refreshed->issued_at->toIso8601String());
-        $this->assertSame(2, $refreshed->revision_number);
+        $this->assertSame(2, $refreshed->lock_version);
         $this->assertNotSame($oldHash, $refreshed->source_snapshot_hash);
         $this->assertSame('2026-07-30 09:00:00', $refreshed->last_refreshed_at->format('Y-m-d H:i:s'));
         $this->assertSame('200.00', $refreshed->items->first()->total_gross);
-        $this->assertSame(2, $refreshed->revisions()->count());
-        $this->assertSame($oldRevision, $refreshed->revisions()->where('revision_number', 1)->firstOrFail()->document_snapshot);
         $this->assertSame(1, $order->events()->where('event_type', 'proforma_refreshed')->count());
         $this->assertSame(1, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+    }
+
+    public function test_refresh_invalidates_only_current_pdf_cache_after_a_real_change(): void
+    {
+        Storage::fake('local');
+        $order = $this->createDocumentOrder();
+        $item = $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
+        $service = app(ProformaService::class);
+        $proforma = $service->createOrRefresh($order, $series, $this->documentContext())->invoice;
+        $path = app(InvoicePdfFilenameGenerator::class)->storagePath($proforma);
+        Storage::disk('local')->put($path, '%PDF-1.7 current proforma');
+
+        $unchanged = $service->createOrRefresh($order->refresh(), $series, $this->documentContext());
+
+        $this->assertSame(ProformaOperationStatus::Unchanged, $unchanged->status);
+        Storage::disk('local')->assertExists($path);
+
+        $item->update([
+            'unit_price_gross' => '200.00',
+            'total_price_gross' => '200.00',
+        ]);
+        $order->update(['total_gross' => '223.00']);
+
+        $refreshed = $service->createOrRefresh($order->refresh(), $series, $this->documentContext());
+
+        $this->assertSame(ProformaOperationStatus::Refreshed, $refreshed->status);
+        $this->assertSame(2, $refreshed->invoice->lock_version);
+        Storage::disk('local')->assertMissing($path);
+
+        $this->get(route('invoices.pdf', $refreshed->invoice))->assertOk();
+        Storage::disk('local')->assertExists($path);
+        $this->assertSame([$path], Storage::disk('local')->allFiles('invoices/'.$proforma->getKey()));
     }
 
     public function test_existing_proforma_cannot_change_series_and_hidden_original_series_blocks_refresh(): void
@@ -174,7 +198,7 @@ class ProformaServiceTest extends TestCase
         $this->assertDatabaseCount('order_document_slots', 0);
     }
 
-    public function test_vat_invoice_supersedes_proforma_without_changing_its_history_and_locks_it_forever(): void
+    public function test_vat_invoice_supersedes_proforma_without_changing_its_current_state_and_locks_it_forever(): void
     {
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
@@ -184,7 +208,6 @@ class ProformaServiceTest extends TestCase
         $proforma = $proformaService->createOrRefresh($order, $proformaSeries, $this->documentContext())->invoice;
         $number = $proforma->number;
         $items = $proforma->items()->get()->toArray();
-        $revision = $proforma->revisions()->firstOrFail()->document_snapshot;
 
         $invoice = app(InvoiceIssuingService::class)->issue(
             $order,
@@ -196,9 +219,8 @@ class ProformaServiceTest extends TestCase
         $this->assertTrue($proforma->isProformaSuperseded());
         $this->assertSame($invoice->getKey(), $proforma->superseded_by_invoice_id);
         $this->assertSame($number, $proforma->number);
-        $this->assertSame(1, $proforma->revision_number);
+        $this->assertSame(1, $proforma->lock_version);
         $this->assertSame($items, $proforma->items()->get()->toArray());
-        $this->assertSame($revision, $proforma->revisions()->firstOrFail()->document_snapshot);
         $event = $order->events()->where('event_type', 'invoice_issued')->firstOrFail();
         $this->assertSame($proforma->getKey(), $event->payload['superseded_proforma_id']);
         $this->assertSame($proforma->number, $event->payload['superseded_proforma_number']);
@@ -241,7 +263,7 @@ class ProformaServiceTest extends TestCase
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
         $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
-        $service = new class(app(InvoiceDocumentPreparationService::class), app(ProformaSourceSnapshotHasher::class), app(InvoiceRevisionBuilder::class), app(InvoiceNumberingService::class)) extends ProformaService
+        $service = new class(app(InvoiceDocumentPreparationService::class), app(ProformaSourceSnapshotHasher::class), app(InvoiceNumberingService::class), app(InvoicePdfStorage::class)) extends ProformaService
         {
             protected function afterNumberAssigned(Invoice $invoice): void
             {
@@ -256,7 +278,7 @@ class ProformaServiceTest extends TestCase
             $this->assertSame('Wymuszony błąd Pro formy.', $exception->getMessage());
         }
 
-        foreach (['invoices', 'invoice_items', 'order_document_slots', 'invoice_revisions', 'invoice_number_counters', 'order_events'] as $table) {
+        foreach (['invoices', 'invoice_items', 'order_document_slots', 'invoice_number_counters', 'order_events'] as $table) {
             $this->assertDatabaseCount($table, 0);
         }
     }

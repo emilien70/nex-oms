@@ -6,7 +6,7 @@ use Modules\Invoices\Models\Invoice;
 
 class InvoicePdfFilenameGenerator
 {
-    private const INVOICE_LAYOUT_VERSION = 'v39';
+    private const INVOICE_LAYOUT_VERSION = 'v40';
 
     private const PROFORMA_LAYOUT_VERSION = 'v33';
 
@@ -18,7 +18,7 @@ class InvoicePdfFilenameGenerator
     {
         $filename = match (true) {
             $invoice->isInvoice() => 'invoice-'.self::INVOICE_LAYOUT_VERSION.'.pdf',
-            $invoice->isProforma() => 'proforma-revision-'.$invoice->revision_number.'-'.self::PROFORMA_LAYOUT_VERSION.'.pdf',
+            $invoice->isProforma() => 'proforma-'.self::PROFORMA_LAYOUT_VERSION.'.pdf',
             $invoice->isCorrection() => 'correction-'.self::CORRECTION_LAYOUT_VERSION.'.pdf',
             default => 'document-'.self::FALLBACK_LAYOUT_VERSION.'.pdf',
         };

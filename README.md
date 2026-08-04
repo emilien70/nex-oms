@@ -50,7 +50,7 @@ Wysyłam z Allegro obsługuje przesyłki. Import zamówień z Allegro i PrestaSh
 
 Moduł automatyzacji obsługuje reguły złożone ze zdarzeń, warunków i uporządkowanych kroków. Dostępne akcje obejmują między innymi zmianę statusu, utworzenie przesyłki, opóźnienie i wywołanie adresu URL metodą GET. Operacje przesyłek, synchronizacji i automatyzacji korzystają z kolejek.
 
-### Faktury — Etapy 2A–2D
+### Faktury — Etapy 2A–2E
 
 Moduł Faktur nie jest już pustym szkieletem. Aktualna implementacja obejmuje:
 
@@ -63,25 +63,35 @@ Moduł Faktur nie jest już pustym szkieletem. Aktualna implementacja obejmuje:
 - wspólny model dokumentów `invoice`, `proforma` i `correction` oraz ich pozycji;
 - niezmienne snapshoty sprzedawcy, nabywcy, odbiorcy, zamówienia, płatności, wysyłki i pozycji;
 - jedną istniejącą Fakturę VAT na zamówienie;
-- jedną logiczną Pro formę na zamówienie, z kolejnymi rewizjami zachowującymi ten sam numer;
+- jedną logiczną Pro formę na zamówienie z jednym bieżącym stanem i niezmiennym numerem;
 - trwałe zablokowanie dalszego odświeżania Pro formy po wystawieniu Faktury VAT;
 - wystawianie Faktury VAT i tworzenie Pro formy z kafelka „Zarządzanie” na karcie zamówienia;
 - operacje przez AJAX bez przeładowania strony, modalnego formularza ani komunikatu sukcesu;
 - zwykły przycisk dla jednej aktywnej serii i dropdown wyboru przy wielu aktywnych seriach;
 - prywatne PDF-y otwierane przez kontrolowaną trasę Laravel;
 - generowanie PDF Faktury VAT i Pro formy wyłącznie z zapisanych snapshotów;
+- sekcyjną edycję wystawionej Faktury VAT przez AJAX, bez zmiany zamówienia, serii ani liczników;
+- ręczne kopiowanie aktualnych danych kontrahenta i pozycji zamówienia do Faktury;
+- dodawanie, edycję i usuwanie pozycji Faktury z serwerowym przeliczeniem netto, VAT i brutto;
+- techniczną ochronę przed równoległym nadpisaniem Faktury przez niewidoczne `lock_version`;
+- blokadę edycji Faktury posiadającej Korektę i ochronę numeru, serii, waluty oraz okresu numeracji;
+- jeden bieżący cache PDF każdego dokumentu, odtwarzany z aktualnych snapshotów po zmianie;
 - renderer PDF Korekty dla kompletnego, istniejącego rekordu Korekty;
 - kraj Nabywcy w formacie takim jak `32-545 Psary, Polska`;
 - PDF bez stopki „Wygenerowano w...” i bez ujawniania ścieżki prywatnego storage.
 
 Renderer PDF Korekty jest gotowy, ale wystawianie Korekt i ich interfejs nie są jeszcze wdrożone. Główna strona listy Faktur pozostaje ekranem początkowym; pełne listy i rejestry dokumentów również nie są jeszcze dostępne.
 
+Edycja z Etapu 2E dotyczy wyłącznie wystawionej Faktury VAT bez Korekt. Pro formy i Korekty nie są edytowane tym mechanizmem. Zmiany tekstowe Faktury walutowej nie kontaktują się z NBP, zmiany kwot używają zapisanego kursu, a nowy kurs jest pobierany tylko wtedy, gdy zmiana daty modyfikuje datę odniesienia. System nie przechowuje poprzednich stanów dokumentów ani archiwalnych PDF-ów. Usuwanie dokumentów, dokumenty zewnętrzne, e-mail, JPK i KSeF pozostają niewdrożone.
+
 ## Zasady dokumentów
 
 - Faktura VAT jest snapshotem danych z momentu wystawienia. Późniejsza zmiana zamówienia lub serii nie zmienia dokumentu.
+- Edycja Faktury VAT zmienia wyłącznie jej snapshoty i pozycje; kopiowanie aktualnych danych zamówienia jest zawsze jawną akcją.
+- Numer, seria, waluta, typ, status i sekwencja Faktury pozostają niezmienne, a każda rzeczywista zmiana nadpisuje jej bieżący stan.
 - Jedno zamówienie może mieć najwyżej jedną istniejącą Fakturę VAT.
-- Pro forma zachowuje jeden numer, a zmiana danych może utworzyć kolejną rewizję tej samej logicznej Pro formy.
-- Po wystawieniu Faktury VAT akcja i numer Pro formy są ukrywane w kafelku „Zarządzanie”, ale historyczne dane Pro formy pozostają zachowane.
+- Pro forma zachowuje jeden numer, a zmiana danych nadpisuje bieżące snapshoty i pozycje tej samej logicznej Pro formy.
+- Po wystawieniu Faktury VAT akcja i numer Pro formy są ukrywane w kafelku „Zarządzanie”, a jej bieżący stan pozostaje zachowany.
 - Faktura VAT może przechowywać w snapshocie powiązanie z wcześniejszą Pro formą.
 - PDF nie odczytuje aktualnych danych z zamówienia ani serii.
 - Kraj Nabywcy oraz sposób płatności pochodzą ze snapshotu dokumentu.
@@ -217,7 +227,7 @@ Testy używają SQLite `:memory:` i synchronicznej kolejki. Nie należy uruchami
 
 - wystawianie Korekt i ich interfejs użytkownika;
 - pełne listy Faktur, Pro form i Korekt oraz rejestr sprzedaży;
-- ręczna edycja i usuwanie wystawionych dokumentów;
+- usuwanie wystawionych dokumentów;
 - generowanie duplikatów;
 - wysyłka dokumentów e-mailem;
 - załączniki i zewnętrzne pliki PDF;

@@ -11,6 +11,7 @@
 
     @if ($issuedInvoice)
         <a class="btn btn-sm btn-outline-secondary management-invoice-button" href="{{ route('invoices.pdf', $issuedInvoice) }}" target="_blank" rel="noopener">{{ $issuedInvoice->number }}</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ route('invoices.edit', $issuedInvoice) }}" title="Edytuj Fakturę VAT" aria-label="Edytuj Fakturę VAT"><i class="bi bi-pencil"></i></a>
     @else
         @if ($invoiceSeries->count() === 1)
             <form method="POST" action="{{ route('orders.invoice.store', $order) }}" class="management-document-action management-invoice-button" data-sales-document-form>
@@ -41,7 +42,11 @@
         @endif
 
         @if ($issuedProforma)
-            <a class="btn btn-sm btn-outline-secondary management-proforma-button" href="{{ route('invoices.pdf', $issuedProforma) }}" target="_blank" rel="noopener">{{ $issuedProforma->number }}</a>
+            <form method="POST" action="{{ route('orders.proforma.store', $order) }}" class="management-document-action management-proforma-button" data-sales-document-form data-open-document-after-submit>
+                @csrf
+                <input type="hidden" name="invoice_series_id" value="{{ $issuedProforma->invoice_series_id }}">
+                <button class="btn btn-sm btn-outline-secondary" type="submit" title="Odśwież Pro formę i otwórz PDF" aria-label="Odśwież Pro formę i otwórz PDF">{{ $issuedProforma->number }}</button>
+            </form>
         @elseif ($proformaSeries->count() === 1)
             <form method="POST" action="{{ route('orders.proforma.store', $order) }}" class="management-document-action management-proforma-button" data-sales-document-form>
                 @csrf

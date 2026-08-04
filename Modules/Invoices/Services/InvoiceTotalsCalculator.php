@@ -59,6 +59,24 @@ class InvoiceTotalsCalculator
      */
     public function calculateDocument(array $items, Order $order): array
     {
+        return $this->calculateForPaidAmount($items, (string) ($order->paid_amount ?? '0'), true);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array{total_net: string, total_vat: string, total_gross: string, paid_amount: string, amount_due: string, tax_summary_snapshot: array<int, array<string, ?string>>}
+     */
+    public function calculateEditedDocument(array $items, string $paidAmount): array
+    {
+        return $this->calculateForPaidAmount($items, $paidAmount, false);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array{total_net: string, total_vat: string, total_gross: string, paid_amount: string, amount_due: string, tax_summary_snapshot: array<int, array<string, ?string>>}
+     */
+    private function calculateForPaidAmount(array $items, string $paidAmount, bool $clampPaid): array
+    {
         $totalNet = '0.00';
         $totalVat = '0.00';
         $totalGross = '0.00';
@@ -90,9 +108,17 @@ class InvoiceTotalsCalculator
         }
 
         ksort($taxGroups, SORT_STRING);
-        $paid = $this->decimal->normalize((string) ($order->paid_amount ?? '0'), 2);
+        $paid = $this->decimal->normalize($paidAmount, 2);
         $paid = $this->decimal->max($paid, '0.00');
-        $paid = $this->decimal->min($paid, $totalGross);
+        if (! $clampPaid && $this->decimal->compare($paid, $totalGross) > 0) {
+            throw new InvoiceDomainException(
+                'invoice_paid_amount_exceeds_total',
+                'Kwota zapłacona nie może przekraczać wartości brutto Faktury.',
+            );
+        }
+        if ($clampPaid) {
+            $paid = $this->decimal->min($paid, $totalGross);
+        }
         $due = $this->decimal->max($this->decimal->subtract($totalGross, $paid), '0.00');
 
         return [

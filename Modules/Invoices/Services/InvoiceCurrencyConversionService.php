@@ -152,6 +152,56 @@ class InvoiceCurrencyConversionService
         );
     }
 
+    /**
+     * Rebuilds only the converted PLN summary while preserving the historical rate snapshot.
+     *
+     * @param  array<string, mixed>  $metadata
+     * @param  array<int, array<string, mixed>>  $taxSummary
+     * @return array<string, mixed>
+     */
+    public function recalculateWithHistoricalRate(array $metadata, array $taxSummary): array
+    {
+        $conversion = $metadata['currency_conversion'] ?? null;
+        if (! is_array($conversion) || ! is_string($conversion['rate'] ?? null)) {
+            throw new InvoiceDomainException(
+                'invoice_edit_invalid_currency_snapshot',
+                'Nie można edytować Faktury, ponieważ zapisane dane kursu NBP są niekompletne.',
+            );
+        }
+
+        $metadata['converted_tax_summary'] = $this->convertTaxSummary($taxSummary, $conversion['rate']);
+
+        return $metadata;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $taxSummary
+     * @return array<string, mixed>
+     */
+    public function metadataForHistoricalRate(
+        array $taxSummary,
+        NbpExchangeRate $rate,
+        string $rateRule,
+    ): array {
+        return [
+            'currency_conversion' => [
+                'version' => 1,
+                'source' => $rate->source,
+                'source_currency' => $rate->currencyCode,
+                'target_currency' => CurrencyCatalog::SYSTEM_CURRENCY,
+                'table_type' => $rate->tableType,
+                'table_number' => $rate->tableNumber,
+                'effective_date' => $rate->effectiveDate,
+                'reference_date' => $rate->referenceDate,
+                'rate' => $rate->rate,
+                'rate_rule' => $rateRule,
+                'rounding_mode' => 'half_up',
+                'result_scale' => 2,
+            ],
+            'converted_tax_summary' => $this->convertTaxSummary($taxSummary, $rate->rate),
+        ];
+    }
+
     /** @return array<string, mixed> */
     private function convertTaxSummary(mixed $summary, string $rate): array
     {

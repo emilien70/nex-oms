@@ -103,7 +103,7 @@ class InvoiceIssuingService
                 'invoice_series_id' => $managedSeries->getKey(),
                 'document_type' => InvoiceDocumentType::Invoice,
                 'status' => InvoiceDocumentStatus::Draft,
-                'revision_number' => 1,
+                'lock_version' => 1,
             ]);
             $invoiceAttributes = $this->withRelatedProformaSnapshot(
                 $prepared->invoiceAttributes,
@@ -222,7 +222,6 @@ class InvoiceIssuingService
         $orderSnapshot['related_documents']['proforma'] = [
             'invoice_id' => $proforma->getKey(),
             'number' => $proforma->number,
-            'revision_number' => $proforma->revision_number,
             'issue_date' => $proforma->issue_date?->toDateString(),
         ];
         $attributes['order_snapshot'] = $orderSnapshot;
