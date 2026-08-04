@@ -2,6 +2,7 @@
 
 namespace Modules\Invoices\Http\Requests;
 
+use App\Support\AddressLineFormatter;
 use App\Support\CountryCatalog;
 use Illuminate\Validation\Rule;
 
@@ -9,7 +10,12 @@ class UpdateInvoiceBuyerRequest extends InvoiceEditRequest
 {
     protected function prepareForValidation(): void
     {
-        $this->merge(['country_code' => app(CountryCatalog::class)->normalize($this->input('country_code'))]);
+        $prepared = ['country_code' => app(CountryCatalog::class)->normalize($this->input('country_code'))];
+        if ($this->request->has('address_line')) {
+            $prepared = array_merge($prepared, AddressLineFormatter::parseAddressLine($this->input('address_line')));
+        }
+
+        $this->merge($prepared);
     }
 
     /** @return array<string, mixed> */
@@ -25,6 +31,7 @@ class UpdateInvoiceBuyerRequest extends InvoiceEditRequest
             'expected_lock_version' => ['required', 'integer', 'min:1'],
             'name' => ['nullable', 'string', 'max:255', 'required_without:company_name'],
             'company_name' => ['nullable', 'string', 'max:255', 'required_without:name'],
+            'address_line' => ['nullable', 'string', 'max:350'],
             'street' => ['nullable', 'string', 'max:255'],
             'building_number' => ['nullable', 'string', 'max:50'],
             'apartment_number' => ['nullable', 'string', 'max:50'],

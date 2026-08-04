@@ -33,8 +33,21 @@ class InvoiceEditingTest extends TestCase
         $this->get(route('invoices.edit', $invoice))
             ->assertOk()
             ->assertSee('Faktura VAT '.$invoice->number)
+            ->assertSee('invoice-edit-title', false)
             ->assertSee('Dane nabywcy')
             ->assertSee('Aktualne dane w zamówieniu')
+            ->assertDontSee('Dane odbiorcy')
+            ->assertDontSee('Okres numeracji')
+            ->assertDontSee('invoice-technical-grid', false)
+            ->assertDontSee('data-invoice-fragment="recipient"', false)
+            ->assertDontSee('data-invoice-fragment="totals"', false)
+            ->assertDontSee('Pozostało')
+            ->assertSee('invoice-add-item-button', false)
+            ->assertSee('invoice-copy-products-button', false)
+            ->assertSee('invoice-edit-item-button', false)
+            ->assertSee('invoice-delete-item-button', false)
+            ->assertSee('Stawka VAT')
+            ->assertDontSee('Wartość brutto')
             ->assertSee('name="expected_lock_version"', false)
             ->assertDontSee('revision_number')
             ->assertDontSee('Rewizja')
@@ -58,6 +71,30 @@ class InvoiceEditingTest extends TestCase
         $invoice->update(['document_type' => InvoiceDocumentType::Invoice]);
         $invoice->documentSlots()->delete();
         $this->get(route('invoices.edit', $invoice))->assertStatus(422);
+    }
+
+    public function test_buyer_card_uses_vertical_compound_address_fields_without_visible_contact_fields(): void
+    {
+        $invoice = $this->issueInvoice();
+        $response = $this->get(route('invoices.edit', $invoice))->assertOk();
+
+        $this->assertMatchesRegularExpression('/<form id="invoice-buyer-form".*?<\/form>/s', $response->getContent());
+        preg_match('/<form id="invoice-buyer-form".*?<\/form>/s', $response->getContent(), $matches);
+        $buyerForm = $matches[0];
+
+        $this->assertStringContainsString('invoice-edit-address-list', $buyerForm);
+        $this->assertStringContainsString('name="address_line"', $buyerForm);
+        $this->assertStringNotContainsString('<label>E-mail</label>', $buyerForm);
+        $this->assertStringNotContainsString('<label>Telefon</label>', $buyerForm);
+        $this->assertStringNotContainsString('name="street"', $buyerForm);
+        $this->assertStringNotContainsString('name="building_number"', $buyerForm);
+        $this->assertStringNotContainsString('name="apartment_number"', $buyerForm);
+        $this->assertMatchesRegularExpression('/name="tax_id".*?invoice-edit-address-actions/s', $buyerForm);
+        $this->assertStringContainsString('invoice-save-button', $buyerForm);
+        $this->assertStringContainsString('invoice-current-data-title', $response->getContent());
+        $this->assertStringContainsString('invoice-copy-current-button', $response->getContent());
+        $this->assertStringContainsString(route('orders.show', $invoice->order), $response->getContent());
+        $this->assertMatchesRegularExpression('/<\/dl>\s*<button[^>]+data-copy-address[^>]*>Skopiuj aktualne dane do faktury<\/button>/s', $response->getContent());
     }
 
     public function test_correction_blocks_invoice_editing(): void
@@ -91,6 +128,20 @@ class InvoiceEditingTest extends TestCase
         $this->assertSame($orderCity, $invoice->order->fresh()->billing_city);
         $this->assertSame(2, $invoice->lock_version);
         $this->assertDatabaseMissing('order_events', ['order_id' => $invoice->order_id, 'event_type' => 'invoice_edited']);
+    }
+
+    public function test_compound_buyer_address_is_split_into_snapshot_fields(): void
+    {
+        $invoice = $this->issueInvoice();
+        $payload = $this->buyerPayload($invoice, ['address_line' => 'Testowa 12/6']);
+        unset($payload['street'], $payload['building_number'], $payload['apartment_number']);
+
+        $this->patchJson(route('invoices.buyer.update', $invoice), $payload)->assertOk();
+
+        $buyer = $invoice->fresh()->buyer_snapshot;
+        $this->assertSame('Testowa', $buyer['street']);
+        $this->assertSame('12', $buyer['building_number']);
+        $this->assertSame('6', $buyer['apartment_number']);
     }
 
     public function test_recipient_and_seller_edits_change_only_invoice_snapshots(): void
