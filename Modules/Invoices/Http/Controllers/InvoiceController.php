@@ -10,9 +10,14 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Http\Requests\InvoiceIndexRequest;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Services\CorrectionSeriesResolver;
 
 class InvoiceController
 {
+    public function __construct(
+        private readonly CorrectionSeriesResolver $correctionSeries,
+    ) {}
+
     public function index(InvoiceIndexRequest $request): View
     {
         return $this->documentList($request, InvoiceDocumentType::Invoice);
@@ -81,6 +86,9 @@ class InvoiceController
             'listRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.index' : 'invoices.proformas.index',
             'bulkPdfRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.bulk-pdf' : 'invoices.proformas.bulk-pdf',
             'bulkDeleteRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.bulk-delete' : 'invoices.proformas.bulk-delete',
+            'correctionSeries' => $documentType === InvoiceDocumentType::Invoice
+                ? $this->correctionSeries->active()
+                : collect(),
         ]);
     }
 

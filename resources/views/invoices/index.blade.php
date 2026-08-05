@@ -214,13 +214,30 @@
         }
 
         .invoice-correction-button {
+            align-items: center;
             background: #fff;
             border: 1px solid #cfd6df;
             border-radius: 4px;
             color: #4e565f;
-            cursor: default;
+            cursor: pointer;
+            display: inline-flex;
             font-size: 10px;
+            justify-content: center;
             padding: 5px 12px;
+            text-decoration: none;
+        }
+
+        .invoice-correction-button:hover,
+        .invoice-correction-button:focus {
+            background: #f1f7fd;
+            border-color: #9fc7ed;
+            color: #0875d1;
+        }
+
+        .invoice-correction-button:disabled {
+            background: #fff;
+            color: #94a3b8;
+            cursor: default;
         }
 
         .invoice-list-footer {
@@ -471,7 +488,15 @@
                                 <td class="invoice-money">{{ number_format((float) $invoice->total_gross, 2, ',', ' ') }} {{ $invoice->currency }}</td>
                                 <td class="invoice-date">{{ $invoice->issue_date?->format('d.m.Y') ?? '—' }}</td>
                                 @if ($isInvoiceList)
-                                    <td class="text-center"><span class="invoice-correction-button" title="Wystawianie korekt nie jest jeszcze dostępne">KOREKTA</span></td>
+                                    <td class="text-center">
+                                        @if ($correctionSeries->isEmpty())
+                                            <button class="invoice-correction-button" type="button" disabled title="Brak aktywnej serii numeracji dla Korekt">KOREKTA</button>
+                                        @elseif ($correctionSeries->count() === 1)
+                                            <a class="invoice-correction-button" href="{{ route('invoices.corrections.create', ['invoice' => $invoice, 'series_id' => $correctionSeries->first()->id]) }}">KOREKTA</a>
+                                        @else
+                                            <button class="invoice-correction-button" type="button" data-bs-toggle="modal" data-bs-target="#invoiceListCorrectionSeriesModal" data-correction-url="{{ route('invoices.corrections.create', $invoice) }}">KOREKTA</button>
+                                        @endif
+                                    </td>
                                 @endif
                                 <td>
                                     <div class="invoice-action-group">
@@ -559,6 +584,13 @@
             </footer>
         </section>
     </div>
+
+    @if ($isInvoiceList)
+        @include('invoices.partials.correction-series-modal', [
+            'correctionSeries' => $correctionSeries,
+            'modalId' => 'invoiceListCorrectionSeriesModal',
+        ])
+    @endif
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {

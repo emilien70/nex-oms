@@ -1621,9 +1621,18 @@ Warstwa HTTP zwraca tylko wymagane fragmenty Blade i aktualne `lock_version`, kt
 
 `InvoiceRevision` nie jest używany. Migracja porządkująca usuwa tabelę `invoice_revisions` i kolumnę `revision_number`; standardowe `updated_at` oznacza jedynie ostatnią aktualizację rekordu. Pro forma zachowuje `source_snapshot_hash` do wykrywania zmiany źródła oraz `last_refreshed_at` dla czasu ostatniego rzeczywistego odświeżenia. System nie przechowuje poprzednich stanów ani poprzednich PDF-ów.
 
+## Etap 2F — centralny proces Korekt
+
+`CorrectionController` jest cienką warstwą HTTP. `CorrectionSeriesResolver` wybiera wyłącznie aktywną serię typu `correction`: najpierw serię wskazaną jawnie przez użytkownika, a bez wyboru serię przypisaną do serii Faktury źródłowej albo aktywną systemową serię Korekt. `CorrectionDraftRequest` normalizuje i waliduje powód, daty, dane Nabywcy oraz proponowany stan pozycji.
+
+`CorrectionSourceStateService` wyznacza skuteczny stan dokumentu. Dla pierwszej Korekty czyta snapshot Faktury VAT, a dla następnych kompletne snapshoty „po” najnowszej wystawionej Korekty. `CorrectionService` blokuje dokument źródłowy, zamówienie i serię, ponownie ustala skuteczny stan, buduje snapshoty przed, po i różnicy oraz w tej samej transakcji nadaje numer i zapisuje zdarzenie `correction_issued`. Faktura źródłowa i wcześniejsze Korekty pozostają niezmienne.
+
+Pozycje są liczone serwerowo przez istniejące kalkulatory dziesiętne. Pierwsza Korekta wskazuje Fakturę przez `corrected_invoice_id`, a kolejne dodatkowo poprzednią Korektę przez `previous_correction_id`, zachowując liniowy łańcuch. Brak rzeczywistej zmiany, niekompletny skuteczny stan lub niewłaściwa seria kończą się kontrolowanym błędem i pełnym rollbackiem, bez zużycia numeru.
+
+Formularz używa standardowego żądania POST. Przy jednej aktywnej serii link prowadzi bezpośrednio do formularza, a przy wielu seriach wspólny modal Bootstrap służy wyłącznie do wyboru serii. Edycja pozycji, zerowanie zaznaczonych pozycji oraz kopiowanie aktualnych danych zamówienia działają lokalnie w formularzu; zapis następuje dopiero przy wystawieniu Korekty. Istniejący prywatny renderer TCPDF obsługuje gotowy dokument na podstawie snapshotów.
+
 ## Kolejne etapy
 
-- Etap 2F — centralny proces Korekt,
 - Etap 2G — dokumenty zewnętrzne PDF,
 - Etap 2H — wysyłka dokumentów e-mailem,
 - Etap 3A — rejestr sprzedaży,

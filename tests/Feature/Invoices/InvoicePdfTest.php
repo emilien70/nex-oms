@@ -25,10 +25,16 @@ class InvoicePdfTest extends TestCase
     use CreatesInvoiceStage2CDocuments;
     use RefreshDatabase;
 
-    public function test_invoice_pdf_is_generated_privately_and_returned_inline(): void
+    protected function setUp(): void
     {
+        parent::setUp();
+
         Storage::fake('local');
         Storage::fake('public');
+    }
+
+    public function test_invoice_pdf_is_generated_privately_and_returned_inline(): void
+    {
         $invoice = $this->issueInvoice();
 
         $response = $this->get(route('invoices.pdf', $invoice));

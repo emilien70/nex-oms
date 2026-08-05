@@ -1215,7 +1215,7 @@ Każdy dokument sprzedaży posiada tylko jeden bieżący stan. Rzeczywista zmian
 
 Dla Faktury walutowej zmiany tekstowe zachowują snapshot NBP i nie wykonują HTTP. Zmiany pieniężne przeliczają podsumowanie PLN zapisanym kursem, a zmiana daty odniesienia pobiera nowy kurs przed transakcją i ponownie weryfikuje kontekst pod blokadą. Pusty historyczny snapshot pozwala tylko na zmiany niepieniężne, a niepoprawny niepusty snapshot blokuje całą edycję.
 
-Faktura, Pro forma i Korekta używają po jednym bieżącym pliku cache PDF. Po zatwierdzeniu rzeczywistej zmiany bieżący cache jest usuwany, a kolejne otwarcie generuje go ponownie z aktualnych snapshotów. System nie używa `InvoiceRevision`, usuwa tabelę `invoice_revisions` i kolumnę `revision_number`, a standardowe `updated_at` oznacza jedynie ostatnią aktualizację rekordu. Pro forma nadal używa `source_snapshot_hash` do wykrywania zmiany zamówienia. Etap 2E nie obejmuje edycji Pro formy lub Korekty, usuwania dokumentów, zewnętrznych PDF, e-maila, JPK ani KSeF. Kolejne etapy to 2F Korekty, 2G dokumenty zewnętrzne PDF, 2H wysyłka dokumentów e-mailem, 3A rejestr sprzedaży, 3B JPK, 3C audyt gotowości KSeF i 3D integracja KSeF.
+Faktura, Pro forma i Korekta używają po jednym bieżącym pliku cache PDF. Po zatwierdzeniu rzeczywistej zmiany bieżący cache jest usuwany, a kolejne otwarcie generuje go ponownie z aktualnych snapshotów. System nie używa `InvoiceRevision`, usuwa tabelę `invoice_revisions` i kolumnę `revision_number`, a standardowe `updated_at` oznacza jedynie ostatnią aktualizację rekordu. Pro forma nadal używa `source_snapshot_hash` do wykrywania zmiany zamówienia. Etap 2E nie obejmuje edycji Pro formy lub Korekty, usuwania dokumentów, zewnętrznych PDF, e-maila, JPK ani KSeF. Kolejne etapy po wdrożonym Etapie 2F to 2G dokumenty zewnętrzne PDF, 2H wysyłka dokumentów e-mailem, 3A rejestr sprzedaży, 3B JPK, 3C audyt gotowości KSeF i 3D integracja KSeF.
 
 ---
 
@@ -1282,3 +1282,25 @@ Nowe puste zamówienie może technicznie rozpoczynać się w `PLN`. Waluta pierw
 Ustalenie waluty odbywa się w `OrderCurrencyService`, pod blokadą zamówienia i w tej samej transakcji co zapis pozycji, przeliczenie sumy oraz zdarzenie. Nie jest to przewalutowanie: zerowe wartości pozostają zerowe, a istniejące kwoty nie są reinterpretowane. Po pierwszej pozycji wszystkie kolejne pozycje muszą używać waluty zamówienia.
 
 Stan AJAX zamówienia przekazuje `fields.currency`. Istniejący mechanizm synchronizacji ustawia tę wartość w selectach i jako ich wartość domyślną przed resetem formularza, dzięki czemu kafel informacji oraz kolejna pozycja używają aktualnej waluty bez przeładowania strony. Mechanizm nie wykonuje zewnętrznych połączeń HTTP i nie zmienia wystawionych dokumentów, snapshotów ani PDF.
+
+---
+
+# 44. Granice Etapu 2F
+
+Etap 2F wdraża centralne wystawianie Korekt do istniejącej Faktury VAT:
+
+- `CorrectionService` jako jedyne wejście domenowe,
+- `CorrectionSourceStateService` ustalający skuteczny stan po poprzednich Korektach,
+- `CorrectionSeriesResolver` wybierający aktywną serię Korekt,
+- własny numer i serię każdej Korekty,
+- liniowy łańcuch przez `corrected_invoice_id` i `previous_correction_id`,
+- snapshoty pozycji przed zmianą, po zmianie i różnicy,
+- korektę danych Nabywcy,
+- zamkniętą listę powodów z możliwością podania innego powodu,
+- formularz wystawienia i wybór serii przy wielu aktywnych seriach,
+- zdarzenie zamówienia `correction_issued`,
+- prywatny PDF generowany przez istniejący renderer Korekty.
+
+Operacja jest transakcyjna. Brak rzeczywistej zmiany, niekompletny stan źródłowy, błędny łańcuch albo niewłaściwa seria nie mogą zużyć numeru ani pozostawić częściowych danych. Kolejna Korekta korzysta ze stanu „po” poprzedniej Korekty, a Faktura źródłowa i wcześniejsze Korekty nie są nadpisywane.
+
+Etap 2F nie obejmuje edycji ani usuwania Korekt, korekt walutowych z przeliczeniem NBP, automatyzacji, JPK, KSeF ani dokumentów zewnętrznych.

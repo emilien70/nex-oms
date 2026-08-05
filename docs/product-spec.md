@@ -1451,9 +1451,18 @@ Zmiana tekstowa Faktury walutowej zachowuje NBP bez HTTP. Zmiana kwot korzysta z
 
 Etap nie obejmuje edycji Pro form i Korekt, usuwania dokumentów, zewnętrznych PDF, e-maila, JPK ani KSeF. System nie przechowuje poprzednich stanów ani poprzednich PDF-ów; `InvoiceRevision`, tabela `invoice_revisions` i kolumna `revision_number` nie są używane. Standardowe `updated_at` oznacza jedynie ostatnią aktualizację rekordu, a Pro forma nadal używa `source_snapshot_hash` do wykrywania zmiany zamówienia.
 
+## Etap 2F — wystawianie Korekt
+
+Wystawiona Faktura VAT może otrzymać liniowy łańcuch Korekt. Pierwsza Korekta odnosi się do Faktury źródłowej, a każda kolejna do skutecznego stanu po poprzedniej Korekcie. Dokument źródłowy nie jest nadpisywany.
+
+Korekta otrzymuje własną aktywną serię, numer i daty oraz jest od razu wystawiana w jednej transakcji. Przy jednej dostępnej serii przycisk `Korekta` prowadzi bezpośrednio do formularza, a przy wielu seriach najpierw pokazuje wybór serii. Formularz obsługuje zamkniętą listę powodów oraz opcjonalną zmianę pozycji i danych Nabywcy. Aktualne pozycje i dane z zamówienia są kopiowane wyłącznie po jawnej decyzji użytkownika.
+
+Pozycje Korekty zapisują kompletne snapshoty stanu przed zmianą, po zmianie i różnicy. Obliczenia netto, VAT i brutto korzystają z centralnej arytmetyki dziesiętnej, a brak rzeczywistej zmiany kończy operację kontrolowanym błędem bez zużycia numeru. Każda udana operacja zapisuje zdarzenie `correction_issued` w historii zamówienia.
+
+PDF Korekty jest generowany z zapisanych snapshotów przez istniejący prywatny renderer. Etap nie dodaje edycji ani usuwania Korekt, korekt walutowych z przeliczeniem NBP, automatyzacji, JPK ani KSeF.
+
 ## Dalsze etapy
 
-- Etap 2F — centralny proces Korekt,
 - Etap 2G — dokumenty zewnętrzne PDF,
 - Etap 2H — wysyłka dokumentów e-mailem,
 - Etap 3A — rejestr sprzedaży,

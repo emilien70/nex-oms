@@ -107,7 +107,13 @@
                     </ul>
                 </div>
                 <button class="btn" type="button" disabled aria-label="Wgraj dokument"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
-                <button class="btn" type="button" disabled aria-label="Wystaw korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</button>
+                @if ($correctionSeries->isEmpty())
+                    <button class="btn" type="button" disabled title="Brak aktywnej serii numeracji dla Korekt" aria-label="Brak aktywnej serii numeracji dla Korekt"><i class="bi bi-eraser-fill me-1"></i>Korekta</button>
+                @elseif ($correctionSeries->count() === 1)
+                    <a class="btn" href="{{ route('invoices.corrections.create', ['invoice' => $invoice, 'series_id' => $correctionSeries->first()->id]) }}" aria-label="Wystaw Korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</a>
+                @else
+                    <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#invoiceEditCorrectionSeriesModal" data-correction-url="{{ route('invoices.corrections.create', $invoice) }}" aria-label="Wystaw Korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</button>
+                @endif
                 <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#deleteInvoiceFromEditModal" aria-label="Usuń Fakturę"><i class="bi bi-trash me-1"></i>Usuń</button>
                 <a class="btn" href="{{ route('orders.show', $order) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
             </div>
@@ -117,6 +123,11 @@
             'invoice' => $invoice,
             'modalId' => 'deleteInvoiceFromEditModal',
             'ajax' => false,
+        ])
+
+        @include('invoices.partials.correction-series-modal', [
+            'correctionSeries' => $correctionSeries,
+            'modalId' => 'invoiceEditCorrectionSeriesModal',
         ])
 
         <div data-invoice-fragment="items">@include('invoices.edit.partials.items')</div>

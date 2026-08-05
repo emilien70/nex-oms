@@ -1,0 +1,46 @@
+<?php
+
+namespace Modules\Invoices\Http\Controllers;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Http\Requests\CorrectionDraftRequest;
+use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Services\CorrectionService;
+use Modules\Invoices\Services\CorrectionViewModelFactory;
+use Modules\Invoices\Services\InvoiceOperationContextFactory;
+
+class CorrectionController extends Controller
+{
+    public function create(Request $request, Invoice $invoice, CorrectionViewModelFactory $viewModels): View
+    {
+        try {
+            return view('invoices.corrections.create', $viewModels->make(
+                $invoice,
+                $request->filled('series_id') ? $request->integer('series_id') : null,
+            ));
+        } catch (InvoiceDomainException $exception) {
+            abort(422, $exception->getMessage());
+        }
+    }
+
+    public function store(
+        CorrectionDraftRequest $request,
+        Invoice $invoice,
+        CorrectionService $service,
+        InvoiceOperationContextFactory $contexts,
+    ): RedirectResponse {
+        try {
+            $series = InvoiceSeries::query()->findOrFail($request->integer('correction_series_id'));
+            $correction = $service->issue($invoice, $series, $request->validated(), $contexts->manual($request));
+
+            return redirect()->route('invoices.pdf', $correction);
+        } catch (InvoiceDomainException $exception) {
+            return back()->withInput()->withErrors(['correction' => $exception->getMessage()]);
+        }
+    }
+}

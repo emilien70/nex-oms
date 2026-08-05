@@ -10,6 +10,7 @@ class InvoiceEditViewModelFactory
     public function __construct(
         private readonly CountryCatalog $countries,
         private readonly InvoicePdfCurrencyConversionPresenter $currencyPresenter,
+        private readonly CorrectionSeriesResolver $correctionSeries,
     ) {}
 
     /** @return array<string, mixed> */
@@ -22,6 +23,7 @@ class InvoiceEditViewModelFactory
             'order' => $invoice->order,
             'countries' => $this->countries->all(),
             'nbp' => $this->currencyPresenter->present($invoice),
+            'correctionSeries' => $this->correctionSeries->active(),
         ];
     }
 }

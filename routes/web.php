@@ -18,6 +18,7 @@ use App\Models\Order;
 use Illuminate\Support\Facades\Route;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Invoices\Http\Controllers\CorrectionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkDeletionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkPdfController;
 use Modules\Invoices\Http\Controllers\InvoiceController;
@@ -102,6 +103,8 @@ Route::delete('/invoices/delete-selected', InvoiceBulkDeletionController::class)
 Route::get('/invoices/proformas', [InvoiceController::class, 'proformas'])->name('invoices.proformas.index');
 Route::post('/invoices/proformas/print-selected', [InvoiceBulkPdfController::class, 'proformas'])->name('invoices.proformas.bulk-pdf');
 Route::delete('/invoices/proformas/delete-selected', [InvoiceBulkDeletionController::class, 'proformas'])->name('invoices.proformas.bulk-delete');
+Route::get('/invoices/{invoice}/corrections/create', [CorrectionController::class, 'create'])->name('invoices.corrections.create');
+Route::post('/invoices/{invoice}/corrections', [CorrectionController::class, 'store'])->name('invoices.corrections.store');
 Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
 Route::delete('/invoices/{invoice}', InvoiceDeletionController::class)->name('invoices.destroy');
 Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');
