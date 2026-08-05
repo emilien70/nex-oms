@@ -18,7 +18,7 @@ class InvoicesPageTest extends TestCase
             ->assertSee('Faktury')
             ->assertSee('Seria numeracji')
             ->assertSee('Wyszukiwanie zaawansowane')
-            ->assertSee('Drukuj zaznaczone')
+            ->assertSee('DRUKUJ ZAZNACZONE')
             ->assertDontSee('Obsługa faktur zostanie dodana później.');
     }
 }

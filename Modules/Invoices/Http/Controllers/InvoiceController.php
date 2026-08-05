@@ -65,7 +65,7 @@ class InvoiceController
                 9 => 'Wrzesień', 10 => 'Październik', 11 => 'Listopad', 12 => 'Grudzień',
             ],
             'perPage' => $perPage,
-            'perPageOptions' => [25, 50, 100],
+            'perPageOptions' => [25, 50, 75, 100, 150, 200, 300, 500, 1000],
         ]);
     }
 
@@ -104,7 +104,7 @@ class InvoiceController
     {
         $direction = $filters['direction'] ?? 'desc';
 
-        match ($filters['sort'] ?? 'issue_date') {
+        match ($filters['sort'] ?? 'number') {
             'number' => $query->orderBy('sequence_number', $direction),
             'order' => $query->orderBy('order_id', $direction),
             'buyer' => $query->orderBy('buyer_name_snapshot', $direction),

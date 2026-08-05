@@ -55,7 +55,7 @@ class InvoiceIndexRequest extends FormRequest
             'currency' => ['nullable', 'string', 'size:3'],
             'sort' => ['nullable', Rule::in(['number', 'order', 'issue_date', 'buyer', 'gross'])],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-            'per_page' => ['nullable', 'integer', Rule::in([25, 50, 100])],
+            'per_page' => ['nullable', 'integer', Rule::in([25, 50, 75, 100, 150, 200, 300, 500, 1000])],
         ];
     }
 }

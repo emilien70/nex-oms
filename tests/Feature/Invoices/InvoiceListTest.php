@@ -42,7 +42,27 @@ class InvoiceListTest extends TestCase
             ->assertSee(route('invoices.pdf', $invoice), false)
             ->assertSee(route('invoices.edit', $invoice), false)
             ->assertSee(route('invoices.destroy', $invoice), false)
-            ->assertSee(route('invoices.bulk-pdf'), false);
+            ->assertSee(route('invoices.bulk-pdf'), false)
+            ->assertSee(route('invoices.bulk-delete'), false)
+            ->assertSee('ZAZNACZ WSZYSTKO')
+            ->assertSee('DRUKUJ ZAZNACZONE')
+            ->assertSee('REJESTR SPRZEDAŻY')
+            ->assertSee('USUŃ ZAZNACZONE')
+            ->assertSee('SORTOWANIE');
+
+        $html = $response->getContent();
+        $this->assertMatchesRegularExpression(
+            '/<a\b[^>]*class="invoice-row-number"[^>]*href="'.preg_quote(route('invoices.pdf', $invoice), '/').'"[^>]*>/',
+            $html,
+        );
+        $this->assertMatchesRegularExpression('/<button\b[^>]*data-bulk-print[^>]*>.*?<\/button>/s', $html);
+        preg_match('/<button\b[^>]*data-bulk-print[^>]*>(.*?)<\/button>/s', $html, $printButton);
+        $this->assertStringNotContainsString('dropdown-toggle', $printButton[0]);
+        $this->assertStringNotContainsString('bi-chevron-down', $printButton[1]);
+        $this->assertMatchesRegularExpression(
+            '/<button\b[^>]*disabled[^>]*title="Rejestr sprzedaży nie jest jeszcze dostępny"[^>]*>.*?REJESTR SPRZEDAŻY.*?<\/button>/s',
+            $html,
+        );
     }
 
     public function test_list_filters_and_sorts_invoices_using_snapshot_data(): void
@@ -87,6 +107,45 @@ class InvoiceListTest extends TestCase
             ->assertSeeInOrder([$older->number, $newer->number]);
     }
 
+    public function test_list_defaults_to_invoice_number_descending_and_quick_selects_submit_filters(): void
+    {
+        $series = $this->createDocumentSeries();
+
+        foreach ([
+            ['sequence' => 1, 'date' => '2026-08-05'],
+            ['sequence' => 2, 'date' => '2026-08-04'],
+        ] as $data) {
+            Invoice::query()->create([
+                'invoice_series_id' => $series->getKey(),
+                'document_type' => InvoiceDocumentType::Invoice,
+                'status' => InvoiceDocumentStatus::Issued,
+                'number' => 'DOMYSLNA '.$data['sequence'].'/2026',
+                'sequence_number' => $data['sequence'],
+                'numbering_period_key' => '2026',
+                'issue_date' => $data['date'],
+                'sale_date' => $data['date'],
+                'issued_at' => $data['date'].' 10:00:00',
+                'currency' => 'PLN',
+                'lock_version' => 1,
+            ]);
+        }
+
+        $response = $this->get(route('invoices.index'));
+
+        $response->assertOk()
+            ->assertSeeInOrder(['DOMYSLNA 2/2026', 'DOMYSLNA 1/2026']);
+
+        $html = $response->getContent();
+        foreach (['invoice_series_id', 'invoice_month', 'invoice_year'] as $fieldId) {
+            $this->assertMatchesRegularExpression(
+                '/<select\b[^>]*id="'.preg_quote($fieldId, '/').'"[^>]*data-auto-submit-filter[^>]*>/',
+                $html,
+            );
+        }
+        $this->assertStringContainsString("filter.addEventListener('change', () => filter.form?.requestSubmit())", $html);
+        $this->assertMatchesRegularExpression('/name="sort" value="number"/', $html);
+    }
+
     public function test_list_paginates_twenty_five_invoices_and_keeps_query_parameters(): void
     {
         $series = $this->createDocumentSeries();
@@ -115,7 +174,13 @@ class InvoiceListTest extends TestCase
 
         $response->assertOk();
         $this->assertCount(25, $response->viewData('invoices'));
+        $this->assertSame([25, 50, 75, 100, 150, 200, 300, 500, 1000], $response->viewData('perPageOptions'));
         $this->assertStringContainsString('year=2026', $response->viewData('invoices')->nextPageUrl());
+
+        $largerPage = $this->get(route('invoices.index', ['year' => 2026, 'per_page' => 75]));
+        $largerPage->assertOk();
+        $this->assertSame(75, $largerPage->viewData('perPage'));
+        $this->assertCount(26, $largerPage->viewData('invoices'));
 
         $secondPage = $this->get(route('invoices.index', ['year' => 2026, 'page' => 2]));
         $secondPage->assertOk();

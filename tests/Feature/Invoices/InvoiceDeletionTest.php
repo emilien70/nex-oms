@@ -94,6 +94,63 @@ class InvoiceDeletionTest extends TestCase
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
     }
 
+    public function test_selected_invoices_can_be_deleted_from_invoice_list_atomically(): void
+    {
+        $series = $this->createDocumentSeries();
+        $first = $this->issueForNewOrder($series);
+        $second = $this->issueForNewOrder($series);
+
+        $this->from(route('invoices.index'))
+            ->delete(route('invoices.bulk-delete'), [
+                'invoice_ids' => [$first->getKey(), $second->getKey()],
+                'lock_versions' => [
+                    $first->getKey() => $first->lock_version,
+                    $second->getKey() => $second->lock_version,
+                ],
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHas('success', 'Usunięto 2 Faktury.');
+
+        $this->assertDatabaseMissing('invoices', ['id' => $first->getKey()]);
+        $this->assertDatabaseMissing('invoices', ['id' => $second->getKey()]);
+        $this->assertDatabaseCount('order_document_slots', 0);
+        $this->assertSame(0, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+    }
+
+    public function test_bulk_deletion_keeps_every_selected_invoice_when_one_is_blocked(): void
+    {
+        $series = $this->createDocumentSeries();
+        $deletable = $this->issueForNewOrder($series);
+        $blocked = $this->issueForNewOrder($series);
+        $correctionSeries = $this->createDocumentSeries(InvoiceDocumentType::Correction);
+        Invoice::query()->create([
+            'order_id' => $blocked->order_id,
+            'invoice_series_id' => $correctionSeries->getKey(),
+            'document_type' => InvoiceDocumentType::Correction,
+            'status' => InvoiceDocumentStatus::Issued,
+            'corrected_invoice_id' => $blocked->getKey(),
+        ]);
+
+        $this->from(route('invoices.index'))
+            ->delete(route('invoices.bulk-delete'), [
+                'invoice_ids' => [$deletable->getKey(), $blocked->getKey()],
+                'lock_versions' => [
+                    $deletable->getKey() => $deletable->lock_version,
+                    $blocked->getKey() => $blocked->lock_version,
+                ],
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors([
+                'invoice_ids' => 'Nie można usunąć Faktury, ponieważ została do niej wystawiona Korekta.',
+            ]);
+
+        $this->assertDatabaseHas('invoices', ['id' => $deletable->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $blocked->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $deletable->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $blocked->getKey()]);
+        $this->assertSame(2, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+    }
+
     public function test_stale_lock_version_does_not_delete_invoice(): void
     {
         [, , $invoice] = $this->issuedInvoice();

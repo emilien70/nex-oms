@@ -222,13 +222,41 @@
             align-items: center;
             display: flex;
             flex-wrap: wrap;
-            gap: 6px;
+            gap: 8px;
             min-height: 52px;
             padding: 8px 12px;
         }
 
         .invoice-list-footer .btn {
             font-size: 11px;
+        }
+
+        .invoice-bulk-actions > .btn,
+        .invoice-bulk-actions > .btn-group > .btn {
+            align-items: center;
+            background: #fff;
+            border-color: #cfd6df;
+            color: #26313d;
+            display: inline-flex;
+            gap: 4px;
+            min-height: 30px;
+            padding: 4px 8px;
+            white-space: nowrap;
+        }
+
+        .invoice-bulk-actions > .btn:hover,
+        .invoice-bulk-actions > .btn-group > .btn:hover,
+        .invoice-bulk-actions > .btn-group > .btn[aria-expanded="true"] {
+            background: #f4f7fa;
+            border-color: #b9c3cf;
+            color: #0875d1;
+        }
+
+        .invoice-bulk-actions > .btn:disabled,
+        .invoice-bulk-actions > .btn-group > .btn:disabled {
+            background: #fff;
+            color: #7b8490;
+            opacity: .62;
         }
 
         .invoice-sort-menu {
@@ -260,12 +288,6 @@
             color: #64748b;
             padding: 44px 20px !important;
             text-align: center;
-        }
-
-        .invoice-selection-status {
-            color: #64748b;
-            font-size: 11px;
-            margin-left: 4px;
         }
 
         @media (max-width: 1199.98px) {
@@ -315,7 +337,7 @@
                 <div class="invoice-quick-filters">
                     <div class="invoice-filter-field is-series">
                         <label for="invoice_series_id">Seria numeracji</label>
-                        <select id="invoice_series_id" class="form-select form-select-sm" name="series_id">
+                        <select id="invoice_series_id" class="form-select form-select-sm" name="series_id" data-auto-submit-filter>
                             <option value="">Dowolna</option>
                             @foreach ($series as $item)
                                 <option value="{{ $item->id }}" @selected((string) $filterValue('series_id') === (string) $item->id)>{{ $item->name }}</option>
@@ -328,7 +350,7 @@
                     </div>
                     <div class="invoice-filter-field">
                         <label for="invoice_month">Miesiąc</label>
-                        <select id="invoice_month" class="form-select form-select-sm" name="month">
+                        <select id="invoice_month" class="form-select form-select-sm" name="month" data-auto-submit-filter>
                             <option value="">Dowolny</option>
                             @foreach ($months as $number => $name)
                                 <option value="{{ $number }}" @selected((string) $filterValue('month') === (string) $number)>{{ $name }}</option>
@@ -337,7 +359,7 @@
                     </div>
                     <div class="invoice-filter-field">
                         <label for="invoice_year">Rok</label>
-                        <select id="invoice_year" class="form-select form-select-sm" name="year">
+                        <select id="invoice_year" class="form-select form-select-sm" name="year" data-auto-submit-filter>
                             <option value="">Dowolny</option>
                             @foreach ($years as $year)
                                 <option value="{{ $year }}" @selected((string) $filterValue('year') === (string) $year)>{{ $year }}</option>
@@ -379,13 +401,16 @@
                     </div>
                 </div>
 
-                <input type="hidden" name="sort" value="{{ $filterValue('sort', 'issue_date') }}">
+                <input type="hidden" name="sort" value="{{ $filterValue('sort', 'number') }}">
                 <input type="hidden" name="direction" value="{{ $filterValue('direction', 'desc') }}">
                 <input type="hidden" name="per_page" value="{{ $perPage }}">
             </form>
 
             <form id="bulkInvoicePrintForm" method="POST" action="{{ route('invoices.bulk-pdf') }}" target="_blank">
                 @csrf
+                @foreach ($invoices as $invoice)
+                    <input type="hidden" name="lock_versions[{{ $invoice->id }}]" value="{{ $invoice->lock_version }}">
+                @endforeach
             </form>
 
             <div class="table-responsive">
@@ -421,7 +446,7 @@
                             @endphp
                             <tr>
                                 <td><input class="form-check-input" type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" form="bulkInvoicePrintForm" data-invoice-checkbox aria-label="Zaznacz fakturę {{ $invoice->number }}"></td>
-                                <td><a class="invoice-row-number" href="{{ route('invoices.edit', $invoice) }}">{{ $invoice->number }}</a></td>
+                                <td><a class="invoice-row-number" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Otwórz PDF faktury">{{ $invoice->number }}</a></td>
                                 <td>
                                     @if ($invoice->order)
                                         <a class="invoice-order-link" href="{{ route('orders.show', $invoice->order) }}">{{ $orderNumber }}</a>
@@ -455,29 +480,56 @@
             </div>
 
             <footer class="invoice-list-footer">
-                <button class="btn btn-sm btn-outline-secondary" type="button" data-select-all-button>
-                    <i class="bi bi-check-square" aria-hidden="true"></i>
-                    Zaznacz wszystkie
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" type="submit" form="bulkInvoicePrintForm" data-bulk-print disabled>
-                    <i class="bi bi-printer" aria-hidden="true"></i>
-                    Drukuj zaznaczone
-                </button>
-                <span class="invoice-selection-status" data-selection-status>Nie zaznaczono faktur</span>
-
-                <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Sortowanie</button>
-                    <div class="dropdown-menu invoice-sort-menu">
-                        <div class="invoice-sort-heading">Sortuj według</div>
-                        @foreach (['number' => 'Numer faktury', 'order' => 'ID zamówienia', 'issue_date' => 'Data wystawienia', 'buyer' => 'Nabywca', 'gross' => 'Suma brutto'] as $sort => $label)
-                            <a class="dropdown-item {{ $filterValue('sort', 'issue_date') === $sort ? 'active' : '' }}" href="{{ $sortUrl($sort, $filterValue('direction', 'desc')) }}">{{ $label }}</a>
-                        @endforeach
-                        <div class="dropdown-divider"></div>
-                        <div class="invoice-sort-heading">Kierunek</div>
-                        <a class="dropdown-item {{ $filterValue('direction', 'desc') === 'desc' ? 'active' : '' }}" href="{{ $sortUrl($filterValue('sort', 'issue_date'), 'desc') }}"><i class="bi bi-sort-down me-2" aria-hidden="true"></i>Malejąco</a>
-                        <a class="dropdown-item {{ $filterValue('direction', 'desc') === 'asc' ? 'active' : '' }}" href="{{ $sortUrl($filterValue('sort', 'issue_date'), 'asc') }}"><i class="bi bi-sort-up me-2" aria-hidden="true"></i>Rosnąco</a>
+                <div class="btn-group invoice-bulk-actions" role="group" aria-label="Operacje zbiorcze faktur">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-select-all-button>
+                        <i class="bi bi-check-square" aria-hidden="true"></i>
+                        ZAZNACZ WSZYSTKO
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" type="submit" form="bulkInvoicePrintForm" data-bulk-print disabled>
+                        <i class="bi bi-printer" aria-hidden="true"></i>
+                        DRUKUJ ZAZNACZONE
+                    </button>
+                    <button
+                        class="btn btn-sm btn-outline-secondary"
+                        type="button"
+                        disabled
+                        title="Rejestr sprzedaży nie jest jeszcze dostępny"
+                        aria-label="Rejestr sprzedaży nie jest jeszcze dostępny"
+                    >
+                        <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                        REJESTR SPRZEDAŻY
+                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                    </button>
+                    <button
+                        class="btn btn-sm btn-outline-secondary"
+                        type="submit"
+                        form="bulkInvoicePrintForm"
+                        formaction="{{ route('invoices.bulk-delete') }}"
+                        formmethod="POST"
+                        formtarget="_self"
+                        name="_method"
+                        value="DELETE"
+                        data-bulk-delete
+                        disabled
+                    >
+                        <i class="bi bi-trash" aria-hidden="true"></i>
+                        USUŃ ZAZNACZONE
+                    </button>
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">SORTOWANIE</button>
+                        <div class="dropdown-menu invoice-sort-menu">
+                            <div class="invoice-sort-heading">Sortuj według</div>
+                            @foreach (['number' => 'Numer faktury', 'order' => 'ID zamówienia', 'issue_date' => 'Data wystawienia', 'buyer' => 'Nabywca', 'gross' => 'Suma brutto'] as $sort => $label)
+                                <a class="dropdown-item {{ $filterValue('sort', 'number') === $sort ? 'active' : '' }}" href="{{ $sortUrl($sort, $filterValue('direction', 'desc')) }}">{{ $label }}</a>
+                            @endforeach
+                            <div class="dropdown-divider"></div>
+                            <div class="invoice-sort-heading">Kierunek</div>
+                            <a class="dropdown-item {{ $filterValue('direction', 'desc') === 'desc' ? 'active' : '' }}" href="{{ $sortUrl($filterValue('sort', 'number'), 'desc') }}"><i class="bi bi-sort-down me-2" aria-hidden="true"></i>Malejąco</a>
+                            <a class="dropdown-item {{ $filterValue('direction', 'desc') === 'asc' ? 'active' : '' }}" href="{{ $sortUrl($filterValue('sort', 'number'), 'asc') }}"><i class="bi bi-sort-up me-2" aria-hidden="true"></i>Rosnąco</a>
+                        </div>
                     </div>
                 </div>
+                <span class="visually-hidden" aria-live="polite" data-selection-status>Nie zaznaczono faktur</span>
 
                 <x-pagination-toolbar
                     :paginator="$invoices"
@@ -495,8 +547,13 @@
             const selectAll = document.querySelector('[data-invoice-select-all]');
             const selectAllButton = document.querySelector('[data-select-all-button]');
             const printButton = document.querySelector('[data-bulk-print]');
+            const deleteButton = document.querySelector('[data-bulk-delete]');
             const status = document.querySelector('[data-selection-status]');
             const printForm = document.getElementById('bulkInvoicePrintForm');
+
+            document.querySelectorAll('[data-auto-submit-filter]').forEach((filter) => {
+                filter.addEventListener('change', () => filter.form?.requestSubmit());
+            });
 
             const updateSelection = () => {
                 const checked = checkboxes.filter((checkbox) => checkbox.checked).length;
@@ -506,6 +563,9 @@
                 }
                 if (printButton) {
                     printButton.disabled = checked === 0;
+                }
+                if (deleteButton) {
+                    deleteButton.disabled = checked === 0;
                 }
                 if (status) {
                     status.textContent = checked === 0
@@ -534,7 +594,14 @@
             printForm?.addEventListener('submit', (event) => {
                 if (!checkboxes.some((checkbox) => checkbox.checked)) {
                     event.preventDefault();
-                    window.alert('Zaznacz co najmniej jedną fakturę do wydruku.');
+                    window.alert('Zaznacz co najmniej jedną fakturę.');
+
+                    return;
+                }
+
+                if (event.submitter?.matches('[data-bulk-delete]')
+                    && !window.confirm('Czy na pewno chcesz usunąć zaznaczone Faktury?')) {
+                    event.preventDefault();
                 }
             });
             updateSelection();

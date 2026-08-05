@@ -18,6 +18,7 @@ use App\Models\Order;
 use Illuminate\Support\Facades\Route;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Invoices\Http\Controllers\InvoiceBulkDeletionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkPdfController;
 use Modules\Invoices\Http\Controllers\InvoiceController;
 use Modules\Invoices\Http\Controllers\InvoiceDeletionController;
@@ -97,6 +98,7 @@ Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])
 
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
 Route::post('/invoices/print-selected', InvoiceBulkPdfController::class)->name('invoices.bulk-pdf');
+Route::delete('/invoices/delete-selected', InvoiceBulkDeletionController::class)->name('invoices.bulk-delete');
 Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
 Route::delete('/invoices/{invoice}', InvoiceDeletionController::class)->name('invoices.destroy');
 Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');
