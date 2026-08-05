@@ -10,6 +10,14 @@
         .invoice-edit-card-body { padding:16px; }
         .invoice-edit-title { color:#20242a; font-size:28px; font-weight:600; line-height:1.2; margin:0; }
         .invoice-edit-subtitle { color:#64748b; font-size:14px; margin-top:6px; }
+        .invoice-document-actions { border:1px solid #cfd5dc; border-radius:22px; flex-wrap:nowrap; max-width:100%; }
+        .invoice-document-actions .btn { align-items:center; background:#fff; border:0; border-left:1px solid #cfd5dc; border-radius:0; color:#4e565f; display:inline-flex; font-size:13px; justify-content:center; min-height:40px; padding:0 12px; white-space:nowrap; }
+        .invoice-document-actions > :first-child { border-left:0; border-radius:21px 0 0 21px; }
+        .invoice-document-actions > :last-child { border-radius:0 21px 21px 0; }
+        .invoice-document-actions .btn:hover,.invoice-document-actions .btn:focus { background:#f8fafc; color:#20242a; }
+        .invoice-document-actions .btn:disabled { background:#fff; color:#94a3b8; opacity:1; }
+        .invoice-document-actions .dropdown-toggle-split { min-width:38px; padding:0 10px; }
+        .invoice-document-actions .dropdown-menu { border-color:#cfd5dc; font-size:13px; }
         .invoice-edit-banner { border-left:3px solid #0d6efd; background:#eef6ff; padding:12px 15px; margin-bottom:14px; }
         .invoice-edit-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 14px; }
         .invoice-edit-form-grid .full { grid-column:1/-1; }
@@ -43,12 +51,36 @@
         .invoice-items-table .invoice-item-price { width:110px; }
         .invoice-items-table .invoice-item-vat { width:90px; }
         .invoice-items-table .invoice-item-action { width:55px; }
+        .invoice-item-row.is-editing > td { background:#dceeff; }
+        .invoice-item-editor-row > td { background:#fff; padding:10px 14px 14px; }
+        .invoice-item-inline-form { background:#f8fafc; border:1px solid #dfe4ea; border-radius:12px; padding:14px; }
+        .invoice-item-inline-form .form-label { color:#374151; font-size:12px; margin-bottom:5px; }
+        .invoice-item-inline-form .form-control { font-size:13px; min-height:32px; }
+        .invoice-item-inline-form .form-control[readonly] { background:#fff; color:#4e565f; }
+        .invoice-item-inline-save { min-height:32px; min-width:58px; }
         .invoice-icon-button { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; padding:0; }
         .invoice-edit-item-button { background:#fff; border:1px solid #edf0f3; border-radius:50%; color:#4e565f; }
         .invoice-edit-item-button:hover,.invoice-edit-item-button:focus { background:#f8fafc; border-color:#dfe4ea; color:#20242a; }
         .invoice-delete-item-button { background:#fff; border:1px solid #edf0f3; border-radius:50%; color:#64748b; }
         .invoice-delete-item-button:hover,.invoice-delete-item-button:focus { background:#f8fafc; border-color:#dfe4ea; color:#20242a; }
-        @media(max-width:991.98px){.invoice-edit-title{font-size:22px}.invoice-edit-form-grid{grid-template-columns:1fr}.invoice-edit-address-list>div{grid-template-columns:1fr;gap:3px}.invoice-edit-address-list label{text-align:left}.invoice-edit-address-actions{margin-left:0}.invoice-current-data{border-left:0;border-top:1px solid #e5e7eb}.invoice-edit-page{margin:-1rem;padding:12px}}
+        .invoice-details-card-header { border-bottom:0; gap:12px; justify-content:flex-start; padding:18px 28px 10px; }
+        .invoice-details-card-header::before { background:#087fe5; border-radius:50%; content:""; flex:0 0 10px; height:10px; width:10px; }
+        .invoice-details-section { border-top:1px solid #d7dde4; padding:18px 28px; }
+        .invoice-details-section-first { border-top:0; padding-top:14px; }
+        .invoice-details-section-last { padding-bottom:32px; }
+        .invoice-details-fields { margin-left:16%; max-width:800px; }
+        .invoice-details-field { align-items:center; display:grid; gap:14px; grid-template-columns:170px minmax(0,380px); margin-bottom:10px; }
+        .invoice-details-field > label { color:#4e565f; font-size:12px; margin:0; text-align:right; }
+        .invoice-details-field-with-help { align-items:start; }
+        .invoice-details-field-with-help > label { padding-top:10px; }
+        .invoice-details-field .form-control,.invoice-details-field .form-select { background-color:#fff; border-color:#cfd5dc; color:#4e565f; font-size:13px; min-height:38px; padding:7px 12px; }
+        .invoice-details-field .form-control[readonly],.invoice-details-field .form-select:disabled { background-color:#fff; color:#4e565f; opacity:1; }
+        .invoice-details-field-textarea { align-items:start; }
+        .invoice-details-field-textarea > label { padding-top:9px; }
+        .invoice-details-field textarea.form-control { line-height:1.45; min-height:136px; resize:vertical; }
+        .invoice-details-help { color:#64748b; font-size:12px; line-height:1.35; margin-top:5px; }
+        .invoice-details-actions { margin-left:184px; padding-top:2px; }
+        @media(max-width:991.98px){.invoice-edit-title{font-size:22px}.invoice-edit-form-grid{grid-template-columns:1fr}.invoice-edit-address-list>div{grid-template-columns:1fr;gap:3px}.invoice-edit-address-list label{text-align:left}.invoice-edit-address-actions{margin-left:0}.invoice-current-data{border-left:0;border-top:1px solid #e5e7eb}.invoice-edit-page{margin:-1rem;padding:12px}.invoice-details-section{padding:16px}.invoice-details-fields{margin-left:0;max-width:none}.invoice-details-field{grid-template-columns:1fr;gap:4px}.invoice-details-field>label{text-align:left}.invoice-details-field-with-help>label,.invoice-details-field-textarea>label{padding-top:0}.invoice-details-actions{margin-left:0}}
     </style>
 
     <main class="invoice-edit-page" data-invoice-edit-page>
@@ -61,9 +93,23 @@
                 <h1 class="invoice-edit-title">Faktura VAT {{ $invoice->number }}</h1>
                 <div class="invoice-edit-subtitle">dla zamówienia <a href="{{ route('orders.show', $order) }}">{{ $invoice->order_reference_snapshot }}</a></div>
             </div>
-            <div class="d-flex gap-2">
-                <a class="btn btn-sm btn-outline-secondary" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
-                <a class="btn btn-sm btn-outline-secondary" href="{{ route('orders.show', $order) }}"><i class="bi bi-arrow-left me-1"></i>Powrót</a>
+            <div class="btn-group invoice-document-actions" role="group" aria-label="Akcje Faktury">
+                <a class="btn" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" data-invoice-print-button>
+                    <i class="bi bi-printer me-1"></i>Drukuj
+                </a>
+                <div class="btn-group" role="group">
+                    <button class="btn dropdown-toggle dropdown-toggle-split" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <span class="visually-hidden">Opcje drukowania</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener">Otwórz dokument PDF</a></li>
+                        <li><a class="dropdown-item" href="{{ route('invoices.pdf', $invoice) }}" download>Pobierz dokument PDF</a></li>
+                    </ul>
+                </div>
+                <button class="btn" type="button" disabled aria-label="Wgraj dokument"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
+                <button class="btn" type="button" disabled aria-label="Wystaw korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</button>
+                <button class="btn" type="button" disabled aria-label="Usuń Fakturę"><i class="bi bi-trash me-1"></i>Usuń</button>
+                <a class="btn" href="{{ route('orders.show', $order) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
             </div>
         </div>
 
@@ -86,9 +132,9 @@
                         <div class="col-12"><label class="form-label">Nazwa</label><input class="form-control form-control-sm" name="name" required maxlength="255"></div>
                         <div class="col-12"><label class="form-label">Opis</label><textarea class="form-control form-control-sm" name="description" rows="2"></textarea></div>
                         <div class="col-4"><label class="form-label">Jednostka</label><input class="form-control form-control-sm" name="unit_name" value="szt." required></div>
-                        <div class="col-4"><label class="form-label">Ilość</label><input class="form-control form-control-sm" name="quantity" value="1" inputmode="decimal" required></div>
+                        <div class="col-4"><label class="form-label">Ilość</label><input type="number" class="form-control form-control-sm" name="quantity" value="1" min="0" step="1" inputmode="numeric" required></div>
                         <div class="col-4"><label class="form-label">Pozycja</label><input class="form-control form-control-sm" name="position" value="{{ $invoice->items->count() + 1 }}" inputmode="numeric" required></div>
-                        <div class="col-6"><label class="form-label">Cena brutto</label><input class="form-control form-control-sm" name="unit_price_gross" value="0.00" inputmode="decimal" required></div>
+                        <div class="col-6"><label class="form-label">Cena brutto</label><input type="number" class="form-control form-control-sm" name="unit_price_gross" value="0.00" min="0" step="0.01" inputmode="decimal" required></div>
                         <div class="col-6"><label class="form-label">VAT (%)</label><input class="form-control form-control-sm" name="vat_rate" value="23" inputmode="decimal"></div>
                         <input type="hidden" name="vat_code" value="">
                     </div>
@@ -159,16 +205,6 @@
                     updateLockVersion(add.dataset.lockVersion);
                     clearError(itemForm); itemModal?.show(); return;
                 }
-                const edit = event.target.closest('[data-edit-invoice-item]');
-                if (edit && itemForm) {
-                    const data = JSON.parse(edit.dataset.item);
-                    itemForm.action = edit.dataset.url;
-                    itemForm.querySelector('[data-item-method]').value = 'PATCH';
-                    itemForm.querySelector('[data-item-title]').textContent = 'Edytuj pozycję Faktury';
-                    Object.entries(data).forEach(([name, value]) => { const field = itemForm.elements.namedItem(name); if (field) field.value = value ?? ''; });
-                    updateLockVersion(edit.dataset.lockVersion);
-                    clearError(itemForm); itemModal?.show(); return;
-                }
                 const copy = event.target.closest('[data-copy-address]');
                 if (copy) {
                     const form = document.querySelector(copy.dataset.form);
@@ -177,6 +213,22 @@
                 }
                 const replace = event.target.closest('[data-copy-order-items]');
                 if (replace && !window.confirm('Aktualne pozycje Faktury zostaną zastąpione. Czy kontynuować?')) event.preventDefault();
+            });
+
+            document.addEventListener('show.bs.collapse', (event) => {
+                const editor = event.target.closest('[data-invoice-item-editor]');
+                if (!editor) return;
+
+                document.querySelectorAll('[data-invoice-item-editor].show').forEach((openEditor) => {
+                    if (openEditor !== editor) bootstrap.Collapse.getOrCreateInstance(openEditor).hide();
+                });
+                document.querySelectorAll('[data-invoice-item-row]').forEach((row) => row.classList.remove('is-editing'));
+                editor.previousElementSibling?.classList.add('is-editing');
+            });
+
+            document.addEventListener('hidden.bs.collapse', (event) => {
+                const editor = event.target.closest('[data-invoice-item-editor]');
+                if (editor) editor.previousElementSibling?.classList.remove('is-editing');
             });
         });
     </script>

@@ -8,13 +8,13 @@
                 @csrf @method('PATCH')
                 <input type="hidden" name="expected_lock_version" value="{{ $invoice->lock_version }}" data-lock-version-input>
                 <div class="alert alert-danger invoice-edit-error" data-form-error hidden></div>
-                @include('invoices.edit.partials.address-fields', ['snapshot'=>$buyer,'prefix'=>'','vertical'=>true,'compoundAddress'=>true,'hideContact'=>true])
+                @include('invoices.edit.partials.address-fields', ['snapshot'=>$buyer,'prefix'=>'','vertical'=>true,'compoundAddress'=>true,'hideContact'=>true,'hideProvince'=>true])
                 <div class="invoice-edit-address-actions mt-3"><button class="invoice-save-button" type="submit">Zapisz</button></div>
             </form>
         </div>
         <aside class="col-lg-6 invoice-current-data">
             <div class="invoice-current-data-title">Aktualne dane w zamówieniu <a href="{{ route('orders.show', $order) }}">{{ $order->id }}</a>:</div>
-            <dl><dt>Imię i nazwisko</dt><dd>{{ $order->billing_name ?: '...' }}</dd><dt>Firma</dt><dd>{{ $order->billing_company_name ?: '...' }}</dd><dt>Adres</dt><dd>{{ \App\Support\AddressLineFormatter::formatAddressLine($order->billing_street, $order->billing_building_number, $order->billing_apartment_number) ?: '...' }}</dd><dt>Kod pocztowy</dt><dd>{{ $order->billing_postal_code ?: '...' }}</dd><dt>Miasto</dt><dd>{{ $order->billing_city ?: '...' }}</dd><dt>Województwo</dt><dd>{{ $order->billing_province ?: '...' }}</dd><dt>Kraj</dt><dd>{{ $countries[$order->billing_country_code] ?? '...' }}</dd><dt>NIP</dt><dd>{{ $order->billing_tax_id ?: '...' }}</dd></dl>
+            <dl><dt>Imię i nazwisko</dt><dd>{{ $order->billing_name ?: '...' }}</dd><dt>Firma</dt><dd>{{ $order->billing_company_name ?: '...' }}</dd><dt>Adres</dt><dd>{{ \App\Support\AddressLineFormatter::formatAddressLine($order->billing_street, $order->billing_building_number, $order->billing_apartment_number) ?: '...' }}</dd><dt>Kod pocztowy</dt><dd>{{ $order->billing_postal_code ?: '...' }}</dd><dt>Miasto</dt><dd>{{ $order->billing_city ?: '...' }}</dd><dt>Kraj</dt><dd>{{ $countries[$order->billing_country_code] ?? '...' }}</dd><dt>NIP</dt><dd>{{ $order->billing_tax_id ?: '...' }}</dd></dl>
             <button class="invoice-copy-current-button mt-3" type="button" data-copy-address data-form="#invoice-buyer-form" data-values="{{ json_encode($currentBuyer) }}">Skopiuj aktualne dane do faktury</button>
         </aside>
     </div>

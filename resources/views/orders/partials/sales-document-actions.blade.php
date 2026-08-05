@@ -10,8 +10,26 @@
     <div class="management-sales-document-error alert alert-danger" data-sales-document-error role="alert" hidden></div>
 
     @if ($issuedInvoice)
-        <a class="btn btn-sm btn-outline-secondary management-invoice-button" href="{{ route('invoices.pdf', $issuedInvoice) }}" target="_blank" rel="noopener">{{ $issuedInvoice->number }}</a>
-        <a class="btn btn-sm btn-outline-secondary" href="{{ route('invoices.edit', $issuedInvoice) }}" title="Edytuj Fakturę VAT" aria-label="Edytuj Fakturę VAT"><i class="bi bi-pencil"></i></a>
+        <div class="management-issued-invoice-actions">
+            <div class="btn-group management-issued-invoice-group" role="group" aria-label="Akcje Faktury VAT {{ $issuedInvoice->number }}">
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-number" href="{{ route('invoices.pdf', $issuedInvoice) }}" target="_blank" rel="noopener" title="Otwórz Fakturę VAT">
+                    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                    <span>{{ $issuedInvoice->number }}</span>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon" href="{{ route('invoices.pdf', $issuedInvoice) }}" target="_blank" rel="noopener" title="Drukuj Fakturę VAT" aria-label="Drukuj Fakturę VAT">
+                    <i class="bi bi-printer" aria-hidden="true"></i>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon" href="{{ route('invoices.edit', $issuedInvoice) }}" title="Edytuj Fakturę VAT" aria-label="Edytuj Fakturę VAT">
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                </a>
+                <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" title="Usuwanie Faktury VAT nie jest jeszcze dostępne" aria-label="Usuwanie Faktury VAT nie jest jeszcze dostępne" disabled>
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                </button>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-attachment" type="button" title="Wgrywanie dokumentu nie jest jeszcze dostępne" aria-label="Wgrywanie dokumentu nie jest jeszcze dostępne" disabled>
+                <i class="bi bi-paperclip" aria-hidden="true"></i>
+            </button>
+        </div>
     @else
         @if ($invoiceSeries->count() === 1)
             <form method="POST" action="{{ route('orders.invoice.store', $order) }}" class="management-document-action management-invoice-button" data-sales-document-form>

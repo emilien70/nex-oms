@@ -30,6 +30,13 @@ class OrderInvoiceAjaxTest extends TestCase
         $this->assertStringContainsString('FV 1/2026', $response->json('html'));
         $this->assertStringContainsString('target="_blank"', $response->json('html'));
         $this->assertStringContainsString('rel="noopener"', $response->json('html'));
+        $this->assertStringContainsString('management-issued-invoice-actions', $response->json('html'));
+        $this->assertStringContainsString('bi-file-earmark-text', $response->json('html'));
+        $this->assertStringContainsString('bi-printer', $response->json('html'));
+        $this->assertStringContainsString('bi-pencil', $response->json('html'));
+        $this->assertStringContainsString('bi-x-lg', $response->json('html'));
+        $this->assertStringContainsString('bi-paperclip', $response->json('html'));
+        $this->assertStringContainsString(route('invoices.pdf', $response->json('document.id')), $response->json('html'));
         $this->assertStringNotContainsString('WYSTAW FAKTUR', $response->json('html'));
         $this->assertStringNotContainsString('PRO FORMA', $response->json('html'));
         $this->assertDatabaseHas('invoices', [

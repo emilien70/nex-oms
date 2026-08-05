@@ -45,13 +45,29 @@ class InvoiceEditingTest extends TestCase
             ->assertSee('invoice-add-item-button', false)
             ->assertSee('invoice-copy-products-button', false)
             ->assertSee('invoice-edit-item-button', false)
+            ->assertSee('invoice-item-inline-form', false)
+            ->assertSee('data-invoice-item-editor', false)
+            ->assertSee('data-item-edit-form', false)
+            ->assertDontSee('data-edit-invoice-item', false)
             ->assertSee('invoice-delete-item-button', false)
             ->assertSee('Stawka VAT')
             ->assertDontSee('Wartość brutto')
             ->assertSee('name="expected_lock_version"', false)
             ->assertDontSee('revision_number')
             ->assertDontSee('Rewizja')
+            ->assertSee('data-invoice-print-button', false)
+            ->assertSee('Drukuj')
+            ->assertSee('Wgraj')
+            ->assertSee('Korekta')
+            ->assertSee('Usuń')
+            ->assertSee('Powrót')
+            ->assertDontSee('bi-file-earmark-pdf', false)
             ->assertSee(route('invoices.pdf', $invoice), false);
+
+        $this->assertMatchesRegularExpression(
+            '/data-invoice-item-row=.*?data-bs-target="#invoiceItemEdit\d+".*?<tr class="collapse invoice-item-editor-row"/s',
+            $this->get(route('invoices.edit', $invoice))->getContent(),
+        );
 
         $this->get(route('orders.show', $invoice->order))
             ->assertOk()
@@ -86,6 +102,8 @@ class InvoiceEditingTest extends TestCase
         $this->assertStringContainsString('name="address_line"', $buyerForm);
         $this->assertStringNotContainsString('<label>E-mail</label>', $buyerForm);
         $this->assertStringNotContainsString('<label>Telefon</label>', $buyerForm);
+        $this->assertStringNotContainsString('<label>Województwo</label>', $buyerForm);
+        $this->assertStringContainsString('type="hidden" name="province"', $buyerForm);
         $this->assertStringNotContainsString('name="street"', $buyerForm);
         $this->assertStringNotContainsString('name="building_number"', $buyerForm);
         $this->assertStringNotContainsString('name="apartment_number"', $buyerForm);
@@ -93,8 +111,38 @@ class InvoiceEditingTest extends TestCase
         $this->assertStringContainsString('invoice-save-button', $buyerForm);
         $this->assertStringContainsString('invoice-current-data-title', $response->getContent());
         $this->assertStringContainsString('invoice-copy-current-button', $response->getContent());
+        $this->assertStringNotContainsString('<dt>Województwo</dt>', $response->getContent());
         $this->assertStringContainsString(route('orders.show', $invoice->order), $response->getContent());
         $this->assertMatchesRegularExpression('/<\/dl>\s*<button[^>]+data-copy-address[^>]*>Skopiuj aktualne dane do faktury<\/button>/s', $response->getContent());
+    }
+
+    public function test_remaining_details_card_contains_only_editable_business_details(): void
+    {
+        $invoice = $this->issueInvoice();
+        $response = $this->get(route('invoices.edit', $invoice))->assertOk();
+
+        $response
+            ->assertSee('invoice-details-card', false)
+            ->assertSee('Pozostałe dane')
+            ->assertSee('Data utworzenia')
+            ->assertSee('Sposób płatności')
+            ->assertSee('Wystawiający')
+            ->assertSee('Informacje')
+            ->assertSee('invoice-save-button', false);
+
+        preg_match('/<section class="invoice-edit-card invoice-details-card">.*?<\/section>/s', $response->getContent(), $matches);
+        $this->assertNotEmpty($matches);
+        $details = $matches[0];
+        $this->assertStringNotContainsString('id="invoice-series-display"', $details);
+        $this->assertStringNotContainsString('id="invoice-sequence-display"', $details);
+        $this->assertStringNotContainsString('id="invoice-month-display"', $details);
+        $this->assertStringNotContainsString('id="invoice-year-display"', $details);
+        $this->assertStringNotContainsString('id="invoice-currency-display"', $details);
+        $this->assertStringNotContainsString('id="invoice-conversion-display"', $details);
+        $this->assertStringNotContainsString('id="invoice-seller-summary"', $details);
+        $this->assertStringNotContainsString('name="invoice_series_id"', $details);
+        $this->assertStringNotContainsString('name="sequence_number"', $details);
+        $this->assertStringContainsString('type="hidden" name="seller_name"', $details);
     }
 
     public function test_correction_blocks_invoice_editing(): void
@@ -285,6 +333,50 @@ class InvoiceEditingTest extends TestCase
         $this->postJson(route('invoices.items.store', $invoice), $invalid)
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['vat_rate', 'vat_code']);
+    }
+
+    public function test_item_form_uses_integer_quantity_and_two_decimal_gross_price(): void
+    {
+        $invoice = $this->issueInvoice();
+        $response = $this->get(route('invoices.edit', $invoice))->assertOk();
+
+        preg_match('/<form[^>]+data-item-edit-form.*?<\/form>/s', $response->getContent(), $matches);
+        $this->assertNotEmpty($matches);
+        $itemEditForm = $matches[0];
+
+        $this->assertStringContainsString('name="quantity"', $itemEditForm);
+        $this->assertStringContainsString('min="0"', $itemEditForm);
+        $this->assertStringContainsString('step="1"', $itemEditForm);
+        $this->assertStringContainsString('Cena brutto', $itemEditForm);
+        $this->assertStringContainsString('name="unit_price_gross"', $itemEditForm);
+        $this->assertStringContainsString('step="0.01"', $itemEditForm);
+        $this->assertStringNotContainsString('<label class="form-label">Jednostka</label>', $itemEditForm);
+        $this->assertStringContainsString('type="hidden" name="unit_name"', $itemEditForm);
+
+        $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+            'quantity' => '1.5',
+        ]))->assertUnprocessable()->assertJsonValidationErrors('quantity');
+
+        $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+            'unit_price_gross' => '10.123',
+        ]))->assertUnprocessable()->assertJsonValidationErrors('unit_price_gross');
+
+        $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+            'quantity' => '2',
+            'unit_price_gross' => '10.25',
+        ]))->assertOk();
+
+        $invoice->refresh();
+        $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+            'quantity' => '0',
+            'unit_price_gross' => '10.25',
+        ]))->assertOk();
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $invoice->id,
+            'name' => 'Pozycja dodatkowa',
+            'quantity' => 0,
+            'total_gross' => 0,
+        ]);
     }
 
     public function test_last_item_cannot_be_deleted_and_paid_amount_cannot_exceed_total(): void

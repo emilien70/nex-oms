@@ -306,6 +306,69 @@
             width: 150px;
         }
 
+        .management-issued-invoice-actions {
+            align-items: center;
+            display: flex;
+            gap: 8px;
+            grid-column: 2 / 4;
+            margin-top: 8px;
+        }
+
+        .management-issued-invoice-group {
+            box-shadow: none;
+        }
+
+        .management-issued-invoice-actions .btn {
+            align-items: center;
+            background: #fff;
+            border-color: #cfd5dc;
+            color: #4e565f;
+            display: inline-flex;
+            font-size: 12px;
+            height: 30px;
+            justify-content: center;
+            line-height: 1;
+            padding: 0 8px;
+        }
+
+        .management-issued-invoice-actions .btn:hover,
+        .management-issued-invoice-actions .btn:focus-visible {
+            background: #f8fafc;
+            border-color: #aeb7c2;
+            color: #1f2937;
+        }
+
+        .management-issued-invoice-number {
+            gap: 4px;
+            min-width: max-content;
+        }
+
+        .management-issued-invoice-icon {
+            flex: 0 0 34px;
+            padding: 0 !important;
+            width: 34px;
+        }
+
+        .management-issued-invoice-icon i {
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .management-issued-invoice-actions .btn:disabled {
+            background: #fff;
+            border-color: #cfd5dc;
+            color: #98a2ad;
+            opacity: 1;
+        }
+
+        .management-issued-invoice-actions .management-issued-invoice-delete:disabled {
+            color: #dc3545;
+        }
+
+        .management-issued-invoice-attachment {
+            border-radius: 4px !important;
+        }
+
         .management-document-action .btn,
         .management-document-dropdown > .btn {
             min-height: 30px;
@@ -1407,6 +1470,7 @@
             .management-meta-label,
             .management-meta-value,
             .management-invoice-button,
+            .management-issued-invoice-actions,
             .management-proforma-button {
                 grid-column: 1;
             }
@@ -1414,6 +1478,11 @@
             .management-invoice-button,
             .management-proforma-button {
                 width: 100%;
+            }
+
+            .management-issued-invoice-actions {
+                flex-wrap: nowrap;
+                width: max-content;
             }
         }
     </style>
