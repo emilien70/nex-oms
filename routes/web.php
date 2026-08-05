@@ -99,6 +99,9 @@ Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
 Route::post('/invoices/print-selected', InvoiceBulkPdfController::class)->name('invoices.bulk-pdf');
 Route::delete('/invoices/delete-selected', InvoiceBulkDeletionController::class)->name('invoices.bulk-delete');
+Route::get('/invoices/proformas', [InvoiceController::class, 'proformas'])->name('invoices.proformas.index');
+Route::post('/invoices/proformas/print-selected', [InvoiceBulkPdfController::class, 'proformas'])->name('invoices.proformas.bulk-pdf');
+Route::delete('/invoices/proformas/delete-selected', [InvoiceBulkDeletionController::class, 'proformas'])->name('invoices.proformas.bulk-delete');
 Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
 Route::delete('/invoices/{invoice}', InvoiceDeletionController::class)->name('invoices.destroy');
 Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');

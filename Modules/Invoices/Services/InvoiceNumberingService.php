@@ -314,7 +314,9 @@ class InvoiceNumberingService
             'new_protected_floor_sequence_number' => $previousFloor,
             'previous_next_sequence_number' => $previousLast + 1,
             'new_next_sequence_number' => $newLast + 1,
-            'reason' => 'Automatyczne cofnięcie wolnego końca numeracji po usunięciu Faktury VAT.',
+            'reason' => $invoice->isProforma()
+                ? 'Automatyczne cofnięcie wolnego końca numeracji po usunięciu Pro formy.'
+                : 'Automatyczne cofnięcie wolnego końca numeracji po usunięciu Faktury VAT.',
             'actor_snapshot' => $actorSnapshot ?? [
                 'type' => 'application',
                 'name' => 'NEX-OMS',

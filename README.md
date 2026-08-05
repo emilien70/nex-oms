@@ -70,6 +70,8 @@ Moduł Faktur nie jest już pustym szkieletem. Aktualna implementacja obejmuje:
 - zwykły przycisk dla jednej aktywnej serii i dropdown wyboru przy wielu aktywnych seriach;
 - prywatne PDF-y otwierane przez kontrolowaną trasę Laravel;
 - generowanie PDF Faktury VAT i Pro formy wyłącznie z zapisanych snapshotów;
+- listy Faktur VAT i Pro form z filtrami, sortowaniem, paginacją oraz zbiorczym drukowaniem do jednego PDF;
+- usuwanie pojedynczych i zaznaczonych Faktur VAT oraz aktywnych Pro form z ochroną dokumentów powiązanych;
 - sekcyjną edycję wystawionej Faktury VAT przez AJAX, bez zmiany zamówienia, serii ani liczników;
 - ręczne kopiowanie aktualnych danych kontrahenta i pozycji zamówienia do Faktury;
 - dodawanie, edycję i usuwanie pozycji Faktury z serwerowym przeliczeniem netto, VAT i brutto;
@@ -80,9 +82,9 @@ Moduł Faktur nie jest już pustym szkieletem. Aktualna implementacja obejmuje:
 - kraj Nabywcy w formacie takim jak `32-545 Psary, Polska`;
 - PDF bez stopki „Wygenerowano w...” i bez ujawniania ścieżki prywatnego storage.
 
-Renderer PDF Korekty jest gotowy, ale wystawianie Korekt i ich interfejs nie są jeszcze wdrożone. Główna strona listy Faktur pozostaje ekranem początkowym; pełne listy i rejestry dokumentów również nie są jeszcze dostępne.
+Renderer PDF Korekty jest gotowy, ale wystawianie Korekt i ich interfejs nie są jeszcze wdrożone. Dostępne są listy Faktur VAT i Pro form; lista Korekt oraz rejestr sprzedaży nie są jeszcze dostępne.
 
-Edycja z Etapu 2E dotyczy wyłącznie wystawionej Faktury VAT bez Korekt. Pro formy i Korekty nie są edytowane tym mechanizmem. Zmiany tekstowe Faktury walutowej nie kontaktują się z NBP, zmiany kwot używają zapisanego kursu, a nowy kurs jest pobierany tylko wtedy, gdy zmiana daty modyfikuje datę odniesienia. System nie przechowuje poprzednich stanów dokumentów ani archiwalnych PDF-ów. Usuwanie dokumentów, dokumenty zewnętrzne, e-mail, JPK i KSeF pozostają niewdrożone.
+Edycja z Etapu 2E dotyczy wyłącznie wystawionej Faktury VAT bez Korekt. Pro formy i Korekty nie są edytowane tym mechanizmem. Zmiany tekstowe Faktury walutowej nie kontaktują się z NBP, zmiany kwot używają zapisanego kursu, a nowy kurs jest pobierany tylko wtedy, gdy zmiana daty modyfikuje datę odniesienia. System nie przechowuje poprzednich stanów dokumentów ani archiwalnych PDF-ów. Dokumenty zewnętrzne, e-mail, JPK i KSeF pozostają niewdrożone.
 
 ## Zasady dokumentów
 
@@ -226,8 +228,7 @@ Testy używają SQLite `:memory:` i synchronicznej kolejki. Nie należy uruchami
 ## Funkcje jeszcze niewdrożone
 
 - wystawianie Korekt i ich interfejs użytkownika;
-- pełne listy Faktur, Pro form i Korekt oraz rejestr sprzedaży;
-- usuwanie wystawionych dokumentów;
+- lista Korekt oraz rejestr sprzedaży;
 - generowanie duplikatów;
 - wysyłka dokumentów e-mailem;
 - załączniki i zewnętrzne pliki PDF;

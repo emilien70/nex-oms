@@ -94,6 +94,20 @@ class InvoiceDeletionTest extends TestCase
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
     }
 
+    public function test_proforma_deleted_from_list_returns_to_proforma_list(): void
+    {
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
+        $proforma = $this->proformaForNewOrder($series);
+
+        $this->delete(route('invoices.destroy', $proforma), [
+            'expected_lock_version' => $proforma->lock_version,
+            'return_to' => 'proformas',
+        ])->assertRedirect(route('invoices.proformas.index'))
+            ->assertSessionHas('success', 'Pro forma została usunięta.');
+
+        $this->assertDatabaseMissing('invoices', ['id' => $proforma->getKey()]);
+    }
+
     public function test_selected_invoices_can_be_deleted_from_invoice_list_atomically(): void
     {
         $series = $this->createDocumentSeries();
@@ -151,6 +165,53 @@ class InvoiceDeletionTest extends TestCase
         $this->assertSame(2, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
     }
 
+    public function test_selected_proformas_can_be_deleted_from_proforma_list_atomically(): void
+    {
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
+        $first = $this->proformaForNewOrder($series);
+        $second = $this->proformaForNewOrder($series);
+
+        $this->from(route('invoices.proformas.index'))
+            ->delete(route('invoices.proformas.bulk-delete'), [
+                'invoice_ids' => [$first->getKey(), $second->getKey()],
+                'lock_versions' => [
+                    $first->getKey() => $first->lock_version,
+                    $second->getKey() => $second->lock_version,
+                ],
+            ])
+            ->assertRedirect(route('invoices.proformas.index'))
+            ->assertSessionHas('success', 'Usunięto 2 Pro formy.');
+
+        $this->assertDatabaseMissing('invoices', ['id' => $first->getKey()]);
+        $this->assertDatabaseMissing('invoices', ['id' => $second->getKey()]);
+        $this->assertDatabaseCount('order_document_slots', 0);
+        $this->assertSame(0, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+    }
+
+    public function test_bulk_proforma_deletion_rejects_mixed_document_types_atomically(): void
+    {
+        $proforma = $this->proformaForNewOrder(
+            $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+        );
+        $invoice = $this->issueForNewOrder($this->createDocumentSeries());
+
+        $this->from(route('invoices.proformas.index'))
+            ->delete(route('invoices.proformas.bulk-delete'), [
+                'invoice_ids' => [$proforma->getKey(), $invoice->getKey()],
+                'lock_versions' => [
+                    $proforma->getKey() => $proforma->lock_version,
+                    $invoice->getKey() => $invoice->lock_version,
+                ],
+            ])
+            ->assertRedirect(route('invoices.proformas.index'))
+            ->assertSessionHasErrors([
+                'invoice_ids' => 'Zaznaczone dokumenty muszą być Pro formami.',
+            ]);
+
+        $this->assertDatabaseHas('invoices', ['id' => $proforma->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $invoice->getKey()]);
+    }
+
     public function test_stale_lock_version_does_not_delete_invoice(): void
     {
         [, , $invoice] = $this->issuedInvoice();
@@ -197,19 +258,88 @@ class InvoiceDeletionTest extends TestCase
         $this->assertDatabaseHas('invoices', ['id' => $invoice->getKey()]);
     }
 
-    public function test_endpoint_rejects_proforma_and_inconsistent_slot(): void
+    public function test_active_proforma_can_be_deleted_with_slot_items_pdf_and_audit_cleanup(): void
     {
+        Storage::fake('local');
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
         $proformaSeries = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
         $proforma = app(ProformaService::class)
             ->createOrRefresh($order, $proformaSeries, $this->documentContext())
             ->invoice;
+        $pdfPath = app(InvoicePdfFilenameGenerator::class)->storagePath($proforma);
+        Storage::disk('local')->put($pdfPath, '%PDF-test');
+
+        $response = $this->deleteJson(route('invoices.destroy', $proforma), [
+            'expected_lock_version' => $proforma->lock_version,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('redirect_url', route('orders.show', $order));
+        $this->assertStringContainsString('PRO FORMA', $response->json('html'));
+        $this->assertDatabaseMissing('invoices', ['id' => $proforma->getKey()]);
+        $this->assertDatabaseMissing('invoice_items', ['invoice_id' => $proforma->getKey()]);
+        $this->assertDatabaseMissing('order_document_slots', ['invoice_id' => $proforma->getKey()]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->getKey(),
+            'event_type' => 'proforma_deleted',
+            'title' => 'Usunięto Pro formę',
+        ]);
+        Storage::disk('local')->assertMissing($pdfPath);
+        $this->assertSame(0, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+        $this->assertDatabaseHas('invoice_number_counter_adjustments', [
+            'new_last_sequence_number' => 0,
+            'reason' => 'Automatyczne cofnięcie wolnego końca numeracji po usunięciu Pro formy.',
+        ]);
+
+        $replacement = app(ProformaService::class)
+            ->createOrRefresh($order->refresh(), $proformaSeries, $this->documentContext('2026-07-29 10:00:00'))
+            ->invoice;
+
+        $this->assertNotSame($proforma->getKey(), $replacement->getKey());
+        $this->assertSame(1, $replacement->sequence_number);
+    }
+
+    public function test_superseded_proforma_cannot_be_deleted_while_invoice_exists(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $proforma = app(ProformaService::class)
+            ->createOrRefresh(
+                $order,
+                $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+                $this->documentContext(),
+            )
+            ->invoice;
+        app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext('2026-07-28 13:00:00'),
+        );
+
+        $proforma->refresh();
+
+        $this->from(route('invoices.proformas.index'))
+            ->delete(route('invoices.destroy', $proforma), [
+                'expected_lock_version' => $proforma->lock_version,
+                'return_to' => 'proformas',
+            ])
+            ->assertRedirect(route('invoices.proformas.index'))
+            ->assertSessionHasErrors([
+                'invoice' => 'Do Pro Forma została już wystawiona Faktura VAT.',
+            ]);
 
         $this->deleteJson(route('invoices.destroy', $proforma), [
             'expected_lock_version' => $proforma->lock_version,
-        ])->assertUnprocessable()
-            ->assertJsonPath('code', 'invoice_delete_not_allowed');
+        ])->assertConflict()
+            ->assertJsonPath('code', 'proforma_delete_blocked_by_invoice')
+            ->assertJsonPath('message', 'Do Pro Forma została już wystawiona Faktura VAT.');
+
+        $this->assertDatabaseHas('invoices', ['id' => $proforma->getKey()]);
+    }
+
+    public function test_inconsistent_document_slot_blocks_deletion(): void
+    {
 
         [, , $invoice] = $this->issuedInvoice();
         OrderDocumentSlot::query()
@@ -384,5 +514,15 @@ class InvoiceDeletionTest extends TestCase
 
         return app(InvoiceIssuingService::class)
             ->issue($order, $series, $this->documentContext());
+    }
+
+    private function proformaForNewOrder(InvoiceSeries $series): Invoice
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+
+        return app(ProformaService::class)
+            ->createOrRefresh($order, $series, $this->documentContext())
+            ->invoice;
     }
 }

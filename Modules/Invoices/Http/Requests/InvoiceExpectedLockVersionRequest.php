@@ -9,7 +9,7 @@ class InvoiceExpectedLockVersionRequest extends InvoiceEditRequest
     {
         return [
             'expected_lock_version' => ['required', 'integer', 'min:1'],
-            'return_to' => ['nullable', 'in:invoices'],
+            'return_to' => ['nullable', 'in:invoices,proformas'],
         ];
     }
 }

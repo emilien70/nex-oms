@@ -34,7 +34,7 @@ class InvoiceBulkDeleteRequest extends InvoiceEditRequest
                     && ! array_key_exists((int) $invoiceId, $lockVersions)) {
                     $validator->errors()->add(
                         'lock_versions',
-                        'Brakuje technicznej wersji jednej z zaznaczonych Faktur.',
+                        $this->missingLockVersionMessage(),
                     );
                     break;
                 }
@@ -45,19 +45,37 @@ class InvoiceBulkDeleteRequest extends InvoiceEditRequest
     /** @return array<string, string> */
     public function messages(): array
     {
+        $plural = $this->documentPluralGenitive();
+        $singular = $this->documentSingularAccusative();
+
         return [
-            'invoice_ids.required' => 'Zaznacz co najmniej jedną Fakturę do usunięcia.',
-            'invoice_ids.array' => 'Lista Faktur do usunięcia jest nieprawidłowa.',
-            'invoice_ids.min' => 'Zaznacz co najmniej jedną Fakturę do usunięcia.',
-            'invoice_ids.max' => 'Jednorazowo można usunąć maksymalnie 100 Faktur.',
-            'invoice_ids.*.integer' => 'Lista Faktur do usunięcia jest nieprawidłowa.',
-            'invoice_ids.*.distinct' => 'Lista Faktur do usunięcia zawiera duplikaty.',
-            'invoice_ids.*.exists' => 'Jedna z zaznaczonych Faktur już nie istnieje.',
-            'lock_versions.required' => 'Brakuje technicznych wersji zaznaczonych Faktur.',
-            'lock_versions.array' => 'Techniczne wersje zaznaczonych Faktur są nieprawidłowe.',
-            'lock_versions.*.required' => 'Brakuje technicznej wersji jednej z zaznaczonych Faktur.',
-            'lock_versions.*.integer' => 'Techniczna wersja jednej z zaznaczonych Faktur jest nieprawidłowa.',
-            'lock_versions.*.min' => 'Techniczna wersja jednej z zaznaczonych Faktur jest nieprawidłowa.',
+            'invoice_ids.required' => "Zaznacz co najmniej jedną {$singular} do usunięcia.",
+            'invoice_ids.array' => "Lista {$plural} do usunięcia jest nieprawidłowa.",
+            'invoice_ids.min' => "Zaznacz co najmniej jedną {$singular} do usunięcia.",
+            'invoice_ids.max' => "Jednorazowo można usunąć maksymalnie 100 {$plural}.",
+            'invoice_ids.*.integer' => "Lista {$plural} do usunięcia jest nieprawidłowa.",
+            'invoice_ids.*.distinct' => "Lista {$plural} do usunięcia zawiera duplikaty.",
+            'invoice_ids.*.exists' => "Jedna z zaznaczonych {$plural} już nie istnieje.",
+            'lock_versions.required' => "Brakuje technicznych wersji zaznaczonych {$plural}.",
+            'lock_versions.array' => "Techniczne wersje zaznaczonych {$plural} są nieprawidłowe.",
+            'lock_versions.*.required' => $this->missingLockVersionMessage(),
+            'lock_versions.*.integer' => "Techniczna wersja jednej z zaznaczonych {$plural} jest nieprawidłowa.",
+            'lock_versions.*.min' => "Techniczna wersja jednej z zaznaczonych {$plural} jest nieprawidłowa.",
         ];
+    }
+
+    protected function documentSingularAccusative(): string
+    {
+        return 'Fakturę';
+    }
+
+    protected function documentPluralGenitive(): string
+    {
+        return 'Faktur';
+    }
+
+    protected function missingLockVersionMessage(): string
+    {
+        return "Brakuje technicznej wersji jednej z zaznaczonych {$this->documentPluralGenitive()}.";
     }
 }

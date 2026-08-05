@@ -405,6 +405,21 @@
             border-radius: 4px !important;
         }
 
+        .management-issued-proforma-actions {
+            grid-column: 3;
+            justify-self: start;
+        }
+
+        .management-issued-proforma-actions .management-document-action {
+            display: inline-flex;
+        }
+
+        .management-issued-proforma-actions .management-document-action .btn {
+            border-bottom-right-radius: 0;
+            border-top-right-radius: 0;
+            min-width: max-content;
+        }
+
         .management-document-action .btn,
         .management-document-dropdown > .btn {
             min-height: 30px;

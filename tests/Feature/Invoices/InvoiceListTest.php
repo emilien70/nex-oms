@@ -65,6 +65,78 @@ class InvoiceListTest extends TestCase
         );
     }
 
+    public function test_proforma_tab_shows_only_issued_proformas_with_pdf_and_shared_list_controls(): void
+    {
+        $invoiceOrder = $this->createDocumentOrder(['billing_name' => 'Jan Faktura']);
+        $this->createDocumentItem($invoiceOrder);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $invoiceOrder,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
+        $firstOrder = $this->createDocumentOrder(['billing_name' => 'Pierwsza Proforma']);
+        $this->createDocumentItem($firstOrder);
+        $first = app(ProformaService::class)->createOrRefresh(
+            $firstOrder,
+            $series,
+            $this->documentContext('2026-08-04 10:00:00'),
+        )->invoice;
+        app(InvoiceIssuingService::class)->issue(
+            $firstOrder,
+            $this->createDocumentSeries(),
+            $this->documentContext('2026-08-04 11:00:00'),
+        );
+
+        $secondOrder = $this->createDocumentOrder(['billing_name' => 'Druga Proforma']);
+        $this->createDocumentItem($secondOrder);
+        $second = app(ProformaService::class)->createOrRefresh(
+            $secondOrder,
+            $series,
+            $this->documentContext('2026-08-03 10:00:00'),
+        )->invoice;
+
+        $response = $this->get(route('invoices.proformas.index'));
+
+        $response->assertOk()
+            ->assertSeeInOrder([$second->number, $first->number])
+            ->assertDontSee($invoice->number)
+            ->assertSee(route('invoices.pdf', $first), false)
+            ->assertSee(route('invoices.proformas.bulk-pdf'), false)
+            ->assertSee(route('invoices.proformas.bulk-delete'), false)
+            ->assertSee(route('invoices.destroy', $first), false)
+            ->assertDontSee(route('invoices.edit', $first), false)
+            ->assertDontSee('KOREKTA')
+            ->assertSee('ZAZNACZ WSZYSTKO')
+            ->assertSee('DRUKUJ ZAZNACZONE')
+            ->assertSee('USUŃ ZAZNACZONE')
+            ->assertSee('SORTOWANIE');
+
+        $html = $response->getContent();
+        $this->assertMatchesRegularExpression(
+            '/<form\b[^>]*action="'.preg_quote(route('invoices.destroy', $first), '/').'"[^>]*>/',
+            $html,
+        );
+        $this->assertStringContainsString(
+            'data-delete-blocked-message="Do Pro Forma została już wystawiona Faktura VAT."',
+            $html,
+        );
+        $this->assertStringContainsString('window.nexOmsShowError(message)', $html);
+        foreach (['invoice_series_id', 'invoice_month', 'invoice_year'] as $fieldId) {
+            $this->assertMatchesRegularExpression(
+                '/<select\b[^>]*id="'.preg_quote($fieldId, '/').'"[^>]*data-auto-submit-filter[^>]*>/',
+                $html,
+            );
+        }
+        $this->assertMatchesRegularExpression('/name="sort" value="number"/', $html);
+
+        $this->get(route('invoices.proformas.index', ['month' => 8, 'year' => 2026, 'buyer' => 'Pierwsza']))
+            ->assertOk()
+            ->assertSee($first->number)
+            ->assertDontSee($second->number);
+    }
+
     public function test_list_filters_and_sorts_invoices_using_snapshot_data(): void
     {
         $series = $this->createDocumentSeries();

@@ -13,7 +13,7 @@ class InvoiceDeletionPolicy
     public function assertHasOrderReference(Invoice $invoice): void
     {
         if ($invoice->order_id === null) {
-            throw $this->inconsistent();
+            throw $this->inconsistent($invoice);
         }
     }
 
@@ -22,18 +22,22 @@ class InvoiceDeletionPolicy
         ?OrderDocumentSlot $slot,
         int $expectedLockVersion,
     ): void {
-        if ($invoice->document_type !== InvoiceDocumentType::Invoice
-            || $invoice->status !== InvoiceDocumentStatus::Issued) {
+        if (! in_array($invoice->document_type, [
+            InvoiceDocumentType::Invoice,
+            InvoiceDocumentType::Proforma,
+        ], true) || $invoice->status !== InvoiceDocumentStatus::Issued) {
             throw new InvoiceDomainException(
                 'invoice_delete_not_allowed',
-                'Usunąć można wyłącznie wystawioną Fakturę VAT.',
+                'Usunąć można wyłącznie wystawioną Fakturę VAT albo aktywną Pro formę.',
             );
         }
 
         if ($invoice->lock_version !== $expectedLockVersion) {
             throw new InvoiceDomainException(
                 'invoice_delete_conflict',
-                'Faktura została w międzyczasie zmieniona. Odśwież stronę i spróbuj ponownie.',
+                $invoice->isProforma()
+                    ? 'Pro forma została w międzyczasie zmieniona. Odśwież stronę i spróbuj ponownie.'
+                    : 'Faktura została w międzyczasie zmieniona. Odśwież stronę i spróbuj ponownie.',
             );
         }
 
@@ -45,26 +49,38 @@ class InvoiceDeletionPolicy
             || $invoice->order_id === null
             || $invoice->series()->doesntExist()
             || $invoice->order()->doesntExist()) {
-            throw $this->inconsistent();
+            throw $this->inconsistent($invoice);
         }
 
-        if ($invoice->corrections()->exists()) {
+        if ($invoice->isInvoice() && $invoice->corrections()->exists()) {
             throw new InvoiceDomainException(
                 'invoice_delete_blocked_by_correction',
                 'Nie można usunąć Faktury, ponieważ została do niej wystawiona Korekta.',
             );
         }
 
-        if ($slot === null || $slot->invoice_id !== $invoice->getKey()) {
-            throw $this->inconsistent();
+        if ($invoice->isProforma()
+            && ($invoice->proforma_superseded_at !== null || $invoice->superseded_by_invoice_id !== null)) {
+            throw new InvoiceDomainException(
+                'proforma_delete_blocked_by_invoice',
+                'Do Pro Forma została już wystawiona Faktura VAT.',
+            );
+        }
+
+        if ($slot === null
+            || $slot->document_type !== $invoice->document_type
+            || $slot->invoice_id !== $invoice->getKey()) {
+            throw $this->inconsistent($invoice);
         }
     }
 
-    private function inconsistent(): InvoiceDomainException
+    private function inconsistent(Invoice $invoice): InvoiceDomainException
     {
         return new InvoiceDomainException(
             'invoice_delete_inconsistent_document',
-            'Nie można usunąć Faktury, ponieważ jej dane lub powiązania są niespójne.',
+            $invoice->isProforma()
+                ? 'Nie można usunąć Pro formy, ponieważ jej dane lub powiązania są niespójne.'
+                : 'Nie można usunąć Faktury, ponieważ jej dane lub powiązania są niespójne.',
         );
     }
 }

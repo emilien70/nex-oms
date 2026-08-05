@@ -15,8 +15,10 @@ class InvoiceBulkPdfService
     ) {}
 
     /** @param array<int, int> $invoiceIds */
-    public function contents(array $invoiceIds): string
-    {
+    public function contents(
+        array $invoiceIds,
+        InvoiceDocumentType $documentType = InvoiceDocumentType::Invoice,
+    ): string {
         $invoicesById = Invoice::query()
             ->with('items')
             ->whereIn('id', $invoiceIds)
@@ -28,11 +30,15 @@ class InvoiceBulkPdfService
 
         if ($invoices->contains(null)
             || $invoices->contains(fn (?Invoice $invoice): bool => $invoice === null
-                || $invoice->document_type !== InvoiceDocumentType::Invoice
+                || $invoice->document_type !== $documentType
                 || $invoice->status !== InvoiceDocumentStatus::Issued)) {
+            $documentLabel = $documentType === InvoiceDocumentType::Invoice
+                ? 'Faktury VAT'
+                : 'Pro formy';
+
             throw new InvoiceDomainException(
                 'invoice_bulk_pdf_invalid_selection',
-                'Zbiorczy wydruk może zawierać wyłącznie wystawione Faktury VAT.',
+                'Zbiorczy wydruk może zawierać wyłącznie wystawione '.$documentLabel.'.',
             );
         }
 

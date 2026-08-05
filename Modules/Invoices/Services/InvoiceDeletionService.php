@@ -39,7 +39,7 @@ class InvoiceDeletionService
                     ->findOrFail($invoice->getKey());
                 $slot = OrderDocumentSlot::query()
                     ->where('order_id', $managedOrder->getKey())
-                    ->where('document_type', InvoiceDocumentType::Invoice)
+                    ->where('document_type', $managedInvoice->document_type)
                     ->lockForUpdate()
                     ->first();
 
@@ -57,7 +57,9 @@ class InvoiceDeletionService
         } catch (DomainException $exception) {
             throw new InvoiceDomainException(
                 'invoice_delete_numbering_inconsistent',
-                'Nie można usunąć Faktury, ponieważ wykryto niespójność numeracji.',
+                $invoice->isProforma()
+                    ? 'Nie można usunąć Pro formy, ponieważ wykryto niespójność numeracji.'
+                    : 'Nie można usunąć Faktury, ponieważ wykryto niespójność numeracji.',
                 ['reason' => $exception->getMessage()],
                 $exception,
             );
@@ -70,6 +72,7 @@ class InvoiceDeletionService
     public function deleteMany(
         array $expectedLockVersions,
         InvoiceOperationContext $context,
+        InvoiceDocumentType $documentType = InvoiceDocumentType::Invoice,
     ): int {
         if ($expectedLockVersions === []) {
             return 0;
@@ -79,15 +82,28 @@ class InvoiceDeletionService
 
         try {
             /** @var array<int, Invoice> $deletedInvoices */
-            $deletedInvoices = DB::transaction(function () use ($invoiceIds, $expectedLockVersions, $context): array {
+            $deletedInvoices = DB::transaction(function () use ($invoiceIds, $expectedLockVersions, $context, $documentType): array {
                 $references = Invoice::query()
                     ->whereIn('id', $invoiceIds)
-                    ->get(['id', 'order_id']);
+                    ->get(['id', 'order_id', 'document_type']);
 
                 if ($references->count() !== count($invoiceIds)) {
                     throw new InvoiceDomainException(
                         'invoice_bulk_delete_missing_document',
-                        'Jedna z zaznaczonych Faktur już nie istnieje.',
+                        $documentType === InvoiceDocumentType::Proforma
+                            ? 'Jedna z zaznaczonych Pro form już nie istnieje.'
+                            : 'Jedna z zaznaczonych Faktur już nie istnieje.',
+                    );
+                }
+
+                if ($references->contains(
+                    fn (Invoice $invoice): bool => $invoice->document_type !== $documentType
+                )) {
+                    throw new InvoiceDomainException(
+                        'invoice_bulk_delete_wrong_document_type',
+                        $documentType === InvoiceDocumentType::Proforma
+                            ? 'Zaznaczone dokumenty muszą być Pro formami.'
+                            : 'Zaznaczone dokumenty muszą być Fakturami VAT.',
                     );
                 }
 
@@ -113,7 +129,7 @@ class InvoiceDeletionService
                     ->keyBy('id');
                 $slots = OrderDocumentSlot::query()
                     ->whereIn('order_id', $orderIds)
-                    ->where('document_type', InvoiceDocumentType::Invoice)
+                    ->where('document_type', $documentType)
                     ->lockForUpdate()
                     ->get()
                     ->keyBy('order_id');
@@ -163,7 +179,9 @@ class InvoiceDeletionService
         } catch (DomainException $exception) {
             throw new InvoiceDomainException(
                 'invoice_delete_numbering_inconsistent',
-                'Nie można usunąć Faktur, ponieważ wykryto niespójność numeracji.',
+                $documentType === InvoiceDocumentType::Proforma
+                    ? 'Nie można usunąć Pro form, ponieważ wykryto niespójność numeracji.'
+                    : 'Nie można usunąć Faktur, ponieważ wykryto niespójność numeracji.',
                 ['reason' => $exception->getMessage()],
                 $exception,
             );
@@ -183,7 +201,9 @@ class InvoiceDeletionService
             $invoice,
             $context->actorSnapshot,
         );
-        $restoredProforma = $this->restoreSupersededProforma($order, $invoice);
+        $restoredProforma = $invoice->isInvoice()
+            ? $this->restoreSupersededProforma($order, $invoice)
+            : null;
         $this->afterNumberReleased($invoice);
         $this->createOrderEvent($order, $invoice, $context);
 
@@ -245,10 +265,13 @@ class InvoiceDeletionService
         Invoice $invoice,
         InvoiceOperationContext $context,
     ): void {
+        $isProforma = $invoice->isProforma();
         $event = $order->events()->make([
-            'event_type' => 'invoice_deleted',
-            'title' => 'Usunięto fakturę',
-            'description' => 'Usunięto fakturę VAT z zamówienia.',
+            'event_type' => $isProforma ? 'proforma_deleted' : 'invoice_deleted',
+            'title' => $isProforma ? 'Usunięto Pro formę' : 'Usunięto fakturę',
+            'description' => $isProforma
+                ? 'Usunięto Pro formę z zamówienia.'
+                : 'Usunięto fakturę VAT z zamówienia.',
             'payload' => [
                 'invoice_id' => $invoice->getKey(),
                 'invoice_number' => $invoice->number,
@@ -296,7 +319,7 @@ class InvoiceDeletionService
         try {
             $this->pdfStorage->delete($invoice);
         } catch (Throwable $exception) {
-            Log::warning('Nie udało się usunąć cache PDF usuniętej Faktury.', [
+            Log::warning('Nie udało się usunąć cache PDF usuniętego dokumentu sprzedaży.', [
                 'invoice_id' => $invoice->getKey(),
                 'exception' => $exception,
             ]);

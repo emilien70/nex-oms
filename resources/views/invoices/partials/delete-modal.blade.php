@@ -1,12 +1,18 @@
+@php
+    $isProforma = $invoice->isProforma();
+    $documentLabel = $isProforma ? 'Pro formy' : 'Faktury VAT';
+    $documentName = $isProforma ? 'Pro formę' : 'fakturę';
+@endphp
+
 <div class="modal fade" id="{{ $modalId }}" tabindex="-1" aria-labelledby="{{ $modalId }}Label" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 class="modal-title fs-6" id="{{ $modalId }}Label">Usuwanie Faktury VAT</h2>
+                <h2 class="modal-title fs-6" id="{{ $modalId }}Label">Usuwanie {{ $documentLabel }}</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
             </div>
             <div class="modal-body">
-                Czy na pewno chcesz usunąć fakturę „{{ $invoice->number }}”? Tej operacji nie można cofnąć.
+                Czy na pewno chcesz usunąć {{ $documentName }} „{{ $invoice->number }}”? Tej operacji nie można cofnąć.
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>

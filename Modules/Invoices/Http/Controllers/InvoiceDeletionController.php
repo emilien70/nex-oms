@@ -24,6 +24,7 @@ class InvoiceDeletionController extends Controller
         OrderSalesDocumentAjaxResponder $responder,
     ): JsonResponse|RedirectResponse {
         $order = $invoice->order;
+        $isProforma = $invoice->isProforma();
 
         try {
             $order = $deletion->delete(
@@ -42,6 +43,12 @@ class InvoiceDeletionController extends Controller
                     ->with('success', 'Faktura została usunięta.');
             }
 
+            if ($request->validated('return_to') === 'proformas') {
+                return redirect()
+                    ->route('invoices.proformas.index')
+                    ->with('success', 'Pro forma została usunięta.');
+            }
+
             return redirect()->route('orders.show', $order);
         } catch (InvoiceDomainException $exception) {
             if ($request->expectsJson()) {
@@ -54,14 +61,17 @@ class InvoiceDeletionController extends Controller
                 return $responder->unexpected($exception, $order, 'invoice_delete');
             }
 
-            Log::error('Nieoczekiwany błąd usuwania Faktury VAT.', [
+            Log::error('Nieoczekiwany błąd usuwania dokumentu sprzedaży.', [
                 'invoice_id' => $invoice->getKey(),
                 'order_id' => $order?->getKey(),
+                'document_type' => $invoice->document_type->value,
                 'exception' => $exception,
             ]);
 
             return back()->withErrors([
-                'invoice' => 'Nie udało się usunąć Faktury. Spróbuj ponownie.',
+                'invoice' => $isProforma
+                    ? 'Nie udało się usunąć Pro formy. Spróbuj ponownie.'
+                    : 'Nie udało się usunąć Faktury. Spróbuj ponownie.',
             ]);
         }
     }

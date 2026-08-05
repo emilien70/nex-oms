@@ -751,11 +751,13 @@ Przed wystawieniem widok pokazuje rozwijany przycisk `WYSTAW FAKTURĘ` z aktywny
 
 Po wystawieniu przycisk faktury znika. Zastępuje go numer faktury otwierający PDF w nowej karcie przez kontrolowaną trasę Laravel (`target="_blank"`, `rel="noopener"`), bez ujawniania prywatnej ścieżki storage. Obok numeru jest dostępny czerwony krzyżyk opisany jako `Usuń fakturę`.
 
-## 15.3. Usuwanie faktury i zwalnianie numeru
+## 15.3. Usuwanie Faktury i Pro formy oraz zwalnianie numeru
 
 Ręczne usunięcie wystawionej Faktury VAT jest dostępne z karty zamówienia oraz ekranu edycji dokumentu. Operacja wymaga potwierdzenia zawierającego dokładny numer dokumentu i jest blokowana, gdy Faktura posiada Korektę albo jej slot, zamówienie lub tożsamość numeracji są niespójne.
 
-Usunięcie odbywa się transakcyjnie. Dokument, jego pozycje, slot i prywatny plik PDF znikają z bieżącego stanu, natomiast `order_events` zachowuje audyt numeru, serii, okresu, sekwencji i kontekstu operacji. Po usunięciu zamówienie może ponownie otrzymać Fakturę VAT. Pro forma zastąpiona dokładnie przez usuwaną Fakturę zostaje odblokowana, ponownie pojawia się jako aktywna akcja i zachowuje dotychczasowy numer oraz snapshot. Przywrócenie zapisuje osobne zdarzenie `proforma_restored`.
+Aktywną Pro formę można usunąć z karty zamówienia, z jej listy albo zbiorczo z zaznaczenia. Pro forma zastąpiona przez istniejącą Fakturę VAT pozostaje chroniona i nie może zostać usunięta. Po usunięciu aktywnej Pro formy zamówienie może otrzymać nową Pro formę.
+
+Usunięcie odbywa się transakcyjnie. Dokument, jego pozycje, slot i prywatny plik PDF znikają z bieżącego stanu, natomiast `order_events` zachowuje audyt numeru, serii, okresu, sekwencji i kontekstu operacji. Po usunięciu zamówienie może ponownie otrzymać dokument tego samego typu. Pro forma zastąpiona dokładnie przez usuwaną Fakturę zostaje odblokowana, ponownie pojawia się jako aktywna akcja i zachowuje dotychczasowy numer oraz snapshot. Przywrócenie zapisuje osobne zdarzenie `proforma_restored`.
 
 Dozwolone usunięcie nie tworzy ogólnej puli zwolnionych numerów. Wewnętrzne luki numeracji nie są ponownie używane: usunięcie dokumentu 11 przy istniejących dokumentach 10, 12 i 13 nie zmienia kolejnego numeru 14. Serwis może cofnąć wyłącznie wolny koniec numeracji w tej samej serii i okresie, nie niżej niż `protected_floor_sequence_number`. Zmiana licznika pozostawia rekord w `invoice_number_counter_adjustments`.
 

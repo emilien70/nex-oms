@@ -63,11 +63,23 @@
         @endif
 
         @if ($issuedProforma && ! $proformaLocked)
-            <form method="POST" action="{{ route('orders.proforma.store', $order) }}" class="management-document-action management-proforma-button" data-sales-document-form data-open-document-after-submit>
-                @csrf
-                <input type="hidden" name="invoice_series_id" value="{{ $issuedProforma->invoice_series_id }}">
-                <button class="btn btn-sm btn-outline-secondary" type="submit" title="Odśwież Pro formę i otwórz PDF" aria-label="Odśwież Pro formę i otwórz PDF">{{ $issuedProforma->number }}</button>
-            </form>
+            <div class="management-issued-invoice-actions management-issued-proforma-actions">
+                <div class="btn-group management-issued-invoice-group" role="group" aria-label="Akcje Pro formy {{ $issuedProforma->number }}">
+                    <form method="POST" action="{{ route('orders.proforma.store', $order) }}" class="management-document-action" data-sales-document-form data-open-document-after-submit>
+                        @csrf
+                        <input type="hidden" name="invoice_series_id" value="{{ $issuedProforma->invoice_series_id }}">
+                        <button class="btn btn-sm btn-outline-secondary" type="submit" title="Odśwież Pro formę i otwórz PDF" aria-label="Odśwież Pro formę i otwórz PDF">{{ $issuedProforma->number }}</button>
+                    </form>
+                    <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" data-bs-toggle="modal" data-bs-target="#deleteProformaFromOrderModal" title="Usuń Pro formę" aria-label="Usuń Pro formę">
+                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+            @include('invoices.partials.delete-modal', [
+                'invoice' => $issuedProforma,
+                'modalId' => 'deleteProformaFromOrderModal',
+                'ajax' => true,
+            ])
         @elseif (! $proformaLocked && $proformaSeries->count() === 1)
             <form method="POST" action="{{ route('orders.proforma.store', $order) }}" class="management-document-action management-proforma-button" data-sales-document-form>
                 @csrf

@@ -38,7 +38,7 @@
 
 <nav class="invoice-module-tabs" aria-label="Nawigacja modułu faktur">
     <a class="invoice-module-tab {{ request()->routeIs('invoices.index') ? 'active' : '' }}" href="{{ route('invoices.index') }}">Faktury</a>
-    <span class="invoice-module-tab disabled" aria-disabled="true">Faktury pro forma</span>
+    <a class="invoice-module-tab {{ request()->routeIs('invoices.proformas.*') ? 'active' : '' }}" href="{{ route('invoices.proformas.index') }}">Faktury pro forma</a>
     <span class="invoice-module-tab disabled" aria-disabled="true">Korekty</span>
     <span class="invoice-module-tab disabled" aria-disabled="true">Rejestr sprzedaży</span>
     <a class="invoice-module-tab {{ request()->routeIs('invoices.series.*') ? 'active' : '' }}" href="{{ route('invoices.series.index') }}">Ustawienia</a>

@@ -47,6 +47,7 @@ class OrderSalesDocumentAjaxResponder
             'invoice_delete_conflict',
             'invoice_delete_inconsistent_document',
             'invoice_delete_numbering_inconsistent',
+            'proforma_delete_blocked_by_invoice',
         ];
 
         return response()->json([

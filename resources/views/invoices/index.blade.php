@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Faktury - NEX-OMS')
+@section('title', $pageTitle.' - NEX-OMS')
 
 @section('content')
     @php
@@ -17,6 +17,11 @@
             'direction' => $direction,
             'page' => 1,
         ]);
+        $listRoute = route($listRouteName);
+        $bulkPdfRoute = route($bulkPdfRouteName);
+        $bulkDeleteRoute = route($bulkDeleteRouteName);
+        $documentName = $isInvoiceList ? 'fakturę' : 'Pro formę';
+        $documentNamePlural = $isInvoiceList ? 'faktur' : 'Pro form';
     @endphp
 
     <style>
@@ -333,7 +338,7 @@
         @endif
 
         <section class="invoices-card">
-            <form class="invoice-filters" method="GET" action="{{ route('invoices.index') }}">
+            <form class="invoice-filters" method="GET" action="{{ $listRoute }}">
                 <div class="invoice-quick-filters">
                     <div class="invoice-filter-field is-series">
                         <label for="invoice_series_id">Seria numeracji</label>
@@ -383,7 +388,7 @@
                 <div id="invoiceAdvancedFilters" class="collapse {{ $advancedOpen ? 'show' : '' }}">
                     <div class="invoice-advanced-panel">
                         <div class="invoice-advanced-grid">
-                            <div class="invoice-filter-field"><label for="invoice_full_number">Pełny numer faktury</label><input id="invoice_full_number" class="form-control form-control-sm" name="full_number" value="{{ $filterValue('full_number') }}"></div>
+                            <div class="invoice-filter-field"><label for="invoice_full_number">{{ $isInvoiceList ? 'Pełny numer faktury' : 'Pełny numer Pro formy' }}</label><input id="invoice_full_number" class="form-control form-control-sm" name="full_number" value="{{ $filterValue('full_number') }}"></div>
                             <div class="invoice-filter-field"><label for="invoice_buyer">Nabywca</label><input id="invoice_buyer" class="form-control form-control-sm" name="buyer" value="{{ $filterValue('buyer') }}"></div>
                             <div class="invoice-filter-field"><label for="invoice_company">Firma</label><input id="invoice_company" class="form-control form-control-sm" name="company" value="{{ $filterValue('company') }}"></div>
                             <div class="invoice-filter-field"><label for="invoice_tax_id">NIP</label><input id="invoice_tax_id" class="form-control form-control-sm" name="tax_id" value="{{ $filterValue('tax_id') }}"></div>
@@ -395,7 +400,7 @@
                             <div class="invoice-filter-field"><label for="invoice_currency">Waluta</label><select id="invoice_currency" class="form-select form-select-sm" name="currency"><option value="">Dowolna</option>@foreach ($currencies as $currency)<option value="{{ $currency }}" @selected($filterValue('currency') === $currency)>{{ $currency }}</option>@endforeach</select></div>
                         </div>
                         <div class="invoice-filter-actions">
-                            <a class="btn btn-sm btn-outline-secondary" href="{{ route('invoices.index') }}">Wyczyść filtry</a>
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ $listRoute }}">Wyczyść filtry</a>
                             <button class="btn btn-sm btn-primary" type="submit">Ustaw filtry</button>
                         </div>
                     </div>
@@ -406,7 +411,7 @@
                 <input type="hidden" name="per_page" value="{{ $perPage }}">
             </form>
 
-            <form id="bulkInvoicePrintForm" method="POST" action="{{ route('invoices.bulk-pdf') }}" target="_blank">
+            <form id="bulkInvoicePrintForm" method="POST" action="{{ $bulkPdfRoute }}" target="_blank">
                 @csrf
                 @foreach ($invoices as $invoice)
                     <input type="hidden" name="lock_versions[{{ $invoice->id }}]" value="{{ $invoice->lock_version }}">
@@ -422,18 +427,22 @@
                         <col>
                         <col style="width: 135px;">
                         <col style="width: 105px;">
-                        <col style="width: 105px;">
+                        @if ($isInvoiceList)
+                            <col style="width: 105px;">
+                        @endif
                         <col style="width: 128px;">
                     </colgroup>
                     <thead>
                         <tr>
-                            <th><input class="form-check-input" type="checkbox" data-invoice-select-all aria-label="Zaznacz wszystkie faktury na stronie"></th>
+                            <th><input class="form-check-input" type="checkbox" data-invoice-select-all aria-label="Zaznacz wszystkie {{ $documentNamePlural }} na stronie"></th>
                             <th>Numer</th>
                             <th>Zamówienie</th>
                             <th>Nabywca</th>
                             <th class="text-end">Suma brutto</th>
                             <th class="text-end">Data</th>
-                            <th class="text-center">Korekta</th>
+                            @if ($isInvoiceList)
+                                <th class="text-center">Korekta</th>
+                            @endif
                             <th class="text-end">Akcje</th>
                         </tr>
                     </thead>
@@ -443,10 +452,14 @@
                                 $buyer = $invoice->buyer_snapshot ?? [];
                                 $buyerName = $buyer['company_name'] ?? $buyer['name'] ?? $invoice->buyer_name_snapshot ?? '—';
                                 $orderNumber = $invoice->order_id ?? $invoice->order_reference_snapshot;
+                                $deleteBlockedMessage = ! $isInvoiceList
+                                    && ($invoice->proforma_superseded_at !== null || $invoice->superseded_by_invoice_id !== null)
+                                        ? 'Do Pro Forma została już wystawiona Faktura VAT.'
+                                        : null;
                             @endphp
                             <tr>
-                                <td><input class="form-check-input" type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" form="bulkInvoicePrintForm" data-invoice-checkbox aria-label="Zaznacz fakturę {{ $invoice->number }}"></td>
-                                <td><a class="invoice-row-number" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Otwórz PDF faktury">{{ $invoice->number }}</a></td>
+                                <td><input class="form-check-input" type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" form="bulkInvoicePrintForm" data-invoice-checkbox @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif aria-label="Zaznacz {{ $documentName }} {{ $invoice->number }}"></td>
+                                <td><a class="invoice-row-number" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Otwórz PDF {{ $documentName }}">{{ $invoice->number }}</a></td>
                                 <td>
                                     @if ($invoice->order)
                                         <a class="invoice-order-link" href="{{ route('orders.show', $invoice->order) }}">{{ $orderNumber }}</a>
@@ -457,30 +470,34 @@
                                 <td>{{ $buyerName }}</td>
                                 <td class="invoice-money">{{ number_format((float) $invoice->total_gross, 2, ',', ' ') }} {{ $invoice->currency }}</td>
                                 <td class="invoice-date">{{ $invoice->issue_date?->format('d.m.Y') ?? '—' }}</td>
-                                <td class="text-center"><span class="invoice-correction-button" title="Wystawianie korekt nie jest jeszcze dostępne">KOREKTA</span></td>
+                                @if ($isInvoiceList)
+                                    <td class="text-center"><span class="invoice-correction-button" title="Wystawianie korekt nie jest jeszcze dostępne">KOREKTA</span></td>
+                                @endif
                                 <td>
                                     <div class="invoice-action-group">
-                                        <a class="invoice-icon-button" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Drukuj fakturę" aria-label="Drukuj fakturę {{ $invoice->number }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
-                                        <a class="invoice-icon-button" href="{{ route('invoices.edit', $invoice) }}" title="Edytuj fakturę" aria-label="Edytuj fakturę {{ $invoice->number }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
-                                        <form method="POST" action="{{ route('invoices.destroy', $invoice) }}" data-invoice-delete-form data-confirm-message="Czy na pewno chcesz usunąć fakturę {{ $invoice->number }}?">
+                                        <a class="invoice-icon-button" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Drukuj {{ $documentName }}" aria-label="Drukuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
+                                        @if ($isInvoiceList)
+                                            <a class="invoice-icon-button" href="{{ route('invoices.edit', $invoice) }}" title="Edytuj fakturę" aria-label="Edytuj fakturę {{ $invoice->number }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+                                        @endif
+                                        <form method="POST" action="{{ route('invoices.destroy', $invoice) }}" data-invoice-delete-form data-confirm-message="Czy na pewno chcesz usunąć {{ $documentName }} {{ $invoice->number }}?" @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif>
                                             @csrf
                                             @method('DELETE')
                                             <input type="hidden" name="expected_lock_version" value="{{ $invoice->lock_version }}">
-                                            <input type="hidden" name="return_to" value="invoices">
-                                            <button class="invoice-icon-button is-delete" type="submit" title="Usuń fakturę" aria-label="Usuń fakturę {{ $invoice->number }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+                                            <input type="hidden" name="return_to" value="{{ $isInvoiceList ? 'invoices' : 'proformas' }}">
+                                            <button class="invoice-icon-button is-delete" type="submit" title="Usuń {{ $documentName }}" aria-label="Usuń {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
                                         </form>
                                     </div>
                                 </td>
                             </tr>
                         @empty
-                            <tr><td class="invoice-empty" colspan="8">Nie znaleziono faktur spełniających wybrane kryteria.</td></tr>
+                            <tr><td class="invoice-empty" colspan="{{ $isInvoiceList ? 8 : 7 }}">Nie znaleziono {{ $documentNamePlural }} spełniających wybrane kryteria.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
 
             <footer class="invoice-list-footer">
-                <div class="btn-group invoice-bulk-actions" role="group" aria-label="Operacje zbiorcze faktur">
+                <div class="btn-group invoice-bulk-actions" role="group" aria-label="Operacje zbiorcze {{ $documentNamePlural }}">
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-select-all-button>
                         <i class="bi bi-check-square" aria-hidden="true"></i>
                         ZAZNACZ WSZYSTKO
@@ -489,22 +506,24 @@
                         <i class="bi bi-printer" aria-hidden="true"></i>
                         DRUKUJ ZAZNACZONE
                     </button>
-                    <button
-                        class="btn btn-sm btn-outline-secondary"
-                        type="button"
-                        disabled
-                        title="Rejestr sprzedaży nie jest jeszcze dostępny"
-                        aria-label="Rejestr sprzedaży nie jest jeszcze dostępny"
-                    >
-                        <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
-                        REJESTR SPRZEDAŻY
-                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
-                    </button>
+                    @if ($isInvoiceList)
+                        <button
+                            class="btn btn-sm btn-outline-secondary"
+                            type="button"
+                            disabled
+                            title="Rejestr sprzedaży nie jest jeszcze dostępny"
+                            aria-label="Rejestr sprzedaży nie jest jeszcze dostępny"
+                        >
+                            <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                            REJESTR SPRZEDAŻY
+                            <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                        </button>
+                    @endif
                     <button
                         class="btn btn-sm btn-outline-secondary"
                         type="submit"
                         form="bulkInvoicePrintForm"
-                        formaction="{{ route('invoices.bulk-delete') }}"
+                        formaction="{{ $bulkDeleteRoute }}"
                         formmethod="POST"
                         formtarget="_self"
                         name="_method"
@@ -519,7 +538,7 @@
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">SORTOWANIE</button>
                         <div class="dropdown-menu invoice-sort-menu">
                             <div class="invoice-sort-heading">Sortuj według</div>
-                            @foreach (['number' => 'Numer faktury', 'order' => 'ID zamówienia', 'issue_date' => 'Data wystawienia', 'buyer' => 'Nabywca', 'gross' => 'Suma brutto'] as $sort => $label)
+                            @foreach (['number' => $isInvoiceList ? 'Numer faktury' : 'Numer Pro formy', 'order' => 'ID zamówienia', 'issue_date' => 'Data wystawienia', 'buyer' => 'Nabywca', 'gross' => 'Suma brutto'] as $sort => $label)
                                 <a class="dropdown-item {{ $filterValue('sort', 'number') === $sort ? 'active' : '' }}" href="{{ $sortUrl($sort, $filterValue('direction', 'desc')) }}">{{ $label }}</a>
                             @endforeach
                             <div class="dropdown-divider"></div>
@@ -529,13 +548,13 @@
                         </div>
                     </div>
                 </div>
-                <span class="visually-hidden" aria-live="polite" data-selection-status>Nie zaznaczono faktur</span>
+                <span class="visually-hidden" aria-live="polite" data-selection-status>Nie zaznaczono {{ $documentNamePlural }}</span>
 
                 <x-pagination-toolbar
                     :paginator="$invoices"
                     :per-page-options="$perPageOptions"
                     :per-page="$perPage"
-                    aria-label="Paginacja faktur"
+                    aria-label="Paginacja {{ $documentNamePlural }}"
                 />
             </footer>
         </section>
@@ -550,6 +569,17 @@
             const deleteButton = document.querySelector('[data-bulk-delete]');
             const status = document.querySelector('[data-selection-status]');
             const printForm = document.getElementById('bulkInvoicePrintForm');
+            const documentNamePlural = @json($documentNamePlural);
+
+            const showDeleteBlockedMessage = (message) => {
+                if (typeof window.nexOmsShowError === 'function') {
+                    window.nexOmsShowError(message);
+
+                    return;
+                }
+
+                window.alert(message);
+            };
 
             document.querySelectorAll('[data-auto-submit-filter]').forEach((filter) => {
                 filter.addEventListener('change', () => filter.form?.requestSubmit());
@@ -569,7 +599,7 @@
                 }
                 if (status) {
                     status.textContent = checked === 0
-                        ? 'Nie zaznaczono faktur'
+                        ? `Nie zaznaczono ${documentNamePlural}`
                         : `Zaznaczono: ${checked}`;
                 }
             };
@@ -586,6 +616,13 @@
             checkboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelection));
             document.querySelectorAll('[data-invoice-delete-form]').forEach((form) => {
                 form.addEventListener('submit', (event) => {
+                    if (form.dataset.deleteBlockedMessage) {
+                        event.preventDefault();
+                        showDeleteBlockedMessage(form.dataset.deleteBlockedMessage);
+
+                        return;
+                    }
+
                     if (!window.confirm(form.dataset.confirmMessage)) {
                         event.preventDefault();
                     }
@@ -594,14 +631,26 @@
             printForm?.addEventListener('submit', (event) => {
                 if (!checkboxes.some((checkbox) => checkbox.checked)) {
                     event.preventDefault();
-                    window.alert('Zaznacz co najmniej jedną fakturę.');
+                    window.alert(`Zaznacz co najmniej jedną pozycję z listy ${documentNamePlural}.`);
 
                     return;
                 }
 
-                if (event.submitter?.matches('[data-bulk-delete]')
-                    && !window.confirm('Czy na pewno chcesz usunąć zaznaczone Faktury?')) {
-                    event.preventDefault();
+                if (event.submitter?.matches('[data-bulk-delete]')) {
+                    const blockedCheckbox = checkboxes.find(
+                        (checkbox) => checkbox.checked && checkbox.dataset.deleteBlockedMessage
+                    );
+
+                    if (blockedCheckbox) {
+                        event.preventDefault();
+                        showDeleteBlockedMessage(blockedCheckbox.dataset.deleteBlockedMessage);
+
+                        return;
+                    }
+
+                    if (!window.confirm(`Czy na pewno chcesz usunąć zaznaczone ${documentNamePlural}?`)) {
+                        event.preventDefault();
+                    }
                 }
             });
             updateSelection();

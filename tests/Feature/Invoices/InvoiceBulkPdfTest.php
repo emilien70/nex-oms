@@ -67,4 +67,47 @@ class InvoiceBulkPdfTest extends TestCase
             ->assertRedirect(route('invoices.index'))
             ->assertSessionHasErrors('invoice_ids');
     }
+
+    public function test_selected_proformas_are_rendered_in_one_pdf_and_invoice_is_rejected(): void
+    {
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
+        $firstOrder = $this->createDocumentOrder(['billing_name' => 'Pierwsza Proforma']);
+        $this->createDocumentItem($firstOrder);
+        $first = app(ProformaService::class)->createOrRefresh(
+            $firstOrder,
+            $series,
+            $this->documentContext('2026-08-01 10:00:00'),
+        )->invoice;
+
+        $secondOrder = $this->createDocumentOrder(['billing_name' => 'Druga Proforma']);
+        $this->createDocumentItem($secondOrder);
+        $second = app(ProformaService::class)->createOrRefresh(
+            $secondOrder,
+            $series,
+            $this->documentContext('2026-08-02 10:00:00'),
+        )->invoice;
+
+        $response = $this->post(route('invoices.proformas.bulk-pdf'), [
+            'invoice_ids' => [$second->getKey(), $first->getKey()],
+        ]);
+
+        $response->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
+        $this->assertStringContainsString('filename="proformy-zbiorcze.pdf"', (string) $response->headers->get('content-disposition'));
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+        $this->assertGreaterThanOrEqual(2, preg_match_all('/\/Type\s*\/Page\b/', $response->getContent()));
+
+        $invoiceOrder = $this->createDocumentOrder();
+        $this->createDocumentItem($invoiceOrder);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $invoiceOrder,
+            $this->createDocumentSeries(),
+            $this->documentContext('2026-08-03 10:00:00'),
+        );
+
+        $this->from(route('invoices.proformas.index'))
+            ->post(route('invoices.proformas.bulk-pdf'), ['invoice_ids' => [$invoice->getKey()]])
+            ->assertRedirect(route('invoices.proformas.index'))
+            ->assertSessionHasErrors('invoice_ids');
+    }
 }

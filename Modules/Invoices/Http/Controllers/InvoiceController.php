@@ -15,10 +15,20 @@ class InvoiceController
 {
     public function index(InvoiceIndexRequest $request): View
     {
+        return $this->documentList($request, InvoiceDocumentType::Invoice);
+    }
+
+    public function proformas(InvoiceIndexRequest $request): View
+    {
+        return $this->documentList($request, InvoiceDocumentType::Proforma);
+    }
+
+    private function documentList(InvoiceIndexRequest $request, InvoiceDocumentType $documentType): View
+    {
         $filters = $request->validated();
         $query = Invoice::query()
             ->with(['series:id,name', 'order:id'])
-            ->where('document_type', InvoiceDocumentType::Invoice->value)
+            ->where('document_type', $documentType->value)
             ->where('status', InvoiceDocumentStatus::Issued->value);
 
         $this->applyFilters($query, $filters);
@@ -27,17 +37,17 @@ class InvoiceController
         $perPage = (int) ($filters['per_page'] ?? 25);
         $invoices = $query->paginate($perPage)->withQueryString();
         $series = InvoiceSeries::query()
-            ->where('document_type', InvoiceDocumentType::Invoice->value)
+            ->where('document_type', $documentType->value)
             ->orderByDesc('is_system')
             ->orderBy('name')
             ->get(['id', 'name']);
 
         $firstIssueDate = Invoice::query()
-            ->where('document_type', InvoiceDocumentType::Invoice->value)
+            ->where('document_type', $documentType->value)
             ->where('status', InvoiceDocumentStatus::Issued->value)
             ->min('issue_date');
         $lastIssueDate = Invoice::query()
-            ->where('document_type', InvoiceDocumentType::Invoice->value)
+            ->where('document_type', $documentType->value)
             ->where('status', InvoiceDocumentStatus::Issued->value)
             ->max('issue_date');
         $currentYear = now()->year;
@@ -46,7 +56,7 @@ class InvoiceController
         $years = range(max($lastYear, $currentYear), min($firstYear, $currentYear));
 
         $currencies = Invoice::query()
-            ->where('document_type', InvoiceDocumentType::Invoice->value)
+            ->where('document_type', $documentType->value)
             ->where('status', InvoiceDocumentStatus::Issued->value)
             ->whereNotNull('currency')
             ->distinct()
@@ -66,6 +76,11 @@ class InvoiceController
             ],
             'perPage' => $perPage,
             'perPageOptions' => [25, 50, 75, 100, 150, 200, 300, 500, 1000],
+            'isInvoiceList' => $documentType === InvoiceDocumentType::Invoice,
+            'pageTitle' => $documentType === InvoiceDocumentType::Invoice ? 'Faktury' : 'Faktury pro forma',
+            'listRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.index' : 'invoices.proformas.index',
+            'bulkPdfRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.bulk-pdf' : 'invoices.proformas.bulk-pdf',
+            'bulkDeleteRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.bulk-delete' : 'invoices.proformas.bulk-delete',
         ]);
     }
 
