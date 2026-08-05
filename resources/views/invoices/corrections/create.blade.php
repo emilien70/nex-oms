@@ -41,6 +41,8 @@
         .correction-icon-button:hover { background:#f1f7fd; color:#0875d1; }
         .correction-items-actions { display:flex; flex-wrap:wrap; gap:10px; padding:14px; }
         .correction-pill-button { align-items:center; border-radius:21px; display:inline-flex; font-size:13px; min-height:40px; padding:0 20px; }
+        .correction-copy-button { background:#fff; border:1px solid #f07a18; color:#e76517; justify-content:center; }
+        .correction-copy-button:hover,.correction-copy-button:focus { background:#e76517; border-color:#e76517; color:#fff; }
         .correction-buyer-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
         .correction-buyer-fields { display:flex; flex-direction:column; gap:12px; }
         .correction-buyer-field { align-items:center; display:grid; gap:16px; grid-template-columns:190px minmax(0,1fr); }
@@ -161,8 +163,8 @@
                 </div>
                 <div class="correction-items-actions">
                     <button class="btn btn-primary correction-pill-button" type="button" data-add-item><i class="bi bi-plus-lg me-2"></i>Dodaj pozycję faktury</button>
-                    <button class="btn btn-outline-warning correction-pill-button" type="button" data-copy-order-items><i class="bi bi-arrow-repeat me-2"></i>Skopiuj aktualne produkty z zamówienia</button>
-                    <button class="btn btn-outline-warning correction-pill-button" type="button" data-return-selected><i class="bi bi-arrow-counterclockwise me-2"></i>Zwrot zaznaczonych</button>
+                    <button class="correction-pill-button correction-copy-button" type="button" data-copy-order-items><i class="bi bi-arrow-repeat me-2"></i>Skopiuj aktualne produkty z zamówienia</button>
+                    <button class="correction-pill-button correction-copy-button" type="button" data-return-selected><i class="bi bi-arrow-counterclockwise me-2"></i>Zwrot zaznaczonych</button>
                 </div>
             </section>
 

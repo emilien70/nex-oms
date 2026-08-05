@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Modules\Invoices\Enums\CorrectionIssuerSource;
 use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
+use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\CorrectionSaleDateSource;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesResetPeriod;
@@ -100,6 +101,13 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         ] as $forbidden) {
             $response->assertDontSee($forbidden, false);
         }
+
+        $response->assertSee('select class="form-select form-select-sm', false);
+        $response->assertSee('name="default_correction_reason"', false);
+        foreach (CorrectionReason::cases() as $reason) {
+            $response->assertSee('value="'.$reason->value.'"', false);
+            $response->assertSee($reason->label());
+        }
     }
 
     public function test_correction_print_header_is_saved_and_restored_in_edit_form(): void
@@ -140,7 +148,7 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
 
         $this->post(route('invoices.series.store'), $this->validPayload([
             'name' => 'Korekty eksportowe',
-            'default_correction_reason' => '  Zwrot towaru  ',
+            'default_correction_reason' => CorrectionReason::GoodsReturn->value,
             'correction_sale_date_source' => 'issue_date',
             'correction_issuer_source' => 'series',
             'issuer_name' => '  Jan Kowalski  ',
@@ -162,7 +170,7 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         ]))->assertSessionDoesntHaveErrors();
 
         $series = InvoiceSeries::query()->where('name', 'Korekty eksportowe')->firstOrFail();
-        $this->assertSame('Zwrot towaru', $series->default_correction_reason);
+        $this->assertSame(CorrectionReason::GoodsReturn->value, $series->default_correction_reason);
         $this->assertSame(CorrectionSaleDateSource::IssueDate, $series->correction_sale_date_source);
         $this->assertSame(CorrectionIssuerSource::Series, $series->correction_issuer_source);
         $this->assertSame('Jan Kowalski', $series->issuer_name);
@@ -187,7 +195,7 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         $this->patch(route('invoices.series.update', $series), $this->validPayload([
             'document_type' => 'invoice',
             'name' => 'Korekty główne',
-            'default_correction_reason' => 'Reklamacja',
+            'default_correction_reason' => CorrectionReason::InvoiceError->value,
             'seller_name' => 'Podmieniony sprzedawca',
             'seller_tax_id' => '0000000000',
             'logo' => UploadedFile::fake()->create('forged.png', 1, 'image/png'),
@@ -204,13 +212,13 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         $this->assertSame(InvoiceSeriesSystemKey::Correction, $series->system_key);
         $this->assertTrue($series->is_system);
         $this->assertTrue($series->is_active);
-        $this->assertSame('Reklamacja', $series->default_correction_reason);
+        $this->assertSame(CorrectionReason::InvoiceError->value, $series->default_correction_reason);
         $this->assertSame('Historyczny sprzedawca', $series->seller_name);
         $this->assertSame('1234567890', $series->seller_tax_id);
         $this->assertSame('invoice-series/logos/system/logo.png', $series->logo_path);
     }
 
-    public function test_reason_is_optional_trimmed_and_limited(): void
+    public function test_reason_is_optional_and_restricted_to_correction_reason_catalog(): void
     {
         $this->post(route('invoices.series.store'), $this->validPayload([
             'name' => 'Powód pusty',
@@ -219,15 +227,45 @@ class InvoiceSeriesCorrectionSettingsTest extends TestCase
         $this->assertDatabaseHas('invoice_series', ['name' => 'Powód pusty', 'default_correction_reason' => null]);
 
         $this->post(route('invoices.series.store'), $this->validPayload([
-            'name' => 'Powód przycięty',
-            'default_correction_reason' => '  Zmiana ceny  ',
+            'name' => 'Powód z katalogu',
+            'default_correction_reason' => CorrectionReason::BuyerDataUpdate->value,
         ]))->assertSessionDoesntHaveErrors();
-        $this->assertDatabaseHas('invoice_series', ['name' => 'Powód przycięty', 'default_correction_reason' => 'Zmiana ceny']);
+        $this->assertDatabaseHas('invoice_series', [
+            'name' => 'Powód z katalogu',
+            'default_correction_reason' => CorrectionReason::BuyerDataUpdate->value,
+        ]);
 
         $this->post(route('invoices.series.store'), $this->validPayload([
-            'name' => 'Powód za długi',
-            'default_correction_reason' => str_repeat('a', 1001),
+            'name' => 'Powód spoza katalogu',
+            'default_correction_reason' => 'dowolny-powod',
         ]))->assertSessionHasErrors('default_correction_reason');
+    }
+
+    public function test_legacy_free_text_reason_can_be_preserved_or_replaced_from_dropdown(): void
+    {
+        $series = $this->createCustomCorrection('Korekta ze starszym powodem');
+        $series->update(['default_correction_reason' => 'Historyczny własny powód']);
+
+        $this->get(route('invoices.series.edit', $series))
+            ->assertOk()
+            ->assertSee('Dotychczasowy powód: Historyczny własny powód')
+            ->assertSee('value="Historyczny własny powód" selected', false);
+
+        $this->patch(route('invoices.series.update', $series), $this->validPayload([
+            'name' => $series->name,
+            'default_correction_reason' => 'Historyczny własny powód',
+            'form_mode' => 'edit',
+            'editing_series_id' => $series->id,
+        ]))->assertSessionDoesntHaveErrors();
+        $this->assertSame('Historyczny własny powód', $series->refresh()->default_correction_reason);
+
+        $this->patch(route('invoices.series.update', $series), $this->validPayload([
+            'name' => $series->name,
+            'default_correction_reason' => CorrectionReason::Withdrawal->value,
+            'form_mode' => 'edit',
+            'editing_series_id' => $series->id,
+        ]))->assertSessionDoesntHaveErrors();
+        $this->assertSame(CorrectionReason::Withdrawal->value, $series->refresh()->default_correction_reason);
     }
 
     public function test_closed_correction_sources_are_validated(): void

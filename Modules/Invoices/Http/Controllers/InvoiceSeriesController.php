@@ -11,6 +11,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Modules\Invoices\Enums\CorrectionIssuerSource;
 use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
+use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\CorrectionSaleDateSource;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoicePaymentDueMode;
@@ -233,6 +234,7 @@ class InvoiceSeriesController extends Controller
             'correctionSaleDateSources' => CorrectionSaleDateSource::cases(),
             'correctionIssuerSources' => CorrectionIssuerSource::cases(),
             'correctionPaymentMethodSources' => CorrectionPaymentMethodSource::cases(),
+            'correctionReasons' => CorrectionReason::cases(),
             'correctionSeries' => $correctionSeries,
             'currencyOptions' => $this->currencies->all(),
             'series' => $series,

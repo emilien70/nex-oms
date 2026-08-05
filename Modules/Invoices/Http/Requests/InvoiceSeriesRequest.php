@@ -12,6 +12,7 @@ use Illuminate\Validation\Rules\Unique;
 use Illuminate\Validation\Validator;
 use Modules\Invoices\Enums\CorrectionIssuerSource;
 use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
+use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\CorrectionSaleDateSource;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoicePaymentDueMode;
@@ -176,7 +177,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'logo.image' => 'Logo musi być prawidłowym plikiem graficznym.',
             'logo.mimes' => 'Logo musi być plikiem PNG, JPG, JPEG albo WEBP.',
             'logo.max' => 'Logo nie może być większe niż 2 MB.',
-            'default_correction_reason.max' => 'Domyślny powód korekty nie może być dłuższy niż 1000 znaków.',
+            'default_correction_reason.in' => 'Wybierz prawidłowy domyślny powód korekty.',
             'correction_sale_date_source.required' => 'Wybierz sposób ustalania daty sprzedaży.',
             'correction_sale_date_source.enum' => 'Wybrany sposób ustalania daty sprzedaży jest nieprawidłowy.',
             'correction_issuer_source.required' => 'Wybierz źródło osoby wystawiającej.',
@@ -406,7 +407,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
     private function correctionRules(): array
     {
         return [
-            'default_correction_reason' => ['nullable', 'string', 'max:1000'],
+            'default_correction_reason' => ['nullable', Rule::in($this->allowedCorrectionReasons())],
             'correction_sale_date_source' => ['required', Rule::enum(CorrectionSaleDateSource::class)],
             'correction_issuer_source' => ['required', Rule::enum(CorrectionIssuerSource::class)],
             'issuer_name' => [
@@ -442,6 +443,28 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'copies_count' => ['required', 'integer', 'between:1,10'],
             'additional_information_template' => ['nullable', 'string', 'max:65535'],
         ];
+    }
+
+    /** @return list<string> */
+    private function allowedCorrectionReasons(): array
+    {
+        $allowed = array_map(
+            static fn (CorrectionReason $reason): string => $reason->value,
+            CorrectionReason::cases(),
+        );
+        $series = $this->route('series');
+
+        if (! $series instanceof InvoiceSeries) {
+            return $allowed;
+        }
+
+        $current = trim((string) $series->default_correction_reason);
+
+        if ($current !== '' && ! in_array($current, $allowed, true)) {
+            $allowed[] = $current;
+        }
+
+        return $allowed;
     }
 
     private function prepareCorrectionForValidation(): void
