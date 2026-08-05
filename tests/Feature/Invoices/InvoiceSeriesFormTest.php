@@ -35,6 +35,7 @@ class InvoiceSeriesFormTest extends TestCase
         $response
             ->assertOk()
             ->assertSee('data-series-form-fragment', false)
+            ->assertSee('class="invoice-series-form-layout"', false)
             ->assertSee('Faktura')
             ->assertSee('BL %N/%Y')
             ->assertDontSee('<html', false);
@@ -69,6 +70,8 @@ class InvoiceSeriesFormTest extends TestCase
 
         $this->get(route('invoices.series.edit', $series))
             ->assertOk()
+            ->assertSee('class="invoice-series-form-layout"', false)
+            ->assertSee('data-series-id="'.$series->id.'"', false)
             ->assertSee($series->name)
             ->assertSee($series->number_format)
             ->assertSee('data-role="system-document-type"', false)

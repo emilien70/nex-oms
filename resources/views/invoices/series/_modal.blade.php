@@ -36,7 +36,7 @@
 
                 <div class="modal-header">
                     <h2 class="modal-title fs-6" id="invoiceSeriesModalTitle" data-series-modal-title>
-                        {{ $reopenMode === 'edit' ? 'Edytuj serię numeracji' : 'Nowa seria numeracji' }}
+                        Seria numeracji
                     </h2>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button>
                 </div>
@@ -64,14 +64,23 @@
                     @endif
                 </div>
 
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-light btn-sm border" data-bs-dismiss="modal">Anuluj</button>
-                    <button
-                        type="submit"
-                        class="btn btn-primary btn-sm"
-                        data-series-submit
-                        @disabled(($reopenForm['viewData'] ?? null) === null)
-                    >Zapisz</button>
+                <div class="modal-footer invoice-series-modal-footer">
+                    <span
+                        class="invoice-series-record-id"
+                        data-series-record-badge
+                        @if (! $reopenSeries?->id) hidden @endif
+                    >
+                        ID: <span data-series-record-id>{{ $reopenSeries?->id }}</span>
+                    </span>
+                    <div class="invoice-series-modal-actions">
+                        <button
+                            type="submit"
+                            class="btn btn-primary btn-sm"
+                            data-series-submit
+                            @disabled(($reopenForm['viewData'] ?? null) === null)
+                        >Zapisz</button>
+                        <button type="button" class="btn btn-light btn-sm border" data-bs-dismiss="modal">Zamknij</button>
+                    </div>
                 </div>
         </form>
     </div>

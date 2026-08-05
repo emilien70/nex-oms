@@ -1,4 +1,4 @@
-<section class="invoice-series-form-section" aria-labelledby="invoice-series-information-heading">
+<section class="invoice-series-form-section invoice-series-form-section--single" aria-labelledby="invoice-series-information-heading">
     <h3 id="invoice-series-information-heading">Informacje</h3>
     <label class="form-label" for="invoice-series-information">Informacje</label>
     <textarea class="form-control form-control-sm {{ $invoiceHasError('additional_information_template') ? 'is-invalid' : '' }}" id="invoice-series-information" name="additional_information_template" rows="5">{{ $invoiceValue('additional_information_template') }}</textarea>

@@ -53,7 +53,7 @@
         @endif
     </div>
 
-    <div class="col-12">
+    <div class="col-12 invoice-series-form-break">
         <label class="form-label" for="invoice-series-number-format">Format numeracji</label>
         @if ($numberingStarted)
             <input type="hidden" name="number_format" value="{{ $series->number_format }}">

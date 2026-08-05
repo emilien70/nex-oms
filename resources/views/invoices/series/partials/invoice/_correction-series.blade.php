@@ -1,4 +1,4 @@
-<section class="invoice-series-form-section" aria-labelledby="invoice-series-correction-heading">
+<section class="invoice-series-form-section invoice-series-form-section--single" aria-labelledby="invoice-series-correction-heading">
     <h3 id="invoice-series-correction-heading">Seria korekt</h3>
     <label class="form-label" for="invoice-series-default-correction">Seria numeracji korekt</label>
     <select class="form-select form-select-sm {{ $invoiceHasError('default_correction_series_id') ? 'is-invalid' : '' }}" id="invoice-series-default-correction" name="default_correction_series_id">

@@ -63,6 +63,46 @@
             min-height: 180px;
         }
 
+        #invoiceSeriesModal .modal-dialog {
+            max-width: 960px;
+            width: calc(100% - 32px);
+        }
+
+        #invoiceSeriesModal .modal-content {
+            border: 0;
+            border-radius: 8px;
+        }
+
+        #invoiceSeriesModal .modal-header {
+            border-bottom: 0;
+            min-height: 66px;
+            padding: 18px 32px 14px;
+        }
+
+        #invoiceSeriesModal .modal-title {
+            color: #1f2937;
+            font-size: 16px !important;
+            font-weight: 600;
+        }
+
+        #invoiceSeriesModal .modal-body {
+            padding: 0 32px 24px;
+        }
+
+        .invoice-series-form-layout {
+            margin: 0 auto;
+            max-width: 886px;
+        }
+
+        #invoiceSeriesModal [data-series-type-picker] {
+            align-items: center;
+            column-gap: 18px;
+            display: grid;
+            grid-template-columns: 200px minmax(0, 1fr);
+            margin: 12px auto;
+            max-width: 886px;
+        }
+
         .invoice-series-system-note {
             align-items: flex-start;
             color: #64748b;
@@ -84,29 +124,159 @@
 
         .invoice-series-readiness-note {
             align-items: flex-start;
+            background: transparent;
+            border: 0;
+            color: #64748b;
             display: flex;
             font-size: 12px;
             gap: 8px;
-            padding: 10px 12px;
+            margin: 0 !important;
+            padding: 10px 0 12px 218px;
         }
 
         .invoice-series-sections {
-            display: grid;
-            gap: 14px;
-            margin-top: 14px;
+            margin-top: 0;
         }
 
         .invoice-series-form-section {
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 14px;
+            border: 0;
+            border-top: 1px solid #d8dee6;
+            padding: 14px 0;
         }
 
         .invoice-series-form-section h3 {
-            color: #1f2937;
-            font-size: 14px;
+            height: 1px;
+            margin: -1px;
+            overflow: hidden;
+            padding: 0;
+            position: absolute;
+            width: 1px;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+        }
+
+        .invoice-series-form-layout > .row,
+        .invoice-series-form-section > .row {
+            display: block;
+            margin: 0;
+        }
+
+        .invoice-series-form-layout > .row > [class*="col-"],
+        .invoice-series-form-section > .row > [class*="col-"] {
+            align-items: center;
+            column-gap: 18px;
+            display: grid;
+            grid-template-columns: 200px minmax(0, 1fr);
+            margin: 0;
+            max-width: none;
+            padding: 6px 0;
+            width: 100%;
+        }
+
+        .invoice-series-form-layout > .row > .d-flex:not(.d-none),
+        .invoice-series-form-section > .row > .d-flex:not(.d-none) {
+            display: grid !important;
+        }
+
+        .invoice-series-form-layout > .row > .d-none,
+        .invoice-series-form-section > .row > .d-none {
+            display: none !important;
+        }
+
+        .invoice-series-form-section--single {
+            align-items: start;
+            column-gap: 18px;
+            display: grid;
+            grid-template-columns: 200px minmax(0, 1fr);
+        }
+
+        .invoice-series-form-section--single > .form-label {
+            grid-column: 1;
+        }
+
+        .invoice-series-form-section--single > .form-control,
+        .invoice-series-form-section--single > .form-select {
+            grid-column: 2;
+        }
+
+        .invoice-series-form-section--single > .form-text,
+        .invoice-series-form-section--single > .invalid-feedback {
+            grid-column: 2;
+        }
+
+        .invoice-series-form-break {
+            border-top: 1px solid #d8dee6;
+            margin-top: 10px !important;
+            padding-top: 18px !important;
+        }
+
+        #invoiceSeriesModal .form-control,
+        #invoiceSeriesModal .form-select {
+            color: #4e565f;
+            font-size: 13px;
+            min-height: 39px;
+            padding: 8px 12px;
+        }
+
+        #invoiceSeriesModal textarea.form-control {
+            min-height: 112px;
+        }
+
+        #invoiceSeriesModal input[type="file"].form-control {
+            padding: 7px 10px;
+        }
+
+        #invoiceSeriesModal .form-text,
+        #invoiceSeriesModal .invalid-feedback {
+            grid-column: 2;
+            line-height: 1.5;
+            margin-top: 5px;
+        }
+
+        #invoiceSeriesModal .form-check,
+        #invoiceSeriesModal .invoice-series-system-note,
+        #invoiceSeriesModal .invoice-series-current-logo {
+            grid-column: 2;
+        }
+
+        #invoiceSeriesModal .form-check {
+            align-items: center;
+            display: flex;
+            min-height: 32px;
+        }
+
+        #invoiceSeriesModal .form-check .invalid-feedback {
+            margin-left: 8px;
+        }
+
+        .invoice-series-modal-footer {
+            align-items: center;
+            border-top: 1px solid #d8dee6;
+            justify-content: space-between;
+            min-height: 70px;
+            padding: 14px 32px;
+        }
+
+        .invoice-series-record-id {
+            background: #198754;
+            border-radius: 20px;
+            color: #ffffff;
+            font-size: 12px;
             font-weight: 600;
-            margin: 0 0 12px;
+            padding: 9px 18px;
+        }
+
+        .invoice-series-modal-actions {
+            align-items: center;
+            display: flex;
+            gap: 10px;
+            margin-left: auto;
+        }
+
+        .invoice-series-modal-actions .btn {
+            border-radius: 20px;
+            min-width: 88px;
+            padding: 8px 18px;
         }
 
         .invoice-series-current-logo {
@@ -120,7 +290,8 @@
         #invoiceSeriesModal .form-label {
             color: #4e565f;
             font-size: 12px;
-            margin-bottom: 4px;
+            margin: 0;
+            text-align: right;
         }
 
         #invoiceSeriesModal .form-text,
@@ -292,6 +463,60 @@
             .invoice-numbering-series-summary,
             .invoice-numbering-preview-grid {
                 grid-template-columns: 1fr;
+            }
+
+            #invoiceSeriesModal .modal-dialog {
+                margin: 8px auto;
+                width: calc(100% - 16px);
+            }
+
+            #invoiceSeriesModal .modal-header,
+            #invoiceSeriesModal .modal-body,
+            .invoice-series-modal-footer {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .invoice-series-form-layout > .row > [class*="col-"],
+            .invoice-series-form-section > .row > [class*="col-"],
+            .invoice-series-form-section--single,
+            #invoiceSeriesModal [data-series-type-picker] {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr);
+                row-gap: 5px;
+            }
+
+            #invoiceSeriesModal .form-label,
+            .invoice-series-form-section--single > .form-label,
+            .invoice-series-form-section--single > .form-control,
+            .invoice-series-form-section--single > .form-select,
+            .invoice-series-form-section--single > .form-text,
+            .invoice-series-form-section--single > .invalid-feedback,
+            #invoiceSeriesModal .form-text,
+            #invoiceSeriesModal .invalid-feedback,
+            #invoiceSeriesModal .form-check,
+            #invoiceSeriesModal .invoice-series-system-note,
+            #invoiceSeriesModal .invoice-series-current-logo {
+                grid-column: 1;
+                text-align: left;
+            }
+
+            .invoice-series-readiness-note {
+                padding-left: 0;
+            }
+
+            .invoice-series-modal-footer {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .invoice-series-record-id {
+                align-self: flex-start;
+            }
+
+            .invoice-series-modal-actions {
+                justify-content: flex-end;
+                margin-left: 0;
             }
         }
     </style>
@@ -488,6 +713,8 @@
             const method = modalElement.querySelector('[data-series-method]');
             const modeInput = modalElement.querySelector('[data-series-form-mode]');
             const editingIdInput = modalElement.querySelector('[data-series-editing-id]');
+            const recordBadge = modalElement.querySelector('[data-series-record-badge]');
+            const recordId = modalElement.querySelector('[data-series-record-id]');
             const pickerTemplate = document.querySelector('[data-series-type-picker-template]');
             const createFormUrl = modalElement.dataset.createFormUrl;
             const storeUrl = modalElement.dataset.storeUrl;
@@ -498,6 +725,13 @@
 
             const setSubmitEnabled = (enabled) => {
                 submit.disabled = !enabled;
+            };
+
+            const updateRecordBadge = () => {
+                const seriesId = body.querySelector('[data-series-form-fragment]')?.dataset.seriesId || '';
+
+                recordBadge.hidden = seriesId === '';
+                recordId.textContent = seriesId;
             };
 
             const updateInvoiceDependencies = () => {
@@ -545,11 +779,13 @@
                     </div>
                 `;
                 setSubmitEnabled(false);
+                updateRecordBadge();
             };
 
             const renderTypePicker = () => {
                 body.replaceChildren(pickerTemplate.content.cloneNode(true));
                 setSubmitEnabled(false);
+                updateRecordBadge();
             };
 
             const showLoadingError = () => {
@@ -562,6 +798,7 @@
                     </div>
                 `;
                 setSubmitEnabled(false);
+                updateRecordBadge();
             };
 
             const captureValues = () => {
@@ -634,6 +871,7 @@
                     body.innerHTML = html;
                     restoreValues(options.values, options.preserveNumberFormat === true);
                     updateInvoiceDependencies();
+                    updateRecordBadge();
                     setSubmitEnabled(true);
                     focusFirstField();
                 } catch (error) {
@@ -651,7 +889,7 @@
                 method.disabled = true;
                 modeInput.value = 'create';
                 editingIdInput.value = '';
-                title.textContent = 'Nowa seria numeracji';
+                title.textContent = 'Seria numeracji';
                 renderTypePicker();
             };
 
@@ -669,7 +907,7 @@
                     method.disabled = false;
                     modeInput.value = 'edit';
                     editingIdInput.value = button.dataset.seriesId;
-                    title.textContent = 'Edytuj serię numeracji';
+                    title.textContent = 'Seria numeracji';
                     modal.show();
                     loadFragment(button.dataset.editUrl);
                 });
@@ -719,6 +957,7 @@
                 modal.show();
                 setSubmitEnabled(body.querySelector('[data-series-form-fragment]') !== null);
                 updateInvoiceDependencies();
+                updateRecordBadge();
                 focusFirstField();
             }
         });
