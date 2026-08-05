@@ -149,15 +149,26 @@ class InvoiceEditingTest extends TestCase
     public function test_correction_blocks_invoice_editing(): void
     {
         $invoice = $this->issueInvoice();
-        Invoice::query()->create([
+        $correction = Invoice::query()->create([
             'order_id' => $invoice->order_id,
             'invoice_series_id' => $this->createDocumentSeries(InvoiceDocumentType::Correction)->id,
             'document_type' => InvoiceDocumentType::Correction,
             'status' => InvoiceDocumentStatus::Issued,
             'corrected_invoice_id' => $invoice->id,
+            'number' => 'BLK 185/2026',
+            'issued_at' => now(),
         ]);
 
-        $this->get(route('invoices.edit', $invoice))->assertStatus(422);
+        $this->get(route('invoices.edit', $invoice))
+            ->assertOk()
+            ->assertSee('data-invoice-edit-blocked', false)
+            ->assertSee('Nie możesz edytować faktury, do której została już wystawiona faktura korygująca.')
+            ->assertSee('Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą')
+            ->assertSee('BLK 185/2026')
+            ->assertSee(route('invoices.corrections.edit', $correction), false)
+            ->assertSee('invoice-edit-blocked-correction-link', false)
+            ->assertDontSee('data-invoice-edit-page', false)
+            ->assertDontSee('invoice-buyer-form', false);
     }
 
     public function test_buyer_is_edited_only_in_snapshot_and_does_not_create_edit_event(): void

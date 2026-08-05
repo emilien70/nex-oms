@@ -217,6 +217,7 @@ class InvoiceSeriesController extends Controller
             ->get();
 
         $isNewProforma = $series === null && $documentType === InvoiceDocumentType::Proforma;
+        $numberingStarted = $series?->numberingHasStarted() ?? false;
 
         return [
             'documentType' => $documentType,
@@ -238,7 +239,9 @@ class InvoiceSeriesController extends Controller
             'correctionSeries' => $correctionSeries,
             'currencyOptions' => $this->currencies->all(),
             'series' => $series,
-            'numberingStarted' => $series?->numberingHasStarted() ?? false,
+            'numberingStarted' => $numberingStarted,
+            'numberingIdentityLocked' => $numberingStarted
+                && ! ($series?->is_system ?? false),
             'showValidationErrors' => $showValidationErrors,
             'useOldInput' => $showValidationErrors,
             'values' => [

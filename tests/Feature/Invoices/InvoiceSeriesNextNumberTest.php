@@ -2,12 +2,16 @@
 
 namespace Tests\Feature\Invoices;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesResetPeriod;
+use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceNumberCounter;
 use Modules\Invoices\Models\InvoiceNumberCounterAdjustment;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Services\InvoiceNumberingService;
 use Tests\TestCase;
 
 class InvoiceSeriesNextNumberTest extends TestCase
@@ -218,6 +222,51 @@ class InvoiceSeriesNextNumberTest extends TestCase
             ->assertSessionHasErrors('numbering_identity');
 
         $this->assertSame('TEST %N/%Y', $series->refresh()->number_format);
+    }
+
+    public function test_started_system_series_can_edit_numbering_configuration_through_form_and_backend(): void
+    {
+        $series = InvoiceSeries::query()
+            ->where('is_system', true)
+            ->where('document_type', InvoiceDocumentType::Invoice->value)
+            ->firstOrFail();
+        $numbering = app(InvoiceNumberingService::class);
+        $numbering->assignNextNumber(Invoice::query()->create([
+            'invoice_series_id' => $series->id,
+            'document_type' => $series->document_type,
+            'status' => InvoiceDocumentStatus::Draft,
+        ]), CarbonImmutable::parse('2026-07-15'));
+
+        $content = $this->get(route('invoices.series.edit', $series))
+            ->assertOk()
+            ->assertDontSee('data-role="numbering-identity-locked"', false)
+            ->getContent();
+
+        foreach (['number_format', 'reset_period', 'fiscal_year_start_month'] as $field) {
+            $this->assertMatchesRegularExpression(
+                '/<(?:input|select)\b(?=[^>]*\bname="'.preg_quote($field, '/').'")(?![^>]*\bdisabled\b)[^>]*>/',
+                $content,
+            );
+        }
+
+        $this->patch(route('invoices.series.update', $series), $this->validUpdatePayload($series, [
+            'number_format' => 'SYSTEM %N/%M/%Y',
+            'reset_period' => InvoiceSeriesResetPeriod::Monthly->value,
+            'fiscal_year_start_month' => 7,
+        ]))
+            ->assertRedirect(route('invoices.series.index'))
+            ->assertSessionDoesntHaveErrors();
+
+        $series->refresh();
+        $this->assertSame('SYSTEM %N/%M/%Y', $series->number_format);
+        $this->assertSame(InvoiceSeriesResetPeriod::Monthly, $series->reset_period);
+        $this->assertSame(7, $series->fiscal_year_start_month);
+
+        $this->patch(route('invoices.series.update', $series), $this->validUpdatePayload($series, [
+            'number_format' => 'SYSTEM %N/%Y',
+        ]))->assertSessionHasErrors('number_format');
+
+        $this->assertSame('SYSTEM %N/%M/%Y', $series->refresh()->number_format);
     }
 
     private function createSeries(string $name, array $attributes = []): InvoiceSeries

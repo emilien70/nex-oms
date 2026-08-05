@@ -29,6 +29,15 @@ class InvoiceEditController extends Controller
             $policy->assertEditable($invoice);
             $currency->assertSnapshotUsableForAnyEdit($invoice);
         } catch (InvoiceDomainException $exception) {
+            if ($exception->errorCode() === 'invoice_edit_blocked_by_correction') {
+                $correction = Invoice::query()->findOrFail($exception->metadata()['correction_id']);
+
+                return view('invoices.edit-blocked-by-correction', [
+                    'invoice' => $invoice,
+                    'correction' => $correction,
+                ]);
+            }
+
             abort(422, $exception->getMessage());
         }
 

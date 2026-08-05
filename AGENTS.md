@@ -1134,7 +1134,7 @@ Etap 2B wdraża:
 - unikalność sekwencji dokumentu w serii i okresie,
 - serwerowy podgląd bez rezerwacji numeru,
 - operację „Ustaw następny numer” z obowiązkowym powodem i niezmienną historią,
-- blokadę `document_type`, `number_format`, `reset_period` i `fiscal_year_start_month` po rozpoczęciu numeracji,
+- blokadę `document_type` po rozpoczęciu numeracji oraz blokadę `number_format`, `reset_period` i `fiscal_year_start_month` dla serii własnych,
 - zamrożenie `numbering_period_key` ponumerowanego dokumentu.
 
 Klucz okresu ma postać `YYYY-MM` dla `monthly`, rok rozpoczęcia okresu fiskalnego dla `yearly` oraz `none` dla braku resetu. Numer nie jest wyznaczany przez niezabezpieczone `MAX + 1`. Unikalne indeksy są ostatecznym zabezpieczeniem także na SQLite.
@@ -1142,6 +1142,8 @@ Klucz okresu ma postać `YYYY-MM` dla `monthly`, rok rozpoczęcia okresu fiskaln
 Format zawsze wymaga tokenu `%N`, `%NN` albo dłuższego wariantu. Dodatkowo `monthly` wymaga `%M` i `%Y` albo `%y`; `yearly` od stycznia wymaga `%Y` albo `%y`; `yearly` od miesiąca innego niż styczeń wymaga `%M` i `%Y` albo `%y`; `none` nie wymaga tokenu miesiąca ani roku. Reguły muszą być egzekwowane centralnie przez serwisy, a nie wyłącznie przez Form Request.
 
 Operacja ręczna działa oddzielnie dla każdego okresu. Dla okresu bez dokumentów może skorygować licznik w dół, a dla okresu z dokumentami może tylko bezpiecznie przesunąć go do przodu. Ustanowiony poziom staje się chronionym progiem. Nazwa i ustawienia biznesowe serii pozostają edytowalne.
+
+Serie systemowe mogą zmieniać `number_format`, `reset_period` i `fiscal_year_start_month` także po rozpoczęciu numeracji. Zmiana dotyczy wyłącznie kolejnych dokumentów; już nadane numery, okresy numeracji i snapshoty formatów pozostają niezmienne. Typ dokumentu, `system_key`, `is_system` i wymuszona aktywność serii systemowej nadal są chronione. Serie własne zachowują pełną blokadę parametrów numeracji po jej rozpoczęciu.
 
 Etap 2B nie implementuje:
 

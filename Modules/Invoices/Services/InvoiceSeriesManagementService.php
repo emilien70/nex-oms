@@ -22,6 +22,10 @@ class InvoiceSeriesManagementService
         'fiscal_year_start_month',
     ];
 
+    private const SYSTEM_NUMBERING_IDENTITY_FIELDS = [
+        'document_type',
+    ];
+
     private const NUMBERING_IDENTITY_LOCK_MESSAGE = 'Nie można zmienić parametrów numeracji, ponieważ seria została już użyta do numerowania dokumentów.';
 
     private const COMMON_EDITABLE_FIELDS = [
@@ -309,7 +313,11 @@ class InvoiceSeriesManagementService
             return;
         }
 
-        foreach (self::NUMBERING_IDENTITY_FIELDS as $field) {
+        $lockedFields = $series->is_system
+            ? self::SYSTEM_NUMBERING_IDENTITY_FIELDS
+            : self::NUMBERING_IDENTITY_FIELDS;
+
+        foreach ($lockedFields as $field) {
             if (! array_key_exists($field, $data)) {
                 continue;
             }

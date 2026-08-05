@@ -510,6 +510,48 @@ class InvoiceNumberingTest extends TestCase
         $this->assertSame('DRAFT %N/%Y', $draftOnly->refresh()->number_format);
     }
 
+    public function test_system_series_can_change_numbering_configuration_without_changing_existing_document_numbers(): void
+    {
+        $management = app(InvoiceSeriesManagementService::class);
+        $numbering = app(InvoiceNumberingService::class);
+        $series = InvoiceSeries::query()
+            ->where('is_system', true)
+            ->where('document_type', InvoiceDocumentType::Invoice->value)
+            ->firstOrFail();
+        $originalFormat = $series->number_format;
+        $existing = $numbering->assignNextNumber(
+            $this->createDraft($series),
+            CarbonImmutable::parse('2026-07-15'),
+        );
+        $existingNumber = $existing->number;
+
+        $management->update($series, [
+            'number_format' => 'SYSTEM %N/%M/%Y',
+            'reset_period' => InvoiceSeriesResetPeriod::Monthly->value,
+            'fiscal_year_start_month' => 7,
+        ]);
+
+        $series->refresh();
+        $this->assertSame('SYSTEM %N/%M/%Y', $series->number_format);
+        $this->assertSame(InvoiceSeriesResetPeriod::Monthly, $series->reset_period);
+        $this->assertSame(7, $series->fiscal_year_start_month);
+
+        $existing->refresh();
+        $this->assertSame($existingNumber, $existing->number);
+        $this->assertSame($originalFormat, $existing->number_format_snapshot);
+        $this->assertSame('2026', $existing->numbering_period_key);
+
+        $next = $numbering->assignNextNumber(
+            $this->createDraft($series),
+            CarbonImmutable::parse('2026-08-15'),
+        );
+
+        $this->assertSame('SYSTEM 1/08/2026', $next->number);
+        $this->assertSame(1, $next->sequence_number);
+        $this->assertSame('2026-08', $next->numbering_period_key);
+        $this->assertSame('SYSTEM %N/%M/%Y', $next->number_format_snapshot);
+    }
+
     private function createSeries(
         string $name,
         InvoiceDocumentType $type = InvoiceDocumentType::Invoice,

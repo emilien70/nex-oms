@@ -1,13 +1,14 @@
 @extends('layouts.app')
 
-@section('title', 'Tworzenie korekty - NEX-OMS')
+@section('title', ($correction ? 'Edycja korekty' : 'Tworzenie korekty').' - NEX-OMS')
 
 @section('content')
     @php
+        $isEditing = $correction !== null;
         $formItems = old('items', $items->all());
         $formBuyer = old('buyer', $buyer);
-        $changeItems = (bool) old('change_items', false);
-        $changeBuyer = (bool) old('change_buyer', false);
+        $changeItems = (bool) old('change_items', $defaultChangeItems);
+        $changeBuyer = (bool) old('change_buyer', $defaultChangeBuyer);
         $selectedReason = old('reason', $defaults['reason']);
     @endphp
 
@@ -15,6 +16,14 @@
         .correction-page { margin:-1.5rem; min-height:100vh; padding:18px 10px 28px; background:#f4f6f8; color:#4e565f; font-size:13px; }
         .correction-page-header { align-items:flex-start; display:flex; justify-content:space-between; margin-bottom:18px; }
         .correction-page h1 { color:#20242a; font-size:28px; font-weight:500; margin:0 0 4px; }
+        .correction-document-actions { border:1px solid #cfd5dc; border-radius:22px; flex-wrap:nowrap; max-width:100%; }
+        .correction-document-actions .btn { align-items:center; background:#fff; border:0; border-left:1px solid #cfd5dc; border-radius:0; color:#4e565f; display:inline-flex; font-size:13px; justify-content:center; min-height:40px; padding:0 12px; white-space:nowrap; }
+        .correction-document-actions > :first-child { border-left:0; border-radius:21px 0 0 21px; }
+        .correction-document-actions > :last-child { border-radius:0 21px 21px 0; }
+        .correction-document-actions .btn:hover,.correction-document-actions .btn:focus { background:#f8fafc; color:#20242a; }
+        .correction-document-actions .btn:disabled { background:#fff; color:#94a3b8; opacity:1; }
+        .correction-document-actions .dropdown-toggle-split { min-width:38px; padding:0 10px; }
+        .correction-document-actions .dropdown-menu { border-color:#cfd5dc; font-size:13px; }
         .correction-card { background:#fff; border:1px solid #dfe4ea; border-radius:7px; box-shadow:0 1px 3px rgba(15,23,42,.08); margin-bottom:16px; padding:24px 30px; }
         .correction-card-title { align-items:center; color:#20242a; display:flex; font-size:18px; font-weight:600; gap:12px; margin-bottom:28px; }
         .correction-card-title::before { background:#0d83dd; border-radius:50%; content:""; height:9px; width:9px; }
@@ -22,6 +31,8 @@
         .correction-field { align-items:center; display:grid; grid-template-columns:160px minmax(0,400px); gap:18px; margin-bottom:14px; }
         .correction-field > label { font-size:12px; margin:0; text-align:right; }
         .correction-field .form-control,.correction-field .form-select { border-color:#cfd6df; font-size:13px; min-height:40px; }
+        .correction-field-with-help { align-items:start; }
+        .correction-field-with-help > label { align-items:center; display:flex; justify-content:flex-end; min-height:40px; }
         .correction-field-textarea { align-items:start; }
         .correction-field-textarea > label { padding-top:8px; }
         .correction-field textarea { min-height:145px; }
@@ -34,8 +45,14 @@
         .correction-items-table { color:#4e565f; font-size:12px; margin:0; }
         .correction-items-table th { color:#20242a; font-size:10px; font-weight:600; padding:12px; text-transform:uppercase; }
         .correction-items-table td { border-color:#d7dde5; padding:8px 12px; vertical-align:middle; }
+        .correction-items-table .correction-item-select { width:40px; }
+        .correction-items-table .correction-item-quantity { width:80px; }
+        .correction-items-table .correction-item-price { width:110px; }
+        .correction-items-table .correction-item-vat { width:90px; }
+        .correction-items-table .correction-item-action { width:55px; }
+        .correction-items-table th:nth-child(n+3),.correction-items-table td:nth-child(n+3) { white-space:nowrap; }
         .correction-item-editor td { background:#f8fafc; padding:12px 20px; }
-        .correction-item-editor-grid { align-items:end; display:grid; gap:10px; grid-template-columns:minmax(200px,2fr) 85px 120px 100px auto; }
+        .correction-item-editor-grid { align-items:end; display:grid; gap:10px; grid-template-columns:minmax(220px,25%) 85px 120px 100px auto; justify-content:start; }
         .correction-item-editor-grid label { display:block; font-size:11px; margin-bottom:4px; }
         .correction-icon-button { align-items:center; background:#fff; border:1px solid #e6eaf0; border-radius:50%; color:#4e565f; display:inline-flex; height:32px; justify-content:center; padding:0; width:32px; }
         .correction-icon-button:hover { background:#f1f7fd; color:#0875d1; }
@@ -55,29 +72,54 @@
         .correction-current-data dd { margin:0; }
         .correction-page-actions { display:flex; gap:10px; justify-content:flex-end; }
         [hidden] { display:none !important; }
-        @media(max-width:991.98px){.correction-page{margin:-1rem;padding:12px}.correction-fields{margin-left:0;max-width:none}.correction-field,.correction-option{grid-template-columns:1fr;gap:4px}.correction-field>label,.correction-option-label{text-align:left}.correction-buyer-grid{grid-template-columns:1fr}.correction-buyer-field{grid-template-columns:1fr;gap:4px}.correction-buyer-field label{text-align:left}.correction-item-editor-grid{grid-template-columns:1fr 1fr}.correction-page h1{font-size:22px}}
+        @media(max-width:991.98px){.correction-page{margin:-1rem;padding:12px}.correction-page-header{align-items:flex-start;flex-direction:column;gap:12px}.correction-document-actions{max-width:100%;overflow-x:auto}.correction-fields{margin-left:0;max-width:none}.correction-field,.correction-option{grid-template-columns:1fr;gap:4px}.correction-field>label,.correction-option-label{text-align:left}.correction-field-with-help>label{justify-content:flex-start}.correction-buyer-grid{grid-template-columns:1fr}.correction-buyer-field{grid-template-columns:1fr;gap:4px}.correction-buyer-field label{text-align:left}.correction-item-editor-grid{grid-template-columns:1fr 1fr}.correction-page h1{font-size:22px}}
     </style>
 
     <main class="correction-page">
         <header class="correction-page-header">
             <div>
-                <h1>Tworzenie korekty</h1>
+                <h1>{{ $isEditing ? 'Edycja korekty' : 'Tworzenie korekty' }}</h1>
                 <div>dla zamówienia <a href="{{ route('orders.show', $order) }}">{{ $sourceInvoice->order_reference_snapshot }}</a></div>
             </div>
-            <a class="btn btn-outline-secondary rounded-pill" href="{{ route('invoices.edit', $sourceInvoice) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
+            @if ($isEditing)
+                <div class="btn-group correction-document-actions" role="group" aria-label="Akcje Korekty" data-correction-edit-actions>
+                    <a class="btn" href="{{ route('invoices.pdf', $correction) }}" target="_blank" rel="noopener" data-correction-print-button>
+                        <i class="bi bi-printer me-1"></i>Drukuj
+                    </a>
+                    <div class="btn-group" role="group">
+                        <button class="btn dropdown-toggle dropdown-toggle-split" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <span class="visually-hidden">Opcje drukowania</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="{{ route('invoices.pdf', $correction) }}" target="_blank" rel="noopener">Otwórz dokument PDF</a></li>
+                            <li><a class="dropdown-item" href="{{ route('invoices.pdf', $correction) }}" download>Pobierz dokument PDF</a></li>
+                        </ul>
+                    </div>
+                    <button class="btn" type="button" disabled title="Wgrywanie dokumentów nie jest jeszcze dostępne." aria-label="Wgrywanie dokumentów nie jest jeszcze dostępne"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
+                    <button class="btn" type="button" disabled title="Integracja KSeF nie jest jeszcze dostępna." aria-label="Integracja KSeF nie jest jeszcze dostępna"><i class="bi bi-eraser-fill me-1"></i>Przekaż do KSeF</button>
+                    <button class="btn" type="button" disabled title="Usuwanie Korekt nie jest jeszcze dostępne." aria-label="Usuwanie Korekt nie jest jeszcze dostępne"><i class="bi bi-trash me-1"></i>Usuń</button>
+                    <a class="btn" href="{{ route('invoices.pdf', $correction) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
+                </div>
+            @else
+                <a class="btn btn-outline-secondary rounded-pill" href="{{ route('invoices.edit', $sourceInvoice) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
+            @endif
         </header>
 
         @if ($errors->any())
             <div class="alert alert-danger">
-                <strong>Nie udało się utworzyć Korekty.</strong>
+                <strong>{{ $isEditing ? 'Nie udało się zapisać Korekty.' : 'Nie udało się utworzyć Korekty.' }}</strong>
                 <ul class="mb-0 mt-1">
                     @foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach
                 </ul>
             </div>
         @endif
 
-        <form method="POST" action="{{ route('invoices.corrections.store', $sourceInvoice) }}" data-correction-form>
+        <form method="POST" action="{{ $isEditing ? route('invoices.corrections.update', $correction) : route('invoices.corrections.store', $sourceInvoice) }}" data-correction-form>
             @csrf
+            @if ($isEditing)
+                @method('PATCH')
+                <input type="hidden" name="expected_lock_version" value="{{ $correction->lock_version }}">
+            @endif
 
             <section class="correction-card">
                 <h2 class="correction-card-title">Faktura korygująca</h2>
@@ -96,11 +138,14 @@
                     </div>
                     <div class="correction-field">
                         <label for="correctionSeries">Seria numeracji</label>
-                        <select class="form-select" id="correctionSeries" name="correction_series_id" required data-correction-series>
+                        <select class="form-select" id="correctionSeries" name="correction_series_id" required data-correction-series @disabled($isEditing)>
                             @foreach ($correctionSeries as $series)
                                 <option value="{{ $series->id }}" @selected((int) old('correction_series_id', $selectedSeries->id) === $series->id)>{{ $series->name }}</option>
                             @endforeach
                         </select>
+                        @if ($isEditing)
+                            <input type="hidden" name="correction_series_id" value="{{ $selectedSeries->id }}">
+                        @endif
                     </div>
                     <div class="correction-field">
                         <label for="correctionIssueDate">Data wystawienia</label>
@@ -119,7 +164,7 @@
                 <div class="correction-divider"></div>
 
                 <div class="correction-fields">
-                    <div class="correction-field">
+                    <div class="correction-field correction-field-with-help">
                         <label for="correctionIssuer">Wystawiający</label>
                         <div>
                             <input class="form-control" id="correctionIssuer" name="issuer_name" value="{{ old('issuer_name', $defaults['issuer_name']) }}" maxlength="255">
@@ -155,6 +200,7 @@
                 <div class="correction-items-card">
                     <div class="table-responsive">
                         <table class="table correction-items-table">
+                            <colgroup><col class="correction-item-select"><col><col class="correction-item-quantity"><col class="correction-item-price"><col class="correction-item-vat"><col class="correction-item-action"><col class="correction-item-action"></colgroup>
                             <thead><tr><th style="width:40px"><input class="form-check-input" type="checkbox" data-select-all-items aria-label="Zaznacz wszystkie pozycje"></th><th>Nazwa</th><th class="text-end">Ilość</th><th class="text-end">Cena</th><th class="text-end">Stawka VAT</th><th class="text-center">Edytuj</th><th class="text-center">Usuń</th></tr></thead>
                             <tbody data-correction-items></tbody>
                         </table>
@@ -206,8 +252,8 @@
             </section>
 
             <div class="correction-page-actions">
-                <button class="btn btn-primary rounded-pill px-4" type="submit">Stwórz korektę</button>
-                <a class="btn btn-outline-secondary rounded-pill px-4" href="{{ route('invoices.edit', $sourceInvoice) }}">Anuluj</a>
+                <button class="btn btn-primary rounded-pill px-4" type="submit">{{ $isEditing ? 'Zapisz' : 'Stwórz korektę' }}</button>
+                <a class="btn btn-outline-secondary rounded-pill px-4" href="{{ $isEditing ? route('invoices.pdf', $correction) : route('invoices.edit', $sourceInvoice) }}">Anuluj</a>
             </div>
         </form>
     </main>
@@ -309,11 +355,13 @@
                     if (input) input.value = value ?? '';
                 });
             });
-            document.querySelector('[data-correction-series]')?.addEventListener('change', (event) => {
-                const url = new URL(@json(route('invoices.corrections.create', $sourceInvoice)), window.location.origin);
-                url.searchParams.set('series_id', event.target.value);
-                window.location.assign(url.toString());
-            });
+            @if (! $isEditing)
+                document.querySelector('[data-correction-series]')?.addEventListener('change', (event) => {
+                    const url = new URL(@json(route('invoices.corrections.create', $sourceInvoice)), window.location.origin);
+                    url.searchParams.set('series_id', event.target.value);
+                    window.location.assign(url.toString());
+                });
+            @endif
         });
     </script>
 @endsection

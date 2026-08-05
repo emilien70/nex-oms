@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Http\Requests\CorrectionDraftRequest;
+use Modules\Invoices\Http\Requests\UpdateCorrectionRequest;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionService;
@@ -39,6 +40,29 @@ class CorrectionController extends Controller
             $correction = $service->issue($invoice, $series, $request->validated(), $contexts->manual($request));
 
             return redirect()->route('invoices.pdf', $correction);
+        } catch (InvoiceDomainException $exception) {
+            return back()->withInput()->withErrors(['correction' => $exception->getMessage()]);
+        }
+    }
+
+    public function edit(Invoice $correction, CorrectionViewModelFactory $viewModels): View
+    {
+        try {
+            return view('invoices.corrections.create', $viewModels->makeForEdit($correction));
+        } catch (InvoiceDomainException $exception) {
+            abort(422, $exception->getMessage());
+        }
+    }
+
+    public function update(
+        UpdateCorrectionRequest $request,
+        Invoice $correction,
+        CorrectionService $service,
+    ): RedirectResponse {
+        try {
+            $updated = $service->update($correction, $request->validated());
+
+            return redirect()->route('invoices.pdf', $updated);
         } catch (InvoiceDomainException $exception) {
             return back()->withInput()->withErrors(['correction' => $exception->getMessage()]);
         }

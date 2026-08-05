@@ -106,6 +106,8 @@ class InvoicePdfViewModelFactory
             'before_totals' => $this->snapshotTotals($totals['before']),
             'after_totals' => $this->snapshotTotals($totals['after']),
             'difference_totals' => $this->snapshotTotals($difference),
+            'difference_magnitudes' => $this->snapshotMagnitudeTotals($difference),
+            'difference_vat_label' => $this->correctionDifferenceVatLabel($invoice->items),
             'decreasing' => $decreasing,
             'difference_labels' => $decreasing ? [
                 'net' => 'Kwota zmniejszająca podstawę opodatkowania',
@@ -119,6 +121,7 @@ class InvoicePdfViewModelFactory
             'currency' => $invoice->currency,
             'amount_in_words' => $this->amountInWords->format((string) $difference['gross'], $invoice->currency),
             'issuer_name' => $this->text($invoice->issuer_snapshot['issuer_name'] ?? null),
+            'additional_information' => $this->text($invoice->additional_information_text),
         ];
     }
 
@@ -201,6 +204,22 @@ class InvoicePdfViewModelFactory
         return $items->map(fn ($item): array => $this->item($item->{$snapshot}))->values()->all();
     }
 
+    /** @param Collection<int, mixed> $items */
+    private function correctionDifferenceVatLabel(Collection $items): ?string
+    {
+        $labels = [];
+
+        foreach ($items as $item) {
+            foreach (['correction_before_snapshot', 'correction_after_snapshot'] as $snapshotName) {
+                $snapshot = $item->{$snapshotName};
+                $label = $this->vatLabel($snapshot['vat_rate'] ?? null, $snapshot['vat_code'] ?? null);
+                $labels[$label] = true;
+            }
+        }
+
+        return count($labels) === 1 ? array_key_first($labels) : null;
+    }
+
     /** @param array<string, mixed> $item */
     private function item(array $item): array
     {
@@ -253,6 +272,21 @@ class InvoicePdfViewModelFactory
             'vat' => $this->money((string) $totals['vat']),
             'gross' => $this->money((string) $totals['gross']),
         ];
+    }
+
+    /** @param array<string, mixed> $totals */
+    private function snapshotMagnitudeTotals(array $totals): array
+    {
+        return collect(['net', 'vat', 'gross'])
+            ->mapWithKeys(function (string $key) use ($totals): array {
+                $value = (string) $totals[$key];
+                $magnitude = $this->decimal->compare($value, '0.00') < 0
+                    ? $this->decimal->subtract('0.00', $value)
+                    : $value;
+
+                return [$key => $this->money($magnitude)];
+            })
+            ->all();
     }
 
     /** @return array<string, mixed> */

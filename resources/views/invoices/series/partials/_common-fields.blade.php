@@ -1,5 +1,7 @@
 @php
     $numberingStarted = $numberingStarted ?? false;
+    $numberingIdentityLocked = $numberingIdentityLocked
+        ?? ($numberingStarted && ! ($series?->is_system ?? false));
     $fieldValue = static fn (string $field): mixed => $useOldInput
         ? old($field, $values[$field] ?? null)
         : ($values[$field] ?? null);
@@ -55,17 +57,17 @@
 
     <div class="col-12 invoice-series-form-break">
         <label class="form-label" for="invoice-series-number-format">Format numeracji</label>
-        @if ($numberingStarted)
+        @if ($numberingIdentityLocked)
             <input type="hidden" name="number_format" value="{{ $series->number_format }}">
         @endif
         <input
             class="form-control form-control-sm {{ $fieldHasError('number_format') ? 'is-invalid' : '' }}"
             id="invoice-series-number-format"
-            @unless ($numberingStarted) name="number_format" @endunless
+            @unless ($numberingIdentityLocked) name="number_format" @endunless
             type="text"
             value="{{ $fieldValue('number_format') }}"
             maxlength="120"
-            @disabled($numberingStarted)
+            @disabled($numberingIdentityLocked)
             required
         >
         <div class="form-text">
@@ -78,14 +80,14 @@
 
     <div class="col-md-6">
         <label class="form-label" for="invoice-series-reset-period">Resetowanie numeracji</label>
-        @if ($numberingStarted)
+        @if ($numberingIdentityLocked)
             <input type="hidden" name="reset_period" value="{{ $series->reset_period->value }}">
         @endif
         <select
             class="form-select form-select-sm {{ $fieldHasError('reset_period') ? 'is-invalid' : '' }}"
             id="invoice-series-reset-period"
-            @unless ($numberingStarted) name="reset_period" @endunless
-            @disabled($numberingStarted)
+            @unless ($numberingIdentityLocked) name="reset_period" @endunless
+            @disabled($numberingIdentityLocked)
             required
         >
             @foreach ($resetPeriods as $period)
@@ -101,14 +103,14 @@
 
     <div class="col-md-6">
         <label class="form-label" for="invoice-series-fiscal-month">Początek roku fiskalnego</label>
-        @if ($numberingStarted)
+        @if ($numberingIdentityLocked)
             <input type="hidden" name="fiscal_year_start_month" value="{{ $series->fiscal_year_start_month }}">
         @endif
         <select
             class="form-select form-select-sm {{ $fieldHasError('fiscal_year_start_month') ? 'is-invalid' : '' }}"
             id="invoice-series-fiscal-month"
-            @unless ($numberingStarted) name="fiscal_year_start_month" @endunless
-            @disabled($numberingStarted)
+            @unless ($numberingIdentityLocked) name="fiscal_year_start_month" @endunless
+            @disabled($numberingIdentityLocked)
             required
         >
             @foreach (range(1, 12) as $month)
@@ -122,7 +124,7 @@
         @endif
     </div>
 
-    @if ($numberingStarted)
+    @if ($numberingIdentityLocked)
         <div class="col-12">
             <div class="invoice-series-system-note" role="note" data-role="numbering-identity-locked">
                 <i class="bi bi-lock" aria-hidden="true"></i>

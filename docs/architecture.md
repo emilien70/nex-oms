@@ -1572,10 +1572,10 @@ Zaimplementowano:
 - unikalność sekwencji w serii i okresie,
 - serwerowy, niezapisujący podgląd,
 - operację „Ustaw następny numer” z obowiązkowym powodem i historią,
-- blokadę parametrów definiujących numerację po jej rozpoczęciu,
+- blokadę typu dokumentu po rozpoczęciu numeracji oraz parametrów numeracji dla serii własnych,
 - zamrożenie `numbering_period_key` po nadaniu numeru.
 
-Parametry tożsamości numeracji to `document_type`, `number_format`, `reset_period` i `fiscal_year_start_month`. Po rozpoczęciu numeracji są zablokowane, natomiast nazwa oraz pozostałe ustawienia biznesowe serii pozostają edytowalne. Operacja ręczna działa dla serii systemowych, własnych, aktywnych i ukrytych, oddzielnie dla każdego okresu.
+Parametry tożsamości numeracji to `document_type`, `number_format`, `reset_period` i `fiscal_year_start_month`. Dla serii własnych po rozpoczęciu numeracji pozostają zablokowane. Seria systemowa zachowuje niezmienny `document_type`, `system_key` i status systemowy, ale może zmienić `number_format`, `reset_period` oraz `fiscal_year_start_month`; nowe ustawienia dotyczą wyłącznie kolejnych dokumentów. Numery, klucze okresów i snapshoty formatów już ponumerowanych dokumentów nie są przeliczane ani aktualizowane. Operacja ręczna działa dla serii systemowych, własnych, aktywnych i ukrytych, oddzielnie dla każdego okresu.
 
 Walidacja konfiguracji jest wykonywana poza warstwą formularza. Reset `monthly` wymaga `%M` i jednego z tokenów roku `%Y`/`%y`. Reset `yearly` od stycznia wymaga tokenu roku, a przy początku roku fiskalnego innym niż styczeń także `%M`. Reset `none` nie wymaga tokenu okresu. Nieprawidłowa seria jest odrzucana kontrolowanym błędem przed podglądem, zmianą licznika lub nadaniem numeru.
 

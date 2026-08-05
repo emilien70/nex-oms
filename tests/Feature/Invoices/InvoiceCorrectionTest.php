@@ -36,6 +36,79 @@ class InvoiceCorrectionTest extends TestCase
             ->assertSeeText('Jan Kowalski');
     }
 
+    public function test_issued_correction_can_be_opened_and_updated_without_changing_its_identity(): void
+    {
+        Storage::fake('local');
+
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $items = $this->submittedItems($invoice);
+        $items[0]['quantity'] = 0;
+
+        $this->post(route('invoices.corrections.store', $invoice), $this->payload($series, [
+            'change_items' => true,
+            'items' => $items,
+        ]))->assertRedirect();
+
+        $correction = Invoice::query()
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->sole();
+        $number = $correction->number;
+        $period = $correction->numbering_period_key;
+
+        $this->get(route('invoices.corrections.edit', $correction))
+            ->assertOk()
+            ->assertSeeText('Edycja korekty')
+            ->assertSee(route('invoices.corrections.update', $correction), false)
+            ->assertSee(route('invoices.pdf', $correction), false)
+            ->assertSee('data-correction-edit-actions', false)
+            ->assertSeeText('Drukuj')
+            ->assertSeeText('Wgraj')
+            ->assertSeeText('Przekaż do KSeF')
+            ->assertSeeText('Usuń')
+            ->assertSeeText('Powrót')
+            ->assertSee('Wgrywanie dokumentów nie jest jeszcze dostępne.', false)
+            ->assertSee('Integracja KSeF nie jest jeszcze dostępna.', false)
+            ->assertSee('Usuwanie Korekt nie jest jeszcze dostępne.', false)
+            ->assertDontSee('data-correction-delete-form', false)
+            ->assertSee('name="_method" value="PATCH"', false)
+            ->assertSee('name="expected_lock_version" value="1"', false);
+
+        $response = $this->patch(route('invoices.corrections.update', $correction), $this->payload($series, [
+            'expected_lock_version' => $correction->lock_version,
+            'change_items' => true,
+            'items' => $this->submittedCorrectionItems($correction),
+            'additional_information' => 'Zmieniona informacja korekty',
+        ]));
+
+        $correction->refresh();
+        $response->assertRedirect(route('invoices.pdf', $correction));
+        $this->assertSame($number, $correction->number);
+        $this->assertSame($period, $correction->numbering_period_key);
+        $this->assertSame($series->getKey(), $correction->invoice_series_id);
+        $this->assertSame($invoice->getKey(), $correction->corrected_invoice_id);
+        $this->assertSame(2, $correction->lock_version);
+        $this->assertSame('Zmieniona informacja korekty', $correction->additional_information_text);
+    }
+
+    public function test_correction_with_a_later_correction_cannot_be_edited(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+
+        $first = app(CorrectionService::class)->issue($invoice, $series, $this->payload($series, [
+            'change_buyer' => true,
+            'buyer' => array_merge($invoice->buyer_snapshot, ['name' => 'Pierwsza zmiana']),
+        ]), $this->documentContext('2026-08-05 10:00:00'));
+        app(CorrectionService::class)->issue($invoice, $series, $this->payload($series, [
+            'change_buyer' => true,
+            'buyer' => array_merge($invoice->buyer_snapshot, ['name' => 'Druga zmiana']),
+        ]), $this->documentContext('2026-08-05 10:01:00'));
+
+        $this->get(route('invoices.corrections.edit', $first))
+            ->assertUnprocessable();
+    }
+
     public function test_free_text_default_reason_is_presented_as_other_reason(): void
     {
         $invoice = $this->issuedInvoice();
@@ -266,6 +339,30 @@ class InvoiceCorrectionTest extends TestCase
             })
             ->values()
             ->all();
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function submittedCorrectionItems(Invoice $correction): array
+    {
+        return $correction->items->map(function ($item): array {
+            $snapshot = $item->correction_after_snapshot;
+
+            return [
+                'source_item_id' => $item->getKey(),
+                'order_item_id' => $item->order_item_id,
+                'line_type' => $snapshot['line_type'],
+                'position' => $snapshot['position'],
+                'name' => $snapshot['name'],
+                'description' => $snapshot['description'],
+                'unit_name' => $snapshot['unit_name'],
+                'quantity' => (int) $snapshot['quantity'],
+                'unit_price_gross' => $this->twoDecimals($snapshot['unit_price_gross']),
+                'vat_rate' => $snapshot['vat_rate'] !== null
+                    ? $this->twoDecimals($snapshot['vat_rate'])
+                    : null,
+                'vat_code' => $snapshot['vat_code'],
+            ];
+        })->values()->all();
     }
 
     /** @return array<string, mixed> */

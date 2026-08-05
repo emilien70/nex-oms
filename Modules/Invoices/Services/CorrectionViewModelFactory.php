@@ -9,7 +9,11 @@ use Modules\Invoices\Enums\CorrectionIssuerSource;
 use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
 use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\CorrectionSaleDateSource;
+use Modules\Invoices\Enums\InvoiceDocumentStatus;
+use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Models\InvoiceItem;
 use Modules\Invoices\Models\InvoiceSeries;
 
 class CorrectionViewModelFactory
@@ -46,7 +50,143 @@ class CorrectionViewModelFactory
             'currentOrderItems' => $this->currentOrderItems($sourceInvoice->order),
             'countries' => $this->countries->all(),
             'defaults' => $this->seriesDefaults($sourceInvoice, $effective, $series),
+            'defaultChangeItems' => false,
+            'defaultChangeBuyer' => false,
+            'correction' => null,
         ];
+    }
+
+    /** @return array<string, mixed> */
+    public function makeForEdit(Invoice $correction): array
+    {
+        $this->assertEditableCorrection($correction);
+        $correction->loadMissing(['order.items', 'correctedInvoice', 'series', 'items']);
+
+        $sourceInvoice = $correction->correctedInvoice;
+        $series = $correction->series;
+        if ($sourceInvoice === null || $series === null) {
+            throw new InvoiceDomainException(
+                'correction_edit_incomplete',
+                'Nie można edytować Korekty z powodu niekompletnych powiązań dokumentu.',
+            );
+        }
+
+        $this->sourceState->assertSourceInvoice($sourceInvoice);
+        $buyerBefore = data_get($correction->order_snapshot, 'correction.buyer_before');
+        if (! is_array($buyerBefore) || ! is_array($correction->buyer_snapshot)) {
+            throw new InvoiceDomainException(
+                'correction_edit_incomplete',
+                'Nie można edytować Korekty z powodu niekompletnego snapshotu danych nabywcy.',
+            );
+        }
+
+        $items = $correction->items
+            ->map(fn (InvoiceItem $item): array => $this->correctionFormItem($item))
+            ->values();
+
+        return [
+            'sourceInvoice' => $sourceInvoice,
+            'order' => $correction->order,
+            'correctionSeries' => $series->newCollection([$series]),
+            'selectedSeries' => $series,
+            'reasons' => CorrectionReason::cases(),
+            'items' => $items,
+            'buyer' => $correction->buyer_snapshot,
+            'currentBuyer' => $this->currentBuyer($correction->order),
+            'currentOrderItems' => $this->currentOrderItems($correction->order),
+            'countries' => $this->countries->all(),
+            'defaults' => $this->correctionDefaults($correction),
+            'defaultChangeItems' => $this->itemsChanged($correction),
+            'defaultChangeBuyer' => $this->comparableBuyer($buyerBefore) !== $this->comparableBuyer($correction->buyer_snapshot),
+            'correction' => $correction,
+        ];
+    }
+
+    private function assertEditableCorrection(Invoice $correction): void
+    {
+        if ($correction->document_type !== InvoiceDocumentType::Correction
+            || $correction->status !== InvoiceDocumentStatus::Issued
+            || $correction->number === null) {
+            throw new InvoiceDomainException(
+                'correction_edit_invalid',
+                'Można edytować wyłącznie wystawioną Korektę.',
+            );
+        }
+
+        if ($correction->nextCorrections()
+            ->where('status', InvoiceDocumentStatus::Issued->value)
+            ->exists()) {
+            throw new InvoiceDomainException(
+                'correction_edit_blocked_by_next_correction',
+                'Nie można edytować Korekty, do której została już wystawiona kolejna Korekta.',
+            );
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function correctionFormItem(InvoiceItem $item): array
+    {
+        $snapshot = $item->correction_after_snapshot;
+        if (! is_array($snapshot)) {
+            throw new InvoiceDomainException(
+                'correction_edit_incomplete',
+                'Nie można edytować Korekty z powodu niekompletnego snapshotu pozycji.',
+            );
+        }
+
+        return [
+            'source_item_id' => $item->getKey(),
+            'order_item_id' => $item->order_item_id,
+            'line_type' => $this->enumValue($snapshot['line_type'] ?? 'custom'),
+            'position' => (int) ($snapshot['position'] ?? 1),
+            'name' => (string) ($snapshot['name'] ?? ''),
+            'description' => (string) ($snapshot['description'] ?? ''),
+            'unit_name' => (string) ($snapshot['unit_name'] ?? 'szt.'),
+            'quantity' => $this->integerQuantity($snapshot['quantity'] ?? 0),
+            'unit_price_gross' => $this->decimalForForm($snapshot['unit_price_gross'] ?? 0, 2),
+            'vat_rate' => ($snapshot['vat_rate'] ?? null) !== null
+                ? $this->decimalForForm($snapshot['vat_rate'], 2)
+                : null,
+            'vat_code' => $snapshot['vat_code'] ?? null,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function correctionDefaults(Invoice $correction): array
+    {
+        $reason = $this->correctionReasonDefault($correction->correction_reason);
+        $payment = is_array($correction->payment_snapshot) ? $correction->payment_snapshot : [];
+        $issuer = is_array($correction->issuer_snapshot) ? $correction->issuer_snapshot : [];
+
+        return [
+            'reason' => $reason['reason'],
+            'other_reason' => $reason['other_reason'],
+            'issue_date' => $correction->issue_date?->toDateString(),
+            'sale_date' => $correction->sale_date?->toDateString(),
+            'payment_method' => $payment['effective_payment_method'] ?? null,
+            'issuer_name' => $issuer['issuer_name'] ?? null,
+            'additional_information' => $correction->additional_information_text,
+        ];
+    }
+
+    private function itemsChanged(Invoice $correction): bool
+    {
+        return $correction->items->contains(function (InvoiceItem $item): bool {
+            return is_array($item->correction_before_snapshot)
+                && is_array($item->correction_after_snapshot)
+                && $item->correction_before_snapshot !== $item->correction_after_snapshot;
+        });
+    }
+
+    /** @param array<string, mixed> $buyer
+     * @return array<string, mixed>
+     */
+    private function comparableBuyer(array $buyer): array
+    {
+        return array_intersect_key($buyer, array_flip([
+            'name', 'company_name', 'tax_id', 'street', 'building_number',
+            'apartment_number', 'postal_code', 'city', 'country_code',
+        ]));
     }
 
     /** @return array<string, mixed> */

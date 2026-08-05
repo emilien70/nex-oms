@@ -2,6 +2,7 @@
 
 namespace Modules\Invoices\Services;
 
+use App\Models\Order;
 use App\Support\CountryCatalog;
 use BackedEnum;
 use Carbon\CarbonImmutable;
@@ -25,7 +26,98 @@ class CorrectionService
         private readonly InvoiceTotalsCalculator $totals,
         private readonly InvoiceNumberingService $numbering,
         private readonly CountryCatalog $countries,
+        private readonly InvoicePdfStorage $pdfStorage,
+        private readonly InvoiceNumberingPeriodResolver $periods,
+        private readonly InvoiceNumberFormatter $numbers,
     ) {}
+
+    /** @param array<string, mixed> $data */
+    public function update(Invoice $correction, array $data): Invoice
+    {
+        return DB::transaction(function () use ($correction, $data): Invoice {
+            Order::query()->lockForUpdate()->findOrFail($correction->order_id);
+            $managed = Invoice::query()->lockForUpdate()->findOrFail($correction->getKey());
+            $this->assertEditableCorrection($managed, $data);
+
+            $source = Invoice::query()->lockForUpdate()->findOrFail($managed->corrected_invoice_id);
+            $this->sourceState->assertSourceInvoice($source);
+
+            $buyerBefore = data_get($managed->order_snapshot, 'correction.buyer_before');
+            if (! is_array($buyerBefore)) {
+                throw new InvoiceDomainException(
+                    'correction_edit_incomplete',
+                    'Nie można edytować Korekty z powodu niekompletnego snapshotu danych nabywcy.',
+                );
+            }
+
+            $buyerAfter = $data['change_buyer']
+                ? $this->buyerAfter($buyerBefore, (array) ($data['buyer'] ?? []))
+                : $buyerBefore;
+            $itemAttributes = $this->correctionItemsForUpdate(
+                $managed,
+                (array) ($data['items'] ?? []),
+                (bool) $data['change_items'],
+                $source,
+            );
+            $beforeTotals = $this->documentTotals($itemAttributes, 'correction_before_snapshot');
+            $afterTotals = $this->documentTotals($itemAttributes, 'correction_after_snapshot');
+            $differenceTotals = $this->differenceTotals($beforeTotals, $afterTotals);
+
+            if (! $this->hasActualChange($itemAttributes, $buyerBefore, $buyerAfter)) {
+                throw new InvoiceDomainException(
+                    'correction_has_no_changes',
+                    'Nie można zapisać Korekty bez wskazania rzeczywistej zmiany.',
+                );
+            }
+
+            $issueDate = CarbonImmutable::createFromFormat(
+                'Y-m-d',
+                (string) $data['issue_date'],
+                config('app.timezone'),
+            );
+            $this->assertNumberingDates($managed, $issueDate);
+
+            $issuer = is_array($managed->issuer_snapshot) ? $managed->issuer_snapshot : [];
+            $issuer['issuer_name'] = $this->nullableText($data['issuer_name'] ?? null);
+            $payment = is_array($managed->payment_snapshot) ? $managed->payment_snapshot : [];
+            $payment['effective_payment_method'] = $this->nullableText($data['payment_method'] ?? null);
+            $sourceTotals = data_get($managed->correction_totals_snapshot, 'source_invoice');
+
+            $managed->fill([
+                'issue_date' => $issueDate->toDateString(),
+                'sale_date' => (string) $data['sale_date'],
+                'correction_reason' => $this->reason($data),
+                'correction_totals_snapshot' => [
+                    'source_invoice' => is_array($sourceTotals) ? $sourceTotals : [
+                        'invoice_id' => $source->getKey(),
+                        'number' => $source->number,
+                        'issue_date' => $source->issue_date?->toDateString(),
+                    ],
+                    'before' => $this->compactTotals($beforeTotals),
+                    'after' => $this->compactTotals($afterTotals),
+                    'difference' => $differenceTotals,
+                ],
+                'buyer_name_snapshot' => $this->partyName($buyerAfter),
+                'buyer_tax_id_snapshot' => $buyerAfter['tax_id'] ?? null,
+                'buyer_snapshot' => $buyerAfter,
+                'issuer_snapshot' => $issuer,
+                'payment_snapshot' => $payment,
+                'tax_summary_snapshot' => $afterTotals['tax_summary_snapshot'],
+                'additional_information_text' => trim((string) ($data['additional_information'] ?? '')),
+                'total_net' => $differenceTotals['net'],
+                'total_vat' => $differenceTotals['vat'],
+                'total_gross' => $differenceTotals['gross'],
+                'amount_due' => $this->decimal->max($differenceTotals['gross'], '0.00'),
+                'lock_version' => $managed->lock_version + 1,
+            ])->save();
+
+            $managed->items()->delete();
+            $managed->items()->createMany($itemAttributes);
+            DB::afterCommit(fn () => $this->pdfStorage->delete($managed));
+
+            return $managed->refresh()->load(['items', 'correctedInvoice', 'previousCorrection']);
+        }, 3);
+    }
 
     /**
      * @param  array<string, mixed>  $data
@@ -168,6 +260,176 @@ class CorrectionService
 
             return $correction->refresh()->load(['items', 'correctedInvoice', 'previousCorrection']);
         }, 3);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function assertEditableCorrection(Invoice $correction, array $data): void
+    {
+        if ($correction->document_type !== InvoiceDocumentType::Correction
+            || $correction->status !== InvoiceDocumentStatus::Issued
+            || $correction->number === null) {
+            throw new InvoiceDomainException(
+                'correction_edit_invalid',
+                'Można edytować wyłącznie wystawioną Korektę.',
+            );
+        }
+
+        if ($correction->nextCorrections()
+            ->where('status', InvoiceDocumentStatus::Issued->value)
+            ->exists()) {
+            throw new InvoiceDomainException(
+                'correction_edit_blocked_by_next_correction',
+                'Nie można edytować Korekty, do której została już wystawiona kolejna Korekta.',
+            );
+        }
+
+        if ($correction->lock_version !== (int) $data['expected_lock_version']) {
+            throw new InvoiceDomainException(
+                'correction_edit_conflict',
+                'Korekta została w międzyczasie zmieniona. Odśwież formularz i ponownie sprawdź dane.',
+            );
+        }
+
+        if ($correction->invoice_series_id !== (int) $data['correction_series_id']) {
+            throw new InvoiceDomainException(
+                'correction_edit_series_forbidden',
+                'Nie można zmienić serii numeracji wystawionej Korekty.',
+            );
+        }
+    }
+
+    private function assertNumberingDates(Invoice $correction, CarbonImmutable $issueDate): void
+    {
+        $settings = $correction->series_settings_snapshot;
+        if (! is_array($settings)) {
+            throw new InvoiceDomainException(
+                'correction_edit_numbering_mismatch',
+                'Nie można zmienić daty wystawienia z powodu niekompletnego snapshotu numeracji Korekty.',
+            );
+        }
+
+        $series = new InvoiceSeries;
+        $series->setRawAttributes([
+            'reset_period' => $settings['reset_period'] ?? null,
+            'fiscal_year_start_month' => $settings['fiscal_year_start_month'] ?? 1,
+        ], true);
+
+        try {
+            $period = $this->periods->resolve($series, $issueDate);
+            $number = $this->numbers->format(
+                (string) $correction->number_format_snapshot,
+                (int) $correction->sequence_number,
+                $issueDate,
+            );
+        } catch (DomainException $exception) {
+            throw new InvoiceDomainException(
+                'correction_edit_numbering_mismatch',
+                'Nie można zmienić daty wystawienia z powodu niekompletnego snapshotu numeracji Korekty.',
+                [],
+                $exception,
+            );
+        }
+
+        if ($period !== $correction->numbering_period_key || $number !== $correction->number) {
+            throw new InvoiceDomainException(
+                'correction_edit_numbering_mismatch',
+                'Nie można zmienić daty wystawienia, ponieważ zmieniłaby numer lub okres numeracji Korekty.',
+            );
+        }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $submittedItems
+     * @return array<int, array<string, mixed>>
+     */
+    private function correctionItemsForUpdate(
+        Invoice $correction,
+        array $submittedItems,
+        bool $changeItems,
+        Invoice $sourceInvoice,
+    ): array {
+        $submittedBySource = [];
+        $newItems = [];
+
+        foreach ($submittedItems as $item) {
+            $sourceItemId = (int) ($item['source_item_id'] ?? 0);
+            if ($sourceItemId > 0) {
+                $submittedBySource[$sourceItemId] = $item;
+            } else {
+                $newItems[] = $item;
+            }
+        }
+
+        $result = [];
+        $existingItems = $correction->items()->lockForUpdate()->get();
+        $allowedSourceIds = $existingItems->modelKeys();
+
+        foreach ($existingItems as $existingItem) {
+            $beforeSnapshot = $existingItem->correction_before_snapshot;
+            if (! is_array($beforeSnapshot)) {
+                throw new InvoiceDomainException(
+                    'correction_edit_incomplete',
+                    'Nie można edytować Korekty z powodu niekompletnego snapshotu pozycji.',
+                );
+            }
+
+            $before = $this->normalizeSnapshot($beforeSnapshot);
+            $submitted = $submittedBySource[$existingItem->getKey()] ?? null;
+            if (! $changeItems) {
+                $after = $before;
+            } elseif ($submitted === null) {
+                $after = $this->zeroQuantity($before);
+            } else {
+                $after = $this->afterSnapshot($submitted);
+            }
+
+            $attributes = $this->itemAttributes(
+                $existingItem,
+                $existingItem->getKey(),
+                $before,
+                $after,
+            );
+            $attributes['source_invoice_item_id'] = $existingItem->source_invoice_item_id;
+            $attributes['metadata'] = $existingItem->metadata;
+            $result[] = $attributes;
+        }
+
+        foreach (array_keys($submittedBySource) as $sourceItemId) {
+            if (! in_array($sourceItemId, $allowedSourceIds, true)) {
+                throw new InvoiceDomainException(
+                    'correction_item_source_invalid',
+                    'Jedna z pozycji nie należy do edytowanej Korekty.',
+                );
+            }
+        }
+
+        if ($changeItems) {
+            foreach ($newItems as $item) {
+                $after = $this->afterSnapshot($item);
+                $before = $this->zeroQuantity($after);
+                $orderItemId = isset($item['order_item_id']) ? (int) $item['order_item_id'] : null;
+
+                if ($orderItemId !== null && $orderItemId > 0
+                    && ! $sourceInvoice->order->items()->whereKey($orderItemId)->exists()) {
+                    throw new InvoiceDomainException(
+                        'correction_order_item_invalid',
+                        'Jedna z kopiowanych pozycji nie należy do zamówienia dokumentu.',
+                    );
+                }
+
+                $result[] = $this->itemAttributes(null, null, $before, $after, $orderItemId);
+            }
+        }
+
+        foreach ($result as $index => &$item) {
+            $item['position'] = $index + 1;
+            $item['correction_before_snapshot']['position'] = $index + 1;
+            $item['correction_after_snapshot']['position'] = $index + 1;
+            $item['correction_difference_snapshot']['position'] = $index + 1;
+        }
+        unset($item);
+
+        return $result;
     }
 
     private function assertSeries(InvoiceSeries $series): void

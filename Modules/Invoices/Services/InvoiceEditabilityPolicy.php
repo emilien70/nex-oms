@@ -29,10 +29,16 @@ class InvoiceEditabilityPolicy
             throw $this->inconsistent();
         }
 
-        if ($invoice->corrections()->exists()) {
+        $blockingCorrection = $invoice->corrections()
+            ->orderByDesc('issued_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($blockingCorrection !== null) {
             throw new InvoiceDomainException(
                 'invoice_edit_blocked_by_correction',
                 'Nie można edytować Faktury, ponieważ została do niej wystawiona Korekta.',
+                ['correction_id' => $blockingCorrection->getKey()],
             );
         }
 

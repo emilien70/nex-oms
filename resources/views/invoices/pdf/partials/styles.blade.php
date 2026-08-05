@@ -5,6 +5,7 @@
     .seller-heading { font-size: 21pt; font-weight: normal; }
     .brand-table td { border-bottom: 1px solid #c7c7c7; padding: 0 0 2px; }
     .document-title { font-size: 17pt; }
+    .correction-document-title { font-size: 15pt; }
     .number-box { border: 1px solid #bdbdbd; font-size: 11pt; font-weight: normal; line-height: 1; padding: 6px; text-align: center; }
     .number-box-value { font-size: 11pt; }
     .related-document { font-size: 7.5pt; line-height: 1.25; padding-left: 8px; vertical-align: middle; }
@@ -31,6 +32,7 @@
     .additional-information { padding-top: 6px; }
     .exchange-rate td { font-size: 8.5pt; }
     .exchange-rate .final-value { line-height: 1.35; }
-    .correction-section { font-size: 12pt; font-weight: bold; }
-    .difference td { border-bottom: 1px solid #d0d0d0; padding: 4px; }
+    .correction-section { font-size: 8.5pt; font-weight: normal; padding: 2px 5px; }
+    .correction-summary td { font-size: 7.5pt; }
+    .correction-adjustment-summary td { border: 1px solid #c8c8c8; font-size: 7.5pt; padding: 4px; }
 </style>

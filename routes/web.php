@@ -105,6 +105,8 @@ Route::post('/invoices/proformas/print-selected', [InvoiceBulkPdfController::cla
 Route::delete('/invoices/proformas/delete-selected', [InvoiceBulkDeletionController::class, 'proformas'])->name('invoices.proformas.bulk-delete');
 Route::get('/invoices/{invoice}/corrections/create', [CorrectionController::class, 'create'])->name('invoices.corrections.create');
 Route::post('/invoices/{invoice}/corrections', [CorrectionController::class, 'store'])->name('invoices.corrections.store');
+Route::get('/invoices/corrections/{correction}/edit', [CorrectionController::class, 'edit'])->name('invoices.corrections.edit');
+Route::patch('/invoices/corrections/{correction}', [CorrectionController::class, 'update'])->name('invoices.corrections.update');
 Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
 Route::delete('/invoices/{invoice}', InvoiceDeletionController::class)->name('invoices.destroy');
 Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');
