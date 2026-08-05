@@ -1257,14 +1257,15 @@ Nie należy wykonywać częściowego zapisu dokumentu poza transakcją.
 
 ## Faktury
 
-- przyszła operacja ma nazywać się `Usuń fakturę`,
-- jest dostępna wyłącznie dla faktury nieprzyjętej przez KSeF i niewystawionej offline ani awaryjnie,
-- podczas technicznego wysyłania lub oczekiwania na odpowiedź KSeF jest tymczasowo blokowana,
-- jest ręczna i wymaga potwierdzenia z numerem dokumentu,
-- usuwa rekord z aktywnych list, ale zapisuje osobny ślad audytowy,
-- po dozwolonym usunięciu zamówienie ponownie może otrzymać fakturę VAT.
+- operacja `Usuń fakturę` jest dostępna ręcznie z karty zamówienia oraz ekranu edycji dokumentu,
+- wymaga potwierdzenia z dokładnym numerem dokumentu i oczekiwanej wersji blokady,
+- obejmuje wyłącznie wystawioną Fakturę VAT bez Korekt i ze spójnym slotem dokumentu,
+- transakcyjnie usuwa dokument, pozycje i slot oraz zapisuje audyt w `order_events`,
+- usuwa prywatny cache PDF po zatwierdzeniu transakcji,
+- po dozwolonym usunięciu zamówienie ponownie może otrzymać Fakturę VAT,
+- Pro forma zastąpiona dokładnie przez usuwaną Fakturę zostaje w tej samej transakcji odblokowana i ponownie udostępniona w zamówieniu bez zmiany numeru ani snapshotu.
 
-Dozwolone usunięcie nie utworzy ogólnej puli zwolnionych numerów i nie uzupełni wewnętrznych luk. Przyszły serwis usuwania będzie mógł transakcyjnie cofnąć wyłącznie wolny koniec licznika do większej z wartości: najwyższa pozostała sekwencja albo `protected_floor_sequence_number`. Usunięta faktura nie pozostanie jako wyszarzony dokument; historia będzie zachowywana w audycie.
+Dozwolone usunięcie nie tworzy ogólnej puli zwolnionych numerów i nie uzupełnia wewnętrznych luk. Serwis transakcyjnie cofa wyłącznie wolny koniec licznika do większej z wartości: najwyższa pozostała sekwencja albo `protected_floor_sequence_number`, a zmianę zapisuje w `invoice_number_counter_adjustments`. Usunięta Faktura nie pozostaje jako wyszarzony dokument. Przyszłe blokady KSeF zostaną dodane wraz z polami i procesami tej integracji.
 
 ## Produkty
 
@@ -1590,7 +1591,7 @@ Tabela `order_document_slots` posiada unikalność `(order_id, document_type)` i
 
 `ProformaService` tworzy pierwszy dokument albo porównuje kanoniczny SHA-256 z bieżącym stanem. Hash nie obejmuje technicznych ID, timestampów ani kontekstu operacji; sortuje klucze asocjacyjne, ale zachowuje kolejność pozycji. Brak zmiany niczego nie zapisuje. Zmiana zastępuje pozycje i aktualizuje bieżące snapshoty, zachowując tożsamość numeracji i pierwotne daty wystawienia.
 
-Faktura i Pro forma mogą istnieć równolegle. `proforma_superseded_at` jest trwałym znacznikiem blokady; `superseded_by_invoice_id` używa `nullOnDelete`, więc usunięcie Faktury w przyszłości nie usuwa informacji, że Pro forma została zastąpiona. Pro forma przechowuje wyłącznie jeden bieżący stan.
+Faktura i Pro forma mogą istnieć równolegle. `proforma_superseded_at` oraz `superseded_by_invoice_id` blokują Pro formę na czas istnienia zastępującej ją Faktury. `InvoiceDeletionService` przed usunięciem Faktury blokuje powiązaną Pro formę, weryfikuje jej spójność i atomowo zeruje oba pola. Pro forma zachowuje numer, snapshot, pozycje i prywatny PDF, a przywrócenie zapisuje zdarzenie `proforma_restored`. Pro forma przechowuje wyłącznie jeden bieżący stan.
 
 Snapshoty są niezależne od późniejszych zmian `orders`, `order_items` i `invoice_series`. Waluta pochodzi z Order; domyślne `PLN` dotyczy wyłącznie tworzenia nowych, pustych danych, a nie naprawiania historii podczas wystawiania dokumentu. Brak opcjonalnych danych kontrahenta nie blokuje operacji, natomiast brak stawki VAT wymaganej przez konfigurację serii powoduje kontrolowany błąd i pełny rollback. Nie ma OSS ani kontroli kompletności zamówienia.
 

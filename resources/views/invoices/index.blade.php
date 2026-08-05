@@ -3,45 +3,294 @@
 @section('title', 'Faktury - NEX-OMS')
 
 @section('content')
+    @php
+        $filterValue = fn (string $key, mixed $default = '') => $filters[$key] ?? $default;
+        $advancedKeys = [
+            'full_number', 'buyer', 'company', 'tax_id', 'order_id', 'total_from', 'total_to',
+            'issue_from', 'issue_to', 'sale_from', 'sale_to', 'source', 'currency',
+        ];
+        $advancedOpen = collect($advancedKeys)->contains(
+            fn (string $key): bool => isset($filters[$key]) && $filters[$key] !== ''
+        );
+        $sortUrl = fn (string $sort, string $direction) => request()->fullUrlWithQuery([
+            'sort' => $sort,
+            'direction' => $direction,
+            'page' => 1,
+        ]);
+    @endphp
+
     <style>
         .invoices-page {
             background: #f4f6f8;
             margin: -1.5rem;
             min-height: 100vh;
-            padding: 24px;
+            padding: 16px;
         }
 
         .invoices-card {
-            background: #ffffff;
+            background: #fff;
             border: 1px solid #dfe4ea;
-            border-radius: 8px;
+            border-radius: 7px;
             box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
-            overflow: hidden;
+            overflow: visible;
         }
 
-        .invoices-header {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 18px 22px;
+        .invoice-filters {
+            border-bottom: 1px solid #dfe4ea;
         }
 
-        .invoices-title {
+        .invoice-quick-filters {
+            align-items: end;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            min-height: 58px;
+            padding: 10px 14px 12px;
+        }
+
+        .invoice-filter-field {
+            min-width: 112px;
+            position: relative;
+        }
+
+        .invoice-filter-field.is-series {
+            min-width: 180px;
+        }
+
+        .invoice-filter-field > label {
+            background: #fff;
+            color: #4e565f;
+            font-size: 11px;
+            left: 8px;
+            line-height: 1;
+            padding: 0 3px;
+            position: absolute;
+            top: -5px;
+            z-index: 1;
+        }
+
+        .invoice-filter-field .form-control,
+        .invoice-filter-field .form-select {
+            border-color: #cfd6df;
+            border-radius: 4px;
+            color: #4e565f;
+            font-size: 12px;
+            height: 38px;
+        }
+
+        .invoice-advanced-toggle {
+            align-items: center;
+            border-color: #d2d9e2;
+            border-radius: 20px;
+            color: #4e565f;
+            display: inline-flex;
+            font-size: 12px;
+            gap: 7px;
+            margin-left: auto;
+            min-height: 38px;
+            padding: 0 14px;
+        }
+
+        .invoice-advanced-toggle:hover,
+        .invoice-advanced-toggle[aria-expanded="true"] {
+            background: #f3f8ff;
+            border-color: #b8d8ff;
+            color: #0875d1;
+        }
+
+        .invoice-advanced-panel {
+            border-top: 1px solid #eef1f4;
+            padding: 12px 14px;
+        }
+
+        .invoice-advanced-grid {
+            display: grid;
+            gap: 10px 8px;
+            grid-template-columns: repeat(6, minmax(150px, 1fr));
+        }
+
+        .invoice-range {
+            display: grid;
+            gap: 6px;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .invoice-filter-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 12px;
+        }
+
+        .invoice-filter-actions .btn {
+            border-radius: 18px;
+            font-size: 12px;
+            min-width: 108px;
+        }
+
+        .invoices-table {
+            color: #4e565f;
+            font-size: 12px;
+            margin: 0;
+            table-layout: fixed;
+        }
+
+        .invoices-table > :not(caption) > * > * {
+            border-bottom-color: #dfe4ea;
+            padding: 8px 10px;
+            vertical-align: middle;
+        }
+
+        .invoices-table thead th {
+            background: #fff;
+            color: #4e565f;
+            font-size: 11px;
+            font-weight: 600;
+            height: 54px;
+            text-transform: uppercase;
+        }
+
+        .invoice-row-number {
             color: #111827;
-            font-size: 17px;
             font-weight: 700;
-            margin: 0;
+            text-decoration: none;
         }
 
-        .invoices-placeholder {
+        .invoice-row-number:hover {
+            color: #0875d1;
+        }
+
+        .invoice-order-link {
+            color: #0875d1;
+            text-decoration: none;
+        }
+
+        .invoice-order-link:hover {
+            text-decoration: underline;
+        }
+
+        .invoice-money,
+        .invoice-date {
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .invoice-action-group {
+            align-items: center;
+            display: flex;
+            gap: 5px;
+            justify-content: flex-end;
+        }
+
+        .invoice-icon-button {
+            align-items: center;
+            background: #fff;
+            border: 1px solid #edf0f3;
+            border-radius: 50%;
+            color: #53606d;
+            display: inline-flex;
+            height: 30px;
+            justify-content: center;
+            padding: 0;
+            text-decoration: none;
+            width: 30px;
+        }
+
+        .invoice-icon-button:hover {
+            background: #f4f8fc;
+            border-color: #d7dee7;
+            color: #0875d1;
+        }
+
+        .invoice-icon-button.is-delete:hover {
+            background: #dc3545;
+            border-color: #dc3545;
+            color: #fff;
+        }
+
+        .invoice-correction-button {
+            background: #fff;
+            border: 1px solid #cfd6df;
+            border-radius: 4px;
+            color: #4e565f;
+            cursor: default;
+            font-size: 10px;
+            padding: 5px 12px;
+        }
+
+        .invoice-list-footer {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            min-height: 52px;
+            padding: 8px 12px;
+        }
+
+        .invoice-list-footer .btn {
+            font-size: 11px;
+        }
+
+        .invoice-sort-menu {
+            min-width: 290px;
+            padding: 8px;
+        }
+
+        .invoice-sort-heading {
+            color: #111827;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 5px 10px;
+            text-transform: uppercase;
+        }
+
+        .invoice-sort-menu .dropdown-item {
+            border-radius: 2px;
+            color: #4e565f;
+            font-size: 12px;
+            padding: 7px 12px;
+        }
+
+        .invoice-sort-menu .dropdown-item.active {
+            background: #eef6ff;
+            color: #0875d1;
+        }
+
+        .invoice-empty {
             color: #64748b;
-            font-size: 13px;
-            margin: 0;
-            padding: 22px;
+            padding: 44px 20px !important;
+            text-align: center;
+        }
+
+        .invoice-selection-status {
+            color: #64748b;
+            font-size: 11px;
+            margin-left: 4px;
+        }
+
+        @media (max-width: 1199.98px) {
+            .invoice-advanced-grid {
+                grid-template-columns: repeat(3, minmax(160px, 1fr));
+            }
         }
 
         @media (max-width: 767.98px) {
             .invoices-page {
                 margin: -1rem;
-                padding: 14px;
+                padding: 10px;
+            }
+
+            .invoice-advanced-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .invoice-advanced-toggle {
+                margin-left: 0;
+            }
+
+            .invoice-list-footer .nex-pagination-toolbar {
+                flex-basis: 100%;
+                margin-top: 6px;
             }
         }
     </style>
@@ -49,11 +298,246 @@
     <div class="invoices-page">
         @include('invoices._navigation')
 
+        @if ($errors->any())
+            <div class="alert alert-danger py-2 px-3 mb-2" role="alert">
+                {{ $errors->first() }}
+            </div>
+        @endif
+
+        @if (session('success'))
+            <div class="alert alert-success py-2 px-3 mb-2" role="status">
+                {{ session('success') }}
+            </div>
+        @endif
+
         <section class="invoices-card">
-            <header class="invoices-header">
-                <h1 class="invoices-title">Faktury</h1>
-            </header>
-            <p class="invoices-placeholder">Obs&#322;uga faktur zostanie dodana p&oacute;&#378;niej.</p>
+            <form class="invoice-filters" method="GET" action="{{ route('invoices.index') }}">
+                <div class="invoice-quick-filters">
+                    <div class="invoice-filter-field is-series">
+                        <label for="invoice_series_id">Seria numeracji</label>
+                        <select id="invoice_series_id" class="form-select form-select-sm" name="series_id">
+                            <option value="">Dowolna</option>
+                            @foreach ($series as $item)
+                                <option value="{{ $item->id }}" @selected((string) $filterValue('series_id') === (string) $item->id)>{{ $item->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="invoice-filter-field">
+                        <label for="invoice_number">Numer</label>
+                        <input id="invoice_number" class="form-control form-control-sm" type="number" min="1" name="number" value="{{ $filterValue('number') }}">
+                    </div>
+                    <div class="invoice-filter-field">
+                        <label for="invoice_month">Miesiąc</label>
+                        <select id="invoice_month" class="form-select form-select-sm" name="month">
+                            <option value="">Dowolny</option>
+                            @foreach ($months as $number => $name)
+                                <option value="{{ $number }}" @selected((string) $filterValue('month') === (string) $number)>{{ $name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="invoice-filter-field">
+                        <label for="invoice_year">Rok</label>
+                        <select id="invoice_year" class="form-select form-select-sm" name="year">
+                            <option value="">Dowolny</option>
+                            @foreach ($years as $year)
+                                <option value="{{ $year }}" @selected((string) $filterValue('year') === (string) $year)>{{ $year }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <button
+                        class="btn btn-sm btn-outline-secondary invoice-advanced-toggle"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#invoiceAdvancedFilters"
+                        aria-expanded="{{ $advancedOpen ? 'true' : 'false' }}"
+                        aria-controls="invoiceAdvancedFilters"
+                    >
+                        <i class="bi bi-filter-circle" aria-hidden="true"></i>
+                        Wyszukiwanie zaawansowane
+                        <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <div id="invoiceAdvancedFilters" class="collapse {{ $advancedOpen ? 'show' : '' }}">
+                    <div class="invoice-advanced-panel">
+                        <div class="invoice-advanced-grid">
+                            <div class="invoice-filter-field"><label for="invoice_full_number">Pełny numer faktury</label><input id="invoice_full_number" class="form-control form-control-sm" name="full_number" value="{{ $filterValue('full_number') }}"></div>
+                            <div class="invoice-filter-field"><label for="invoice_buyer">Nabywca</label><input id="invoice_buyer" class="form-control form-control-sm" name="buyer" value="{{ $filterValue('buyer') }}"></div>
+                            <div class="invoice-filter-field"><label for="invoice_company">Firma</label><input id="invoice_company" class="form-control form-control-sm" name="company" value="{{ $filterValue('company') }}"></div>
+                            <div class="invoice-filter-field"><label for="invoice_tax_id">NIP</label><input id="invoice_tax_id" class="form-control form-control-sm" name="tax_id" value="{{ $filterValue('tax_id') }}"></div>
+                            <div class="invoice-filter-field"><label for="invoice_order_id">ID zamówienia</label><input id="invoice_order_id" class="form-control form-control-sm" type="number" min="1" name="order_id" value="{{ $filterValue('order_id') }}"></div>
+                            <div class="invoice-filter-field"><label>Łączna cena</label><div class="invoice-range"><input class="form-control form-control-sm" type="number" step="0.01" min="0" name="total_from" value="{{ $filterValue('total_from') }}" aria-label="Łączna cena od"><input class="form-control form-control-sm" type="number" step="0.01" min="0" name="total_to" value="{{ $filterValue('total_to') }}" aria-label="Łączna cena do"></div></div>
+                            <div class="invoice-filter-field"><label>Data wystawienia</label><div class="invoice-range"><input class="form-control form-control-sm" type="date" name="issue_from" value="{{ $filterValue('issue_from') }}" aria-label="Data wystawienia od"><input class="form-control form-control-sm" type="date" name="issue_to" value="{{ $filterValue('issue_to') }}" aria-label="Data wystawienia do"></div></div>
+                            <div class="invoice-filter-field"><label>Data sprzedaży</label><div class="invoice-range"><input class="form-control form-control-sm" type="date" name="sale_from" value="{{ $filterValue('sale_from') }}" aria-label="Data sprzedaży od"><input class="form-control form-control-sm" type="date" name="sale_to" value="{{ $filterValue('sale_to') }}" aria-label="Data sprzedaży do"></div></div>
+                            <div class="invoice-filter-field"><label for="invoice_source">Źródło zamówienia</label><select id="invoice_source" class="form-select form-select-sm" name="source"><option value="">Dowolne</option><option value="manual" @selected($filterValue('source') === 'manual')>Ręczne</option><option value="allegro" @selected($filterValue('source') === 'allegro')>Allegro</option><option value="prestashop" @selected($filterValue('source') === 'prestashop')>PrestaShop</option></select></div>
+                            <div class="invoice-filter-field"><label for="invoice_currency">Waluta</label><select id="invoice_currency" class="form-select form-select-sm" name="currency"><option value="">Dowolna</option>@foreach ($currencies as $currency)<option value="{{ $currency }}" @selected($filterValue('currency') === $currency)>{{ $currency }}</option>@endforeach</select></div>
+                        </div>
+                        <div class="invoice-filter-actions">
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ route('invoices.index') }}">Wyczyść filtry</a>
+                            <button class="btn btn-sm btn-primary" type="submit">Ustaw filtry</button>
+                        </div>
+                    </div>
+                </div>
+
+                <input type="hidden" name="sort" value="{{ $filterValue('sort', 'issue_date') }}">
+                <input type="hidden" name="direction" value="{{ $filterValue('direction', 'desc') }}">
+                <input type="hidden" name="per_page" value="{{ $perPage }}">
+            </form>
+
+            <form id="bulkInvoicePrintForm" method="POST" action="{{ route('invoices.bulk-pdf') }}" target="_blank">
+                @csrf
+            </form>
+
+            <div class="table-responsive">
+                <table class="table invoices-table align-middle">
+                    <colgroup>
+                        <col style="width: 42px;">
+                        <col style="width: 150px;">
+                        <col style="width: 120px;">
+                        <col>
+                        <col style="width: 135px;">
+                        <col style="width: 105px;">
+                        <col style="width: 105px;">
+                        <col style="width: 128px;">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th><input class="form-check-input" type="checkbox" data-invoice-select-all aria-label="Zaznacz wszystkie faktury na stronie"></th>
+                            <th>Numer</th>
+                            <th>Zamówienie</th>
+                            <th>Nabywca</th>
+                            <th class="text-end">Suma brutto</th>
+                            <th class="text-end">Data</th>
+                            <th class="text-center">Korekta</th>
+                            <th class="text-end">Akcje</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse ($invoices as $invoice)
+                            @php
+                                $buyer = $invoice->buyer_snapshot ?? [];
+                                $buyerName = $buyer['company_name'] ?? $buyer['name'] ?? $invoice->buyer_name_snapshot ?? '—';
+                                $orderNumber = $invoice->order_id ?? $invoice->order_reference_snapshot;
+                            @endphp
+                            <tr>
+                                <td><input class="form-check-input" type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" form="bulkInvoicePrintForm" data-invoice-checkbox aria-label="Zaznacz fakturę {{ $invoice->number }}"></td>
+                                <td><a class="invoice-row-number" href="{{ route('invoices.edit', $invoice) }}">{{ $invoice->number }}</a></td>
+                                <td>
+                                    @if ($invoice->order)
+                                        <a class="invoice-order-link" href="{{ route('orders.show', $invoice->order) }}">{{ $orderNumber }}</a>
+                                    @else
+                                        {{ $orderNumber ?: '—' }}
+                                    @endif
+                                </td>
+                                <td>{{ $buyerName }}</td>
+                                <td class="invoice-money">{{ number_format((float) $invoice->total_gross, 2, ',', ' ') }} {{ $invoice->currency }}</td>
+                                <td class="invoice-date">{{ $invoice->issue_date?->format('d.m.Y') ?? '—' }}</td>
+                                <td class="text-center"><span class="invoice-correction-button" title="Wystawianie korekt nie jest jeszcze dostępne">KOREKTA</span></td>
+                                <td>
+                                    <div class="invoice-action-group">
+                                        <a class="invoice-icon-button" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Drukuj fakturę" aria-label="Drukuj fakturę {{ $invoice->number }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
+                                        <a class="invoice-icon-button" href="{{ route('invoices.edit', $invoice) }}" title="Edytuj fakturę" aria-label="Edytuj fakturę {{ $invoice->number }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+                                        <form method="POST" action="{{ route('invoices.destroy', $invoice) }}" data-invoice-delete-form data-confirm-message="Czy na pewno chcesz usunąć fakturę {{ $invoice->number }}?">
+                                            @csrf
+                                            @method('DELETE')
+                                            <input type="hidden" name="expected_lock_version" value="{{ $invoice->lock_version }}">
+                                            <input type="hidden" name="return_to" value="invoices">
+                                            <button class="invoice-icon-button is-delete" type="submit" title="Usuń fakturę" aria-label="Usuń fakturę {{ $invoice->number }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr><td class="invoice-empty" colspan="8">Nie znaleziono faktur spełniających wybrane kryteria.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+            <footer class="invoice-list-footer">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-select-all-button>
+                    <i class="bi bi-check-square" aria-hidden="true"></i>
+                    Zaznacz wszystkie
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" type="submit" form="bulkInvoicePrintForm" data-bulk-print disabled>
+                    <i class="bi bi-printer" aria-hidden="true"></i>
+                    Drukuj zaznaczone
+                </button>
+                <span class="invoice-selection-status" data-selection-status>Nie zaznaczono faktur</span>
+
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Sortowanie</button>
+                    <div class="dropdown-menu invoice-sort-menu">
+                        <div class="invoice-sort-heading">Sortuj według</div>
+                        @foreach (['number' => 'Numer faktury', 'order' => 'ID zamówienia', 'issue_date' => 'Data wystawienia', 'buyer' => 'Nabywca', 'gross' => 'Suma brutto'] as $sort => $label)
+                            <a class="dropdown-item {{ $filterValue('sort', 'issue_date') === $sort ? 'active' : '' }}" href="{{ $sortUrl($sort, $filterValue('direction', 'desc')) }}">{{ $label }}</a>
+                        @endforeach
+                        <div class="dropdown-divider"></div>
+                        <div class="invoice-sort-heading">Kierunek</div>
+                        <a class="dropdown-item {{ $filterValue('direction', 'desc') === 'desc' ? 'active' : '' }}" href="{{ $sortUrl($filterValue('sort', 'issue_date'), 'desc') }}"><i class="bi bi-sort-down me-2" aria-hidden="true"></i>Malejąco</a>
+                        <a class="dropdown-item {{ $filterValue('direction', 'desc') === 'asc' ? 'active' : '' }}" href="{{ $sortUrl($filterValue('sort', 'issue_date'), 'asc') }}"><i class="bi bi-sort-up me-2" aria-hidden="true"></i>Rosnąco</a>
+                    </div>
+                </div>
+
+                <x-pagination-toolbar
+                    :paginator="$invoices"
+                    :per-page-options="$perPageOptions"
+                    :per-page="$perPage"
+                    aria-label="Paginacja faktur"
+                />
+            </footer>
         </section>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const checkboxes = Array.from(document.querySelectorAll('[data-invoice-checkbox]'));
+            const selectAll = document.querySelector('[data-invoice-select-all]');
+            const selectAllButton = document.querySelector('[data-select-all-button]');
+            const printButton = document.querySelector('[data-bulk-print]');
+            const status = document.querySelector('[data-selection-status]');
+            const printForm = document.getElementById('bulkInvoicePrintForm');
+
+            const updateSelection = () => {
+                const checked = checkboxes.filter((checkbox) => checkbox.checked).length;
+                if (selectAll) {
+                    selectAll.checked = checkboxes.length > 0 && checked === checkboxes.length;
+                    selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                }
+                if (printButton) {
+                    printButton.disabled = checked === 0;
+                }
+                if (status) {
+                    status.textContent = checked === 0
+                        ? 'Nie zaznaczono faktur'
+                        : `Zaznaczono: ${checked}`;
+                }
+            };
+
+            const setAll = (checked) => {
+                checkboxes.forEach((checkbox) => {
+                    checkbox.checked = checked;
+                });
+                updateSelection();
+            };
+
+            selectAll?.addEventListener('change', () => setAll(selectAll.checked));
+            selectAllButton?.addEventListener('click', () => setAll(!checkboxes.every((checkbox) => checkbox.checked)));
+            checkboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelection));
+            document.querySelectorAll('[data-invoice-delete-form]').forEach((form) => {
+                form.addEventListener('submit', (event) => {
+                    if (!window.confirm(form.dataset.confirmMessage)) {
+                        event.preventDefault();
+                    }
+                });
+            });
+            printForm?.addEventListener('submit', (event) => {
+                if (!checkboxes.some((checkbox) => checkbox.checked)) {
+                    event.preventDefault();
+                    window.alert('Zaznacz co najmniej jedną fakturę do wydruku.');
+                }
+            });
+            updateSelection();
+        });
+    </script>
 @endsection

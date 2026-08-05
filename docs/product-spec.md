@@ -749,20 +749,17 @@ Relacja pozostaje `Order hasMany Invoices`; nie dodajemy `invoice_id` do `orders
 
 Przed wystawieniem widok pokazuje rozwijany przycisk `WYSTAW FAKTURĘ` z aktywnymi seriami typu `invoice` oraz osobny przycisk `PRO FORMA`.
 
-Po wystawieniu przycisk faktury znika. Zastępuje go numer faktury otwierający PDF w nowej karcie przez kontrolowaną trasę Laravel (`target="_blank"`, `rel="noopener"`), bez ujawniania prywatnej ścieżki storage. Obok numeru będą dostępne operacje dokumentu, w tym czerwony krzyżyk opisany dokładnie jako `Usuń fakturę`.
+Po wystawieniu przycisk faktury znika. Zastępuje go numer faktury otwierający PDF w nowej karcie przez kontrolowaną trasę Laravel (`target="_blank"`, `rel="noopener"`), bez ujawniania prywatnej ścieżki storage. Obok numeru jest dostępny czerwony krzyżyk opisany jako `Usuń fakturę`.
 
-## 15.3. Przyszłe usuwanie faktury i zwalnianie numeru
+## 15.3. Usuwanie faktury i zwalnianie numeru
 
-Fakturę będzie można usunąć wyłącznie, gdy jednocześnie:
+Ręczne usunięcie wystawionej Faktury VAT jest dostępne z karty zamówienia oraz ekranu edycji dokumentu. Operacja wymaga potwierdzenia zawierającego dokładny numer dokumentu i jest blokowana, gdy Faktura posiada Korektę albo jej slot, zamówienie lub tożsamość numeracji są niespójne.
 
-- nie została przyjęta przez KSeF,
-- nie została wystawiona w trybie offline ani awaryjnym.
+Usunięcie odbywa się transakcyjnie. Dokument, jego pozycje, slot i prywatny plik PDF znikają z bieżącego stanu, natomiast `order_events` zachowuje audyt numeru, serii, okresu, sekwencji i kontekstu operacji. Po usunięciu zamówienie może ponownie otrzymać Fakturę VAT. Pro forma zastąpiona dokładnie przez usuwaną Fakturę zostaje odblokowana, ponownie pojawia się jako aktywna akcja i zachowuje dotychczasowy numer oraz snapshot. Przywrócenie zapisuje osobne zdarzenie `proforma_restored`.
 
-Podczas wysyłania albo oczekiwania na odpowiedź KSeF operacja będzie tymczasowo zablokowana. Automatyzacja nie może usuwać faktur. Po potwierdzonym ręcznym usunięciu dokument znika z listy i zamówienia, ponownie można wystawić fakturę VAT, a techniczny audyt zachowuje numer, serię, zamówienie, datę, użytkownika i powód operacji.
+Dozwolone usunięcie nie tworzy ogólnej puli zwolnionych numerów. Wewnętrzne luki numeracji nie są ponownie używane: usunięcie dokumentu 11 przy istniejących dokumentach 10, 12 i 13 nie zmienia kolejnego numeru 14. Serwis może cofnąć wyłącznie wolny koniec numeracji w tej samej serii i okresie, nie niżej niż `protected_floor_sequence_number`. Zmiana licznika pozostawia rekord w `invoice_number_counter_adjustments`.
 
-Usunięta faktura nie pozostanie jako wyszarzony rekord. Wewnętrzne luki numeracji nie będą ponownie używane: usunięcie dokumentu 11 przy istniejących dokumentach 10, 12 i 13 nie zmieni kolejnego numeru 14. Przyszły serwis usuwania będzie mógł transakcyjnie cofnąć wyłącznie wolny koniec numeracji, czyli po usunięciu ostatniego dokumentu 13 kolejny numer będzie mógł ponownie wynosić 13. Cofnięcie nie będzie mogło zejść poniżej `protected_floor_sequence_number`. Nie powstanie tabela ani ogólna pula zwolnionych numerów.
-
-Te zasady są wymaganiami przyszłych etapów. Etap 1C.1 nie implementuje tabel faktur, usuwania, liczników ani KSeF.
+Pola i procesy KSeF, w tym blokady dokumentu przyjętego, wysyłanego, wystawionego offline lub awaryjnie, nie istnieją jeszcze w schemacie i pozostają zakresem przyszłej integracji. Automatyzacja usuwania Faktur nie jest dostępna.
 
 ---
 
@@ -1420,7 +1417,7 @@ Zaimplementowano centralne przygotowanie danych dokumentu z `Order`: snapshoty s
 
 `ProformaService` utrzymuje jedną logiczną Pro formę zamówienia i jeden jej bieżący stan. Pierwsze utworzenie nadaje numer. Kolejne wywołanie bez zmiany kanonicznego hasha zwraca stan bez zmian i niczego nie zapisuje. Zmiana treści nadpisuje bieżące snapshoty i pozycje tego samego dokumentu, zachowując jego numer, serię, okres, `issue_date` i `issued_at`. Sama zmiana `orders.updated_at` nie wpływa na hash.
 
-Faktura VAT i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie usuwa Pro formy, lecz oznacza ją jako historycznie zastąpioną i trwale blokuje dalsze odświeżanie. Późniejsze usunięcie Faktury zastępującej nie odblokuje Pro formy. Zdarzenia zamówienia powstają wyłącznie po udanej operacji wystawienia lub odświeżenia: `invoice_issued`, `proforma_issued` albo `proforma_refreshed`.
+Faktura VAT i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie usuwa Pro formy, lecz oznacza ją jako historycznie zastąpioną i blokuje dalsze odświeżanie. Dozwolone usunięcie Faktury przez serwis domenowy odblokowuje dokładnie powiązaną Pro formę, która zachowuje numer i bieżący stan; ponowne wystawienie Faktury ponownie ją zastępuje. Zdarzenia zamówienia powstają po udanych operacjach: `invoice_issued`, `proforma_issued`, `proforma_refreshed`, `invoice_deleted` albo `proforma_restored`.
 
 Waluta dokumentu pochodzi z zamówienia. Nowe puste zamówienie może otrzymać domyślnie `PLN`, ale brak lub nieznana waluta danych historycznych nie jest po cichu zastępowana podczas wystawiania dokumentu. Brak NIP-u, telefonu, e-maila lub części opcjonalnych danych adresowych nie blokuje utworzenia dokumentu. Etap nie dodaje kontroli kompletności zamówienia ani OSS.
 

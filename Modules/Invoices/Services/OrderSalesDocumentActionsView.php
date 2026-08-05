@@ -15,6 +15,7 @@ class OrderSalesDocumentActionsView
      * @return array{
      *     issuedInvoice: ?Invoice,
      *     issuedProforma: ?Invoice,
+     *     proformaLocked: bool,
      *     invoiceSeries: Collection<int, InvoiceSeries>,
      *     proformaSeries: Collection<int, InvoiceSeries>
      * }
@@ -46,6 +47,9 @@ class OrderSalesDocumentActionsView
         return [
             'issuedInvoice' => $documents->get(InvoiceDocumentType::Invoice->value),
             'issuedProforma' => $documents->get(InvoiceDocumentType::Proforma->value),
+            'proformaLocked' => (bool) $documents
+                ->get(InvoiceDocumentType::Proforma->value)
+                ?->isProformaSuperseded(),
             'invoiceSeries' => $series->get(InvoiceDocumentType::Invoice->value, collect()),
             'proformaSeries' => $series->get(InvoiceDocumentType::Proforma->value, collect()),
         ];

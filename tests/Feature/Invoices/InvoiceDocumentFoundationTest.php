@@ -574,18 +574,15 @@ class InvoiceDocumentFoundationTest extends TestCase
         $this->assertDatabaseMissing('invoice_series', ['id' => $series->id]);
     }
 
-    public function test_existing_series_protections_still_apply(): void
+    public function test_active_unused_custom_series_can_be_deleted_and_system_protections_still_apply(): void
     {
         $service = app(InvoiceSeriesManagementService::class);
         $active = $this->createCustomSeries('Aktywna seria', InvoiceDocumentType::Invoice, true);
         $system = $this->systemSeries(InvoiceSeriesSystemKey::Invoice);
 
-        try {
-            $service->delete($active);
-            $this->fail('Aktywna seria została usunięta.');
-        } catch (DomainException $exception) {
-            $this->assertSame('Nie można usunąć aktywnej serii numeracji. Najpierw ją ukryj.', $exception->getMessage());
-        }
+        $service->delete($active);
+
+        $this->assertDatabaseMissing('invoice_series', ['id' => $active->id]);
 
         try {
             $service->setActive($system, false);
@@ -614,7 +611,7 @@ class InvoiceDocumentFoundationTest extends TestCase
         $this->assertTrue(Route::has('invoices.items.copy-from-order'));
         $this->assertFalse(Route::has('invoices.update'));
         $this->assertFalse(Route::has('invoices.issue'));
-        $this->assertFalse(Route::has('invoices.destroy'));
+        $this->assertTrue(Route::has('invoices.destroy'));
         $this->assertFileExists(base_path('Modules/Invoices/Http/Controllers/InvoiceEditController.php'));
     }
 

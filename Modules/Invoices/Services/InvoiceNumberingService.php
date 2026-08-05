@@ -249,6 +249,87 @@ class InvoiceNumberingService
         }, 3);
     }
 
+    /**
+     * Cofnięcie jest dozwolone wyłącznie dla wolnego końca numeracji.
+     * Wewnętrzne luki oraz ręcznie chroniony próg pozostają nienaruszone.
+     *
+     * @param  array<string, mixed>|null  $actorSnapshot
+     */
+    public function releaseTailNumberAfterDeletion(
+        Invoice $invoice,
+        ?array $actorSnapshot = null,
+    ): bool {
+        if ($invoice->invoice_series_id === null
+            || $invoice->numbering_period_key === null
+            || $invoice->sequence_number === null) {
+            throw new DomainException('Dokument nie posiada kompletnej tożsamości numeracji.');
+        }
+
+        $series = InvoiceSeries::query()
+            ->lockForUpdate()
+            ->findOrFail($invoice->invoice_series_id);
+        $counter = InvoiceNumberCounter::query()
+            ->where('invoice_series_id', $series->getKey())
+            ->where('numbering_period_key', $invoice->numbering_period_key)
+            ->lockForUpdate()
+            ->first();
+
+        if ($counter === null || $invoice->sequence_number > $counter->last_sequence_number) {
+            throw new DomainException('Licznik numeracji jest niespójny z usuwanym dokumentem.');
+        }
+
+        $highestRemaining = (int) (Invoice::query()
+            ->where('invoice_series_id', $series->getKey())
+            ->where('numbering_period_key', $invoice->numbering_period_key)
+            ->whereKeyNot($invoice->getKey())
+            ->whereNotNull('sequence_number')
+            ->max('sequence_number') ?? 0);
+
+        if ($highestRemaining > $counter->last_sequence_number) {
+            throw new DomainException('Licznik numeracji jest niespójny z istniejącymi dokumentami.');
+        }
+
+        if ($invoice->sequence_number !== $counter->last_sequence_number) {
+            return false;
+        }
+
+        $previousLast = $counter->last_sequence_number;
+        $previousFloor = $counter->protected_floor_sequence_number;
+        $newLast = max($highestRemaining, $previousFloor);
+
+        if ($newLast >= $previousLast) {
+            return false;
+        }
+
+        $counter->last_sequence_number = $newLast;
+        $counter->save();
+
+        $counter->adjustments()->create([
+            'numbering_period_key_snapshot' => $invoice->numbering_period_key,
+            'series_name_snapshot' => $invoice->series_name_snapshot ?? $series->name,
+            'number_format_snapshot' => $invoice->number_format_snapshot ?? $series->number_format,
+            'previous_last_sequence_number' => $previousLast,
+            'new_last_sequence_number' => $newLast,
+            'previous_protected_floor_sequence_number' => $previousFloor,
+            'new_protected_floor_sequence_number' => $previousFloor,
+            'previous_next_sequence_number' => $previousLast + 1,
+            'new_next_sequence_number' => $newLast + 1,
+            'reason' => 'Automatyczne cofnięcie wolnego końca numeracji po usunięciu Faktury VAT.',
+            'actor_snapshot' => $actorSnapshot ?? [
+                'type' => 'application',
+                'name' => 'NEX-OMS',
+            ],
+            'metadata' => [
+                'source' => 'invoice_deletion',
+                'deleted_invoice_id' => $invoice->getKey(),
+                'deleted_invoice_number' => $invoice->number,
+                'highest_remaining_sequence_number' => $highestRemaining,
+            ],
+        ]);
+
+        return true;
+    }
+
     private function ensureInvoiceCanReceiveNumber(Invoice $invoice, CarbonInterface $numberingDate): void
     {
         if ($invoice->status !== InvoiceDocumentStatus::Draft) {

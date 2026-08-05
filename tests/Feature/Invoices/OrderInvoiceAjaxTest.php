@@ -35,6 +35,9 @@ class OrderInvoiceAjaxTest extends TestCase
         $this->assertStringContainsString('bi-printer', $response->json('html'));
         $this->assertStringContainsString('bi-pencil', $response->json('html'));
         $this->assertStringContainsString('bi-x-lg', $response->json('html'));
+        $this->assertStringContainsString(route('invoices.destroy', $response->json('document.id')), $response->json('html'));
+        $this->assertStringContainsString('data-sales-document-delete-form', $response->json('html'));
+        $this->assertStringNotContainsString('Usuwanie Faktury VAT nie jest jeszcze dostępne', $response->json('html'));
         $this->assertStringContainsString('bi-paperclip', $response->json('html'));
         $this->assertStringContainsString(route('invoices.pdf', $response->json('document.id')), $response->json('html'));
         $this->assertStringNotContainsString('WYSTAW FAKTUR', $response->json('html'));

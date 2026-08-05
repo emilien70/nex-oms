@@ -144,18 +144,25 @@ class InvoiceSeriesManagementTest extends TestCase
         $this->assertDatabaseHas('invoice_series', ['id' => $system->id]);
     }
 
-    public function test_active_custom_series_cannot_be_deleted(): void
+    public function test_active_unreferenced_custom_series_can_be_deleted(): void
     {
-        $series = $this->createCustomSeries('Aktywna do ochrony', InvoiceDocumentType::Invoice, true);
+        $series = $this->createCustomSeries('Aktywna do usunięcia', InvoiceDocumentType::Invoice, true);
+
+        $this->get(route('invoices.series.index'))
+            ->assertOk()
+            ->assertSee('data-role="series-delete-form"', false)
+            ->assertSee('data-series-id="'.$series->id.'"', false)
+            ->assertDontSee(
+                'data-role="series-delete-disabled" data-series-id="'.$series->id.'"',
+                false,
+            );
 
         $response = $this->delete(route('invoices.series.destroy', $series));
 
         $response
             ->assertRedirect(route('invoices.series.index'))
-            ->assertSessionHasErrors([
-                'series' => 'Nie można usunąć aktywnej serii numeracji. Najpierw ją ukryj.',
-            ]);
-        $this->assertDatabaseHas('invoice_series', ['id' => $series->id]);
+            ->assertSessionHas('success', 'Seria numeracji została usunięta.');
+        $this->assertDatabaseMissing('invoice_series', ['id' => $series->id]);
     }
 
     public function test_referenced_correction_series_cannot_be_deleted(): void

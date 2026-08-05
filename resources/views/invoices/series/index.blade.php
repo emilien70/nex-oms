@@ -419,13 +419,13 @@
                                                 aria-label="Predefiniowanej serii systemowej nie można usunąć."
                                                 aria-disabled="true"
                                             ><i class="bi bi-x-lg" aria-hidden="true"></i></span>
-                                        @elseif ($item->is_active || $item->series_using_as_default_correction_count > 0)
+                                        @elseif ($item->series_using_as_default_correction_count > 0)
                                             <span
                                                 class="invoice-series-action-disabled"
                                                 data-role="series-delete-disabled"
                                                 data-series-id="{{ $item->id }}"
-                                                title="{{ $item->is_active ? 'Nie można usunąć aktywnej serii numeracji. Najpierw ją ukryj.' : 'Nie można usunąć serii numeracji, ponieważ jest przypisana jako seria korekt.' }}"
-                                                aria-label="{{ $item->is_active ? 'Nie można usunąć aktywnej serii numeracji. Najpierw ją ukryj.' : 'Nie można usunąć serii numeracji, ponieważ jest przypisana jako seria korekt.' }}"
+                                                title="Nie można usunąć serii numeracji, ponieważ jest przypisana jako seria korekt."
+                                                aria-label="Nie można usunąć serii numeracji, ponieważ jest przypisana jako seria korekt."
                                                 aria-disabled="true"
                                             ><i class="bi bi-x-lg" aria-hidden="true"></i></span>
                                         @else

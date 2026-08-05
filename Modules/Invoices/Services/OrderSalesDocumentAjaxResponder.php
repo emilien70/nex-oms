@@ -28,6 +28,14 @@ class OrderSalesDocumentAjaxResponder
         ], $status);
     }
 
+    public function deleted(Order $order): JsonResponse
+    {
+        return response()->json([
+            'html' => $this->actionsView->render($order),
+            'redirect_url' => route('orders.show', $order),
+        ]);
+    }
+
     public function domainError(InvoiceDomainException $exception): JsonResponse
     {
         $conflictCodes = [
@@ -36,6 +44,9 @@ class OrderSalesDocumentAjaxResponder
             'invoice_document_slot_inconsistent',
             'proforma_locked_by_invoice',
             'proforma_refresh_conflict',
+            'invoice_delete_conflict',
+            'invoice_delete_inconsistent_document',
+            'invoice_delete_numbering_inconsistent',
         ];
 
         return response()->json([
@@ -44,10 +55,10 @@ class OrderSalesDocumentAjaxResponder
         ], in_array($exception->errorCode(), $conflictCodes, true) ? 409 : 422);
     }
 
-    public function unexpected(Throwable $exception, Order $order, string $type): JsonResponse
+    public function unexpected(Throwable $exception, ?Order $order, string $type): JsonResponse
     {
         Log::error('Nieoczekiwany błąd operacji na dokumencie sprzedaży.', [
-            'order_id' => $order->getKey(),
+            'order_id' => $order?->getKey(),
             'document_type' => $type,
             'exception' => $exception,
         ]);

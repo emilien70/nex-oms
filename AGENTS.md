@@ -972,7 +972,7 @@ Etap 1B obejmuje:
 - pustą, nieklikalną gwiazdkę oznaczającą wyłącznie serię systemową,
 - aktywowanie i ukrywanie serii własnych,
 - blokadę ukrywania oraz usuwania serii systemowych,
-- bezpieczne usuwanie nieaktywnych i niepowiązanych serii własnych,
+- bezpieczne usuwanie aktywnych i nieaktywnych, niepowiązanych serii własnych,
 - testy Feature listy i reguł zarządzania.
 
 Pole `is_default` nie istnieje. Nie twórz interfejsu wyboru serii domyślnej.
@@ -1014,13 +1014,13 @@ Przyszła centralna reguła wystawiania faktur VAT:
 - błąd biznesowy automatyzacji ma kod `invoice_already_exists`,
 - relacja pozostaje `Order hasMany Invoices`, bez `orders.invoice_id`.
 
-Po wystawieniu faktury widok zamówienia ma docelowo zastąpić przycisk `WYSTAW FAKTURĘ` numerem dokumentu prowadzącym przez kontrolowaną trasę do prywatnego PDF. Obok numeru ma być dostępna operacja `Usuń fakturę`.
+Po wystawieniu faktury widok zamówienia zastępuje przycisk `WYSTAW FAKTURĘ` numerem dokumentu prowadzącym przez kontrolowaną trasę do prywatnego PDF. Obok numeru jest dostępna operacja `Usuń fakturę`. Ta sama operacja jest dostępna na ekranie edycji dokumentu.
 
-Usunięcie faktury będzie dozwolone wyłącznie, gdy dokument nie został przyjęty przez KSeF i nie został wystawiony w trybie offline ani awaryjnym. Podczas wysyłania lub oczekiwania na odpowiedź KSeF usuwanie będzie tymczasowo blokowane. Operacja pozostawia ślad audytowy, ale usuwa fakturę z bieżących list.
+Usunąć można wyłącznie wystawioną Fakturę VAT bez Korekt, posiadającą spójny slot, zamówienie i tożsamość numeracji. Operacja wymaga potwierdzenia z numerem dokumentu i oczekiwanej wersji blokady, pozostawia ślad w `order_events`, ale usuwa Fakturę, jej pozycje, slot i prywatny cache PDF z bieżącego stanu. Pro forma zastąpiona dokładnie przez usuwaną Fakturę zostaje w tej samej transakcji odblokowana, ponownie pokazana w zamówieniu i zachowuje numer oraz bieżący snapshot. Blokady KSeF zostaną rozszerzone po dodaniu pól i procesów tej integracji.
 
-Dozwolone usunięcie nie tworzy ogólnej puli zwolnionych numerów. Wewnętrzne luki nie są ponownie używane. Przyszły serwis usuwania może transakcyjnie cofnąć wyłącznie wolny koniec numeracji w tej samej serii i okresie, nie niżej niż `protected_floor_sequence_number`.
+Dozwolone usunięcie nie tworzy ogólnej puli zwolnionych numerów. Wewnętrzne luki nie są ponownie używane. Serwis transakcyjnie cofa wyłącznie wolny koniec numeracji w tej samej serii i okresie, nie niżej niż `protected_floor_sequence_number`, i zapisuje korektę licznika w historii.
 
-Powyższe reguły wystawiania, usuwania i zwalniania numerów są wymaganiami przyszłych etapów. Etap 1C.1 nie tworzy tabel dokumentów, liczników, PDF ani integracji KSeF.
+Automatyzacje usuwania oraz integracja KSeF pozostają poza bieżącym zakresem.
 
 ---
 
@@ -1172,7 +1172,7 @@ Etap 2C wdraża centralne przygotowanie i wystawianie dokumentów z zamówienia:
 - zdarzenia `invoice_issued`, `proforma_issued` i `proforma_refreshed`,
 - jedną transakcję obejmującą slot, dokument, pozycje, numerację i zdarzenie zamówienia.
 
-Jedno zamówienie może mieć najwyżej jedną istniejącą Fakturę VAT i jedną logiczną Pro formę. Faktura i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie usuwa Pro formy, lecz trwale oznacza ją jako zastąpioną i blokuje dalsze odświeżanie. Usunięcie Faktury zastępującej w przyszłości nie odblokuje Pro formy.
+Jedno zamówienie może mieć najwyżej jedną istniejącą Fakturę VAT i jedną logiczną Pro formę. Faktura i Pro forma mogą istnieć jednocześnie. Wystawienie Faktury nie usuwa Pro formy, lecz oznacza ją jako zastąpioną i blokuje dalsze odświeżanie. Dozwolone usunięcie Faktury przez serwis domenowy odblokowuje dokładnie powiązaną Pro formę; ponowne wystawienie Faktury ponownie ją zastępuje.
 
 Pierwsze utworzenie Pro formy zużywa numer i zapisuje jej bieżący stan. Kolejne wywołanie bez zmiany kanonicznego hasha niczego nie zapisuje. Zmiana treści nadpisuje bieżące snapshoty i pozycje tego samego dokumentu, zachowując numer, serię, okres, `issue_date` i `issued_at`. Sama zmiana `orders.updated_at` nie wpływa na hash.
 

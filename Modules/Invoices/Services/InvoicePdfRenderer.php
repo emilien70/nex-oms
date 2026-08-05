@@ -2,6 +2,7 @@
 
 namespace Modules\Invoices\Services;
 
+use Illuminate\Support\Collection;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Throwable;
@@ -15,11 +16,30 @@ class InvoicePdfRenderer
 
     public function render(Invoice $invoice): string
     {
+        return $this->renderDocuments(collect([$invoice]), (string) $invoice->number);
+    }
+
+    /** @param Collection<int, Invoice> $invoices */
+    public function renderMany(Collection $invoices): string
+    {
+        if ($invoices->isEmpty()) {
+            throw new InvoiceDomainException(
+                'invoice_bulk_pdf_empty',
+                'Zaznacz co najmniej jedną fakturę do wydruku.',
+            );
+        }
+
+        return $this->renderDocuments($invoices, 'Faktury zbiorcze');
+    }
+
+    /** @param Collection<int, Invoice> $invoices */
+    private function renderDocuments(Collection $invoices, string $title): string
+    {
         try {
             $pdf = new \TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
             $pdf->SetCreator('');
             $pdf->SetAuthor('');
-            $pdf->SetTitle((string) $invoice->number);
+            $pdf->SetTitle($title);
             $pdf->SetSubject('');
             $pdf->SetKeywords('');
             $pdf->setPrintHeader(false);
@@ -28,8 +48,11 @@ class InvoicePdfRenderer
             $pdf->SetAutoPageBreak(true, 12);
             $pdf->setFontSubsetting(true);
             $pdf->SetFont($this->fonts->body(), '', 8);
-            $pdf->AddPage('P', 'A4');
-            $pdf->writeHTML($this->html($invoice), true, false, true, false, '');
+
+            foreach ($invoices as $invoice) {
+                $pdf->AddPage('P', 'A4');
+                $pdf->writeHTML($this->html($invoice), true, false, true, false, '');
+            }
 
             return $pdf->Output('', 'S');
         } catch (InvoiceDomainException $exception) {

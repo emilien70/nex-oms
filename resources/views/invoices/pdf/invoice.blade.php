@@ -13,6 +13,9 @@
                 <table class="meta-table" cellpadding="2" cellspacing="0" width="100%">
                     <tr><td width="60%">Data sprzedaży:</td><td width="40%" align="left">{{ $document['sale_date'] }}</td></tr>
                     <tr><td>Data wystawienia:</td><td align="left">{{ $document['issue_date'] }}</td></tr>
+                    @if ($document['payment_due_date'])
+                        <tr><td>Termin płatności:</td><td align="left">{{ $document['payment_due_date'] }}</td></tr>
+                    @endif
                 </table>
             </td>
             <td width="10%"></td>

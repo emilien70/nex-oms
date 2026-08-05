@@ -50,6 +50,7 @@ class InvoicePdfViewModelFactory
             'number' => $invoice->number,
             'sale_date' => $invoice->sale_date->format('d.m.Y'),
             'issue_date' => $invoice->issue_date->format('d.m.Y'),
+            'payment_due_date' => $invoice->payment_due_date?->format('d.m.Y'),
             'place_of_issue' => $this->text($invoice->issuer_snapshot['place_of_issue'] ?? null),
             'payment_method' => $this->paymentMethod($invoice),
             'payment_identifier' => $this->text($payment['payment_identifier'] ?? null),

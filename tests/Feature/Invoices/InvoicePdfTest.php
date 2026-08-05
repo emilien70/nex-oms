@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceItemType;
+use Modules\Invoices\Enums\InvoicePaymentDueMode;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
@@ -115,7 +116,7 @@ class InvoicePdfTest extends TestCase
         $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
 
-        $this->assertStringEndsWith('/invoice-v40.pdf', $newPath);
+        $this->assertStringEndsWith('/invoice-v41.pdf', $newPath);
         $this->assertSame($first, $second);
         Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($newPath);
@@ -129,9 +130,55 @@ class InvoicePdfTest extends TestCase
         $correction->id = 9002;
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
-        $this->assertStringEndsWith('/proforma-v33.pdf', $filenames->storagePath($proforma));
+        $this->assertStringEndsWith('/proforma-v34.pdf', $filenames->storagePath($proforma));
         $this->assertStringEndsWith('/correction-v33.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
+    }
+
+    public function test_invoice_and_proforma_show_payment_due_date_below_issue_date(): void
+    {
+        $seriesSettings = [
+            'payment_due_mode' => InvoicePaymentDueMode::DaysFromIssue,
+            'payment_due_days' => 9,
+        ];
+        $invoice = $this->issueInvoice($seriesSettings);
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $proforma = app(ProformaService::class)->createOrRefresh(
+            $order,
+            $this->createDocumentSeries(InvoiceDocumentType::Proforma, $seriesSettings),
+            $this->documentContext(),
+        )->invoice;
+
+        foreach ([$invoice, $proforma] as $document) {
+            $viewModel = app(InvoicePdfViewModelFactory::class)->make($document);
+            $html = app(InvoicePdfRenderer::class)->html($document);
+
+            $this->assertSame('06.08.2026', $viewModel['payment_due_date']);
+            $this->assertStringContainsString('Termin płatności:', $html);
+            $this->assertStringContainsString('06.08.2026', $html);
+            $this->assertMatchesRegularExpression('/Data wystawienia:.*?Termin płatności:/s', $html);
+        }
+    }
+
+    public function test_invoice_and_proforma_omit_payment_due_row_when_date_is_empty(): void
+    {
+        $invoice = $this->issueInvoice();
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $proforma = app(ProformaService::class)->createOrRefresh(
+            $order,
+            $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+            $this->documentContext(),
+        )->invoice;
+
+        foreach ([$invoice, $proforma] as $document) {
+            $viewModel = app(InvoicePdfViewModelFactory::class)->make($document);
+            $html = app(InvoicePdfRenderer::class)->html($document);
+
+            $this->assertNull($viewModel['payment_due_date']);
+            $this->assertStringNotContainsString('Termin płatności:', $html);
+        }
     }
 
     public function test_invalid_nonempty_conversion_snapshot_returns_controlled_error_and_cleans_temporary_file(): void

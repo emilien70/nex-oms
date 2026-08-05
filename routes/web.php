@@ -18,7 +18,9 @@ use App\Models\Order;
 use Illuminate\Support\Facades\Route;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Invoices\Http\Controllers\InvoiceBulkPdfController;
 use Modules\Invoices\Http\Controllers\InvoiceController;
+use Modules\Invoices\Http\Controllers\InvoiceDeletionController;
 use Modules\Invoices\Http\Controllers\InvoiceEditController;
 use Modules\Invoices\Http\Controllers\InvoiceItemController;
 use Modules\Invoices\Http\Controllers\InvoiceOrderItemsCopyController;
@@ -94,7 +96,9 @@ Route::delete('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderSta
 Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])->name('settings.variables.index');
 
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+Route::post('/invoices/print-selected', InvoiceBulkPdfController::class)->name('invoices.bulk-pdf');
 Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
+Route::delete('/invoices/{invoice}', InvoiceDeletionController::class)->name('invoices.destroy');
 Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');
 Route::patch('/invoices/{invoice}/recipient', [InvoiceEditController::class, 'updateRecipient'])->name('invoices.recipient.update');
 Route::patch('/invoices/{invoice}/details', [InvoiceEditController::class, 'updateDetails'])->name('invoices.details.update');

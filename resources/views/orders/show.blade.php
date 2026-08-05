@@ -306,6 +306,20 @@
             width: 150px;
         }
 
+        .management-invoice-button > .btn:not(:disabled):hover,
+        .management-invoice-button > .btn:not(:disabled):focus-visible {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+            color: #fff;
+        }
+
+        .management-proforma-button > .btn:not(:disabled):hover,
+        .management-proforma-button > .btn:not(:disabled):focus-visible {
+            background-color: #eef7ff;
+            border-color: #cfd5dc;
+            color: #4e565f;
+        }
+
         .management-issued-invoice-actions {
             align-items: center;
             display: flex;
@@ -343,6 +357,15 @@
             min-width: max-content;
         }
 
+        .management-issued-invoice-actions .management-issued-invoice-number:hover,
+        .management-issued-invoice-actions .management-issued-invoice-number:focus-visible,
+        .management-issued-invoice-actions .management-issued-invoice-print:hover,
+        .management-issued-invoice-actions .management-issued-invoice-print:focus-visible {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+            color: #fff;
+        }
+
         .management-issued-invoice-icon {
             flex: 0 0 34px;
             padding: 0 !important;
@@ -354,6 +377,13 @@
             line-height: 1;
         }
 
+        .management-issued-invoice-actions .management-issued-invoice-edit:hover,
+        .management-issued-invoice-actions .management-issued-invoice-edit:focus-visible {
+            background-color: #eef7ff;
+            border-color: #cfd5dc;
+            color: #0d6efd;
+        }
+
         .management-issued-invoice-actions .btn:disabled {
             background: #fff;
             border-color: #cfd5dc;
@@ -361,8 +391,14 @@
             opacity: 1;
         }
 
-        .management-issued-invoice-actions .management-issued-invoice-delete:disabled {
+        .management-issued-invoice-actions .management-issued-invoice-delete {
             color: #dc3545;
+        }
+
+        .management-issued-invoice-actions .management-issued-invoice-delete:hover {
+            background-color: #dc3545;
+            border-color: #dc3545;
+            color: #fff;
         }
 
         .management-issued-invoice-attachment {
@@ -3075,7 +3111,20 @@
                 const errorBox = container?.querySelector('[data-sales-document-error]');
                 const actions = Array.from(container?.querySelectorAll('button') || []);
                 const openDocumentAfterSubmit = form.hasAttribute('data-open-document-after-submit');
+                const deletesDocument = form.hasAttribute('data-sales-document-delete-form');
+                const deleteModal = deletesDocument ? form.closest('.modal') : null;
                 const documentWindow = openDocumentAfterSubmit ? window.open('about:blank', '_blank') : null;
+
+                const closeDeleteModal = () => {
+                    if (!deletesDocument) {
+                        return;
+                    }
+
+                    bootstrap.Modal.getInstance(deleteModal)?.hide();
+                    document.querySelectorAll('.modal-backdrop').forEach((backdrop) => backdrop.remove());
+                    document.body.classList.remove('modal-open');
+                    document.body.style.removeProperty('padding-right');
+                };
 
                 if (!container) {
                     documentWindow?.close();
@@ -3125,6 +3174,8 @@
                         throw new Error('Nie udało się odświeżyć akcji dokumentów.');
                     }
 
+                    closeDeleteModal();
+
                     container.replaceWith(replacement);
 
                     if (openDocumentAfterSubmit) {
@@ -3136,6 +3187,7 @@
                     }
                 } catch (error) {
                     documentWindow?.close();
+                    closeDeleteModal();
 
                     if (errorBox) {
                         errorBox.textContent = error.message || 'Nie udało się wykonać operacji na dokumencie. Spróbuj ponownie.';

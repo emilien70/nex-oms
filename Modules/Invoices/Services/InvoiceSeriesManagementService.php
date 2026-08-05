@@ -287,10 +287,6 @@ class InvoiceSeriesManagementService
             throw new DomainException('Predefiniowanej serii systemowej nie można usunąć.');
         }
 
-        if ($series->is_active) {
-            throw new DomainException('Nie można usunąć aktywnej serii numeracji. Najpierw ją ukryj.');
-        }
-
         if ($series->invoices()->exists()) {
             throw new DomainException(
                 'Nie można usunąć serii numeracji, ponieważ została użyta w dokumentach. Serię można ukryć i później ponownie aktywować.'

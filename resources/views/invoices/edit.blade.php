@@ -108,10 +108,16 @@
                 </div>
                 <button class="btn" type="button" disabled aria-label="Wgraj dokument"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
                 <button class="btn" type="button" disabled aria-label="Wystaw korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</button>
-                <button class="btn" type="button" disabled aria-label="Usuń Fakturę"><i class="bi bi-trash me-1"></i>Usuń</button>
+                <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#deleteInvoiceFromEditModal" aria-label="Usuń Fakturę"><i class="bi bi-trash me-1"></i>Usuń</button>
                 <a class="btn" href="{{ route('orders.show', $order) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
             </div>
         </div>
+
+        @include('invoices.partials.delete-modal', [
+            'invoice' => $invoice,
+            'modalId' => 'deleteInvoiceFromEditModal',
+            'ajax' => false,
+        ])
 
         <div data-invoice-fragment="items">@include('invoices.edit.partials.items')</div>
         <div data-invoice-fragment="nbp-summary">@include('invoices.edit.partials.nbp-summary')</div>

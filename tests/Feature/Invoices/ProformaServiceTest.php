@@ -198,7 +198,7 @@ class ProformaServiceTest extends TestCase
         $this->assertDatabaseCount('order_document_slots', 0);
     }
 
-    public function test_vat_invoice_supersedes_proforma_without_changing_its_current_state_and_locks_it_forever(): void
+    public function test_vat_invoice_supersedes_proforma_without_changing_its_current_state(): void
     {
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
@@ -224,19 +224,6 @@ class ProformaServiceTest extends TestCase
         $event = $order->events()->where('event_type', 'invoice_issued')->firstOrFail();
         $this->assertSame($proforma->getKey(), $event->payload['superseded_proforma_id']);
         $this->assertSame($proforma->number, $event->payload['superseded_proforma_number']);
-
-        $invoice->delete();
-        $proforma->refresh();
-        $this->assertNull($proforma->superseded_by_invoice_id);
-        $this->assertNotNull($proforma->proforma_superseded_at);
-        $this->assertTrue($proforma->isProformaSuperseded());
-
-        try {
-            $proformaService->createOrRefresh($order, $proformaSeries, $this->documentContext('2026-07-30'));
-            $this->fail('Historycznie zastąpiona Pro forma została odblokowana.');
-        } catch (InvoiceDomainException $exception) {
-            $this->assertSame('proforma_locked_by_invoice', $exception->errorCode());
-        }
     }
 
     public function test_invoice_blocks_new_proforma_without_consuming_proforma_number(): void

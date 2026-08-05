@@ -44,5 +44,7 @@
     <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Pobranie:</div><div class="nex-value">{{ $order->cash_on_delivery ? 'Tak' : 'Nie' }}<span class="inline-pencil">&#9998;</span></div></div>
     <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Koszt wysy&#322;ki:</div><div class="nex-value">{{ $moneyValue($order->delivery_cost_gross) }} {{ $order->currency }}<span class="inline-pencil">&#9998;</span></div></div>
     <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Spos&oacute;b p&#322;atno&#347;ci:</div><div class="nex-value {{ $order->payment_method ? '' : 'nex-empty' }}">{{ $order->payment_method ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+</div>
+<div class="order-info-section">
     <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Uwagi:</div><div class="nex-value {{ $order->notes ? '' : 'nex-empty' }}">{{ $order->notes ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
 </div>

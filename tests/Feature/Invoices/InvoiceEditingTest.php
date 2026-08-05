@@ -11,6 +11,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
+use Modules\Invoices\Services\InvoicePdfRenderer;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -232,6 +233,29 @@ class InvoiceEditingTest extends TestCase
         $this->assertSame(1, $invoice->fresh()->lock_version);
         $this->assertSame($eventCount, $invoice->order->events()->count());
         Storage::disk('local')->assertExists($path);
+    }
+
+    public function test_payment_due_date_edit_is_saved_in_snapshot_and_rendered_on_invoice_pdf(): void
+    {
+        Storage::fake('local');
+        $invoice = $this->issueInvoice();
+        $this->get(route('invoices.pdf', $invoice))->assertOk();
+        $path = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
+        Storage::disk('local')->assertExists($path);
+
+        $this->patchJson(route('invoices.details.update', $invoice), $this->detailsPayload($invoice, [
+            'payment_due_date' => '2026-08-06',
+        ]))->assertOk();
+
+        $invoice->refresh();
+        $this->assertSame('2026-08-06', $invoice->payment_due_date?->toDateString());
+        $this->assertSame('2026-08-06', $invoice->payment_snapshot['payment_due_date']);
+        Storage::disk('local')->assertMissing($path);
+
+        $html = app(InvoicePdfRenderer::class)->html($invoice);
+        $this->assertStringContainsString('Termin płatności:', $html);
+        $this->assertStringContainsString('06.08.2026', $html);
+        $this->assertMatchesRegularExpression('/Data wystawienia:.*?Termin płatności:/s', $html);
     }
 
     public function test_stale_lock_version_returns_conflict_without_mutation(): void
@@ -459,7 +483,7 @@ class InvoiceEditingTest extends TestCase
         $regeneratedPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
 
         $this->assertSame($currentPath, $regeneratedPath);
-        $this->assertStringEndsWith('/invoice-v40.pdf', $regeneratedPath);
+        $this->assertStringEndsWith('/invoice-v41.pdf', $regeneratedPath);
         Storage::disk('local')->assertExists($regeneratedPath);
         $this->assertCount(1, Storage::disk('local')->allFiles('invoices/'.$invoice->getKey()));
     }

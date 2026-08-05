@@ -57,7 +57,7 @@ class OrderSalesDocumentActionsTest extends TestCase
         $this->assertStringNotContainsString($otherType->name, $html);
     }
 
-    public function test_multiple_active_series_are_presented_in_dropdown_with_format(): void
+    public function test_multiple_active_invoice_series_are_presented_only_by_name(): void
     {
         $order = $this->createDocumentOrder();
         $first = $this->createDocumentSeries();
@@ -67,7 +67,8 @@ class OrderSalesDocumentActionsTest extends TestCase
         $this->assertStringContainsString('dropdown-toggle', $html);
         $this->assertStringContainsString($first->name, $html);
         $this->assertStringContainsString($second->name, $html);
-        $this->assertStringContainsString($first->number_format, $html);
+        $this->assertStringNotContainsString($first->number_format, $html);
+        $this->assertStringNotContainsString('systemowa', $html);
     }
 
     public function test_order_page_contains_only_one_sales_document_actions_fragment(): void
