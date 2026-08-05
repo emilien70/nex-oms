@@ -622,7 +622,7 @@ Formularz serii typu `correction` przechowuje domyślny powód korekty, źródł
 
 Dane prawne sprzedawcy, bank i logo nie są konfigurowane w serii korekt. Przyszła korekta odziedziczy je ze snapshotu dokumentu źródłowego. Domyślny powód jest wyłącznie podpowiedzią i finalnie zostanie zapisany jako snapshot dokumentu. Pole `additional_information_template` przechowuje nierozwiązany szablon, a `[uwagi_sprzedawcy]` zostanie zastąpione dopiero przy wystawianiu dokumentu.
 
-Korekta będzie osobnym dokumentem powiązanym z fakturą źródłową. Obowiązkowo pokaże wartości przed zmianą, po zmianie i różnicę. Kolejna korekta tego samego dokumentu będzie odnosiła się do skutecznego stanu po wcześniejszych korektach. Data sprzedaży może pochodzić z faktury źródłowej albo z daty wystawienia korekty; wystawiający może pochodzić z faktury źródłowej albo z serii; sposób płatności może pochodzić z faktury źródłowej, zostać ukryty albo przyjąć stałą wartość serii.
+Korekta jest osobnym dokumentem powiązanym z fakturą źródłową. Obowiązkowo pokazuje wartości przed zmianą, po zmianie i różnicę. Jedno zamówienie może mieć najwyżej jedną istniejącą Korektę; jej późniejsza edycja nadpisuje bieżące snapshoty i pozycje tego samego dokumentu, zachowując numer oraz tożsamość Korekty. Data sprzedaży może pochodzić z faktury źródłowej albo z daty wystawienia korekty; wystawiający może pochodzić z faktury źródłowej albo z serii; sposób płatności może pochodzić z faktury źródłowej, zostać ukryty albo przyjąć stałą wartość serii.
 
 Etap 1C.3 nie tworzy korekt ani innych dokumentów, nie nadaje numerów i nie generuje PDF, JPK ani danych KSeF. Formularz Pro formy został rozbudowany w Etapie 1C.4. Nie ma paragonów.
 
@@ -729,7 +729,7 @@ Order hasMany Invoices
 
 Nie dodajemy pojedynczego `invoice_id` do tabeli `orders`.
 
-Jedno zamówienie może mieć wiele dokumentów różnych typów, ale najwyżej jedną istniejącą fakturę VAT i jedną logiczną Pro formę z jednym bieżącym stanem. Limity te nie dotyczą korekt, duplikatów ani ponownego wygenerowania PDF tego samego dokumentu.
+Jedno zamówienie może mieć wiele dokumentów różnych typów, ale najwyżej jedną istniejącą Fakturę VAT, jedną logiczną Pro formę z jednym bieżącym stanem i jedną Korektę. Ponowne wygenerowanie PDF nie tworzy nowego dokumentu.
 
 ## 15.1. Jedna faktura VAT na zamówienie
 
@@ -931,7 +931,7 @@ Planowane przypadki:
 - pełny zwrot,
 - częściowy zwrot.
 
-Kolejna korekta odnosi się do skutecznego stanu dokumentu po wcześniejszych korektach. Wszystkie Korekty wskazują pierwotną Fakturę, a druga i kolejne wskazują również bezpośrednio poprzednią Korektę. Faktura posiadająca co najmniej jedną Korektę nie będzie zwyczajnie edytowalna. Przyszłe usuwanie Korekt będzie możliwe wyłącznie od końca liniowego łańcucha.
+Jedno zamówienie może mieć najwyżej jedną istniejącą Korektę. Korekta wskazuje pierwotną Fakturę przez `corrected_invoice_id`, a `previous_correction_id` pozostaje `null`. Faktura posiadająca Korektę nie jest zwyczajnie edytowalna. Jeden slot typu `correction` wskazuje tę Korektę i chroni regułę również przy równoległych operacjach. Ponowne wejście w tworzenie przekierowuje do edycji istniejącej Korekty. Edycja nadpisuje jej bieżące snapshoty i pozycje, zachowując `id`, numer, serię oraz okres numeracji. Usunięcie Korekty usuwa również jej slot.
 
 Numer korekty jest nadawany przy finalnym wystawieniu.
 
@@ -1383,13 +1383,13 @@ Cache PDF jest wersjonowany per typ layoutu. Etap podnosi wyłącznie wersję Fa
 
 ## Etap 2A — fundament dokumentów sprzedaży
 
-Zaimplementowano jedną tabelę `invoices` dla Faktur VAT, Pro form i Korekt oraz tabelę `invoice_items` dla wszystkich pozycji dokumentów. Dodano modele, enumy statusu i typu pozycji, relacje z `Order`, `OrderItem` i `InvoiceSeries`, snapshoty dokumentu, pola wykrywania zmiany źródła Pro formy oraz relacje liniowego łańcucha Korekt.
+Zaimplementowano jedną tabelę `invoices` dla Faktur VAT, Pro form i Korekt oraz tabelę `invoice_items` dla wszystkich pozycji dokumentów. Dodano modele, enumy statusu i typu pozycji, relacje z `Order`, `OrderItem` i `InvoiceSeries`, snapshoty dokumentu, pola wykrywania zmiany źródła Pro formy oraz techniczne relacje Korekt.
 
 Dokument zachowuje własne dane sprzedawcy, nabywcy, odbiorcy, wystawiającego, zamówienia, płatności, dostawy, ustawień serii i podatków. Zmiana zamówienia, pozycji zamówienia lub serii nie aktualizuje tych snapshotów. Pole `additional_information_text` przechowuje finalną treść dokumentu, a nie szablon serii.
 
 `Order` posiada relację `hasMany Invoices`; tabela `orders` nie posiada `invoice_id`. `invoice_items.product_id` jest nullable i nie posiada jeszcze klucza obcego, ponieważ moduł Produkty nie istnieje. Historyczne pozycje działają bez katalogu produktów. Dokumenty nie używają SoftDeletes.
 
-Jedna Faktura może posiadać wiele kolejnych Korekt. Każda wskazuje pierwotną Fakturę przez `corrected_invoice_id`, a druga i kolejne wskazują bezpośrednio poprzednią Korektę przez `previous_correction_id`. Pozycje Korekty posiadają miejsce na stan przed, po i różnicę. Obliczanie skutecznego stanu oraz centralny serwis Korekt nie są jeszcze zaimplementowane.
+Schemat zachowuje pola `corrected_invoice_id` i nullable `previous_correction_id`, lecz aktualna reguła domenowa dopuszcza tylko jedną Korektę na zamówienie. Korekta wskazuje pierwotną Fakturę, a `previous_correction_id` pozostaje `null`. Pozycje Korekty przechowują stan przed, po i różnicę.
 
 Użytej serii, również posiadającej tylko szkic, nie można usunąć. Można ją ukryć i później reaktywować z tym samym `id` i przyszłym licznikiem.
 
@@ -1407,7 +1407,7 @@ Centralny walidator konfiguracji wymaga, aby format identyfikował okres resetow
 
 Operacja „Ustaw następny numer” działa oddzielnie dla każdego okresu, wymaga powodu i zapisuje historię poprzedniego oraz nowego stanu wraz ze snapshotem aktora. Dla okresu bez dokumentów pozwala skorygować licznik także w dół. Dla okresu z dokumentami pozwala wyłącznie bezpiecznie przesunąć numerację do przodu. Ustawiony ręcznie poziom staje się chronionym progiem. Po rozpoczęciu numeracji nie można zmienić typu dokumentu. W seriach własnych zablokowane pozostają również format, sposób resetu i początek roku fiskalnego. W seriach systemowych te trzy ustawienia można zmienić dla kolejnych dokumentów, bez modyfikowania numerów, okresów i snapshotów dokumentów już wystawionych. Nazwa i pozostałe ustawienia biznesowe serii nadal mogą być zmieniane.
 
-Wewnętrzne luki nie są automatycznie uzupełniane. Usuwanie dokumentów i rzeczywiste cofanie wolnego końca licznika nie zostały jeszcze wdrożone. Przyszły serwis usuwania będzie mógł cofnąć wyłącznie ostatnią, wolną część numeracji, nigdy poniżej `protected_floor_sequence_number`. Zmiana `issue_date` ponumerowanego dokumentu nie przeniesie go automatycznie do innego okresu. Pierwsze utworzenie logicznej Pro formy zużyje jeden numer, jej przyszłe odświeżanie zachowa ten numer, a każda Korekta zużyje osobny numer własnej serii.
+Wewnętrzne luki nie są automatycznie uzupełniane. Serwis usuwania może cofnąć wyłącznie ostatnią, wolną część numeracji, nigdy poniżej `protected_floor_sequence_number`. Zmiana `issue_date` ponumerowanego dokumentu nie przenosi go automatycznie do innego okresu. Pierwsze utworzenie logicznej Pro formy zużywa jeden numer, jej odświeżanie zachowuje ten numer, a jedyna Korekta zamówienia zużywa jeden numer własnej serii i zachowuje go podczas edycji.
 
 Etap 2B nie dodaje OSS ani kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru. KSeF pozostaje planowany w trybach `send` i `exclude` i nie jest częścią silnika numeracji.
 
@@ -1453,13 +1453,13 @@ Etap nie obejmuje edycji Pro form i Korekt, usuwania dokumentów, zewnętrznych 
 
 ## Etap 2F — wystawianie Korekt
 
-Wystawiona Faktura VAT może otrzymać liniowy łańcuch Korekt. Pierwsza Korekta odnosi się do Faktury źródłowej, a każda kolejna do skutecznego stanu po poprzedniej Korekcie. Dokument źródłowy nie jest nadpisywany.
+Wystawiona Faktura VAT może otrzymać jedną Korektę. Korekta odnosi się do Faktury źródłowej, a dokument źródłowy nie jest nadpisywany. Kolejna próba tworzenia otwiera edycję istniejącej Korekty zamiast tworzyć następny rekord.
 
 Korekta otrzymuje własną aktywną serię, numer i daty oraz jest od razu wystawiana w jednej transakcji. Przy jednej dostępnej serii przycisk `Korekta` prowadzi bezpośrednio do formularza, a przy wielu seriach najpierw pokazuje wybór serii. Formularz obsługuje zamkniętą listę powodów oraz opcjonalną zmianę pozycji i danych Nabywcy. Aktualne pozycje i dane z zamówienia są kopiowane wyłącznie po jawnej decyzji użytkownika.
 
 Pozycje Korekty zapisują kompletne snapshoty stanu przed zmianą, po zmianie i różnicy. Obliczenia netto, VAT i brutto korzystają z centralnej arytmetyki dziesiętnej, a brak rzeczywistej zmiany kończy operację kontrolowanym błędem bez zużycia numeru. Każda udana operacja zapisuje zdarzenie `correction_issued` w historii zamówienia.
 
-PDF Korekty jest generowany z zapisanych snapshotów przez istniejący prywatny renderer. Etap nie dodaje edycji ani usuwania Korekt, korekt walutowych z przeliczeniem NBP, automatyzacji, JPK ani KSeF.
+PDF Korekty jest generowany z zapisanych snapshotów przez istniejący prywatny renderer. Wystawiona Korekta może być edytowana przez nadpisanie jej bieżącego stanu bez zmiany numeru oraz usunięta przy użyciu wspólnego, transakcyjnego mechanizmu usuwania dokumentów. Usunięcie obejmuje pozycje, slot, prywatny cache PDF, zdarzenie zamówienia i ewentualne cofnięcie wolnego końca licznika. Korekty walutowe z przeliczeniem NBP, automatyzacje, JPK i KSeF pozostają poza zakresem.
 
 ## Dalsze etapy
 

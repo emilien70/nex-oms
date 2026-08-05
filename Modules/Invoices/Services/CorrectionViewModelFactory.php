@@ -72,6 +72,14 @@ class CorrectionViewModelFactory
         }
 
         $this->sourceState->assertSourceInvoice($sourceInvoice);
+        $currentCorrection = $this->sourceState->currentCorrection($sourceInvoice);
+        if ($currentCorrection === null || ! $currentCorrection->is($correction)) {
+            throw new InvoiceDomainException(
+                'correction_edit_inconsistent',
+                'Nie można edytować Korekty, ponieważ jej slot lub powiązania są niespójne.',
+            );
+        }
+
         $buyerBefore = data_get($correction->order_snapshot, 'correction.buyer_before');
         if (! is_array($buyerBefore) || ! is_array($correction->buyer_snapshot)) {
             throw new InvoiceDomainException(
@@ -113,14 +121,6 @@ class CorrectionViewModelFactory
             );
         }
 
-        if ($correction->nextCorrections()
-            ->where('status', InvoiceDocumentStatus::Issued->value)
-            ->exists()) {
-            throw new InvoiceDomainException(
-                'correction_edit_blocked_by_next_correction',
-                'Nie można edytować Korekty, do której została już wystawiona kolejna Korekta.',
-            );
-        }
     }
 
     /** @return array<string, mixed> */

@@ -8,11 +8,15 @@ use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Models\InvoiceNumberCounter;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\InvoiceIssuingService;
+use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -69,8 +73,8 @@ class InvoiceCorrectionTest extends TestCase
             ->assertSeeText('Powrót')
             ->assertSee('Wgrywanie dokumentów nie jest jeszcze dostępne.', false)
             ->assertSee('Integracja KSeF nie jest jeszcze dostępna.', false)
-            ->assertSee('Usuwanie Korekt nie jest jeszcze dostępne.', false)
-            ->assertDontSee('data-correction-delete-form', false)
+            ->assertSee(route('invoices.destroy', $correction), false)
+            ->assertSee('data-correction-delete-form', false)
             ->assertSee('name="_method" value="PATCH"', false)
             ->assertSee('name="expected_lock_version" value="1"', false);
 
@@ -89,24 +93,22 @@ class InvoiceCorrectionTest extends TestCase
         $this->assertSame($invoice->getKey(), $correction->corrected_invoice_id);
         $this->assertSame(2, $correction->lock_version);
         $this->assertSame('Zmieniona informacja korekty', $correction->additional_information_text);
+        $this->assertDatabaseCount('invoices', 2);
+        $this->assertDatabaseHas('order_document_slots', [
+            'order_id' => $invoice->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $correction->getKey(),
+        ]);
     }
 
-    public function test_correction_with_a_later_correction_cannot_be_edited(): void
+    public function test_create_route_redirects_to_the_existing_correction_editor(): void
     {
         $invoice = $this->issuedInvoice();
         $series = $this->systemCorrectionSeries();
+        $correction = $this->issueBuyerCorrection($invoice, $series, 'Pierwsza zmiana');
 
-        $first = app(CorrectionService::class)->issue($invoice, $series, $this->payload($series, [
-            'change_buyer' => true,
-            'buyer' => array_merge($invoice->buyer_snapshot, ['name' => 'Pierwsza zmiana']),
-        ]), $this->documentContext('2026-08-05 10:00:00'));
-        app(CorrectionService::class)->issue($invoice, $series, $this->payload($series, [
-            'change_buyer' => true,
-            'buyer' => array_merge($invoice->buyer_snapshot, ['name' => 'Druga zmiana']),
-        ]), $this->documentContext('2026-08-05 10:01:00'));
-
-        $this->get(route('invoices.corrections.edit', $first))
-            ->assertUnprocessable();
+        $this->get(route('invoices.corrections.create', $invoice))
+            ->assertRedirect(route('invoices.corrections.edit', $correction));
     }
 
     public function test_free_text_default_reason_is_presented_as_other_reason(): void
@@ -163,7 +165,7 @@ class InvoiceCorrectionTest extends TestCase
             ->where('document_type', InvoiceDocumentType::Correction)
             ->sole();
 
-        $response->assertRedirect(route('invoices.pdf', $correction));
+        $response->assertRedirect(route('invoices.corrections.edit', $correction));
         $this->assertSame(InvoiceDocumentStatus::Issued, $correction->status);
         $this->assertSame($invoice->getKey(), $correction->corrected_invoice_id);
         $this->assertNull($correction->previous_correction_id);
@@ -176,6 +178,11 @@ class InvoiceCorrectionTest extends TestCase
         $this->assertDatabaseHas('order_events', [
             'order_id' => $invoice->order_id,
             'event_type' => 'correction_issued',
+        ]);
+        $this->assertDatabaseHas('order_document_slots', [
+            'order_id' => $invoice->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $correction->getKey(),
         ]);
 
         $this->get(route('invoices.pdf', $correction))
@@ -209,7 +216,7 @@ class InvoiceCorrectionTest extends TestCase
         $this->assertSame('Jan Kowalski', $invoice->fresh()->buyer_snapshot['name']);
     }
 
-    public function test_next_correction_uses_state_after_previous_correction(): void
+    public function test_second_store_redirects_to_the_existing_correction_without_creating_another_document(): void
     {
         $invoice = $this->issuedInvoice();
         $series = $this->systemCorrectionSeries();
@@ -222,24 +229,19 @@ class InvoiceCorrectionTest extends TestCase
         ]))->assertRedirect();
 
         $first = Invoice::query()->where('document_type', InvoiceDocumentType::Correction)->sole();
+        $originalNumber = $first->number;
         $secondItems = $this->submittedItems($invoice);
         $secondItems[0]['unit_price_gross'] = '60.00';
 
-        $this->post(route('invoices.corrections.store', $invoice), $this->payload($series, [
+        $response = $this->post(route('invoices.corrections.store', $invoice), $this->payload($series, [
             'change_items' => true,
             'items' => $secondItems,
-        ]))->assertRedirect();
+        ]));
 
-        $second = Invoice::query()
-            ->where('document_type', InvoiceDocumentType::Correction)
-            ->whereKeyNot($first->getKey())
-            ->sole();
-        $product = $second->items->firstWhere('line_type', 'product');
-
-        $this->assertSame($first->getKey(), $second->previous_correction_id);
-        $this->assertSame('80.0000', $product->correction_before_snapshot['unit_price_gross']);
-        $this->assertSame('60.0000', $product->correction_after_snapshot['unit_price_gross']);
-        $this->assertSame('-20.00', $product->correction_difference_snapshot['total_gross']);
+        $response->assertRedirect(route('invoices.corrections.edit', $first));
+        $this->assertDatabaseCount('invoices', 2);
+        $this->assertSame($originalNumber, $first->fresh()->number);
+        $this->assertSame('80.0000', $first->fresh()->items->firstWhere('line_type', 'product')->correction_after_snapshot['unit_price_gross']);
     }
 
     public function test_unchanged_correction_is_rejected_without_consuming_a_number(): void
@@ -275,7 +277,7 @@ class InvoiceCorrectionTest extends TestCase
         ]);
     }
 
-    public function test_service_builds_a_linear_chain_under_domain_rules(): void
+    public function test_service_rejects_a_second_correction_and_keeps_the_single_document_slot(): void
     {
         $invoice = $this->issuedInvoice();
         $series = $this->systemCorrectionSeries();
@@ -287,11 +289,145 @@ class InvoiceCorrectionTest extends TestCase
 
         $first = $service->issue($invoice, $series, $data, $this->documentContext('2026-08-05 10:00:00'));
         $data['buyer']['name'] = 'Druga zmiana';
-        $second = $service->issue($invoice, $series, $data, $this->documentContext('2026-08-05 10:01:00'));
 
-        $this->assertSame($first->getKey(), $second->previous_correction_id);
-        $this->assertSame('Pierwsza zmiana', $second->order_snapshot['correction']['buyer_before']['name']);
-        $this->assertSame('Druga zmiana', $second->buyer_snapshot['name']);
+        try {
+            $service->issue($invoice, $series, $data, $this->documentContext('2026-08-05 10:01:00'));
+            $this->fail('Druga Korekta nie powinna zostać utworzona.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('correction_already_exists', $exception->errorCode());
+            $this->assertSame($first->getKey(), $exception->metadata()['correction_id']);
+        }
+
+        $this->assertDatabaseCount('invoices', 2);
+        $this->assertSame('Pierwsza zmiana', $first->fresh()->buyer_snapshot['name']);
+        $this->assertNull($first->previous_correction_id);
+        $this->assertDatabaseCount('order_document_slots', 2);
+        $this->assertDatabaseHas('order_document_slots', [
+            'order_id' => $invoice->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $first->getKey(),
+        ]);
+    }
+
+    public function test_only_correction_can_be_deleted_with_slot_items_pdf_numbering_and_audit_cleanup(): void
+    {
+        Storage::fake('local');
+
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $correction = $this->issueBuyerCorrection($invoice, $series, 'Poprawiony nabywca');
+        $pdfPath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($pdfPath, '%PDF-test');
+
+        $response = $this->delete(route('invoices.destroy', $correction), [
+            'expected_lock_version' => $correction->lock_version,
+        ]);
+
+        $response->assertRedirect(route('orders.show', $invoice->order_id));
+        $this->assertDatabaseHas('invoices', ['id' => $invoice->getKey()]);
+        $this->assertDatabaseMissing('invoices', ['id' => $correction->getKey()]);
+        $this->assertDatabaseMissing('invoice_items', ['invoice_id' => $correction->getKey()]);
+        $this->assertDatabaseMissing('order_document_slots', [
+            'order_id' => $invoice->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $invoice->order_id,
+            'event_type' => 'correction_deleted',
+            'title' => 'Usunięto korektę',
+        ]);
+        Storage::disk('local')->assertMissing($pdfPath);
+        $counter = InvoiceNumberCounter::query()
+            ->where('invoice_series_id', $series->getKey())
+            ->firstOrFail();
+
+        $this->assertSame(0, $counter->last_sequence_number);
+        $this->assertDatabaseHas('invoice_number_counter_adjustments', [
+            'invoice_number_counter_id' => $counter->getKey(),
+            'new_last_sequence_number' => 0,
+            'reason' => 'Automatyczne cofnięcie wolnego końca numeracji po usunięciu Korekty.',
+        ]);
+    }
+
+    public function test_invoice_list_links_the_correction_action_to_the_existing_correction_editor(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $correction = $this->issueBuyerCorrection($invoice, $series, 'Pierwsza zmiana');
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSee(route('invoices.corrections.edit', $correction), false)
+            ->assertDontSee(route('invoices.corrections.create', [
+                'invoice' => $invoice,
+                'series_id' => $series->getKey(),
+            ]), false);
+    }
+
+    public function test_legacy_multiple_corrections_are_rejected_as_inconsistent(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $first = $this->issueBuyerCorrection($invoice, $series, 'Pierwsza zmiana');
+        $second = $first->replicate(['number', 'sequence_number', 'lock_version']);
+        $second->number = 'BLK 999/2026';
+        $second->sequence_number = 999;
+        $second->lock_version = 1;
+        $second->save();
+
+        $this->deleteJson(route('invoices.destroy', $first), [
+            'expected_lock_version' => $first->lock_version,
+        ])->assertConflict()
+            ->assertJsonPath('code', 'correction_delete_inconsistent_document');
+
+        $this->assertDatabaseHas('invoices', ['id' => $first->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $second->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', [
+            'order_id' => $invoice->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $first->getKey(),
+        ]);
+    }
+
+    public function test_correction_deletion_rejects_stale_lock_version(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $invoice,
+            $this->systemCorrectionSeries(),
+            'Poprawiony nabywca',
+        );
+
+        $this->deleteJson(route('invoices.destroy', $correction), [
+            'expected_lock_version' => $correction->lock_version + 1,
+        ])->assertConflict()
+            ->assertJsonPath('code', 'correction_delete_conflict');
+
+        $this->assertDatabaseHas('invoices', ['id' => $correction->getKey()]);
+    }
+
+    public function test_legacy_latest_correction_without_slot_can_be_deleted_safely(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $invoice,
+            $this->systemCorrectionSeries(),
+            'Poprawiony nabywca',
+        );
+        OrderDocumentSlot::query()
+            ->where('order_id', $invoice->order_id)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->delete();
+
+        $this->deleteJson(route('invoices.destroy', $correction), [
+            'expected_lock_version' => $correction->lock_version,
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('invoices', ['id' => $correction->getKey()]);
+        $this->assertDatabaseMissing('order_document_slots', [
+            'order_id' => $invoice->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
     }
 
     private function issuedInvoice(): Invoice
@@ -311,6 +447,23 @@ class InvoiceCorrectionTest extends TestCase
         return InvoiceSeries::query()
             ->where('system_key', InvoiceSeriesSystemKey::Correction)
             ->firstOrFail();
+    }
+
+    private function issueBuyerCorrection(
+        Invoice $invoice,
+        InvoiceSeries $series,
+        string $buyerName,
+        string $occurredAt = '2026-08-05 10:00:00',
+    ): Invoice {
+        return app(CorrectionService::class)->issue(
+            $invoice,
+            $series,
+            $this->payload($series, [
+                'change_buyer' => true,
+                'buyer' => array_merge($invoice->buyer_snapshot, ['name' => $buyerName]),
+            ]),
+            $this->documentContext($occurredAt),
+        );
     }
 
     /** @return array<int, array<string, mixed>> */

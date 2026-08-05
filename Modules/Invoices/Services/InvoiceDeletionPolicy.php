@@ -25,14 +25,22 @@ class InvoiceDeletionPolicy
         if (! in_array($invoice->document_type, [
             InvoiceDocumentType::Invoice,
             InvoiceDocumentType::Proforma,
+            InvoiceDocumentType::Correction,
         ], true) || $invoice->status !== InvoiceDocumentStatus::Issued) {
             throw new InvoiceDomainException(
                 'invoice_delete_not_allowed',
-                'Usunąć można wyłącznie wystawioną Fakturę VAT albo aktywną Pro formę.',
+                'Usunąć można wyłącznie wystawioną Fakturę VAT, aktywną Pro formę albo Korektę.',
             );
         }
 
         if ($invoice->lock_version !== $expectedLockVersion) {
+            if ($invoice->isCorrection()) {
+                throw new InvoiceDomainException(
+                    'correction_delete_conflict',
+                    'Korekta została w międzyczasie zmieniona. Odśwież stronę i spróbuj ponownie.',
+                );
+            }
+
             throw new InvoiceDomainException(
                 'invoice_delete_conflict',
                 $invoice->isProforma()
@@ -67,6 +75,10 @@ class InvoiceDeletionPolicy
             );
         }
 
+        if ($invoice->isCorrection()) {
+            $this->assertCorrectionRelations($invoice);
+        }
+
         if ($slot === null
             || $slot->document_type !== $invoice->document_type
             || $slot->invoice_id !== $invoice->getKey()) {
@@ -76,11 +88,39 @@ class InvoiceDeletionPolicy
 
     private function inconsistent(Invoice $invoice): InvoiceDomainException
     {
+        if ($invoice->isCorrection()) {
+            return new InvoiceDomainException(
+                'correction_delete_inconsistent_document',
+                'Nie można usunąć Korekty, ponieważ jej dane lub powiązania są niespójne.',
+            );
+        }
+
         return new InvoiceDomainException(
             'invoice_delete_inconsistent_document',
             $invoice->isProforma()
                 ? 'Nie można usunąć Pro formy, ponieważ jej dane lub powiązania są niespójne.'
                 : 'Nie można usunąć Faktury, ponieważ jej dane lub powiązania są niespójne.',
         );
+    }
+
+    private function assertCorrectionRelations(Invoice $invoice): void
+    {
+        $source = $invoice->correctedInvoice()->first();
+
+        if ($source === null
+            || ! $source->isInvoice()
+            || $source->status !== InvoiceDocumentStatus::Issued
+            || $source->order_id !== $invoice->order_id) {
+            throw $this->inconsistent($invoice);
+        }
+
+        if ($invoice->previous_correction_id !== null
+            || Invoice::query()
+                ->where('order_id', $invoice->order_id)
+                ->where('document_type', InvoiceDocumentType::Correction)
+                ->whereKeyNot($invoice->getKey())
+                ->exists()) {
+            throw $this->inconsistent($invoice);
+        }
     }
 }

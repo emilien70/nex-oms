@@ -25,6 +25,7 @@ class InvoiceDeletionController extends Controller
     ): JsonResponse|RedirectResponse {
         $order = $invoice->order;
         $isProforma = $invoice->isProforma();
+        $isCorrection = $invoice->isCorrection();
 
         try {
             $order = $deletion->delete(
@@ -69,9 +70,11 @@ class InvoiceDeletionController extends Controller
             ]);
 
             return back()->withErrors([
-                'invoice' => $isProforma
-                    ? 'Nie udało się usunąć Pro formy. Spróbuj ponownie.'
-                    : 'Nie udało się usunąć Faktury. Spróbuj ponownie.',
+                'invoice' => match (true) {
+                    $isProforma => 'Nie udało się usunąć Pro formy. Spróbuj ponownie.',
+                    $isCorrection => 'Nie udało się usunąć Korekty. Spróbuj ponownie.',
+                    default => 'Nie udało się usunąć Faktury. Spróbuj ponownie.',
+                },
             ]);
         }
     }

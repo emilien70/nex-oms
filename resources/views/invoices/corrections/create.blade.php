@@ -97,7 +97,7 @@
                     </div>
                     <button class="btn" type="button" disabled title="Wgrywanie dokumentów nie jest jeszcze dostępne." aria-label="Wgrywanie dokumentów nie jest jeszcze dostępne"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
                     <button class="btn" type="button" disabled title="Integracja KSeF nie jest jeszcze dostępna." aria-label="Integracja KSeF nie jest jeszcze dostępna"><i class="bi bi-eraser-fill me-1"></i>Przekaż do KSeF</button>
-                    <button class="btn" type="button" disabled title="Usuwanie Korekt nie jest jeszcze dostępne." aria-label="Usuwanie Korekt nie jest jeszcze dostępne"><i class="bi bi-trash me-1"></i>Usuń</button>
+                    <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#correctionDeleteModal" title="Usuń Korektę" aria-label="Usuń Korektę"><i class="bi bi-trash me-1"></i>Usuń</button>
                     <a class="btn" href="{{ route('invoices.pdf', $correction) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
                 </div>
             @else
@@ -112,6 +112,14 @@
                     @foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach
                 </ul>
             </div>
+        @endif
+
+        @if ($isEditing)
+            @include('invoices.partials.delete-modal', [
+                'invoice' => $correction,
+                'modalId' => 'correctionDeleteModal',
+                'ajax' => false,
+            ])
         @endif
 
         <form method="POST" action="{{ $isEditing ? route('invoices.corrections.update', $correction) : route('invoices.corrections.store', $sourceInvoice) }}" data-correction-form>

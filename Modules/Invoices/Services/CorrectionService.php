@@ -16,6 +16,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
 
 class CorrectionService
@@ -132,13 +133,23 @@ class CorrectionService
         $this->assertSeries($series);
 
         return DB::transaction(function () use ($sourceInvoice, $series, $data, $context): Invoice {
+            $managedOrder = Order::query()->lockForUpdate()->findOrFail($sourceInvoice->order_id);
             $source = Invoice::query()->lockForUpdate()->findOrFail($sourceInvoice->getKey());
             $managedSeries = InvoiceSeries::query()->lockForUpdate()->findOrFail($series->getKey());
             $this->sourceState->assertSourceInvoice($source);
             $this->assertSeries($managedSeries);
+            $source->setRelation('order', $managedOrder);
 
-            $previousCorrection = $this->sourceState->latestIssuedCorrection($source, true);
-            $effective = $previousCorrection ?? $source;
+            $currentCorrection = $this->sourceState->currentCorrection($source, true);
+            if ($currentCorrection !== null) {
+                throw new InvoiceDomainException(
+                    'correction_already_exists',
+                    'Dla tego zamówienia istnieje już Korekta. Edytuj aktualną Korektę.',
+                    ['correction_id' => $currentCorrection->getKey()],
+                );
+            }
+
+            $effective = $source;
             $effectiveItems = $this->sourceState->effectiveItems($source, true);
             $buyerBefore = $this->sourceState->effectiveBuyer($source, true);
             $buyerAfter = $data['change_buyer']
@@ -169,9 +180,10 @@ class CorrectionService
             $reason = $this->reason($data);
             $issuer = $this->issuerSnapshot($source, $managedSeries, $data);
             $payment = $this->paymentSnapshot($effective, $managedSeries, $data);
-            $orderSnapshot = $this->orderSnapshot($source, $previousCorrection, $buyerBefore);
+            $orderSnapshot = $this->orderSnapshot($source, $buyerBefore);
             $settings = $this->seriesSettingsSnapshot($source, $managedSeries);
             $buyerName = $this->partyName($buyerAfter);
+            $slot = $this->lockCorrectionSlot($managedOrder, $source);
 
             $correction = Invoice::query()->create([
                 'order_id' => $source->order_id,
@@ -184,7 +196,7 @@ class CorrectionService
                 'issued_at' => null,
                 'lock_version' => 1,
                 'corrected_invoice_id' => $source->getKey(),
-                'previous_correction_id' => $previousCorrection?->getKey(),
+                'previous_correction_id' => null,
                 'correction_reason' => $reason,
                 'correction_totals_snapshot' => [
                     'source_invoice' => [
@@ -237,8 +249,9 @@ class CorrectionService
             $correction->status = InvoiceDocumentStatus::Issued;
             $correction->issued_at = $context->occurredAt;
             $correction->save();
+            $slot->update(['invoice_id' => $correction->getKey()]);
 
-            $event = $source->order->events()->make([
+            $event = $managedOrder->events()->make([
                 'event_type' => 'correction_issued',
                 'title' => 'Wystawiono korektę',
                 'description' => 'Wystawiono korektę do Faktury VAT.',
@@ -247,7 +260,6 @@ class CorrectionService
                     'invoice_number' => $source->number,
                     'correction_id' => $correction->getKey(),
                     'correction_number' => $correction->number,
-                    'previous_correction_id' => $previousCorrection?->getKey(),
                     'reason' => $reason,
                     'difference_gross' => $differenceTotals['gross'],
                     'currency' => $correction->currency,
@@ -262,6 +274,39 @@ class CorrectionService
         }, 3);
     }
 
+    private function lockCorrectionSlot(
+        Order $order,
+        Invoice $sourceInvoice,
+    ): OrderDocumentSlot {
+        $slot = OrderDocumentSlot::query()
+            ->where('order_id', $order->getKey())
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->lockForUpdate()
+            ->first();
+
+        if ($slot === null) {
+            return OrderDocumentSlot::query()->create([
+                'order_id' => $order->getKey(),
+                'document_type' => InvoiceDocumentType::Correction,
+                'invoice_id' => null,
+            ]);
+        }
+
+        if ($slot->invoice_id !== null) {
+            throw new InvoiceDomainException(
+                'correction_document_slot_inconsistent',
+                'Nie można wystawić Korekty, ponieważ slot Korekty dla zamówienia jest niespójny.',
+                [
+                    'source_invoice_id' => $sourceInvoice->getKey(),
+                    'slot_invoice_id' => $slot->invoice_id,
+                    'expected_invoice_id' => null,
+                ],
+            );
+        }
+
+        return $slot;
+    }
+
     /** @param array<string, mixed> $data */
     private function assertEditableCorrection(Invoice $correction, array $data): void
     {
@@ -274,12 +319,11 @@ class CorrectionService
             );
         }
 
-        if ($correction->nextCorrections()
-            ->where('status', InvoiceDocumentStatus::Issued->value)
-            ->exists()) {
+        $source = $correction->correctedInvoice()->first();
+        if ($source === null || ! $this->sourceState->currentCorrection($source, true)?->is($correction)) {
             throw new InvoiceDomainException(
-                'correction_edit_blocked_by_next_correction',
-                'Nie można edytować Korekty, do której została już wystawiona kolejna Korekta.',
+                'correction_edit_inconsistent',
+                'Nie można edytować Korekty, ponieważ jej slot lub powiązania są niespójne.',
             );
         }
 
@@ -745,7 +789,7 @@ class CorrectionService
     }
 
     /** @return array<string, mixed> */
-    private function orderSnapshot(Invoice $source, ?Invoice $previous, array $buyerBefore): array
+    private function orderSnapshot(Invoice $source, array $buyerBefore): array
     {
         $snapshot = is_array($source->order_snapshot) ? $source->order_snapshot : [];
         $snapshot['corrected_invoice'] = [
@@ -754,8 +798,8 @@ class CorrectionService
             'issue_date' => $source->issue_date?->toDateString(),
         ];
         $snapshot['correction'] = [
-            'previous_correction_id' => $previous?->getKey(),
-            'previous_correction_number' => $previous?->number,
+            'previous_correction_id' => null,
+            'previous_correction_number' => null,
             'buyer_before' => $buyerBefore,
         ];
 

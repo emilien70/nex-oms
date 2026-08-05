@@ -12,14 +12,25 @@ use Modules\Invoices\Http\Requests\UpdateCorrectionRequest;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionService;
+use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\CorrectionViewModelFactory;
 use Modules\Invoices\Services\InvoiceOperationContextFactory;
 
 class CorrectionController extends Controller
 {
-    public function create(Request $request, Invoice $invoice, CorrectionViewModelFactory $viewModels): View
-    {
+    public function create(
+        Request $request,
+        Invoice $invoice,
+        CorrectionSourceStateService $sourceState,
+        CorrectionViewModelFactory $viewModels,
+    ): View|RedirectResponse {
         try {
+            $currentCorrection = $sourceState->currentCorrection($invoice);
+
+            if ($currentCorrection !== null) {
+                return redirect()->route('invoices.corrections.edit', $currentCorrection);
+            }
+
             return view('invoices.corrections.create', $viewModels->make(
                 $invoice,
                 $request->filled('series_id') ? $request->integer('series_id') : null,
@@ -39,8 +50,13 @@ class CorrectionController extends Controller
             $series = InvoiceSeries::query()->findOrFail($request->integer('correction_series_id'));
             $correction = $service->issue($invoice, $series, $request->validated(), $contexts->manual($request));
 
-            return redirect()->route('invoices.pdf', $correction);
+            return redirect()->route('invoices.corrections.edit', $correction);
         } catch (InvoiceDomainException $exception) {
+            if ($exception->errorCode() === 'correction_already_exists'
+                && isset($exception->metadata()['correction_id'])) {
+                return redirect()->route('invoices.corrections.edit', $exception->metadata()['correction_id']);
+            }
+
             return back()->withInput()->withErrors(['correction' => $exception->getMessage()]);
         }
     }

@@ -473,6 +473,7 @@
                                     && ($invoice->proforma_superseded_at !== null || $invoice->superseded_by_invoice_id !== null)
                                         ? 'Do Pro Forma została już wystawiona Faktura VAT.'
                                         : null;
+                                $currentCorrection = $isInvoiceList ? $invoice->corrections->first() : null;
                             @endphp
                             <tr>
                                 <td><input class="form-check-input" type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" form="bulkInvoicePrintForm" data-invoice-checkbox @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif aria-label="Zaznacz {{ $documentName }} {{ $invoice->number }}"></td>
@@ -489,7 +490,9 @@
                                 <td class="invoice-date">{{ $invoice->issue_date?->format('d.m.Y') ?? '—' }}</td>
                                 @if ($isInvoiceList)
                                     <td class="text-center">
-                                        @if ($correctionSeries->isEmpty())
+                                        @if ($currentCorrection)
+                                            <a class="invoice-correction-button" href="{{ route('invoices.corrections.edit', $currentCorrection) }}" title="Edytuj Korektę {{ $currentCorrection->number }}">KOREKTA</a>
+                                        @elseif ($correctionSeries->isEmpty())
                                             <button class="invoice-correction-button" type="button" disabled title="Brak aktywnej serii numeracji dla Korekt">KOREKTA</button>
                                         @elseif ($correctionSeries->count() === 1)
                                             <a class="invoice-correction-button" href="{{ route('invoices.corrections.create', ['invoice' => $invoice, 'series_id' => $correctionSeries->first()->id]) }}">KOREKTA</a>

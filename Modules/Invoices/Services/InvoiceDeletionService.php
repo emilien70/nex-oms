@@ -37,11 +37,7 @@ class InvoiceDeletionService
                 $managedInvoice = Invoice::query()
                     ->lockForUpdate()
                     ->findOrFail($invoice->getKey());
-                $slot = OrderDocumentSlot::query()
-                    ->where('order_id', $managedOrder->getKey())
-                    ->where('document_type', $managedInvoice->document_type)
-                    ->lockForUpdate()
-                    ->first();
+                $slot = $this->lockDocumentSlot($managedOrder, $managedInvoice);
 
                 $this->policy->assertDeletable($managedInvoice, $slot, $expectedLockVersion);
                 $this->deleteManagedInvoice($managedOrder, $managedInvoice, $slot, $context);
@@ -57,9 +53,11 @@ class InvoiceDeletionService
         } catch (DomainException $exception) {
             throw new InvoiceDomainException(
                 'invoice_delete_numbering_inconsistent',
-                $invoice->isProforma()
-                    ? 'Nie można usunąć Pro formy, ponieważ wykryto niespójność numeracji.'
-                    : 'Nie można usunąć Faktury, ponieważ wykryto niespójność numeracji.',
+                match (true) {
+                    $invoice->isProforma() => 'Nie można usunąć Pro formy, ponieważ wykryto niespójność numeracji.',
+                    $invoice->isCorrection() => 'Nie można usunąć Korekty, ponieważ wykryto niespójność numeracji.',
+                    default => 'Nie można usunąć Faktury, ponieważ wykryto niespójność numeracji.',
+                },
                 ['reason' => $exception->getMessage()],
                 $exception,
             );
@@ -216,8 +214,44 @@ class InvoiceDeletionService
             );
         }
 
-        $slot?->delete();
+        $this->releaseDocumentSlot($invoice, $slot);
         $invoice->delete();
+    }
+
+    private function lockDocumentSlot(Order $order, Invoice $invoice): ?OrderDocumentSlot
+    {
+        $slot = OrderDocumentSlot::query()
+            ->where('order_id', $order->getKey())
+            ->where('document_type', $invoice->document_type)
+            ->lockForUpdate()
+            ->first();
+
+        if ($slot !== null || ! $invoice->isCorrection() || $invoice->corrected_invoice_id === null) {
+            return $slot;
+        }
+
+        $corrections = Invoice::query()
+            ->where('order_id', $order->getKey())
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->where('status', InvoiceDocumentStatus::Issued)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        if ($corrections->count() !== 1 || ! $corrections->first()->is($invoice)) {
+            return null;
+        }
+
+        return OrderDocumentSlot::query()->create([
+            'order_id' => $order->getKey(),
+            'document_type' => InvoiceDocumentType::Correction,
+            'invoice_id' => $invoice->getKey(),
+        ]);
+    }
+
+    private function releaseDocumentSlot(Invoice $invoice, ?OrderDocumentSlot $slot): void
+    {
+        $slot?->delete();
     }
 
     private function restoreSupersededProforma(Order $order, Invoice $invoice): ?Invoice
@@ -266,12 +300,23 @@ class InvoiceDeletionService
         InvoiceOperationContext $context,
     ): void {
         $isProforma = $invoice->isProforma();
+        $isCorrection = $invoice->isCorrection();
         $event = $order->events()->make([
-            'event_type' => $isProforma ? 'proforma_deleted' : 'invoice_deleted',
-            'title' => $isProforma ? 'Usunięto Pro formę' : 'Usunięto fakturę',
-            'description' => $isProforma
-                ? 'Usunięto Pro formę z zamówienia.'
-                : 'Usunięto fakturę VAT z zamówienia.',
+            'event_type' => match (true) {
+                $isProforma => 'proforma_deleted',
+                $isCorrection => 'correction_deleted',
+                default => 'invoice_deleted',
+            },
+            'title' => match (true) {
+                $isProforma => 'Usunięto Pro formę',
+                $isCorrection => 'Usunięto korektę',
+                default => 'Usunięto fakturę',
+            },
+            'description' => match (true) {
+                $isProforma => 'Usunięto Pro formę z zamówienia.',
+                $isCorrection => 'Usunięto korektę z zamówienia.',
+                default => 'Usunięto fakturę VAT z zamówienia.',
+            },
             'payload' => [
                 'invoice_id' => $invoice->getKey(),
                 'invoice_number' => $invoice->number,
@@ -279,6 +324,8 @@ class InvoiceDeletionService
                 'invoice_series_name' => $invoice->series_name_snapshot,
                 'sequence_number' => $invoice->sequence_number,
                 'numbering_period_key' => $invoice->numbering_period_key,
+                'corrected_invoice_id' => $invoice->corrected_invoice_id,
+                'previous_correction_id' => $invoice->previous_correction_id,
                 'total_gross' => $invoice->total_gross,
                 'currency' => $invoice->currency,
                 'source' => $context->source->value,

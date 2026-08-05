@@ -32,7 +32,14 @@ class InvoiceController
     {
         $filters = $request->validated();
         $query = Invoice::query()
-            ->with(['series:id,name', 'order:id'])
+            ->with([
+                'series:id,name',
+                'order:id',
+                'corrections' => fn ($query) => $query
+                    ->where('status', InvoiceDocumentStatus::Issued->value)
+                    ->orderByDesc('issued_at')
+                    ->orderByDesc('id'),
+            ])
             ->where('document_type', $documentType->value)
             ->where('status', InvoiceDocumentStatus::Issued->value);
 

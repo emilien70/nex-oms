@@ -1,7 +1,8 @@
 @php
     $isProforma = $invoice->isProforma();
-    $documentLabel = $isProforma ? 'Pro formy' : 'Faktury VAT';
-    $documentName = $isProforma ? 'Pro formę' : 'fakturę';
+    $isCorrection = $invoice->isCorrection();
+    $documentLabel = $isCorrection ? 'Korekty' : ($isProforma ? 'Pro formy' : 'Faktury VAT');
+    $documentName = $isCorrection ? 'Korektę' : ($isProforma ? 'Pro formę' : 'fakturę');
 @endphp
 
 <div class="modal fade" id="{{ $modalId }}" tabindex="-1" aria-labelledby="{{ $modalId }}Label" aria-hidden="true">
@@ -16,7 +17,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Anuluj</button>
-                <form method="POST" action="{{ route('invoices.destroy', $invoice) }}" @if ($ajax ?? false) data-sales-document-form data-sales-document-delete-form @endif>
+                <form method="POST" action="{{ route('invoices.destroy', $invoice) }}" @if ($ajax ?? false) data-sales-document-form data-sales-document-delete-form @endif @if ($isCorrection) data-correction-delete-form @endif>
                     @csrf
                     @method('DELETE')
                     <input type="hidden" name="expected_lock_version" value="{{ $invoice->lock_version }}">

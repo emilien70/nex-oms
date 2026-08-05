@@ -347,7 +347,7 @@ Order hasMany Invoices
 
 Nie dodawaj pojedynczego `invoice_id` do tabeli `orders`.
 
-Relacja `hasMany` obsługuje różne typy dokumentów. Jedno zamówienie może posiadać najwyżej jedną istniejącą fakturę VAT oraz jedną bieżącą logiczną Pro formę z jednym stanem i niezmiennym numerem. Jedna faktura VAT może posiadać wiele kolejnych Korekt tworzących liniowy łańcuch.
+Relacja `hasMany` obsługuje różne typy dokumentów. Jedno zamówienie może posiadać najwyżej jedną istniejącą Fakturę VAT, jedną bieżącą logiczną Pro formę z jednym stanem i niezmiennym numerem oraz jedną Korektę. Edycja Korekty nadpisuje bieżący stan tego samego dokumentu bez zmiany numeru.
 
 ---
 
@@ -729,7 +729,7 @@ Planowane są:
 - zwroty pełne,
 - zwroty częściowe.
 
-Kolejna korekta powinna odnosić się do skutecznego stanu po wcześniejszych korektach.
+Jedno zamówienie może posiadać tylko jedną Korektę. Ponowna próba tworzenia ma prowadzić do edycji istniejącej Korekty, a zapis ma nadpisywać jej bieżące snapshoty i pozycje bez zmiany numeru, serii ani okresu numeracji.
 
 Po wystawieniu korekty nie pozwalaj swobodnie nadpisywać danych finansowych dokumentu źródłowego.
 
@@ -1052,7 +1052,7 @@ Etap 1C.3 rozbudowuje wyłącznie formularz serii typu `correction` o:
 - szablon `additional_information_template` z nierozwiązanym tokenem `[uwagi_sprzedawcy]`,
 - wspólne ustawienia przyszłego wydruku.
 
-Dane prawne sprzedawcy, rachunek bankowy i logo korekty będą pochodziły ze snapshotu dokumentu źródłowego, dlatego nie są edytowane w serii korekt. Powód korekty jest tylko wartością domyślną przyszłego dokumentu i zostanie zapisany jako snapshot po wystawieniu korekty. Korekta pozostaje osobnym dokumentem powiązanym z fakturą źródłową, obowiązkowo pokaże wartości przed zmianą, po zmianie i różnicę. Korekta łańcuchowa będzie odnosiła się do skutecznego stanu po wcześniejszych korektach. Etap nie tworzy korekt, faktur, pozycji dokumentów, liczników, PDF, JPK ani KSeF. Formularz Pro formy został rozbudowany w Etapie 1C.4. Nie ma paragonów.
+Dane prawne sprzedawcy, rachunek bankowy i logo korekty będą pochodziły ze snapshotu dokumentu źródłowego, dlatego nie są edytowane w serii korekt. Powód korekty jest tylko wartością domyślną przyszłego dokumentu i zostanie zapisany jako snapshot po wystawieniu korekty. Korekta pozostaje osobnym dokumentem powiązanym z fakturą źródłową, obowiązkowo pokaże wartości przed zmianą, po zmianie i różnicę. Jedno zamówienie może posiadać jedną Korektę z jednym bieżącym stanem. Etap nie tworzy korekt, faktur, pozycji dokumentów, liczników, PDF, JPK ani KSeF. Formularz Pro formy został rozbudowany w Etapie 1C.4. Nie ma paragonów.
 
 ---
 
@@ -1090,13 +1090,7 @@ InvoiceItemType
 
 Jedna tabela `invoices` przechowuje typy `invoice`, `proforma` i `correction`. Dokumenty oraz ich pozycje przechowują własne snapshoty i nie są automatycznie synchronizowane z aktualnym zamówieniem, pozycją zamówienia ani konfiguracją serii. Nie ma `orders.invoice_id`; relacją pozostaje `Order hasMany Invoices`.
 
-Model danych obsługuje liniowy łańcuch Korekt:
-
-- każda Korekta wskazuje pierwotną Fakturę przez `corrected_invoice_id`,
-- druga i kolejne Korekty wskazują bezpośrednio poprzednią Korektę przez `previous_correction_id`,
-- pozycje Korekt mogą przechowywać snapshoty stanu przed, po i różnicy,
-- jedna Faktura może posiadać wiele kolejnych Korekt,
-- skuteczny stan po Korektach nie jest jeszcze obliczany.
+Model danych przechowuje powiązanie Korekty z Fakturą przez `corrected_invoice_id` oraz historyczne nullable `previous_correction_id`. Aktualna reguła domenowa wymaga `previous_correction_id = null` i dopuszcza tylko jedną Korektę na zamówienie. Pozycje Korekty przechowują snapshoty stanu przed, po i różnicy.
 
 Pro forma posiada pola `source_snapshot_hash` i `last_refreshed_at`. Serwis utrzymuje jedną logiczną Pro formę zamówienia z jednym bieżącym stanem i niezmiennym numerem. Etap 2A nie odświeża jeszcze Pro formy.
 
@@ -1155,7 +1149,7 @@ Etap 2B nie implementuje:
 - PDF, automatyzacji, JPK, OSS ani KSeF,
 - kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru.
 
-Przyszły serwis usuwania może cofnąć wyłącznie wolny koniec numeracji i nigdy poniżej `protected_floor_sequence_number`. Zmiana `issue_date` nie przenosi automatycznie ponumerowanego dokumentu do innego okresu. Pierwsze utworzenie logicznej Pro formy zużywa jeden numer, odświeżenie zachowa ten numer, a każda Korekta zużywa osobny numer własnej serii. KSeF pozostaje planowany w trybach `send` i `exclude`.
+Serwis usuwania może cofnąć wyłącznie wolny koniec numeracji i nigdy poniżej `protected_floor_sequence_number`. Zmiana `issue_date` nie przenosi automatycznie ponumerowanego dokumentu do innego okresu. Pierwsze utworzenie logicznej Pro formy zużywa jeden numer, odświeżenie zachowuje ten numer, a jedyna Korekta zamówienia zużywa jeden numer własnej serii i zachowuje go podczas edycji. KSeF pozostaje planowany w trybach `send` i `exclude`.
 
 ---
 
@@ -1292,10 +1286,11 @@ Stan AJAX zamówienia przekazuje `fields.currency`. Istniejący mechanizm synchr
 Etap 2F wdraża centralne wystawianie Korekt do istniejącej Faktury VAT:
 
 - `CorrectionService` jako jedyne wejście domenowe,
-- `CorrectionSourceStateService` ustalający skuteczny stan po poprzednich Korektach,
+- `CorrectionSourceStateService` odczytujący stan Faktury źródłowej i weryfikujący spójność jedynej Korekty,
 - `CorrectionSeriesResolver` wybierający aktywną serię Korekt,
-- własny numer i serię każdej Korekty,
-- liniowy łańcuch przez `corrected_invoice_id` i `previous_correction_id`,
+- własny numer i serię Korekty,
+- jeden slot typu `correction` na zamówienie,
+- powiązanie z Fakturą przez `corrected_invoice_id` przy `previous_correction_id = null`,
 - snapshoty pozycji przed zmianą, po zmianie i różnicy,
 - korektę danych Nabywcy,
 - zamkniętą listę powodów z możliwością podania innego powodu,
@@ -1303,6 +1298,6 @@ Etap 2F wdraża centralne wystawianie Korekt do istniejącej Faktury VAT:
 - zdarzenie zamówienia `correction_issued`,
 - prywatny PDF generowany przez istniejący renderer Korekty.
 
-Operacja jest transakcyjna. Brak rzeczywistej zmiany, niekompletny stan źródłowy, błędny łańcuch albo niewłaściwa seria nie mogą zużyć numeru ani pozostawić częściowych danych. Kolejna Korekta korzysta ze stanu „po” poprzedniej Korekty, a Faktura źródłowa i wcześniejsze Korekty nie są nadpisywane.
+Operacja jest transakcyjna. Brak rzeczywistej zmiany, niekompletny stan źródłowy, druga Korekta, niespójny slot albo niewłaściwa seria nie mogą zużyć numeru ani pozostawić częściowych danych. Faktura źródłowa nie jest nadpisywana. Ponowna ścieżka tworzenia kieruje do edycji istniejącej Korekty, której zapis nadpisuje bieżące snapshoty i pozycje bez zmiany numeru.
 
-Etap 2F nie obejmuje edycji ani usuwania Korekt, korekt walutowych z przeliczeniem NBP, automatyzacji, JPK, KSeF ani dokumentów zewnętrznych.
+Edycja i usuwanie Korekty zostały dodane później. Korekty walutowe z przeliczeniem NBP, automatyzacje, JPK, KSeF i dokumenty zewnętrzne pozostają poza zakresem Etapu 2F.
