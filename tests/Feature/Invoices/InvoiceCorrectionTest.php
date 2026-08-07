@@ -57,7 +57,10 @@ class InvoiceCorrectionTest extends TestCase
             ->assertSee('Pierwszy Nabywca')
             ->assertSee('Drugi Nabywca')
             ->assertSee(route('invoices.pdf', $first), false)
-            ->assertSee(route('invoices.corrections.edit', $first), false)
+            ->assertSee(route('invoices.corrections.edit', [
+                'correction' => $first,
+                'return_to' => 'corrections',
+            ]), false)
             ->assertSee(route('invoices.destroy', $first), false)
             ->assertSee(route('invoices.corrections.bulk-pdf'), false)
             ->assertSee(route('invoices.corrections.bulk-delete'), false)
@@ -182,6 +185,33 @@ class InvoiceCorrectionTest extends TestCase
             'document_type' => InvoiceDocumentType::Correction->value,
             'invoice_id' => $correction->getKey(),
         ]);
+    }
+
+    public function test_correction_editor_returns_to_the_correction_list_when_opened_from_that_list(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $invoice,
+            $this->systemCorrectionSeries(),
+            'Nabywca po korekcie',
+        );
+
+        $this->get(route('invoices.corrections.edit', [
+            'correction' => $correction,
+            'return_to' => 'corrections',
+        ]))
+            ->assertOk()
+            ->assertSee(
+                'data-correction-back-button href="'.route('invoices.corrections.index').'"',
+                false,
+            );
+
+        $this->get(route('invoices.corrections.edit', $correction))
+            ->assertOk()
+            ->assertSee(
+                'data-correction-back-button href="'.route('invoices.pdf', $correction).'"',
+                false,
+            );
     }
 
     public function test_create_route_redirects_to_the_existing_correction_editor(): void

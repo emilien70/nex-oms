@@ -10,6 +10,9 @@
         $changeItems = (bool) old('change_items', $defaultChangeItems);
         $changeBuyer = (bool) old('change_buyer', $defaultChangeBuyer);
         $selectedReason = old('reason', $defaults['reason']);
+        $backUrl = $isEditing && request('return_to') === 'corrections'
+            ? route('invoices.corrections.index')
+            : ($isEditing ? route('invoices.pdf', $correction) : route('invoices.edit', $sourceInvoice));
     @endphp
 
     <style>
@@ -98,10 +101,10 @@
                     <button class="btn" type="button" disabled title="Wgrywanie dokumentów nie jest jeszcze dostępne." aria-label="Wgrywanie dokumentów nie jest jeszcze dostępne"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
                     <button class="btn" type="button" disabled title="Integracja KSeF nie jest jeszcze dostępna." aria-label="Integracja KSeF nie jest jeszcze dostępna"><i class="bi bi-eraser-fill me-1"></i>Przekaż do KSeF</button>
                     <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#correctionDeleteModal" title="Usuń Korektę" aria-label="Usuń Korektę"><i class="bi bi-trash me-1"></i>Usuń</button>
-                    <a class="btn" href="{{ route('invoices.pdf', $correction) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
+                    <a class="btn" data-correction-back-button href="{{ $backUrl }}"><i class="bi bi-reply me-1"></i>Powrót</a>
                 </div>
             @else
-                <a class="btn btn-outline-secondary rounded-pill" href="{{ route('invoices.edit', $sourceInvoice) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
+                <a class="btn btn-outline-secondary rounded-pill" data-correction-back-button href="{{ $backUrl }}"><i class="bi bi-reply me-1"></i>Powrót</a>
             @endif
         </header>
 

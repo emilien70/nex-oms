@@ -472,6 +472,9 @@
                                         ? 'Do Pro Forma została już wystawiona Faktura VAT.'
                                         : null;
                                 $currentCorrection = $isInvoiceList ? $invoice->corrections->first() : null;
+                                $documentEditRouteParameters = $isCorrectionList
+                                    ? ['correction' => $invoice, 'return_to' => 'corrections']
+                                    : $invoice;
                             @endphp
                             <tr>
                                 <td><input class="form-check-input" type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" form="bulkInvoicePrintForm" data-invoice-checkbox @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif aria-label="Zaznacz {{ $documentName }} {{ $invoice->number }}"></td>
@@ -503,7 +506,7 @@
                                     <div class="invoice-action-group">
                                         <a class="invoice-icon-button" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Drukuj {{ $documentName }}" aria-label="Drukuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
                                         @if ($documentEditRouteName !== null)
-                                            <a class="invoice-icon-button" href="{{ route($documentEditRouteName, $invoice) }}" title="Edytuj {{ $documentName }}" aria-label="Edytuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+                                            <a class="invoice-icon-button" href="{{ route($documentEditRouteName, $documentEditRouteParameters) }}" title="Edytuj {{ $documentName }}" aria-label="Edytuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
                                         @endif
                                         <form method="POST" action="{{ route('invoices.destroy', $invoice) }}" data-invoice-delete-form data-confirm-message="Czy na pewno chcesz usunąć {{ $documentName }} {{ $invoice->number }}?" @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif>
                                             @csrf
