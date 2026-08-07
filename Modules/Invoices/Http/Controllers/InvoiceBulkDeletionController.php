@@ -7,6 +7,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Log;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Http\Requests\CorrectionBulkDeleteRequest;
 use Modules\Invoices\Http\Requests\InvoiceBulkDeleteRequest;
 use Modules\Invoices\Http\Requests\ProformaBulkDeleteRequest;
 use Modules\Invoices\Services\InvoiceDeletionService;
@@ -41,6 +42,19 @@ class InvoiceBulkDeletionController extends Controller
         );
     }
 
+    public function corrections(
+        CorrectionBulkDeleteRequest $request,
+        InvoiceDeletionService $deletion,
+        InvoiceOperationContextFactory $contextFactory,
+    ): RedirectResponse {
+        return $this->delete(
+            $request,
+            $deletion,
+            $contextFactory,
+            InvoiceDocumentType::Correction,
+        );
+    }
+
     private function delete(
         InvoiceBulkDeleteRequest $request,
         InvoiceDeletionService $deletion,
@@ -64,17 +78,23 @@ class InvoiceBulkDeletionController extends Controller
 
             return back()->with(
                 'success',
-                $documentType === InvoiceDocumentType::Proforma
-                    ? trans_choice(
+                match ($documentType) {
+                    InvoiceDocumentType::Proforma => trans_choice(
                         '{1} Usunięto :count Pro formę.|[2,4] Usunięto :count Pro formy.|[5,*] Usunięto :count Pro form.',
                         $deletedCount,
                         ['count' => $deletedCount],
-                    )
-                    : trans_choice(
+                    ),
+                    InvoiceDocumentType::Correction => trans_choice(
+                        '{1} Usunięto :count Korektę.|[2,4] Usunięto :count Korekty.|[5,*] Usunięto :count Korekt.',
+                        $deletedCount,
+                        ['count' => $deletedCount],
+                    ),
+                    InvoiceDocumentType::Invoice => trans_choice(
                         '{1} Usunięto :count Fakturę.|[2,4] Usunięto :count Faktury.|[5,*] Usunięto :count Faktur.',
                         $deletedCount,
                         ['count' => $deletedCount],
                     ),
+                },
             );
         } catch (InvoiceDomainException $exception) {
             return back()->withErrors(['invoice_ids' => $exception->getMessage()]);
@@ -86,9 +106,11 @@ class InvoiceBulkDeletionController extends Controller
             ]);
 
             return back()->withErrors([
-                'invoice_ids' => $documentType === InvoiceDocumentType::Proforma
-                    ? 'Nie udało się usunąć zaznaczonych Pro form. Spróbuj ponownie.'
-                    : 'Nie udało się usunąć zaznaczonych Faktur. Spróbuj ponownie.',
+                'invoice_ids' => match ($documentType) {
+                    InvoiceDocumentType::Proforma => 'Nie udało się usunąć zaznaczonych Pro form. Spróbuj ponownie.',
+                    InvoiceDocumentType::Correction => 'Nie udało się usunąć zaznaczonych Korekt. Spróbuj ponownie.',
+                    InvoiceDocumentType::Invoice => 'Nie udało się usunąć zaznaczonych Faktur. Spróbuj ponownie.',
+                },
             ]);
         }
     }

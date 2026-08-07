@@ -20,8 +20,6 @@
         $listRoute = route($listRouteName);
         $bulkPdfRoute = route($bulkPdfRouteName);
         $bulkDeleteRoute = route($bulkDeleteRouteName);
-        $documentName = $isInvoiceList ? 'fakturę' : 'Pro formę';
-        $documentNamePlural = $isInvoiceList ? 'faktur' : 'Pro form';
     @endphp
 
     <style>
@@ -405,12 +403,12 @@
                 <div id="invoiceAdvancedFilters" class="collapse {{ $advancedOpen ? 'show' : '' }}">
                     <div class="invoice-advanced-panel">
                         <div class="invoice-advanced-grid">
-                            <div class="invoice-filter-field"><label for="invoice_full_number">{{ $isInvoiceList ? 'Pełny numer faktury' : 'Pełny numer Pro formy' }}</label><input id="invoice_full_number" class="form-control form-control-sm" name="full_number" value="{{ $filterValue('full_number') }}"></div>
+                            <div class="invoice-filter-field"><label for="invoice_full_number">{{ $fullNumberLabel }}</label><input id="invoice_full_number" class="form-control form-control-sm" name="full_number" value="{{ $filterValue('full_number') }}"></div>
                             <div class="invoice-filter-field"><label for="invoice_buyer">Nabywca</label><input id="invoice_buyer" class="form-control form-control-sm" name="buyer" value="{{ $filterValue('buyer') }}"></div>
                             <div class="invoice-filter-field"><label for="invoice_company">Firma</label><input id="invoice_company" class="form-control form-control-sm" name="company" value="{{ $filterValue('company') }}"></div>
                             <div class="invoice-filter-field"><label for="invoice_tax_id">NIP</label><input id="invoice_tax_id" class="form-control form-control-sm" name="tax_id" value="{{ $filterValue('tax_id') }}"></div>
                             <div class="invoice-filter-field"><label for="invoice_order_id">ID zamówienia</label><input id="invoice_order_id" class="form-control form-control-sm" type="number" min="1" name="order_id" value="{{ $filterValue('order_id') }}"></div>
-                            <div class="invoice-filter-field"><label>Łączna cena</label><div class="invoice-range"><input class="form-control form-control-sm" type="number" step="0.01" min="0" name="total_from" value="{{ $filterValue('total_from') }}" aria-label="Łączna cena od"><input class="form-control form-control-sm" type="number" step="0.01" min="0" name="total_to" value="{{ $filterValue('total_to') }}" aria-label="Łączna cena do"></div></div>
+                            <div class="invoice-filter-field"><label>Łączna cena</label><div class="invoice-range"><input class="form-control form-control-sm" type="number" step="0.01" @if (! $isCorrectionList) min="0" @endif name="total_from" value="{{ $filterValue('total_from') }}" aria-label="Łączna cena od"><input class="form-control form-control-sm" type="number" step="0.01" @if (! $isCorrectionList) min="0" @endif name="total_to" value="{{ $filterValue('total_to') }}" aria-label="Łączna cena do"></div></div>
                             <div class="invoice-filter-field"><label>Data wystawienia</label><div class="invoice-range"><input class="form-control form-control-sm" type="date" name="issue_from" value="{{ $filterValue('issue_from') }}" aria-label="Data wystawienia od"><input class="form-control form-control-sm" type="date" name="issue_to" value="{{ $filterValue('issue_to') }}" aria-label="Data wystawienia do"></div></div>
                             <div class="invoice-filter-field"><label>Data sprzedaży</label><div class="invoice-range"><input class="form-control form-control-sm" type="date" name="sale_from" value="{{ $filterValue('sale_from') }}" aria-label="Data sprzedaży od"><input class="form-control form-control-sm" type="date" name="sale_to" value="{{ $filterValue('sale_to') }}" aria-label="Data sprzedaży do"></div></div>
                             <div class="invoice-filter-field"><label for="invoice_source">Źródło zamówienia</label><select id="invoice_source" class="form-select form-select-sm" name="source"><option value="">Dowolne</option><option value="manual" @selected($filterValue('source') === 'manual')>Ręczne</option><option value="allegro" @selected($filterValue('source') === 'allegro')>Allegro</option><option value="prestashop" @selected($filterValue('source') === 'prestashop')>PrestaShop</option></select></div>
@@ -469,7 +467,7 @@
                                 $buyer = $invoice->buyer_snapshot ?? [];
                                 $buyerName = $buyer['company_name'] ?? $buyer['name'] ?? $invoice->buyer_name_snapshot ?? '—';
                                 $orderNumber = $invoice->order_id ?? $invoice->order_reference_snapshot;
-                                $deleteBlockedMessage = ! $isInvoiceList
+                                $deleteBlockedMessage = $isProformaList
                                     && ($invoice->proforma_superseded_at !== null || $invoice->superseded_by_invoice_id !== null)
                                         ? 'Do Pro Forma została już wystawiona Faktura VAT.'
                                         : null;
@@ -504,14 +502,14 @@
                                 <td>
                                     <div class="invoice-action-group">
                                         <a class="invoice-icon-button" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Drukuj {{ $documentName }}" aria-label="Drukuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
-                                        @if ($isInvoiceList)
-                                            <a class="invoice-icon-button" href="{{ route('invoices.edit', $invoice) }}" title="Edytuj fakturę" aria-label="Edytuj fakturę {{ $invoice->number }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+                                        @if ($documentEditRouteName !== null)
+                                            <a class="invoice-icon-button" href="{{ route($documentEditRouteName, $invoice) }}" title="Edytuj {{ $documentName }}" aria-label="Edytuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
                                         @endif
                                         <form method="POST" action="{{ route('invoices.destroy', $invoice) }}" data-invoice-delete-form data-confirm-message="Czy na pewno chcesz usunąć {{ $documentName }} {{ $invoice->number }}?" @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif>
                                             @csrf
                                             @method('DELETE')
                                             <input type="hidden" name="expected_lock_version" value="{{ $invoice->lock_version }}">
-                                            <input type="hidden" name="return_to" value="{{ $isInvoiceList ? 'invoices' : 'proformas' }}">
+                                            <input type="hidden" name="return_to" value="{{ $returnTo }}">
                                             <button class="invoice-icon-button is-delete" type="submit" title="Usuń {{ $documentName }}" aria-label="Usuń {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
                                         </form>
                                     </div>
@@ -534,7 +532,7 @@
                         <i class="bi bi-printer" aria-hidden="true"></i>
                         DRUKUJ ZAZNACZONE
                     </button>
-                    @if ($isInvoiceList)
+                    @if ($showSalesRegisterAction)
                         <button
                             class="btn btn-sm btn-outline-secondary"
                             type="button"
@@ -566,7 +564,7 @@
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">SORTOWANIE</button>
                         <div class="dropdown-menu invoice-sort-menu">
                             <div class="invoice-sort-heading">Sortuj według</div>
-                            @foreach (['number' => $isInvoiceList ? 'Numer faktury' : 'Numer Pro formy', 'order' => 'ID zamówienia', 'issue_date' => 'Data wystawienia', 'buyer' => 'Nabywca', 'gross' => 'Suma brutto'] as $sort => $label)
+                            @foreach (['number' => $numberSortLabel, 'order' => 'ID zamówienia', 'issue_date' => 'Data wystawienia', 'buyer' => 'Nabywca', 'gross' => 'Suma brutto'] as $sort => $label)
                                 <a class="dropdown-item {{ $filterValue('sort', 'number') === $sort ? 'active' : '' }}" href="{{ $sortUrl($sort, $filterValue('direction', 'desc')) }}">{{ $label }}</a>
                             @endforeach
                             <div class="dropdown-divider"></div>

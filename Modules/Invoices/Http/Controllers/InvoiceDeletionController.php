@@ -50,6 +50,12 @@ class InvoiceDeletionController extends Controller
                     ->with('success', 'Pro forma została usunięta.');
             }
 
+            if ($request->validated('return_to') === 'corrections') {
+                return redirect()
+                    ->route('invoices.corrections.index')
+                    ->with('success', 'Korekta została usunięta.');
+            }
+
             return redirect()->route('orders.show', $order);
         } catch (InvoiceDomainException $exception) {
             if ($request->expectsJson()) {

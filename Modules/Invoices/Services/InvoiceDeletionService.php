@@ -88,9 +88,11 @@ class InvoiceDeletionService
                 if ($references->count() !== count($invoiceIds)) {
                     throw new InvoiceDomainException(
                         'invoice_bulk_delete_missing_document',
-                        $documentType === InvoiceDocumentType::Proforma
-                            ? 'Jedna z zaznaczonych Pro form już nie istnieje.'
-                            : 'Jedna z zaznaczonych Faktur już nie istnieje.',
+                        match ($documentType) {
+                            InvoiceDocumentType::Invoice => 'Jedna z zaznaczonych Faktur już nie istnieje.',
+                            InvoiceDocumentType::Proforma => 'Jedna z zaznaczonych Pro form już nie istnieje.',
+                            InvoiceDocumentType::Correction => 'Jedna z zaznaczonych Korekt już nie istnieje.',
+                        },
                     );
                 }
 
@@ -99,9 +101,11 @@ class InvoiceDeletionService
                 )) {
                     throw new InvoiceDomainException(
                         'invoice_bulk_delete_wrong_document_type',
-                        $documentType === InvoiceDocumentType::Proforma
-                            ? 'Zaznaczone dokumenty muszą być Pro formami.'
-                            : 'Zaznaczone dokumenty muszą być Fakturami VAT.',
+                        match ($documentType) {
+                            InvoiceDocumentType::Invoice => 'Zaznaczone dokumenty muszą być Fakturami VAT.',
+                            InvoiceDocumentType::Proforma => 'Zaznaczone dokumenty muszą być Pro formami.',
+                            InvoiceDocumentType::Correction => 'Zaznaczone dokumenty muszą być Korektami.',
+                        },
                     );
                 }
 
@@ -177,9 +181,11 @@ class InvoiceDeletionService
         } catch (DomainException $exception) {
             throw new InvoiceDomainException(
                 'invoice_delete_numbering_inconsistent',
-                $documentType === InvoiceDocumentType::Proforma
-                    ? 'Nie można usunąć Pro form, ponieważ wykryto niespójność numeracji.'
-                    : 'Nie można usunąć Faktur, ponieważ wykryto niespójność numeracji.',
+                match ($documentType) {
+                    InvoiceDocumentType::Invoice => 'Nie można usunąć Faktur, ponieważ wykryto niespójność numeracji.',
+                    InvoiceDocumentType::Proforma => 'Nie można usunąć Pro form, ponieważ wykryto niespójność numeracji.',
+                    InvoiceDocumentType::Correction => 'Nie można usunąć Korekt, ponieważ wykryto niespójność numeracji.',
+                },
                 ['reason' => $exception->getMessage()],
                 $exception,
             );

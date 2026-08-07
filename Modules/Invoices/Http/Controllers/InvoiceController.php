@@ -28,6 +28,11 @@ class InvoiceController
         return $this->documentList($request, InvoiceDocumentType::Proforma);
     }
 
+    public function corrections(InvoiceIndexRequest $request): View
+    {
+        return $this->documentList($request, InvoiceDocumentType::Correction);
+    }
+
     private function documentList(InvoiceIndexRequest $request, InvoiceDocumentType $documentType): View
     {
         $filters = $request->validated();
@@ -75,6 +80,10 @@ class InvoiceController
             ->orderBy('currency')
             ->pluck('currency');
 
+        $isInvoiceList = $documentType === InvoiceDocumentType::Invoice;
+        $isProformaList = $documentType === InvoiceDocumentType::Proforma;
+        $isCorrectionList = $documentType === InvoiceDocumentType::Correction;
+
         return view('invoices.index', [
             'invoices' => $invoices,
             'series' => $series,
@@ -88,12 +97,61 @@ class InvoiceController
             ],
             'perPage' => $perPage,
             'perPageOptions' => [25, 50, 75, 100, 150, 200, 300, 500, 1000],
-            'isInvoiceList' => $documentType === InvoiceDocumentType::Invoice,
-            'pageTitle' => $documentType === InvoiceDocumentType::Invoice ? 'Faktury' : 'Faktury pro forma',
-            'listRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.index' : 'invoices.proformas.index',
-            'bulkPdfRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.bulk-pdf' : 'invoices.proformas.bulk-pdf',
-            'bulkDeleteRouteName' => $documentType === InvoiceDocumentType::Invoice ? 'invoices.bulk-delete' : 'invoices.proformas.bulk-delete',
-            'correctionSeries' => $documentType === InvoiceDocumentType::Invoice
+            'isInvoiceList' => $isInvoiceList,
+            'isProformaList' => $isProformaList,
+            'isCorrectionList' => $isCorrectionList,
+            'pageTitle' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'Faktury',
+                InvoiceDocumentType::Proforma => 'Faktury pro forma',
+                InvoiceDocumentType::Correction => 'Korekty',
+            },
+            'listRouteName' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'invoices.index',
+                InvoiceDocumentType::Proforma => 'invoices.proformas.index',
+                InvoiceDocumentType::Correction => 'invoices.corrections.index',
+            },
+            'bulkPdfRouteName' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'invoices.bulk-pdf',
+                InvoiceDocumentType::Proforma => 'invoices.proformas.bulk-pdf',
+                InvoiceDocumentType::Correction => 'invoices.corrections.bulk-pdf',
+            },
+            'bulkDeleteRouteName' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'invoices.bulk-delete',
+                InvoiceDocumentType::Proforma => 'invoices.proformas.bulk-delete',
+                InvoiceDocumentType::Correction => 'invoices.corrections.bulk-delete',
+            },
+            'documentName' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'fakturę',
+                InvoiceDocumentType::Proforma => 'Pro formę',
+                InvoiceDocumentType::Correction => 'Korektę',
+            },
+            'documentNamePlural' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'faktur',
+                InvoiceDocumentType::Proforma => 'Pro form',
+                InvoiceDocumentType::Correction => 'Korekt',
+            },
+            'fullNumberLabel' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'Pełny numer faktury',
+                InvoiceDocumentType::Proforma => 'Pełny numer Pro formy',
+                InvoiceDocumentType::Correction => 'Pełny numer Korekty',
+            },
+            'numberSortLabel' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'Numer faktury',
+                InvoiceDocumentType::Proforma => 'Numer Pro formy',
+                InvoiceDocumentType::Correction => 'Numer Korekty',
+            },
+            'documentEditRouteName' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'invoices.edit',
+                InvoiceDocumentType::Correction => 'invoices.corrections.edit',
+                InvoiceDocumentType::Proforma => null,
+            },
+            'returnTo' => match ($documentType) {
+                InvoiceDocumentType::Invoice => 'invoices',
+                InvoiceDocumentType::Proforma => 'proformas',
+                InvoiceDocumentType::Correction => 'corrections',
+            },
+            'showSalesRegisterAction' => $documentType !== InvoiceDocumentType::Proforma,
+            'correctionSeries' => $isInvoiceList
                 ? $this->correctionSeries->active()
                 : collect(),
         ]);

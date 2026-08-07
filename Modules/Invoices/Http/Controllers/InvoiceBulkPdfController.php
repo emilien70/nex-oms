@@ -7,6 +7,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Response;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Http\Requests\CorrectionBulkPdfRequest;
 use Modules\Invoices\Http\Requests\InvoiceBulkPdfRequest;
 use Modules\Invoices\Http\Requests\ProformaBulkPdfRequest;
 use Modules\Invoices\Services\InvoiceBulkPdfService;
@@ -25,6 +26,13 @@ class InvoiceBulkPdfController extends Controller
         InvoiceBulkPdfService $pdfs,
     ): Response|RedirectResponse {
         return $this->response($request, $pdfs, InvoiceDocumentType::Proforma, 'proformy-zbiorcze.pdf');
+    }
+
+    public function corrections(
+        CorrectionBulkPdfRequest $request,
+        InvoiceBulkPdfService $pdfs,
+    ): Response|RedirectResponse {
+        return $this->response($request, $pdfs, InvoiceDocumentType::Correction, 'korekty-zbiorcze.pdf');
     }
 
     private function response(

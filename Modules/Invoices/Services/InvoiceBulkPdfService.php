@@ -32,9 +32,11 @@ class InvoiceBulkPdfService
             || $invoices->contains(fn (?Invoice $invoice): bool => $invoice === null
                 || $invoice->document_type !== $documentType
                 || $invoice->status !== InvoiceDocumentStatus::Issued)) {
-            $documentLabel = $documentType === InvoiceDocumentType::Invoice
-                ? 'Faktury VAT'
-                : 'Pro formy';
+            $documentLabel = match ($documentType) {
+                InvoiceDocumentType::Invoice => 'Faktury VAT',
+                InvoiceDocumentType::Proforma => 'Pro formy',
+                InvoiceDocumentType::Correction => 'Korekty',
+            };
 
             throw new InvoiceDomainException(
                 'invoice_bulk_pdf_invalid_selection',

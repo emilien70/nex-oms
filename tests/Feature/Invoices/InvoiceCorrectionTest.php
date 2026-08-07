@@ -40,6 +40,89 @@ class InvoiceCorrectionTest extends TestCase
             ->assertSeeText('Jan Kowalski');
     }
 
+    public function test_correction_tab_lists_only_issued_corrections_with_shared_document_actions(): void
+    {
+        $series = $this->systemCorrectionSeries();
+        $firstSource = $this->issuedInvoice();
+        $first = $this->issueBuyerCorrection($firstSource, $series, 'Pierwszy Nabywca');
+        $secondSource = $this->issuedInvoice();
+        $second = $this->issueBuyerCorrection($secondSource, $series, 'Drugi Nabywca', '2026-08-05 11:00:00');
+        $invoiceWithoutCorrection = $this->issuedInvoice();
+
+        $response = $this->get(route('invoices.corrections.index'));
+
+        $response->assertOk()
+            ->assertSeeInOrder([$second->number, $first->number])
+            ->assertDontSee($invoiceWithoutCorrection->number)
+            ->assertSee('Pierwszy Nabywca')
+            ->assertSee('Drugi Nabywca')
+            ->assertSee(route('invoices.pdf', $first), false)
+            ->assertSee(route('invoices.corrections.edit', $first), false)
+            ->assertSee(route('invoices.destroy', $first), false)
+            ->assertSee(route('invoices.corrections.bulk-pdf'), false)
+            ->assertSee(route('invoices.corrections.bulk-delete'), false)
+            ->assertSee('REJESTR SPRZEDAŻY')
+            ->assertSee('Pełny numer Korekty')
+            ->assertSee('Numer Korekty')
+            ->assertSee('name="return_to" value="corrections"', false);
+
+        $this->assertSame(25, $response->viewData('perPage'));
+        $this->assertSame([25, 50, 75, 100, 150, 200, 300, 500, 1000], $response->viewData('perPageOptions'));
+        $this->assertTrue($response->viewData('isCorrectionList'));
+        $this->assertFalse($response->viewData('isInvoiceList'));
+        $this->assertFalse($response->viewData('isProformaList'));
+
+        $this->get(route('invoices.corrections.index', ['buyer' => 'Pierwszy']))
+            ->assertOk()
+            ->assertSee($first->number)
+            ->assertDontSee($second->number);
+
+        $this->get(route('invoices.corrections.index', [
+            'total_from' => '-100.00',
+            'total_to' => '0.00',
+        ]))->assertOk();
+    }
+
+    public function test_correction_deleted_from_list_returns_to_correction_tab(): void
+    {
+        $source = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $source,
+            $this->systemCorrectionSeries(),
+            'Nabywca po korekcie',
+        );
+
+        $this->delete(route('invoices.destroy', $correction), [
+            'expected_lock_version' => $correction->lock_version,
+            'return_to' => 'corrections',
+        ])->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHas('success', 'Korekta została usunięta.');
+
+        $this->assertDatabaseMissing('invoices', ['id' => $correction->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $source->getKey()]);
+    }
+
+    public function test_selected_corrections_can_be_deleted_from_correction_list_atomically(): void
+    {
+        $series = $this->systemCorrectionSeries();
+        $first = $this->issueBuyerCorrection($this->issuedInvoice(), $series, 'Pierwszy Nabywca');
+        $second = $this->issueBuyerCorrection($this->issuedInvoice(), $series, 'Drugi Nabywca');
+
+        $this->from(route('invoices.corrections.index'))
+            ->delete(route('invoices.corrections.bulk-delete'), [
+                'invoice_ids' => [$first->getKey(), $second->getKey()],
+                'lock_versions' => [
+                    $first->getKey() => $first->lock_version,
+                    $second->getKey() => $second->lock_version,
+                ],
+            ])
+            ->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHas('success', 'Usunięto 2 Korekty.');
+
+        $this->assertDatabaseMissing('invoices', ['id' => $first->getKey()]);
+        $this->assertDatabaseMissing('invoices', ['id' => $second->getKey()]);
+    }
+
     public function test_issued_correction_can_be_opened_and_updated_without_changing_its_identity(): void
     {
         Storage::fake('local');
@@ -460,7 +543,10 @@ class InvoiceCorrectionTest extends TestCase
             $series,
             $this->payload($series, [
                 'change_buyer' => true,
-                'buyer' => array_merge($invoice->buyer_snapshot, ['name' => $buyerName]),
+                'buyer' => array_merge($invoice->buyer_snapshot, [
+                    'name' => $buyerName,
+                    'company_name' => null,
+                ]),
             ]),
             $this->documentContext($occurredAt),
         );

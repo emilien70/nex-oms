@@ -50,7 +50,7 @@ Wysyłam z Allegro obsługuje przesyłki. Import zamówień z Allegro i PrestaSh
 
 Moduł automatyzacji obsługuje reguły złożone ze zdarzeń, warunków i uporządkowanych kroków. Dostępne akcje obejmują między innymi zmianę statusu, utworzenie przesyłki, opóźnienie i wywołanie adresu URL metodą GET. Operacje przesyłek, synchronizacji i automatyzacji korzystają z kolejek.
 
-### Faktury — Etapy 2A–2E
+### Faktury — Etapy 2A–2F
 
 Moduł Faktur nie jest już pustym szkieletem. Aktualna implementacja obejmuje:
 
@@ -65,26 +65,27 @@ Moduł Faktur nie jest już pustym szkieletem. Aktualna implementacja obejmuje:
 - jedną istniejącą Fakturę VAT na zamówienie;
 - jedną logiczną Pro formę na zamówienie z jednym bieżącym stanem i niezmiennym numerem;
 - trwałe zablokowanie dalszego odświeżania Pro formy po wystawieniu Faktury VAT;
-- wystawianie Faktury VAT i tworzenie Pro formy z kafelka „Zarządzanie” na karcie zamówienia;
+- wystawianie Faktury VAT, tworzenie Pro formy i wystawianie jednej Korekty z poziomu dokumentu źródłowego;
 - operacje przez AJAX bez przeładowania strony, modalnego formularza ani komunikatu sukcesu;
 - zwykły przycisk dla jednej aktywnej serii i dropdown wyboru przy wielu aktywnych seriach;
 - prywatne PDF-y otwierane przez kontrolowaną trasę Laravel;
-- generowanie PDF Faktury VAT i Pro formy wyłącznie z zapisanych snapshotów;
-- listy Faktur VAT i Pro form z filtrami, sortowaniem, paginacją oraz zbiorczym drukowaniem do jednego PDF;
-- usuwanie pojedynczych i zaznaczonych Faktur VAT oraz aktywnych Pro form z ochroną dokumentów powiązanych;
+- generowanie PDF Faktury VAT, Pro formy i Korekty wyłącznie z zapisanych snapshotów;
+- listy Faktur VAT, Pro form i Korekt z filtrami, sortowaniem, paginacją oraz zbiorczym drukowaniem do jednego PDF;
+- usuwanie pojedynczych i zaznaczonych Faktur VAT, aktywnych Pro form oraz Korekt z ochroną dokumentów powiązanych;
 - sekcyjną edycję wystawionej Faktury VAT przez AJAX, bez zmiany zamówienia, serii ani liczników;
 - ręczne kopiowanie aktualnych danych kontrahenta i pozycji zamówienia do Faktury;
 - dodawanie, edycję i usuwanie pozycji Faktury z serwerowym przeliczeniem netto, VAT i brutto;
 - techniczną ochronę przed równoległym nadpisaniem Faktury przez niewidoczne `lock_version`;
 - blokadę edycji Faktury posiadającej Korektę i ochronę numeru, serii, waluty oraz okresu numeracji;
 - jeden bieżący cache PDF każdego dokumentu, odtwarzany z aktualnych snapshotów po zmianie;
-- renderer PDF Korekty dla kompletnego, istniejącego rekordu Korekty;
+- formularz wystawiania i edycji jednej bieżącej Korekty bez zmiany jej numeru i tożsamości;
+- prywatny renderer PDF Korekty pokazujący stan przed zmianą, po zmianie i różnicę;
 - kraj Nabywcy w formacie takim jak `32-545 Psary, Polska`;
 - PDF bez stopki „Wygenerowano w...” i bez ujawniania ścieżki prywatnego storage.
 
-Renderer PDF Korekty jest gotowy, ale wystawianie Korekt i ich interfejs nie są jeszcze wdrożone. Dostępne są listy Faktur VAT i Pro form; lista Korekt oraz rejestr sprzedaży nie są jeszcze dostępne.
+Korekty są dokumentami księgowymi. Mają własną zakładkę i wspólne operacje listy dokumentów; właściwy rejestr sprzedaży, obejmujący Faktury VAT oraz Korekty, pozostaje zakresem kolejnego etapu.
 
-Edycja z Etapu 2E dotyczy wyłącznie wystawionej Faktury VAT bez Korekt. Pro formy i Korekty nie są edytowane tym mechanizmem. Zmiany tekstowe Faktury walutowej nie kontaktują się z NBP, zmiany kwot używają zapisanego kursu, a nowy kurs jest pobierany tylko wtedy, gdy zmiana daty modyfikuje datę odniesienia. System nie przechowuje poprzednich stanów dokumentów ani archiwalnych PDF-ów. Dokumenty zewnętrzne, e-mail, JPK i KSeF pozostają niewdrożone.
+Edycja Faktury VAT jest dostępna wyłącznie bez Korekty. Korekta posiada własny formularz edycji bieżących snapshotów i pozycji; nie zmienia przy tym numeru, serii ani okresu numeracji. Zmiany tekstowe Faktury walutowej nie kontaktują się z NBP, zmiany kwot używają zapisanego kursu, a nowy kurs jest pobierany tylko wtedy, gdy zmiana daty modyfikuje datę odniesienia. System nie przechowuje poprzednich stanów dokumentów ani archiwalnych PDF-ów. Dokumenty zewnętrzne, e-mail, rejestr sprzedaży, JPK i KSeF pozostają niewdrożone.
 
 ## Zasady dokumentów
 
@@ -227,8 +228,7 @@ Testy używają SQLite `:memory:` i synchronicznej kolejki. Nie należy uruchami
 
 ## Funkcje jeszcze niewdrożone
 
-- wystawianie Korekt i ich interfejs użytkownika;
-- lista Korekt oraz rejestr sprzedaży;
+- rejestr sprzedaży uwzględniający Faktury VAT i Korekty;
 - generowanie duplikatów;
 - wysyłka dokumentów e-mailem;
 - załączniki i zewnętrzne pliki PDF;

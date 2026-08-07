@@ -1431,7 +1431,7 @@ Istniejące przyciski `WYSTAW FAKTURĘ` i `PRO FORMA` w kafelku „Zarządzanie�
 
 Dla jednej aktywnej serii działa zwykły przycisk, a przy wielu seriach pojawia się dropdown z nazwą i formatem. Po utworzeniu Pro formy jej numer otwiera aktualny prywatny PDF w nowej karcie. W UI nie ma technicznego numeru stanu ani ręcznego odświeżania Pro formy. Po wystawieniu Faktury przycisk zostaje zastąpiony jej numerem, a akcja i numer Pro formy są całkowicie ukryte.
 
-PDF jest generowany na żądanie przez TCPDF z `Invoice` i `InvoiceItem`, bez odczytywania aktualnego zamówienia, serii lub użytkownika. Faktura VAT i Pro forma odwzorowują przyjęte wzory A4; renderer dla istniejącego rekordu typu `correction` obsługuje kompletne snapshoty „Było”, „Powinno być” i różnicy, ale samo wystawianie Korekt nadal nie istnieje. Pliki są prywatne, zapisywane atomowo i zwracane inline. Każdy dokument posiada jeden bieżący plik cache zależny od wersji layoutu. Żaden wariant nie pokazuje stopki generatora ani numeru strony.
+PDF jest generowany na żądanie przez TCPDF z `Invoice` i `InvoiceItem`, bez odczytywania aktualnego zamówienia, serii lub użytkownika. Faktura VAT i Pro forma odwzorowują przyjęte wzory A4; renderer dokumentu typu `correction` obsługuje kompletne snapshoty „Było”, „Powinno być” i różnicy. Wystawianie i edycja Korekt zostały wdrożone w Etapie 2F. Pliki są prywatne, zapisywane atomowo i zwracane inline. Każdy dokument posiada jeden bieżący plik cache zależny od wersji layoutu. Żaden wariant nie pokazuje stopki generatora ani numeru strony.
 
 Pozycja przesyłki jest tworzona również dla kosztu `0.00`, jeśli metoda dostawy jest znana i seria uwzględnia wysyłkę. Faktura zapisuje snapshot istniejącej Pro formy w `order_snapshot.related_documents.proforma`.
 
@@ -1460,6 +1460,8 @@ Korekta otrzymuje własną aktywną serię, numer i daty oraz jest od razu wysta
 Pozycje Korekty zapisują kompletne snapshoty stanu przed zmianą, po zmianie i różnicy. Obliczenia netto, VAT i brutto korzystają z centralnej arytmetyki dziesiętnej, a brak rzeczywistej zmiany kończy operację kontrolowanym błędem bez zużycia numeru. Każda udana operacja zapisuje zdarzenie `correction_issued` w historii zamówienia.
 
 PDF Korekty jest generowany z zapisanych snapshotów przez istniejący prywatny renderer. Wystawiona Korekta może być edytowana przez nadpisanie jej bieżącego stanu bez zmiany numeru oraz usunięta przy użyciu wspólnego, transakcyjnego mechanizmu usuwania dokumentów. Usunięcie obejmuje pozycje, slot, prywatny cache PDF, zdarzenie zamówienia i ewentualne cofnięcie wolnego końca licznika. Korekty walutowe z przeliczeniem NBP, automatyzacje, JPK i KSeF pozostają poza zakresem.
+
+Zakładka `Korekty` udostępnia listę wystawionych Korekt z filtrowaniem, sortowaniem, paginacją, podglądem PDF, przejściem do edycji oraz usuwaniem pojedynczym i zbiorczym. Zaznaczone Korekty można wydrukować w jednym zbiorczym PDF. Korekta jest dokumentem księgowym i zostanie ujęta razem z Fakturami VAT w rejestrze sprzedaży wdrażanym w Etapie 3A; obecny przycisk rejestru jest wyłącznie nieaktywną zapowiedzią tej funkcji.
 
 ## Dalsze etapy
 
