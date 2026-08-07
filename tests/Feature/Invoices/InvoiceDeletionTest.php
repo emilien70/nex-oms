@@ -116,11 +116,10 @@ class InvoiceDeletionTest extends TestCase
 
         $this->from(route('invoices.index'))
             ->delete(route('invoices.bulk-delete'), [
-                'invoice_ids' => [$first->getKey(), $second->getKey()],
-                'lock_versions' => [
+                'selection' => $this->deleteSelection([
                     $first->getKey() => $first->lock_version,
                     $second->getKey() => $second->lock_version,
-                ],
+                ]),
             ])
             ->assertRedirect(route('invoices.index'))
             ->assertSessionHas('success', 'Usunięto 2 Faktury.');
@@ -129,6 +128,91 @@ class InvoiceDeletionTest extends TestCase
         $this->assertDatabaseMissing('invoices', ['id' => $second->getKey()]);
         $this->assertDatabaseCount('order_document_slots', 0);
         $this->assertSame(0, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+    }
+
+    public function test_bulk_deletion_rejects_invalid_json_and_lock_versions(): void
+    {
+        $invoice = $this->issueForNewOrder($this->createDocumentSeries());
+
+        foreach ([
+            '{invalid',
+            '[]',
+            $this->deleteSelection([$invoice->getKey() => null]),
+            $this->deleteSelection([$invoice->getKey() => 0]),
+        ] as $selection) {
+            $this->from(route('invoices.index'))
+                ->delete(route('invoices.bulk-delete'), ['selection' => $selection])
+                ->assertRedirect(route('invoices.index'))
+                ->assertSessionHasErrors();
+        }
+
+        $this->assertDatabaseHas('invoices', ['id' => $invoice->getKey()]);
+    }
+
+    public function test_bulk_deletion_rejects_missing_document(): void
+    {
+        $this->from(route('invoices.index'))
+            ->delete(route('invoices.bulk-delete'), [
+                'selection' => $this->deleteSelection([999999 => 1]),
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors([
+                'invoice_ids' => 'Jedna z zaznaczonych Faktur już nie istnieje.',
+            ]);
+    }
+
+    public function test_each_bulk_deletion_endpoint_rejects_more_than_one_thousand_documents(): void
+    {
+        $selection = $this->deleteSelection(array_fill_keys(range(1, 1001), 1));
+
+        foreach ([
+            [route('invoices.index'), route('invoices.bulk-delete'), 'Jednorazowo można usunąć maksymalnie 1000 Faktur.'],
+            [route('invoices.proformas.index'), route('invoices.proformas.bulk-delete'), 'Jednorazowo można usunąć maksymalnie 1000 Pro form.'],
+            [route('invoices.corrections.index'), route('invoices.corrections.bulk-delete'), 'Jednorazowo można usunąć maksymalnie 1000 Korekt.'],
+        ] as [$from, $route, $message]) {
+            $this->from($from)
+                ->delete($route, ['selection' => $selection])
+                ->assertRedirect($from)
+                ->assertSessionHasErrors(['invoice_ids' => $message]);
+        }
+    }
+
+    public function test_bulk_deletion_cannot_be_bypassed_with_legacy_fields(): void
+    {
+        $invoice = $this->issueForNewOrder($this->createDocumentSeries());
+
+        $this->from(route('invoices.index'))
+            ->delete(route('invoices.bulk-delete'), [
+                'selection' => '[]',
+                'invoice_ids' => [$invoice->getKey()],
+                'lock_versions' => [$invoice->getKey() => $invoice->lock_version],
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors('invoice_ids');
+
+        $this->assertDatabaseHas('invoices', ['id' => $invoice->getKey()]);
+    }
+
+    public function test_bulk_deletion_with_stale_lock_version_is_atomic(): void
+    {
+        $series = $this->createDocumentSeries();
+        $first = $this->issueForNewOrder($series);
+        $second = $this->issueForNewOrder($series);
+
+        $this->from(route('invoices.index'))
+            ->delete(route('invoices.bulk-delete'), [
+                'selection' => $this->deleteSelection([
+                    $first->getKey() => $first->lock_version,
+                    $second->getKey() => $second->lock_version + 1,
+                ]),
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors('invoice_ids');
+
+        $this->assertDatabaseHas('invoices', ['id' => $first->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $second->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $first->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $second->getKey()]);
     }
 
     public function test_bulk_deletion_keeps_every_selected_invoice_when_one_is_blocked(): void
@@ -147,11 +231,10 @@ class InvoiceDeletionTest extends TestCase
 
         $this->from(route('invoices.index'))
             ->delete(route('invoices.bulk-delete'), [
-                'invoice_ids' => [$deletable->getKey(), $blocked->getKey()],
-                'lock_versions' => [
+                'selection' => $this->deleteSelection([
                     $deletable->getKey() => $deletable->lock_version,
                     $blocked->getKey() => $blocked->lock_version,
-                ],
+                ]),
             ])
             ->assertRedirect(route('invoices.index'))
             ->assertSessionHasErrors([
@@ -173,11 +256,10 @@ class InvoiceDeletionTest extends TestCase
 
         $this->from(route('invoices.proformas.index'))
             ->delete(route('invoices.proformas.bulk-delete'), [
-                'invoice_ids' => [$first->getKey(), $second->getKey()],
-                'lock_versions' => [
+                'selection' => $this->deleteSelection([
                     $first->getKey() => $first->lock_version,
                     $second->getKey() => $second->lock_version,
-                ],
+                ]),
             ])
             ->assertRedirect(route('invoices.proformas.index'))
             ->assertSessionHas('success', 'Usunięto 2 Pro formy.');
@@ -197,11 +279,10 @@ class InvoiceDeletionTest extends TestCase
 
         $this->from(route('invoices.proformas.index'))
             ->delete(route('invoices.proformas.bulk-delete'), [
-                'invoice_ids' => [$proforma->getKey(), $invoice->getKey()],
-                'lock_versions' => [
+                'selection' => $this->deleteSelection([
                     $proforma->getKey() => $proforma->lock_version,
                     $invoice->getKey() => $invoice->lock_version,
-                ],
+                ]),
             ])
             ->assertRedirect(route('invoices.proformas.index'))
             ->assertSessionHasErrors([
@@ -524,5 +605,11 @@ class InvoiceDeletionTest extends TestCase
         return app(ProformaService::class)
             ->createOrRefresh($order, $series, $this->documentContext())
             ->invoice;
+    }
+
+    /** @param array<int, mixed> $lockVersions */
+    private function deleteSelection(array $lockVersions): string
+    {
+        return json_encode((object) $lockVersions, JSON_THROW_ON_ERROR);
     }
 }

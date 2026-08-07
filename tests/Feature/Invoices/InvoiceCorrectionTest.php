@@ -75,6 +75,15 @@ class InvoiceCorrectionTest extends TestCase
         $this->assertFalse($response->viewData('isInvoiceList'));
         $this->assertFalse($response->viewData('isProformaList'));
 
+        $html = $response->getContent();
+        $this->assertStringContainsString('id="bulkInvoicePrintForm"', $html);
+        $this->assertStringContainsString('id="bulkInvoiceDeleteForm"', $html);
+        $this->assertStringContainsString('data-invoice-id="'.$first->getKey().'"', $html);
+        $this->assertStringContainsString('data-lock-version="'.$first->lock_version.'"', $html);
+        $this->assertSame(2, substr_count($html, 'name="selection"'));
+        $this->assertStringNotContainsString('name="invoice_ids[]"', $html);
+        $this->assertStringNotContainsString('name="lock_versions[', $html);
+
         $this->get(route('invoices.corrections.index', ['buyer' => 'Pierwszy']))
             ->assertOk()
             ->assertSee($first->number)
@@ -113,11 +122,10 @@ class InvoiceCorrectionTest extends TestCase
 
         $this->from(route('invoices.corrections.index'))
             ->delete(route('invoices.corrections.bulk-delete'), [
-                'invoice_ids' => [$first->getKey(), $second->getKey()],
-                'lock_versions' => [
+                'selection' => json_encode((object) [
                     $first->getKey() => $first->lock_version,
                     $second->getKey() => $second->lock_version,
-                ],
+                ], JSON_THROW_ON_ERROR),
             ])
             ->assertRedirect(route('invoices.corrections.index'))
             ->assertSessionHas('success', 'Usunięto 2 Korekty.');

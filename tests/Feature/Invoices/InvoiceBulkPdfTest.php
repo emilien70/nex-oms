@@ -39,7 +39,7 @@ class InvoiceBulkPdfTest extends TestCase
         );
 
         $response = $this->post(route('invoices.bulk-pdf'), [
-            'invoice_ids' => [$second->getKey(), $first->getKey()],
+            'selection' => $this->printSelection([$second->getKey(), $first->getKey()]),
         ]);
 
         $response->assertOk()
@@ -53,6 +53,67 @@ class InvoiceBulkPdfTest extends TestCase
     {
         $this->from(route('invoices.index'))
             ->post(route('invoices.bulk-pdf'), [])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors('selection');
+    }
+
+    public function test_bulk_pdf_rejects_empty_malformed_and_wrong_json_shapes(): void
+    {
+        foreach (['[]', '{invalid', '{"1":1}', '"1"'] as $selection) {
+            $this->from(route('invoices.index'))
+                ->post(route('invoices.bulk-pdf'), ['selection' => $selection])
+                ->assertRedirect(route('invoices.index'))
+                ->assertSessionHasErrors();
+        }
+    }
+
+    public function test_bulk_pdf_rejects_invalid_and_duplicate_invoice_ids(): void
+    {
+        foreach ([['1'], [0], [-1], [1, 1]] as $invoiceIds) {
+            $this->from(route('invoices.index'))
+                ->post(route('invoices.bulk-pdf'), [
+                    'selection' => $this->printSelection($invoiceIds),
+                ])
+                ->assertRedirect(route('invoices.index'))
+                ->assertSessionHasErrors();
+        }
+    }
+
+    public function test_bulk_pdf_rejects_missing_document(): void
+    {
+        $this->from(route('invoices.index'))
+            ->post(route('invoices.bulk-pdf'), [
+                'selection' => $this->printSelection([999999]),
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors([
+                'invoice_ids' => 'Jedna z zaznaczonych faktur już nie istnieje.',
+            ]);
+    }
+
+    public function test_each_bulk_pdf_endpoint_rejects_more_than_one_thousand_documents(): void
+    {
+        $selection = $this->printSelection(range(1, 1001));
+
+        foreach ([
+            [route('invoices.index'), route('invoices.bulk-pdf'), 'Jednorazowo można wydrukować maksymalnie 1000 faktur.'],
+            [route('invoices.proformas.index'), route('invoices.proformas.bulk-pdf'), 'Jednorazowo można wydrukować maksymalnie 1000 Pro form.'],
+            [route('invoices.corrections.index'), route('invoices.corrections.bulk-pdf'), 'Jednorazowo można wydrukować maksymalnie 1000 Korekt.'],
+        ] as [$from, $route, $message]) {
+            $this->from($from)
+                ->post($route, ['selection' => $selection])
+                ->assertRedirect($from)
+                ->assertSessionHasErrors(['invoice_ids' => $message]);
+        }
+    }
+
+    public function test_bulk_pdf_cannot_be_bypassed_with_legacy_invoice_fields(): void
+    {
+        $this->from(route('invoices.index'))
+            ->post(route('invoices.bulk-pdf'), [
+                'selection' => '{}',
+                'invoice_ids' => [1],
+            ])
             ->assertRedirect(route('invoices.index'))
             ->assertSessionHasErrors('invoice_ids');
     }
@@ -68,7 +129,9 @@ class InvoiceBulkPdfTest extends TestCase
         )->invoice;
 
         $this->from(route('invoices.index'))
-            ->post(route('invoices.bulk-pdf'), ['invoice_ids' => [$proforma->getKey()]])
+            ->post(route('invoices.bulk-pdf'), [
+                'selection' => $this->printSelection([$proforma->getKey()]),
+            ])
             ->assertRedirect(route('invoices.index'))
             ->assertSessionHasErrors('invoice_ids');
     }
@@ -93,7 +156,7 @@ class InvoiceBulkPdfTest extends TestCase
         )->invoice;
 
         $response = $this->post(route('invoices.proformas.bulk-pdf'), [
-            'invoice_ids' => [$second->getKey(), $first->getKey()],
+            'selection' => $this->printSelection([$second->getKey(), $first->getKey()]),
         ]);
 
         $response->assertOk()
@@ -111,7 +174,9 @@ class InvoiceBulkPdfTest extends TestCase
         );
 
         $this->from(route('invoices.proformas.index'))
-            ->post(route('invoices.proformas.bulk-pdf'), ['invoice_ids' => [$invoice->getKey()]])
+            ->post(route('invoices.proformas.bulk-pdf'), [
+                'selection' => $this->printSelection([$invoice->getKey()]),
+            ])
             ->assertRedirect(route('invoices.proformas.index'))
             ->assertSessionHasErrors('invoice_ids');
     }
@@ -125,7 +190,7 @@ class InvoiceBulkPdfTest extends TestCase
         $second = $this->issueCorrectionForBulkPdf($series, 'Druga Korekta', '2026-08-05 11:00:00');
 
         $response = $this->post(route('invoices.corrections.bulk-pdf'), [
-            'invoice_ids' => [$second->getKey(), $first->getKey()],
+            'selection' => $this->printSelection([$second->getKey(), $first->getKey()]),
         ]);
 
         $response->assertOk()
@@ -143,11 +208,19 @@ class InvoiceBulkPdfTest extends TestCase
         );
 
         $this->from(route('invoices.corrections.index'))
-            ->post(route('invoices.corrections.bulk-pdf'), ['invoice_ids' => [$invoice->getKey()]])
+            ->post(route('invoices.corrections.bulk-pdf'), [
+                'selection' => $this->printSelection([$invoice->getKey()]),
+            ])
             ->assertRedirect(route('invoices.corrections.index'))
             ->assertSessionHasErrors([
                 'invoice_ids' => 'Zbiorczy wydruk może zawierać wyłącznie wystawione Korekty.',
             ]);
+    }
+
+    /** @param array<int, mixed> $invoiceIds */
+    private function printSelection(array $invoiceIds): string
+    {
+        return json_encode($invoiceIds, JSON_THROW_ON_ERROR);
     }
 
     private function issueCorrectionForBulkPdf(

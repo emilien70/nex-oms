@@ -54,6 +54,12 @@ class InvoiceListTest extends TestCase
             ->assertSee('SORTOWANIE');
 
         $html = $response->getContent();
+        $this->assertUsesJsonBulkSelection(
+            $html,
+            $invoice,
+            route('invoices.bulk-pdf'),
+            route('invoices.bulk-delete'),
+        );
         $this->assertMatchesRegularExpression(
             '/<a\b[^>]*class="invoice-row-number"[^>]*href="'.preg_quote(route('invoices.pdf', $invoice), '/').'"[^>]*>/',
             $html,
@@ -117,6 +123,12 @@ class InvoiceListTest extends TestCase
             ->assertSee('SORTOWANIE');
 
         $html = $response->getContent();
+        $this->assertUsesJsonBulkSelection(
+            $html,
+            $first,
+            route('invoices.proformas.bulk-pdf'),
+            route('invoices.proformas.bulk-delete'),
+        );
         $this->assertMatchesRegularExpression(
             '/<form\b[^>]*action="'.preg_quote(route('invoices.destroy', $first), '/').'"[^>]*>/',
             $html,
@@ -252,13 +264,47 @@ class InvoiceListTest extends TestCase
         $this->assertSame([25, 50, 75, 100, 150, 200, 300, 500, 1000], $response->viewData('perPageOptions'));
         $this->assertStringContainsString('year=2026', $response->viewData('invoices')->nextPageUrl());
 
-        $largerPage = $this->get(route('invoices.index', ['year' => 2026, 'per_page' => 75]));
+        $largerPage = $this->get(route('invoices.index', ['year' => 2026, 'per_page' => 1000]));
         $largerPage->assertOk();
-        $this->assertSame(75, $largerPage->viewData('perPage'));
+        $this->assertSame(1000, $largerPage->viewData('perPage'));
         $this->assertCount(26, $largerPage->viewData('invoices'));
 
         $secondPage = $this->get(route('invoices.index', ['year' => 2026, 'page' => 2]));
         $secondPage->assertOk();
         $this->assertCount(1, $secondPage->viewData('invoices'));
+    }
+
+    private function assertUsesJsonBulkSelection(
+        string $html,
+        Invoice $document,
+        string $printRoute,
+        string $deleteRoute,
+    ): void {
+        $this->assertStringContainsString(
+            '<form id="bulkInvoicePrintForm" method="POST" action="'.$printRoute.'" target="_blank">',
+            $html,
+        );
+        $this->assertStringContainsString(
+            '<form id="bulkInvoiceDeleteForm" method="POST" action="'.$deleteRoute.'">',
+            $html,
+        );
+        $this->assertSame(2, substr_count($html, 'name="selection"'));
+        $this->assertStringContainsString('data-bulk-print-selection', $html);
+        $this->assertStringContainsString('data-bulk-delete-selection', $html);
+        $checkboxPattern = '/<input\b(?=[^>]*data-invoice-checkbox)'
+            .'(?=[^>]*data-invoice-id="'.preg_quote((string) $document->getKey(), '/').'")'
+            .'(?=[^>]*data-lock-version="'.preg_quote((string) $document->lock_version, '/').'")[^>]*>/';
+        $this->assertMatchesRegularExpression($checkboxPattern, $html);
+        $this->assertStringNotContainsString('name="invoice_ids[]"', $html);
+        $this->assertStringNotContainsString('name="lock_versions[', $html);
+        $this->assertStringNotContainsString('formaction=', $html);
+        $this->assertStringContainsString(
+            'const selectedCheckboxes = () => checkboxes.filter((checkbox) => checkbox.checked);',
+            $html,
+        );
+        $this->assertStringContainsString('printSelection.value = JSON.stringify(', $html);
+        $this->assertStringContainsString('deleteSelection.value = JSON.stringify(Object.fromEntries(', $html);
+        $this->assertStringNotContainsString('slice(0, 100)', $html);
+        $this->assertStringNotContainsString('selected.length > 100', $html);
     }
 }

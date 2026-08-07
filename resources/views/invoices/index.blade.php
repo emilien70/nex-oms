@@ -428,9 +428,13 @@
 
             <form id="bulkInvoicePrintForm" method="POST" action="{{ $bulkPdfRoute }}" target="_blank">
                 @csrf
-                @foreach ($invoices as $invoice)
-                    <input type="hidden" name="lock_versions[{{ $invoice->id }}]" value="{{ $invoice->lock_version }}">
-                @endforeach
+                <input type="hidden" name="selection" value="[]" data-bulk-print-selection>
+            </form>
+
+            <form id="bulkInvoiceDeleteForm" method="POST" action="{{ $bulkDeleteRoute }}">
+                @csrf
+                @method('DELETE')
+                <input type="hidden" name="selection" value="{}" data-bulk-delete-selection>
             </form>
 
             <div class="table-responsive">
@@ -479,7 +483,7 @@
                                 };
                             @endphp
                             <tr>
-                                <td><input class="form-check-input" type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" form="bulkInvoicePrintForm" data-invoice-checkbox @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif aria-label="Zaznacz {{ $documentName }} {{ $invoice->number }}"></td>
+                                <td><input class="form-check-input" type="checkbox" data-invoice-checkbox data-invoice-id="{{ $invoice->id }}" data-lock-version="{{ $invoice->lock_version }}" @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif aria-label="Zaznacz {{ $documentName }} {{ $invoice->number }}"></td>
                                 <td><a class="invoice-row-number" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Otwórz PDF {{ $documentName }}">{{ $invoice->number }}</a></td>
                                 <td>
                                     @if ($invoice->order)
@@ -553,12 +557,7 @@
                     <button
                         class="btn btn-sm btn-outline-secondary"
                         type="submit"
-                        form="bulkInvoicePrintForm"
-                        formaction="{{ $bulkDeleteRoute }}"
-                        formmethod="POST"
-                        formtarget="_self"
-                        name="_method"
-                        value="DELETE"
+                        form="bulkInvoiceDeleteForm"
                         data-bulk-delete
                         disabled
                     >
@@ -607,6 +606,9 @@
             const deleteButton = document.querySelector('[data-bulk-delete]');
             const status = document.querySelector('[data-selection-status]');
             const printForm = document.getElementById('bulkInvoicePrintForm');
+            const deleteForm = document.getElementById('bulkInvoiceDeleteForm');
+            const printSelection = printForm?.querySelector('[data-bulk-print-selection]');
+            const deleteSelection = deleteForm?.querySelector('[data-bulk-delete-selection]');
             const documentNamePlural = @json($documentNamePlural);
 
             const showDeleteBlockedMessage = (message) => {
@@ -649,6 +651,8 @@
                 updateSelection();
             };
 
+            const selectedCheckboxes = () => checkboxes.filter((checkbox) => checkbox.checked);
+
             selectAll?.addEventListener('change', () => setAll(selectAll.checked));
             selectAllButton?.addEventListener('click', () => setAll(!checkboxes.every((checkbox) => checkbox.checked)));
             checkboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelection));
@@ -667,29 +671,50 @@
                 });
             });
             printForm?.addEventListener('submit', (event) => {
-                if (!checkboxes.some((checkbox) => checkbox.checked)) {
+                const selected = selectedCheckboxes();
+
+                if (selected.length === 0) {
                     event.preventDefault();
                     window.alert(`Zaznacz co najmniej jedną pozycję z listy ${documentNamePlural}.`);
 
                     return;
                 }
 
-                if (event.submitter?.matches('[data-bulk-delete]')) {
-                    const blockedCheckbox = checkboxes.find(
-                        (checkbox) => checkbox.checked && checkbox.dataset.deleteBlockedMessage
-                    );
+                printSelection.value = JSON.stringify(
+                    selected.map((checkbox) => Number.parseInt(checkbox.dataset.invoiceId, 10))
+                );
+            });
+            deleteForm?.addEventListener('submit', (event) => {
+                const selected = selectedCheckboxes();
 
-                    if (blockedCheckbox) {
-                        event.preventDefault();
-                        showDeleteBlockedMessage(blockedCheckbox.dataset.deleteBlockedMessage);
+                if (selected.length === 0) {
+                    event.preventDefault();
+                    window.alert(`Zaznacz co najmniej jedną pozycję z listy ${documentNamePlural}.`);
 
-                        return;
-                    }
-
-                    if (!window.confirm(`Czy na pewno chcesz usunąć zaznaczone ${documentNamePlural}?`)) {
-                        event.preventDefault();
-                    }
+                    return;
                 }
+
+                const blockedCheckbox = selected.find((checkbox) => checkbox.dataset.deleteBlockedMessage);
+
+                if (blockedCheckbox) {
+                    event.preventDefault();
+                    showDeleteBlockedMessage(blockedCheckbox.dataset.deleteBlockedMessage);
+
+                    return;
+                }
+
+                if (!window.confirm(`Czy na pewno chcesz usunąć zaznaczone ${documentNamePlural}?`)) {
+                    event.preventDefault();
+
+                    return;
+                }
+
+                deleteSelection.value = JSON.stringify(Object.fromEntries(
+                    selected.map((checkbox) => [
+                        checkbox.dataset.invoiceId,
+                        Number.parseInt(checkbox.dataset.lockVersion, 10),
+                    ])
+                ));
             });
             updateSelection();
         });
