@@ -3,6 +3,12 @@
 @section('title', 'Edycja faktury '.$invoice->number.' - NEX-OMS')
 
 @section('content')
+    @php
+        $backUrl = request('return_to') === 'invoices'
+            ? route('invoices.index')
+            : route('orders.show', $order);
+    @endphp
+
     <style>
         .invoice-edit-page { margin: -1.5rem; padding: 20px; background: #f4f6f8; min-height: 100vh; color: #374151; font-size: 13px; }
         .invoice-edit-card { background: #fff; border: 1px solid #dfe4ea; border-radius: 7px; box-shadow: 0 1px 3px rgba(15,23,42,.07); margin-bottom: 14px; }
@@ -115,7 +121,7 @@
                     <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#invoiceEditCorrectionSeriesModal" data-correction-url="{{ route('invoices.corrections.create', $invoice) }}" aria-label="Wystaw Korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</button>
                 @endif
                 <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#deleteInvoiceFromEditModal" aria-label="Usuń Fakturę"><i class="bi bi-trash me-1"></i>Usuń</button>
-                <a class="btn" href="{{ route('orders.show', $order) }}"><i class="bi bi-reply me-1"></i>Powrót</a>
+                <a class="btn" href="{{ $backUrl }}" data-invoice-back-button><i class="bi bi-reply me-1"></i>Powrót</a>
             </div>
         </div>
 

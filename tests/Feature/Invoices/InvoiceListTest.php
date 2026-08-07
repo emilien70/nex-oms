@@ -40,7 +40,10 @@ class InvoiceListTest extends TestCase
             ->assertSee($invoice->number)
             ->assertDontSee($proforma->number)
             ->assertSee(route('invoices.pdf', $invoice), false)
-            ->assertSee(route('invoices.edit', $invoice), false)
+            ->assertSee(route('invoices.edit', [
+                'invoice' => $invoice,
+                'return_to' => 'invoices',
+            ]), false)
             ->assertSee(route('invoices.destroy', $invoice), false)
             ->assertSee(route('invoices.bulk-pdf'), false)
             ->assertSee(route('invoices.bulk-delete'), false)

@@ -65,6 +65,12 @@ class InvoiceEditingTest extends TestCase
             ->assertDontSee('bi-file-earmark-pdf', false)
             ->assertSee(route('invoices.pdf', $invoice), false);
 
+        $this->get(route('invoices.edit', $invoice))
+            ->assertSee(
+                'href="'.route('orders.show', $invoice->order).'" data-invoice-back-button',
+                false,
+            );
+
         $this->assertMatchesRegularExpression(
             '/data-invoice-item-row=.*?data-bs-target="#invoiceItemEdit\d+".*?<tr class="collapse invoice-item-editor-row"/s',
             $this->get(route('invoices.edit', $invoice))->getContent(),
@@ -73,6 +79,21 @@ class InvoiceEditingTest extends TestCase
         $this->get(route('orders.show', $invoice->order))
             ->assertOk()
             ->assertSee(route('invoices.edit', $invoice), false);
+    }
+
+    public function test_invoice_editor_returns_to_invoice_list_when_opened_from_that_list(): void
+    {
+        $invoice = $this->issueInvoice();
+
+        $this->get(route('invoices.edit', [
+            'invoice' => $invoice,
+            'return_to' => 'invoices',
+        ]))
+            ->assertOk()
+            ->assertSee(
+                'href="'.route('invoices.index').'" data-invoice-back-button',
+                false,
+            );
     }
 
     public function test_only_consistent_issued_invoice_vat_without_corrections_is_editable(): void
@@ -169,6 +190,16 @@ class InvoiceEditingTest extends TestCase
             ->assertSee('invoice-edit-blocked-correction-link', false)
             ->assertDontSee('data-invoice-edit-page', false)
             ->assertDontSee('invoice-buyer-form', false);
+
+        $this->get(route('invoices.edit', [
+            'invoice' => $invoice,
+            'return_to' => 'invoices',
+        ]))
+            ->assertOk()
+            ->assertSee(
+                'href="'.route('invoices.index').'" data-invoice-back-button',
+                false,
+            );
     }
 
     public function test_buyer_is_edited_only_in_snapshot_and_does_not_create_edit_event(): void

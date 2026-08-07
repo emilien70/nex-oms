@@ -3,6 +3,13 @@
 @section('title', 'Edycja faktury '.$invoice->number.' - NEX-OMS')
 
 @section('content')
+    @php
+        $backToInvoiceList = request('return_to') === 'invoices';
+        $backUrl = $backToInvoiceList
+            ? route('invoices.index')
+            : route('orders.show', $invoice->order_id);
+    @endphp
+
     <style>
         .invoice-edit-blocked-page {
             background: #f4f6f8;
@@ -77,8 +84,8 @@
     <main class="invoice-edit-blocked-page" data-invoice-edit-blocked>
         <div class="invoice-edit-blocked-header">
             <h1 class="invoice-edit-blocked-title">Faktura VAT {{ $invoice->number }}</h1>
-            <a class="btn btn-outline-secondary" href="{{ route('orders.show', $invoice->order_id) }}">
-                <i class="bi bi-reply me-1" aria-hidden="true"></i>Powrót do zamówienia
+            <a class="btn btn-outline-secondary" href="{{ $backUrl }}" data-invoice-back-button>
+                <i class="bi bi-reply me-1" aria-hidden="true"></i>{{ $backToInvoiceList ? 'Powrót' : 'Powrót do zamówienia' }}
             </a>
         </div>
 

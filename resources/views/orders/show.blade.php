@@ -328,6 +328,11 @@
             margin-top: 8px;
         }
 
+        .management-correction-label,
+        .management-issued-correction-actions {
+            margin-top: -4px;
+        }
+
         .management-issued-invoice-group {
             box-shadow: none;
         }
@@ -367,9 +372,9 @@
         }
 
         .management-issued-invoice-icon {
-            flex: 0 0 34px;
+            flex: 0 0 26px;
             padding: 0 !important;
-            width: 34px;
+            width: 26px;
         }
 
         .management-issued-invoice-icon i {
@@ -2050,6 +2055,29 @@
         document.addEventListener('DOMContentLoaded', () => {
             let activeSection = null;
 
+            const syncSalesDocumentNumberWidths = (root = document) => {
+                const container = root.matches?.('[data-sales-document-actions]')
+                    ? root
+                    : root.querySelector?.('[data-sales-document-actions]');
+                const numberButtons = Array.from(container?.querySelectorAll('[data-sales-document-number]') || []);
+
+                numberButtons.forEach((button) => button.style.removeProperty('min-width'));
+
+                if (numberButtons.length < 2) {
+                    return;
+                }
+
+                const widestButton = Math.ceil(Math.max(...numberButtons.map((button) => button.getBoundingClientRect().width)));
+
+                numberButtons.forEach((button) => {
+                    button.style.minWidth = `${widestButton}px`;
+                });
+            };
+
+            syncSalesDocumentNumberWidths();
+            window.addEventListener('load', () => syncSalesDocumentNumberWidths());
+            document.fonts?.ready.then(() => syncSalesDocumentNumberWidths());
+
             const closeSection = (section) => {
                 if (!section) {
                     return;
@@ -3192,6 +3220,7 @@
                     closeDeleteModal();
 
                     container.replaceWith(replacement);
+                    syncSalesDocumentNumberWidths(replacement);
 
                     if (openDocumentAfterSubmit) {
                         if (documentWindow) {

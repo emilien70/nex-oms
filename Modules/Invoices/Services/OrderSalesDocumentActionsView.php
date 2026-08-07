@@ -15,6 +15,7 @@ class OrderSalesDocumentActionsView
      * @return array{
      *     issuedInvoice: ?Invoice,
      *     issuedProforma: ?Invoice,
+     *     issuedCorrection: ?Invoice,
      *     proformaLocked: bool,
      *     invoiceSeries: Collection<int, InvoiceSeries>,
      *     proformaSeries: Collection<int, InvoiceSeries>
@@ -28,6 +29,7 @@ class OrderSalesDocumentActionsView
             ->whereIn('document_type', [
                 InvoiceDocumentType::Invoice,
                 InvoiceDocumentType::Proforma,
+                InvoiceDocumentType::Correction,
             ])
             ->get()
             ->keyBy(fn (Invoice $invoice): string => $invoice->document_type->value);
@@ -47,6 +49,7 @@ class OrderSalesDocumentActionsView
         return [
             'issuedInvoice' => $documents->get(InvoiceDocumentType::Invoice->value),
             'issuedProforma' => $documents->get(InvoiceDocumentType::Proforma->value),
+            'issuedCorrection' => $documents->get(InvoiceDocumentType::Correction->value),
             'proformaLocked' => (bool) $documents
                 ->get(InvoiceDocumentType::Proforma->value)
                 ?->isProformaSuperseded(),

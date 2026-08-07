@@ -472,9 +472,11 @@
                                         ? 'Do Pro Forma została już wystawiona Faktura VAT.'
                                         : null;
                                 $currentCorrection = $isInvoiceList ? $invoice->corrections->first() : null;
-                                $documentEditRouteParameters = $isCorrectionList
-                                    ? ['correction' => $invoice, 'return_to' => 'corrections']
-                                    : $invoice;
+                                $documentEditRouteParameters = match (true) {
+                                    $isCorrectionList => ['correction' => $invoice, 'return_to' => 'corrections'],
+                                    $isInvoiceList => ['invoice' => $invoice, 'return_to' => 'invoices'],
+                                    default => $invoice,
+                                };
                             @endphp
                             <tr>
                                 <td><input class="form-check-input" type="checkbox" name="invoice_ids[]" value="{{ $invoice->id }}" form="bulkInvoicePrintForm" data-invoice-checkbox @if ($deleteBlockedMessage) data-delete-blocked-message="{{ $deleteBlockedMessage }}" @endif aria-label="Zaznacz {{ $documentName }} {{ $invoice->number }}"></td>

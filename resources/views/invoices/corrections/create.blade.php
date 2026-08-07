@@ -10,9 +10,12 @@
         $changeItems = (bool) old('change_items', $defaultChangeItems);
         $changeBuyer = (bool) old('change_buyer', $defaultChangeBuyer);
         $selectedReason = old('reason', $defaults['reason']);
-        $backUrl = $isEditing && request('return_to') === 'corrections'
-            ? route('invoices.corrections.index')
-            : ($isEditing ? route('invoices.pdf', $correction) : route('invoices.edit', $sourceInvoice));
+        $backUrl = match (true) {
+            $isEditing && request('return_to') === 'corrections' => route('invoices.corrections.index'),
+            $isEditing && request('return_to') === 'order' => route('orders.show', $order),
+            $isEditing => route('invoices.pdf', $correction),
+            default => route('invoices.edit', $sourceInvoice),
+        };
     @endphp
 
     <style>

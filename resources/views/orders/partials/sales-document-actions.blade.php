@@ -1,6 +1,7 @@
 @php
     $issuedInvoice = $salesDocumentActions['issuedInvoice'];
     $issuedProforma = $salesDocumentActions['issuedProforma'];
+    $issuedCorrection = $salesDocumentActions['issuedCorrection'];
     $proformaLocked = $salesDocumentActions['proformaLocked'];
     $invoiceSeries = $salesDocumentActions['invoiceSeries'];
     $proformaSeries = $salesDocumentActions['proformaSeries'];
@@ -13,7 +14,7 @@
     @if ($issuedInvoice)
         <div class="management-issued-invoice-actions">
             <div class="btn-group management-issued-invoice-group" role="group" aria-label="Akcje Faktury VAT {{ $issuedInvoice->number }}">
-                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-number" href="{{ route('invoices.pdf', $issuedInvoice) }}" target="_blank" rel="noopener" title="Otwórz Fakturę VAT">
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-number" href="{{ route('invoices.pdf', $issuedInvoice) }}" target="_blank" rel="noopener" title="Otwórz Fakturę VAT" data-sales-document-number>
                     <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
                     <span>{{ $issuedInvoice->number }}</span>
                 </a>
@@ -107,5 +108,34 @@
         @elseif (! $proformaLocked)
             <button class="btn btn-sm btn-outline-secondary management-proforma-button" type="button" disabled>PRO FORMA</button>
         @endif
+    @endif
+
+    @if ($issuedCorrection)
+        <div class="management-invoice-label management-correction-label">Korekta:</div>
+        <div class="management-issued-invoice-actions management-issued-correction-actions">
+            <div class="btn-group management-issued-invoice-group" role="group" aria-label="Akcje Korekty {{ $issuedCorrection->number }}">
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-number" href="{{ route('invoices.pdf', $issuedCorrection) }}" target="_blank" rel="noopener" title="Otw&oacute;rz Korekt&#281;" data-sales-document-number>
+                    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                    <span>{{ $issuedCorrection->number }}</span>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print" href="{{ route('invoices.pdf', $issuedCorrection) }}" target="_blank" rel="noopener" title="Drukuj Korekt&#281;" aria-label="Drukuj Korekt&#281;">
+                    <i class="bi bi-printer" aria-hidden="true"></i>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.corrections.edit', ['correction' => $issuedCorrection, 'return_to' => 'order']) }}" title="Edytuj Korekt&#281;" aria-label="Edytuj Korekt&#281;">
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                </a>
+                <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" data-bs-toggle="modal" data-bs-target="#deleteCorrectionFromOrderModal" title="Usu&#324; Korekt&#281;" aria-label="Usu&#324; Korekt&#281;">
+                    <i class="bi bi-x-lg" aria-hidden="true"></i>
+                </button>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-attachment" type="button" title="Wgrywanie dokumentu nie jest jeszcze dost&#281;pne" aria-label="Wgrywanie dokumentu nie jest jeszcze dost&#281;pne" disabled>
+                <i class="bi bi-paperclip" aria-hidden="true"></i>
+            </button>
+        </div>
+        @include('invoices.partials.delete-modal', [
+            'invoice' => $issuedCorrection,
+            'modalId' => 'deleteCorrectionFromOrderModal',
+            'ajax' => true,
+        ])
     @endif
 </div>

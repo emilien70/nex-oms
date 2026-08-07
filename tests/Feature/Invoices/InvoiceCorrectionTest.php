@@ -214,6 +214,26 @@ class InvoiceCorrectionTest extends TestCase
             );
     }
 
+    public function test_correction_editor_returns_to_the_order_when_opened_from_the_order(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $invoice,
+            $this->systemCorrectionSeries(),
+            'Nabywca po korekcie',
+        );
+
+        $this->get(route('invoices.corrections.edit', [
+            'correction' => $correction,
+            'return_to' => 'order',
+        ]))
+            ->assertOk()
+            ->assertSee(
+                'data-correction-back-button href="'.route('orders.show', $invoice->order_id).'"',
+                false,
+            );
+    }
+
     public function test_create_route_redirects_to_the_existing_correction_editor(): void
     {
         $invoice = $this->issuedInvoice();
