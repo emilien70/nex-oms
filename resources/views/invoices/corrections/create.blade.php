@@ -10,12 +10,9 @@
         $changeItems = (bool) old('change_items', $defaultChangeItems);
         $changeBuyer = (bool) old('change_buyer', $defaultChangeBuyer);
         $selectedReason = old('reason', $defaults['reason']);
-        $backUrl = match (true) {
-            $isEditing && request('return_to') === 'corrections' => route('invoices.corrections.index'),
-            $isEditing && request('return_to') === 'order' => route('orders.show', $order),
-            $isEditing => route('invoices.pdf', $correction),
-            default => route('invoices.edit', $sourceInvoice),
-        };
+        $backUrl = $isEditing
+            ? $returnContext->url($order)
+            : route('invoices.edit', ['invoice' => $sourceInvoice, ...$returnContext->parameters()]);
     @endphp
 
     <style>
@@ -125,11 +122,16 @@
                 'invoice' => $correction,
                 'modalId' => 'correctionDeleteModal',
                 'ajax' => false,
+                'returnContext' => $returnContext,
             ])
         @endif
 
         <form method="POST" action="{{ $isEditing ? route('invoices.corrections.update', $correction) : route('invoices.corrections.store', $sourceInvoice) }}" data-correction-form>
             @csrf
+            @if ($returnContext->parameters() !== [])
+                <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+            @endif
             @if ($isEditing)
                 @method('PATCH')
                 <input type="hidden" name="expected_lock_version" value="{{ $correction->lock_version }}">
@@ -267,7 +269,7 @@
 
             <div class="correction-page-actions">
                 <button class="btn btn-primary rounded-pill px-4" type="submit">{{ $isEditing ? 'Zapisz' : 'Stwórz korektę' }}</button>
-                <a class="btn btn-outline-secondary rounded-pill px-4" href="{{ $isEditing ? route('invoices.pdf', $correction) : route('invoices.edit', $sourceInvoice) }}">Anuluj</a>
+                <a class="btn btn-outline-secondary rounded-pill px-4" href="{{ $backUrl }}">Anuluj</a>
             </div>
         </form>
     </main>
@@ -371,7 +373,7 @@
             });
             @if (! $isEditing)
                 document.querySelector('[data-correction-series]')?.addEventListener('change', (event) => {
-                    const url = new URL(@json(route('invoices.corrections.create', $sourceInvoice)), window.location.origin);
+                    const url = new URL(@json(route('invoices.corrections.create', ['invoice' => $sourceInvoice, ...$returnContext->parameters()])), window.location.origin);
                     url.searchParams.set('series_id', event.target.value);
                     window.location.assign(url.toString());
                 });

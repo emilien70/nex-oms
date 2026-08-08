@@ -21,7 +21,7 @@
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print" href="{{ route('invoices.pdf', $issuedInvoice) }}" target="_blank" rel="noopener" title="Drukuj Fakturę VAT" aria-label="Drukuj Fakturę VAT">
                     <i class="bi bi-printer" aria-hidden="true"></i>
                 </a>
-                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.edit', $issuedInvoice) }}" title="Edytuj Fakturę VAT" aria-label="Edytuj Fakturę VAT">
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.edit', ['invoice' => $issuedInvoice, 'return_to' => 'order']) }}" title="Edytuj Fakturę VAT" aria-label="Edytuj Fakturę VAT">
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                 </a>
                 <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" data-bs-toggle="modal" data-bs-target="#deleteInvoiceFromOrderModal" title="Usuń Fakturę VAT" aria-label="Usuń Fakturę VAT">
@@ -36,6 +36,7 @@
             'invoice' => $issuedInvoice,
             'modalId' => 'deleteInvoiceFromOrderModal',
             'ajax' => true,
+            'returnTo' => 'order',
         ])
     @else
         @if ($invoiceSeries->count() === 1)
@@ -80,6 +81,7 @@
                 'invoice' => $issuedProforma,
                 'modalId' => 'deleteProformaFromOrderModal',
                 'ajax' => true,
+                'returnTo' => 'order',
             ])
         @elseif (! $proformaLocked && $proformaSeries->count() === 1)
             <form method="POST" action="{{ route('orders.proforma.store', $order) }}" class="management-document-action management-proforma-button" data-sales-document-form>
@@ -136,6 +138,7 @@
             'invoice' => $issuedCorrection,
             'modalId' => 'deleteCorrectionFromOrderModal',
             'ajax' => true,
+            'returnTo' => 'order',
         ])
     @endif
 </div>

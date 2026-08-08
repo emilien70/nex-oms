@@ -15,6 +15,7 @@ use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\CorrectionViewModelFactory;
 use Modules\Invoices\Services\InvoiceOperationContextFactory;
+use Modules\Invoices\Support\InvoiceReturnContext;
 
 class CorrectionController extends Controller
 {
@@ -24,17 +25,25 @@ class CorrectionController extends Controller
         CorrectionSourceStateService $sourceState,
         CorrectionViewModelFactory $viewModels,
     ): View|RedirectResponse {
+        $returnContext = InvoiceReturnContext::fromRequest($request);
+
         try {
             $currentCorrection = $sourceState->currentCorrection($invoice);
 
             if ($currentCorrection !== null) {
-                return redirect()->route('invoices.corrections.edit', $currentCorrection);
+                return redirect()->route('invoices.corrections.edit', [
+                    'correction' => $currentCorrection,
+                    ...$returnContext->parameters(),
+                ]);
             }
 
-            return view('invoices.corrections.create', $viewModels->make(
-                $invoice,
-                $request->filled('series_id') ? $request->integer('series_id') : null,
-            ));
+            return view('invoices.corrections.create', [
+                ...$viewModels->make(
+                    $invoice,
+                    $request->filled('series_id') ? $request->integer('series_id') : null,
+                ),
+                'returnContext' => $returnContext,
+            ]);
         } catch (InvoiceDomainException $exception) {
             abort(422, $exception->getMessage());
         }
@@ -46,25 +55,38 @@ class CorrectionController extends Controller
         CorrectionService $service,
         InvoiceOperationContextFactory $contexts,
     ): RedirectResponse {
+        $returnContext = InvoiceReturnContext::fromRequest($request);
+
         try {
             $series = InvoiceSeries::query()->findOrFail($request->integer('correction_series_id'));
             $correction = $service->issue($invoice, $series, $request->validated(), $contexts->manual($request));
 
-            return redirect()->route('invoices.corrections.edit', $correction);
+            return redirect()->route('invoices.corrections.edit', [
+                'correction' => $correction,
+                ...$returnContext->parameters(),
+            ]);
         } catch (InvoiceDomainException $exception) {
             if ($exception->errorCode() === 'correction_already_exists'
                 && isset($exception->metadata()['correction_id'])) {
-                return redirect()->route('invoices.corrections.edit', $exception->metadata()['correction_id']);
+                return redirect()->route('invoices.corrections.edit', [
+                    'correction' => $exception->metadata()['correction_id'],
+                    ...$returnContext->parameters(),
+                ]);
             }
 
             return back()->withInput()->withErrors(['correction' => $exception->getMessage()]);
         }
     }
 
-    public function edit(Invoice $correction, CorrectionViewModelFactory $viewModels): View
+    public function edit(Request $request, Invoice $correction, CorrectionViewModelFactory $viewModels): View
     {
+        $returnContext = InvoiceReturnContext::fromRequest($request);
+
         try {
-            return view('invoices.corrections.create', $viewModels->makeForEdit($correction));
+            return view('invoices.corrections.create', [
+                ...$viewModels->makeForEdit($correction),
+                'returnContext' => $returnContext,
+            ]);
         } catch (InvoiceDomainException $exception) {
             abort(422, $exception->getMessage());
         }
@@ -75,10 +97,15 @@ class CorrectionController extends Controller
         Invoice $correction,
         CorrectionService $service,
     ): RedirectResponse {
+        $returnContext = InvoiceReturnContext::fromRequest($request);
+
         try {
             $updated = $service->update($correction, $request->validated());
 
-            return redirect()->route('invoices.pdf', $updated);
+            return redirect()->route('invoices.corrections.edit', [
+                'correction' => $updated,
+                ...$returnContext->parameters(),
+            ]);
         } catch (InvoiceDomainException $exception) {
             return back()->withInput()->withErrors(['correction' => $exception->getMessage()]);
         }

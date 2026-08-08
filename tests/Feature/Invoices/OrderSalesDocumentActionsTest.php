@@ -105,6 +105,10 @@ class OrderSalesDocumentActionsTest extends TestCase
         $after = app(OrderSalesDocumentActionsView::class)->render($order);
 
         $this->assertStringContainsString($invoice->number, $after);
+        $this->assertStringContainsString(route('invoices.edit', [
+            'invoice' => $invoice,
+            'return_to' => 'order',
+        ]), $after);
         $this->assertStringNotContainsString($proforma->number, $after);
         $this->assertStringNotContainsString('PRO FORMA', $after);
     }

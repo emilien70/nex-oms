@@ -3,6 +3,7 @@
     $isCorrection = $invoice->isCorrection();
     $documentLabel = $isCorrection ? 'Korekty' : ($isProforma ? 'Pro formy' : 'Faktury VAT');
     $documentName = $isCorrection ? 'Korektę' : ($isProforma ? 'Pro formę' : 'fakturę');
+    $returnParameters = isset($returnContext) ? $returnContext->parameters() : [];
 @endphp
 
 <div class="modal fade" id="{{ $modalId }}" tabindex="-1" aria-labelledby="{{ $modalId }}Label" aria-hidden="true">
@@ -21,6 +22,12 @@
                     @csrf
                     @method('DELETE')
                     <input type="hidden" name="expected_lock_version" value="{{ $invoice->lock_version }}">
+                    @if ($returnParameters !== [])
+                        <input type="hidden" name="return_to" value="{{ $returnParameters['return_to'] }}">
+                        <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+                    @elseif (isset($returnTo))
+                        <input type="hidden" name="return_to" value="{{ $returnTo }}">
+                    @endif
                     <button type="submit" class="btn btn-danger">Usuń</button>
                 </form>
             </div>

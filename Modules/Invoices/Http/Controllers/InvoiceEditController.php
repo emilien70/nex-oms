@@ -4,6 +4,7 @@ namespace Modules\Invoices\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Http\Requests\UpdateInvoiceBuyerRequest;
@@ -15,16 +16,20 @@ use Modules\Invoices\Services\InvoiceEditAjaxResponder;
 use Modules\Invoices\Services\InvoiceEditCurrencyConversionService;
 use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceEditViewModelFactory;
+use Modules\Invoices\Support\InvoiceReturnContext;
 use Throwable;
 
 class InvoiceEditController extends Controller
 {
     public function edit(
+        Request $request,
         Invoice $invoice,
         InvoiceEditabilityPolicy $policy,
         InvoiceEditCurrencyConversionService $currency,
         InvoiceEditViewModelFactory $viewModels,
     ): View {
+        $returnContext = InvoiceReturnContext::fromRequest($request);
+
         try {
             $policy->assertEditable($invoice);
             $currency->assertSnapshotUsableForAnyEdit($invoice);
@@ -35,13 +40,17 @@ class InvoiceEditController extends Controller
                 return view('invoices.edit-blocked-by-correction', [
                     'invoice' => $invoice,
                     'correction' => $correction,
+                    'returnContext' => $returnContext,
                 ]);
             }
 
             abort(422, $exception->getMessage());
         }
 
-        return view('invoices.edit', $viewModels->make($invoice));
+        return view('invoices.edit', [
+            ...$viewModels->make($invoice),
+            'returnContext' => $returnContext,
+        ]);
     }
 
     public function updateBuyer(UpdateInvoiceBuyerRequest $request, Invoice $invoice, InvoiceEditService $service, InvoiceEditAjaxResponder $responder): JsonResponse

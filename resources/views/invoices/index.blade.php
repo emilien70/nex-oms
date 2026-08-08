@@ -477,8 +477,8 @@
                                         : null;
                                 $currentCorrection = $isInvoiceList ? $invoice->corrections->first() : null;
                                 $documentEditRouteParameters = match (true) {
-                                    $isCorrectionList => ['correction' => $invoice, 'return_to' => 'corrections'],
-                                    $isInvoiceList => ['invoice' => $invoice, 'return_to' => 'invoices'],
+                                    $isCorrectionList => ['correction' => $invoice, ...$returnContext->parameters()],
+                                    $isInvoiceList => ['invoice' => $invoice, ...$returnContext->parameters()],
                                     default => $invoice,
                                 };
                             @endphp
@@ -498,11 +498,11 @@
                                 @if ($isInvoiceList)
                                     <td class="text-center">
                                         @if ($currentCorrection)
-                                            <a class="invoice-correction-button" href="{{ route('invoices.corrections.edit', $currentCorrection) }}" title="Edytuj Korektę {{ $currentCorrection->number }}">KOREKTA</a>
+                                            <a class="invoice-correction-button" href="{{ route('invoices.corrections.edit', ['correction' => $currentCorrection, ...$returnContext->parameters()]) }}" title="Edytuj Korektę {{ $currentCorrection->number }}">KOREKTA</a>
                                         @elseif ($correctionSeries->isEmpty())
                                             <button class="invoice-correction-button" type="button" disabled title="Brak aktywnej serii numeracji dla Korekt">KOREKTA</button>
                                         @elseif ($correctionSeries->count() === 1)
-                                            <a class="invoice-correction-button" href="{{ route('invoices.corrections.create', ['invoice' => $invoice, 'series_id' => $correctionSeries->first()->id]) }}">KOREKTA</a>
+                                            <a class="invoice-correction-button" href="{{ route('invoices.corrections.create', ['invoice' => $invoice, 'series_id' => $correctionSeries->first()->id, ...$returnContext->parameters()]) }}">KOREKTA</a>
                                         @else
                                             <button class="invoice-correction-button" type="button" data-bs-toggle="modal" data-bs-target="#invoiceListCorrectionSeriesModal" data-correction-url="{{ route('invoices.corrections.create', $invoice) }}">KOREKTA</button>
                                         @endif
@@ -594,6 +594,7 @@
         @include('invoices.partials.correction-series-modal', [
             'correctionSeries' => $correctionSeries,
             'modalId' => 'invoiceListCorrectionSeriesModal',
+            'returnContext' => $returnContext,
         ])
     @endif
 

@@ -11,6 +11,7 @@ use Modules\Invoices\Http\Requests\InvoiceIndexRequest;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionSeriesResolver;
+use Modules\Invoices\Support\InvoiceReturnContext;
 
 class InvoiceController
 {
@@ -83,6 +84,11 @@ class InvoiceController
         $isInvoiceList = $documentType === InvoiceDocumentType::Invoice;
         $isProformaList = $documentType === InvoiceDocumentType::Proforma;
         $isCorrectionList = $documentType === InvoiceDocumentType::Correction;
+        $returnTo = match ($documentType) {
+            InvoiceDocumentType::Invoice => InvoiceReturnContext::INVOICES,
+            InvoiceDocumentType::Proforma => InvoiceReturnContext::PROFORMAS,
+            InvoiceDocumentType::Correction => InvoiceReturnContext::CORRECTIONS,
+        };
 
         return view('invoices.index', [
             'invoices' => $invoices,
@@ -145,11 +151,8 @@ class InvoiceController
                 InvoiceDocumentType::Correction => 'invoices.corrections.edit',
                 InvoiceDocumentType::Proforma => null,
             },
-            'returnTo' => match ($documentType) {
-                InvoiceDocumentType::Invoice => 'invoices',
-                InvoiceDocumentType::Proforma => 'proformas',
-                InvoiceDocumentType::Correction => 'corrections',
-            },
+            'returnTo' => $returnTo,
+            'returnContext' => InvoiceReturnContext::forList($request, $returnTo),
             'showSalesRegisterAction' => $documentType !== InvoiceDocumentType::Proforma,
             'correctionSeries' => $isInvoiceList
                 ? $this->correctionSeries->active()

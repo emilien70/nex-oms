@@ -3,11 +3,7 @@
 @section('title', 'Edycja faktury '.$invoice->number.' - NEX-OMS')
 
 @section('content')
-    @php
-        $backUrl = request('return_to') === 'invoices'
-            ? route('invoices.index')
-            : route('orders.show', $order);
-    @endphp
+    @php($backUrl = $returnContext->url($order))
 
     <style>
         .invoice-edit-page { margin: -1.5rem; padding: 20px; background: #f4f6f8; min-height: 100vh; color: #374151; font-size: 13px; }
@@ -116,7 +112,7 @@
                 @if ($correctionSeries->isEmpty())
                     <button class="btn" type="button" disabled title="Brak aktywnej serii numeracji dla Korekt" aria-label="Brak aktywnej serii numeracji dla Korekt"><i class="bi bi-eraser-fill me-1"></i>Korekta</button>
                 @elseif ($correctionSeries->count() === 1)
-                    <a class="btn" href="{{ route('invoices.corrections.create', ['invoice' => $invoice, 'series_id' => $correctionSeries->first()->id]) }}" aria-label="Wystaw Korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</a>
+                    <a class="btn" href="{{ route('invoices.corrections.create', ['invoice' => $invoice, 'series_id' => $correctionSeries->first()->id, ...$returnContext->parameters()]) }}" aria-label="Wystaw Korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</a>
                 @else
                     <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#invoiceEditCorrectionSeriesModal" data-correction-url="{{ route('invoices.corrections.create', $invoice) }}" aria-label="Wystaw Korektę"><i class="bi bi-eraser-fill me-1"></i>Korekta</button>
                 @endif
@@ -129,11 +125,13 @@
             'invoice' => $invoice,
             'modalId' => 'deleteInvoiceFromEditModal',
             'ajax' => false,
+            'returnContext' => $returnContext,
         ])
 
         @include('invoices.partials.correction-series-modal', [
             'correctionSeries' => $correctionSeries,
             'modalId' => 'invoiceEditCorrectionSeriesModal',
+            'returnContext' => $returnContext,
         ])
 
         <div data-invoice-fragment="items">@include('invoices.edit.partials.items')</div>

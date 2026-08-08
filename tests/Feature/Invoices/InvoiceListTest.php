@@ -74,6 +74,53 @@ class InvoiceListTest extends TestCase
         );
     }
 
+    public function test_invoice_list_actions_preserve_the_sanitized_list_query(): void
+    {
+        $order = $this->createDocumentOrder(['billing_name' => 'Jan Faktura']);
+        $this->createDocumentItem($order);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+        $filters = [
+            'buyer' => 'Jan',
+            'year' => 2026,
+            'sort' => 'gross',
+            'direction' => 'asc',
+            'per_page' => 100,
+            'page' => 1,
+        ];
+        $returnFilters = [
+            'page' => 1,
+            'year' => 2026,
+            'buyer' => 'Jan',
+            'sort' => 'gross',
+            'direction' => 'asc',
+            'per_page' => 100,
+        ];
+        $returnQuery = http_build_query($returnFilters, '', '&', PHP_QUERY_RFC3986);
+
+        $response = $this->get(route('invoices.index', [
+            ...$filters,
+            'unexpected' => 'remove-me',
+        ]));
+        $correctionSeries = $response->viewData('correctionSeries')->firstOrFail();
+
+        $response->assertOk()
+            ->assertSee(e(route('invoices.edit', [
+                'invoice' => $invoice,
+                'return_to' => 'invoices',
+                'return_query' => $returnQuery,
+            ])), false)
+            ->assertSee(e(route('invoices.corrections.create', [
+                'invoice' => $invoice,
+                'series_id' => $correctionSeries->getKey(),
+                'return_to' => 'invoices',
+                'return_query' => $returnQuery,
+            ])), false);
+    }
+
     public function test_proforma_tab_shows_only_issued_proformas_with_pdf_and_shared_list_controls(): void
     {
         $invoiceOrder = $this->createDocumentOrder(['billing_name' => 'Jan Faktura']);

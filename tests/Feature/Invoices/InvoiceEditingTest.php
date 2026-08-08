@@ -84,16 +84,60 @@ class InvoiceEditingTest extends TestCase
     public function test_invoice_editor_returns_to_invoice_list_when_opened_from_that_list(): void
     {
         $invoice = $this->issueInvoice();
+        $filters = [
+            'buyer' => 'Jan',
+            'year' => 2026,
+            'sort' => 'gross',
+            'direction' => 'asc',
+            'per_page' => 100,
+            'page' => 3,
+        ];
+        $returnFilters = [
+            'page' => 3,
+            'year' => 2026,
+            'buyer' => 'Jan',
+            'sort' => 'gross',
+            'direction' => 'asc',
+            'per_page' => 100,
+        ];
+        $returnQuery = http_build_query($returnFilters, '', '&', PHP_QUERY_RFC3986);
 
         $this->get(route('invoices.edit', [
             'invoice' => $invoice,
             'return_to' => 'invoices',
+            'return_query' => $returnQuery,
         ]))
             ->assertOk()
             ->assertSee(
-                'href="'.route('invoices.index').'" data-invoice-back-button',
+                'href="'.e(route('invoices.index', $returnFilters)).'" data-invoice-back-button',
                 false,
             );
+    }
+
+    public function test_invoice_editor_ignores_unsafe_return_query_values(): void
+    {
+        $invoice = $this->issueInvoice();
+        $returnQuery = http_build_query([
+            'redirect' => 'https://evil.example/foo',
+            'sort' => 'invalid',
+            'direction' => 'sideways',
+            'per_page' => 999,
+            'buyer' => 'ABC',
+            'page' => 2,
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        $response = $this->get(route('invoices.edit', [
+            'invoice' => $invoice,
+            'return_to' => 'invoices',
+            'return_query' => $returnQuery,
+        ]));
+
+        $response->assertOk()
+            ->assertSee(
+                'href="'.e(route('invoices.index', ['page' => 2, 'buyer' => 'ABC'])).'" data-invoice-back-button',
+                false,
+            )
+            ->assertDontSee('evil.example');
     }
 
     public function test_only_consistent_issued_invoice_vat_without_corrections_is_editable(): void
@@ -191,15 +235,31 @@ class InvoiceEditingTest extends TestCase
             ->assertDontSee('data-invoice-edit-page', false)
             ->assertDontSee('invoice-buyer-form', false);
 
+        $filters = [
+            'year' => 2026,
+            'page' => 2,
+        ];
+        $returnFilters = [
+            'page' => 2,
+            'year' => 2026,
+        ];
+        $returnQuery = http_build_query($returnFilters, '', '&', PHP_QUERY_RFC3986);
+
         $this->get(route('invoices.edit', [
             'invoice' => $invoice,
             'return_to' => 'invoices',
+            'return_query' => $returnQuery,
         ]))
             ->assertOk()
             ->assertSee(
-                'href="'.route('invoices.index').'" data-invoice-back-button',
+                'href="'.e(route('invoices.index', $returnFilters)).'" data-invoice-back-button',
                 false,
-            );
+            )
+            ->assertSee(e(route('invoices.corrections.edit', [
+                'correction' => $correction,
+                'return_to' => 'invoices',
+                'return_query' => $returnQuery,
+            ])), false);
     }
 
     public function test_buyer_is_edited_only_in_snapshot_and_does_not_create_edit_event(): void

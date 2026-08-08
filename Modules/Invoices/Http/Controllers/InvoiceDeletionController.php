@@ -12,6 +12,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceDeletionService;
 use Modules\Invoices\Services\InvoiceOperationContextFactory;
 use Modules\Invoices\Services\OrderSalesDocumentAjaxResponder;
+use Modules\Invoices\Support\InvoiceReturnContext;
 use Throwable;
 
 class InvoiceDeletionController extends Controller
@@ -26,6 +27,8 @@ class InvoiceDeletionController extends Controller
         $order = $invoice->order;
         $isProforma = $invoice->isProforma();
         $isCorrection = $invoice->isCorrection();
+        $returnContext = InvoiceReturnContext::fromRequest($request);
+        $returningFromEditor = $request->exists('return_query');
 
         try {
             $order = $deletion->delete(
@@ -38,25 +41,17 @@ class InvoiceDeletionController extends Controller
                 return $responder->deleted($order);
             }
 
-            if ($request->validated('return_to') === 'invoices') {
-                return redirect()
-                    ->route('invoices.index')
-                    ->with('success', 'Faktura została usunięta.');
+            $response = redirect($returnContext->url($order));
+
+            if ($returningFromEditor || ! $returnContext->isList()) {
+                return $response;
             }
 
-            if ($request->validated('return_to') === 'proformas') {
-                return redirect()
-                    ->route('invoices.proformas.index')
-                    ->with('success', 'Pro forma została usunięta.');
-            }
-
-            if ($request->validated('return_to') === 'corrections') {
-                return redirect()
-                    ->route('invoices.corrections.index')
-                    ->with('success', 'Korekta została usunięta.');
-            }
-
-            return redirect()->route('orders.show', $order);
+            return $response->with('success', match ($returnContext->returnTo()) {
+                InvoiceReturnContext::PROFORMAS => 'Pro forma została usunięta.',
+                InvoiceReturnContext::CORRECTIONS => 'Korekta została usunięta.',
+                default => 'Faktura została usunięta.',
+            });
         } catch (InvoiceDomainException $exception) {
             if ($request->expectsJson()) {
                 return $responder->domainError($exception);

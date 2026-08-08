@@ -4,10 +4,8 @@
 
 @section('content')
     @php
-        $backToInvoiceList = request('return_to') === 'invoices';
-        $backUrl = $backToInvoiceList
-            ? route('invoices.index')
-            : route('orders.show', $invoice->order_id);
+        $backToInvoiceList = $returnContext->isList();
+        $backUrl = $returnContext->url($invoice->order_id);
     @endphp
 
     <style>
@@ -96,7 +94,7 @@
                 Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą
                 <a
                     class="invoice-edit-blocked-correction-link"
-                    href="{{ route('invoices.corrections.edit', $correction) }}"
+                    href="{{ route('invoices.corrections.edit', ['correction' => $correction, ...$returnContext->parameters()]) }}"
                 >{{ $correction->number ?: 'Korekta #'.$correction->getKey() }}</a>.
             </div>
         </div>

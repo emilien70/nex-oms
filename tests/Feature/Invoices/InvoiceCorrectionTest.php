@@ -114,6 +114,43 @@ class InvoiceCorrectionTest extends TestCase
         $this->assertDatabaseHas('invoices', ['id' => $source->getKey()]);
     }
 
+    public function test_correction_deleted_from_editor_returns_to_the_full_list_context_or_order(): void
+    {
+        $source = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $source,
+            $this->systemCorrectionSeries(),
+            'Nabywca po korekcie',
+        );
+        $filters = [
+            'page' => 4,
+            'year' => 2026,
+        ];
+        $returnQuery = http_build_query($filters, '', '&', PHP_QUERY_RFC3986);
+
+        $response = $this->delete(route('invoices.destroy', $correction), [
+            'expected_lock_version' => $correction->lock_version,
+            'return_to' => 'corrections',
+            'return_query' => $returnQuery,
+        ]);
+
+        $response->assertRedirect(route('invoices.corrections.index', $filters));
+        $response->assertSessionMissing('success');
+
+        $secondSource = $this->issuedInvoice();
+        $secondCorrection = $this->issueBuyerCorrection(
+            $secondSource,
+            $this->systemCorrectionSeries(),
+            'Drugi nabywca',
+        );
+
+        $this->delete(route('invoices.destroy', $secondCorrection), [
+            'expected_lock_version' => $secondCorrection->lock_version,
+            'return_to' => 'order',
+            'return_query' => '',
+        ])->assertRedirect(route('orders.show', $secondSource->order_id));
+    }
+
     public function test_selected_corrections_can_be_deleted_from_correction_list_atomically(): void
     {
         $series = $this->systemCorrectionSeries();
@@ -180,7 +217,7 @@ class InvoiceCorrectionTest extends TestCase
         ]));
 
         $correction->refresh();
-        $response->assertRedirect(route('invoices.pdf', $correction));
+        $response->assertRedirect(route('invoices.corrections.edit', $correction));
         $this->assertSame($number, $correction->number);
         $this->assertSame($period, $correction->numbering_period_key);
         $this->assertSame($series->getKey(), $correction->invoice_series_id);
@@ -203,23 +240,74 @@ class InvoiceCorrectionTest extends TestCase
             $this->systemCorrectionSeries(),
             'Nabywca po korekcie',
         );
+        $returnQuery = http_build_query([
+            'page' => 2,
+            'year' => 2026,
+            'buyer' => 'Nabywca',
+            'sort' => 'gross',
+            'direction' => 'asc',
+            'per_page' => 100,
+        ], '', '&', PHP_QUERY_RFC3986);
+        $expectedListUrl = route('invoices.corrections.index', [
+            'page' => 2,
+            'year' => 2026,
+            'buyer' => 'Nabywca',
+            'sort' => 'gross',
+            'direction' => 'asc',
+            'per_page' => 100,
+        ]);
 
         $this->get(route('invoices.corrections.edit', [
             'correction' => $correction,
             'return_to' => 'corrections',
+            'return_query' => $returnQuery,
         ]))
             ->assertOk()
             ->assertSee(
-                'data-correction-back-button href="'.route('invoices.corrections.index').'"',
+                'data-correction-back-button href="'.e($expectedListUrl).'"',
                 false,
             );
 
         $this->get(route('invoices.corrections.edit', $correction))
             ->assertOk()
             ->assertSee(
-                'data-correction-back-button href="'.route('invoices.pdf', $correction).'"',
+                'data-correction-back-button href="'.route('orders.show', $invoice->order_id).'"',
                 false,
             );
+    }
+
+    public function test_correction_update_returns_to_the_editor_and_preserves_list_context(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $invoice,
+            $this->systemCorrectionSeries(),
+            'Nabywca po korekcie',
+        );
+        $returnQuery = http_build_query([
+            'page' => 2,
+            'year' => 2026,
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        $response = $this->patch(route('invoices.corrections.update', $correction), $this->payload(
+            $correction->series,
+            [
+                'expected_lock_version' => $correction->lock_version,
+                'change_buyer' => true,
+                'buyer' => array_merge($correction->buyer_snapshot, [
+                    'name' => 'Nabywca po zapisie',
+                ]),
+                'return_to' => 'corrections',
+                'return_query' => $returnQuery,
+            ],
+        ));
+
+        $response->assertRedirect(route('invoices.corrections.edit', [
+            'correction' => $correction,
+            'return_to' => 'corrections',
+            'return_query' => $returnQuery,
+        ]));
+        $response->assertSessionMissing('success');
     }
 
     public function test_correction_editor_returns_to_the_order_when_opened_from_the_order(): void
@@ -248,8 +336,64 @@ class InvoiceCorrectionTest extends TestCase
         $series = $this->systemCorrectionSeries();
         $correction = $this->issueBuyerCorrection($invoice, $series, 'Pierwsza zmiana');
 
-        $this->get(route('invoices.corrections.create', $invoice))
-            ->assertRedirect(route('invoices.corrections.edit', $correction));
+        $returnQuery = http_build_query([
+            'page' => 3,
+            'buyer' => 'Jan',
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        $this->get(route('invoices.corrections.create', [
+            'invoice' => $invoice,
+            'return_to' => 'invoices',
+            'return_query' => $returnQuery,
+        ]))->assertRedirect(route('invoices.corrections.edit', [
+            'correction' => $correction,
+            'return_to' => 'invoices',
+            'return_query' => $returnQuery,
+        ]));
+    }
+
+    public function test_correction_creation_preserves_the_invoice_list_context_until_the_editor(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $returnQuery = http_build_query([
+            'page' => 4,
+            'year' => 2026,
+            'buyer' => 'Jan',
+        ], '', '&', PHP_QUERY_RFC3986);
+        $context = [
+            'return_to' => 'invoices',
+            'return_query' => $returnQuery,
+        ];
+
+        $this->get(route('invoices.corrections.create', [
+            'invoice' => $invoice,
+            'series_id' => $series->getKey(),
+            ...$context,
+        ]))
+            ->assertOk()
+            ->assertSee('name="return_to" value="invoices"', false)
+            ->assertSee('name="return_query" value="'.e($returnQuery).'"', false);
+
+        $response = $this->post(
+            route('invoices.corrections.store', $invoice),
+            $this->payload($series, [
+                'change_buyer' => true,
+                'buyer' => array_merge($invoice->buyer_snapshot, [
+                    'name' => 'Nabywca po korekcie',
+                ]),
+                ...$context,
+            ]),
+        );
+
+        $correction = Invoice::query()
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->sole();
+
+        $response->assertRedirect(route('invoices.corrections.edit', [
+            'correction' => $correction,
+            ...$context,
+        ]));
     }
 
     public function test_free_text_default_reason_is_presented_as_other_reason(): void
@@ -271,20 +415,37 @@ class InvoiceCorrectionTest extends TestCase
     public function test_invoice_edit_uses_direct_link_for_one_series_and_modal_for_many_series(): void
     {
         $invoice = $this->issuedInvoice();
+        $returnQuery = http_build_query([
+            'page' => 3,
+            'buyer' => 'Jan',
+        ], '', '&', PHP_QUERY_RFC3986);
+        $context = [
+            'return_to' => 'invoices',
+            'return_query' => $returnQuery,
+        ];
 
-        $this->get(route('invoices.edit', $invoice))
+        $this->get(route('invoices.edit', [
+            'invoice' => $invoice,
+            ...$context,
+        ]))
             ->assertOk()
-            ->assertSee(route('invoices.corrections.create', [
+            ->assertSee(e(route('invoices.corrections.create', [
                 'invoice' => $invoice,
                 'series_id' => $this->systemCorrectionSeries()->getKey(),
-            ]), false)
+                ...$context,
+            ])), false)
             ->assertDontSee('id="invoiceEditCorrectionSeriesModal"', false);
 
         $additional = $this->createDocumentSeries(InvoiceDocumentType::Correction);
 
-        $this->get(route('invoices.edit', $invoice))
+        $this->get(route('invoices.edit', [
+            'invoice' => $invoice,
+            ...$context,
+        ]))
             ->assertOk()
             ->assertSee('id="invoiceEditCorrectionSeriesModal"', false)
+            ->assertSee('name="return_to" value="invoices"', false)
+            ->assertSee('name="return_query" value="'.e($returnQuery).'"', false)
             ->assertSeeText($additional->name);
     }
 

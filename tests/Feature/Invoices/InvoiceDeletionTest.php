@@ -81,6 +81,61 @@ class InvoiceDeletionTest extends TestCase
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
     }
 
+    public function test_invoice_deleted_from_editor_returns_to_the_full_invoice_list_context(): void
+    {
+        [, , $invoice] = $this->issuedInvoice();
+        $filters = [
+            'buyer' => 'ABC',
+            'year' => 2026,
+            'sort' => 'gross',
+            'direction' => 'asc',
+            'per_page' => 100,
+            'page' => 3,
+        ];
+        $returnFilters = [
+            'page' => 3,
+            'year' => 2026,
+            'buyer' => 'ABC',
+            'sort' => 'gross',
+            'direction' => 'asc',
+            'per_page' => 100,
+        ];
+        $returnQuery = http_build_query($returnFilters, '', '&', PHP_QUERY_RFC3986);
+
+        $this->get(route('invoices.edit', [
+            'invoice' => $invoice,
+            'return_to' => 'invoices',
+            'return_query' => $returnQuery,
+        ]))
+            ->assertOk()
+            ->assertSee('name="return_to" value="invoices"', false)
+            ->assertSee('name="return_query" value="'.e($returnQuery).'"', false);
+
+        $response = $this->delete(route('invoices.destroy', $invoice), [
+            'expected_lock_version' => $invoice->lock_version,
+            'return_to' => 'invoices',
+            'return_query' => $returnQuery,
+        ]);
+
+        $response->assertRedirect(route('invoices.index', $returnFilters));
+        $response->assertSessionMissing('success');
+        $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
+    }
+
+    public function test_invoice_deletion_cannot_be_redirected_outside_the_application(): void
+    {
+        [, , $invoice] = $this->issuedInvoice();
+
+        $response = $this->delete(route('invoices.destroy', $invoice), [
+            'expected_lock_version' => $invoice->lock_version,
+            'return_to' => 'invoices',
+            'return_query' => 'https://evil.example/foo',
+        ]);
+
+        $response->assertRedirect(route('invoices.index'));
+        $this->assertStringNotContainsString('evil.example', $response->headers->get('Location'));
+    }
+
     public function test_invoice_deleted_from_list_returns_to_invoice_list(): void
     {
         [, , $invoice] = $this->issuedInvoice();
