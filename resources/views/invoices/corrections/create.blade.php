@@ -135,6 +135,8 @@
             @if ($isEditing)
                 @method('PATCH')
                 <input type="hidden" name="expected_lock_version" value="{{ $correction->lock_version }}">
+            @else
+                <input type="hidden" name="expected_source_lock_version" value="{{ old('expected_source_lock_version', $sourceInvoice->lock_version) }}">
             @endif
 
             <section class="correction-card">

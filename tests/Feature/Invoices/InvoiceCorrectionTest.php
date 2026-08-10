@@ -811,11 +811,11 @@ class InvoiceCorrectionTest extends TestCase
             'buyer' => array_merge($invoice->buyer_snapshot, ['name' => 'Pierwsza zmiana']),
         ]);
 
-        $first = $service->issue($invoice, $series, $data, $this->documentContext('2026-08-05 10:00:00'));
+        $first = $service->issue($invoice, $series, $invoice->lock_version, $data, $this->documentContext('2026-08-05 10:00:00'));
         $data['buyer']['name'] = 'Druga zmiana';
 
         try {
-            $service->issue($invoice, $series, $data, $this->documentContext('2026-08-05 10:01:00'));
+            $service->issue($invoice, $series, $invoice->lock_version + 1, $data, $this->documentContext('2026-08-05 10:01:00'));
             $this->fail('Druga Korekta nie powinna zostać utworzona.');
         } catch (InvoiceDomainException $exception) {
             $this->assertSame('correction_already_exists', $exception->errorCode());
@@ -982,6 +982,7 @@ class InvoiceCorrectionTest extends TestCase
         return app(CorrectionService::class)->issue(
             $invoice,
             $series,
+            $invoice->lock_version,
             $this->payload($series, [
                 'change_buyer' => true,
                 'buyer' => array_merge($invoice->buyer_snapshot, [
@@ -1049,6 +1050,7 @@ class InvoiceCorrectionTest extends TestCase
     private function payload(InvoiceSeries $series, array $overrides = []): array
     {
         return array_replace_recursive([
+            'expected_source_lock_version' => 1,
             'correction_series_id' => $series->getKey(),
             'reason' => CorrectionReason::InvoiceError->value,
             'other_reason' => null,

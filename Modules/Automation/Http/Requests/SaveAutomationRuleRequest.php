@@ -8,6 +8,8 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 use Modules\Automation\Services\AutomationCatalog;
+use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Shipments\Models\CourierAccount;
 
 class SaveAutomationRuleRequest extends FormRequest
@@ -109,6 +111,26 @@ class SaveAutomationRuleRequest extends FormRequest
                         );
                     }
                 }
+
+                if ($type === AutomationCatalog::ACTION_ISSUE_INVOICE) {
+                    $seriesId = $configuration['invoice_series_id'] ?? null;
+                    $validSeries = filter_var(
+                        $seriesId,
+                        FILTER_VALIDATE_INT,
+                        ['options' => ['min_range' => 1]],
+                    );
+
+                    if ($validSeries === false || ! InvoiceSeries::query()
+                        ->whereKey($validSeries)
+                        ->where('document_type', InvoiceDocumentType::Invoice)
+                        ->where('is_active', true)
+                        ->exists()) {
+                        $validator->errors()->add(
+                            "actions.$index.configuration.invoice_series_id",
+                            'Wybierz aktywną serię numeracji Faktur VAT.',
+                        );
+                    }
+                }
             }
         }];
     }
@@ -145,6 +167,21 @@ class SaveAutomationRuleRequest extends FormRequest
                         })
                         ->values()
                         ->all();
+                    $action['configuration'] = $configuration;
+                }
+
+                if (($action['type'] ?? '') === AutomationCatalog::ACTION_ISSUE_INVOICE) {
+                    $configuration = $action['configuration'] ?? [];
+                    $seriesId = filter_var(
+                        $configuration['invoice_series_id'] ?? null,
+                        FILTER_VALIDATE_INT,
+                        ['options' => ['min_range' => 1]],
+                    );
+
+                    if ($seriesId !== false) {
+                        $configuration['invoice_series_id'] = $seriesId;
+                    }
+
                     $action['configuration'] = $configuration;
                 }
 

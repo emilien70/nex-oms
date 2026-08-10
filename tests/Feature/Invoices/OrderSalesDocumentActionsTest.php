@@ -126,6 +126,7 @@ class OrderSalesDocumentActionsTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $invoice,
             $correctionSeries,
+            $invoice->lock_version,
             [
                 'correction_series_id' => $correctionSeries->getKey(),
                 'reason' => CorrectionReason::BuyerDataUpdate->value,

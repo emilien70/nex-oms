@@ -13,6 +13,7 @@ class AutomationActionExecutor
         private readonly OrderStatusService $orderStatusService,
         private readonly AutomationShipmentActionService $shipmentActionService,
         private readonly AutomationUrlActionService $urlActionService,
+        private readonly AutomationInvoiceActionService $invoiceActionService,
     ) {}
 
     public function execute(AutomationRun $run, string $type, array $configuration): array
@@ -21,6 +22,7 @@ class AutomationActionExecutor
             AutomationCatalog::ACTION_CHANGE_STATUS => $this->changeStatus($run, $configuration),
             AutomationCatalog::ACTION_CREATE_SHIPMENT => $this->shipmentActionService->execute($run, $configuration),
             AutomationCatalog::ACTION_CALL_URL => $this->urlActionService->execute($run, $configuration),
+            AutomationCatalog::ACTION_ISSUE_INVOICE => $this->invoiceActionService->execute($run, $configuration),
             default => throw new DomainException('Nieobslugiwany typ akcji automatycznej: '.$type),
         };
     }
@@ -41,5 +43,4 @@ class AutomationActionExecutor
 
         return ['changed' => $changed, 'status' => $status];
     }
-
 }

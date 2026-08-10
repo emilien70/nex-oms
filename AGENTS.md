@@ -1007,7 +1007,7 @@ Etap 1C.1 obejmuje:
 
 Nie ma pola `is_default`, interfejsu wyboru serii domyślnej ani paragonów.
 
-Przyszła centralna reguła wystawiania faktur VAT:
+Centralna reguła wystawiania faktur VAT:
 
 - jedno zamówienie może posiadać najwyżej jedną istniejącą fakturę VAT,
 - ręczne wystawianie, automatyzacje, API i integracje muszą korzystać z jednego serwisu domenowego,
@@ -1299,5 +1299,7 @@ Etap 2F wdraża centralne wystawianie Korekt do istniejącej Faktury VAT:
 - prywatny PDF generowany przez istniejący renderer Korekty.
 
 Operacja jest transakcyjna. Brak rzeczywistej zmiany, niekompletny stan źródłowy, druga Korekta, niespójny slot albo niewłaściwa seria nie mogą zużyć numeru ani pozostawić częściowych danych. Faktura źródłowa nie jest nadpisywana. Ponowna ścieżka tworzenia kieruje do edycji istniejącej Korekty, której zapis nadpisuje bieżące snapshoty i pozycje bez zmiany numeru.
+
+Pierwsze wystawienie Korekty przesyła oczekiwaną `lock_version` Faktury źródłowej. Jeżeli Faktura została rzeczywiście zmieniona po otwarciu formularza, serwis odrzuca operację pod blokadą kontrolowanym konfliktem i wymaga ponownego sprawdzenia aktualnych danych źródłowych.
 
 Edycja i usuwanie Korekty zostały dodane później. Zwykła Korekta walutowa korzysta z historycznego kursu zapisanego na Fakturze źródłowej, zapisuje różnicowe podsumowanie w walucie dokumentu i PLN oraz nie pobiera nowego kursu NBP. Automatyzacje, JPK, KSeF, dokumenty zewnętrzne i szczególne korekty rabatów zbiorczych pozostają poza zakresem.

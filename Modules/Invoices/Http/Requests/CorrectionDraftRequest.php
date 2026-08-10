@@ -33,6 +33,7 @@ class CorrectionDraftRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'expected_source_lock_version' => ['required', 'integer', 'min:1'],
             'correction_series_id' => ['required', 'integer', 'exists:invoice_series,id'],
             'reason' => ['required', Rule::enum(CorrectionReason::class)],
             'other_reason' => ['nullable', 'string', 'max:1000', 'required_if:reason,'.CorrectionReason::Other->value],
@@ -87,6 +88,9 @@ class CorrectionDraftRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'expected_source_lock_version.required' => 'Brakuje technicznej wersji blokady korygowanej Faktury.',
+            'expected_source_lock_version.integer' => 'Techniczna wersja blokady korygowanej Faktury jest nieprawidłowa.',
+            'expected_source_lock_version.min' => 'Techniczna wersja blokady korygowanej Faktury jest nieprawidłowa.',
             'reason.required' => 'Wybierz powód wystawienia korekty.',
             'other_reason.required_if' => 'Uzupełnij własny powód wystawienia korekty.',
             'buyer.country_code.in' => 'Wybrany kraj nabywcy jest nieprawidłowy.',

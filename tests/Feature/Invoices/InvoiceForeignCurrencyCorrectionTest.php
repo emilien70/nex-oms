@@ -14,6 +14,7 @@ use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\InvoiceCurrencyConversionService;
+use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\ValueObjects\NbpExchangeRate;
@@ -107,6 +108,7 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $source->fresh('items'),
             $this->correctionSeries(),
+            $source->lock_version,
             $this->payload([
                 'change_buyer' => true,
                 'buyer' => array_merge($source->buyer_snapshot, ['name' => 'Anna Zmieniona']),
@@ -120,6 +122,50 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         $this->assertSame([], $correction->tax_summary_snapshot);
         $this->assertSame([], $correction->correction_totals_snapshot['difference']['tax_summary_snapshot']);
         $this->assertSame([], $correction->tax_metadata_snapshot);
+        Http::assertNothingSent();
+    }
+
+    public function test_stale_foreign_item_correction_is_rejected_without_nbp_request(): void
+    {
+        Http::preventStrayRequests();
+        $source = $this->foreignSource([['gross' => '100.00', 'vat_rate' => '23.00']]);
+        $staleVersion = $source->lock_version;
+        $staleItems = $this->submittedItems($source);
+        $staleItems[0]['unit_price_gross'] = '75.00';
+        $sourceItem = $source->items()->where('line_type', 'product')->firstOrFail();
+
+        app(InvoiceEditService::class)->updateItem($source, $sourceItem, [
+            'expected_lock_version' => $staleVersion,
+            'name' => $sourceItem->name,
+            'description' => $sourceItem->description,
+            'unit_name' => $sourceItem->unit_name,
+            'quantity' => '1',
+            'unit_price_gross' => '90.00',
+            'vat_rate' => '23.00',
+            'vat_code' => $sourceItem->vat_code,
+            'position' => $sourceItem->position,
+        ]);
+
+        try {
+            app(CorrectionService::class)->issue(
+                $source,
+                $this->correctionSeries(),
+                $staleVersion,
+                $this->payload([
+                    'change_items' => true,
+                    'items' => $staleItems,
+                ]),
+                $this->documentContext('2026-08-10 10:00:00'),
+            );
+            $this->fail('Walutowa Korekta ze starego formularza nie powinna zostać wystawiona.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('correction_source_changed', $exception->errorCode());
+        }
+
+        $this->assertDatabaseMissing('invoices', [
+            'order_id' => $source->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
         Http::assertNothingSent();
     }
 
@@ -294,6 +340,7 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         return app(CorrectionService::class)->issue(
             $source,
             $this->correctionSeries(),
+            $source->lock_version,
             $this->payload([
                 'issue_date' => $issueDate,
                 'change_items' => true,

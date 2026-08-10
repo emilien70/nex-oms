@@ -139,7 +139,7 @@
         }
 
         .invoices-table > :not(caption) > * > * {
-            border-bottom-color: #dfe4ea;
+            border-bottom-color: #d1d5dc;
             padding: 8px 10px;
             vertical-align: middle;
         }

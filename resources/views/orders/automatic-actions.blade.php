@@ -250,6 +250,7 @@
             const actionLabels = {{ Illuminate\Support\Js::from($catalog->actions()) }};
             const statuses = {{ Illuminate\Support\Js::from($statuses) }};
             const shipmentDefinitions = {{ Illuminate\Support\Js::from($shipmentActionDefinitions) }};
+            const invoiceSeries = {{ Illuminate\Support\Js::from($invoiceSeries) }};
             const editors = new Map();
 
             const escapeHtml = value => String(value ?? '')
@@ -425,6 +426,19 @@
                     if (action.type === 'call_url') {
                         return `<label class="automation-block-label">ADRES URL (GET)</label><input class="form-control form-control-sm action-config" data-key="url" type="url" maxlength="2048" required name="actions[${index}][configuration][url]" value="${escapeHtml(configuration.url)}" placeholder="https://example.com/webhook?order=[id_zamowienia]"><div class="form-text">Mo&#380;esz u&#380;ywa&#263; zmiennych z <a href="{{ route('settings.variables.index') }}" target="_blank" rel="noopener">Ustawienia &rarr; Zmienne</a>.</div>`;
                     }
+                    if (action.type === 'issue_invoice') {
+                        const selectedSeriesId = String(configuration.invoice_series_id ?? '');
+                        const selectedSeriesAvailable = selectedSeriesId === '' || Object.hasOwn(invoiceSeries, selectedSeriesId);
+                        const unavailableOption = selectedSeriesAvailable
+                            ? ''
+                            : `<option value="${escapeHtml(selectedSeriesId)}" selected>Seria #${escapeHtml(selectedSeriesId)} (niedost&#281;pna)</option>`;
+
+                        if (!Object.keys(invoiceSeries).length) {
+                            return `<div class="alert alert-warning py-2 px-3 small mb-0">Brak aktywnej serii numeracji Faktur VAT. Aktywuj seri&#281; w Faktury &rarr; Ustawienia.</div><input type="hidden" name="actions[${index}][configuration][invoice_series_id]" value="${escapeHtml(selectedSeriesId)}">`;
+                        }
+
+                        return `<label class="automation-block-label">SERIA NUMERACJI</label><select class="form-select form-select-sm action-config" data-key="invoice_series_id" required name="actions[${index}][configuration][invoice_series_id]">${unavailableOption}${optionsHtml(invoiceSeries, selectedSeriesId)}</select>`;
+                    }
                     return `<label class="automation-block-label">CZAS W MINUTACH</label><input class="form-control form-control-sm action-config" data-key="minutes" type="number" min="1" max="86400" name="actions[${index}][configuration][minutes]" value="${escapeHtml(configuration.minutes || 1)}">`;
                 };
 
@@ -432,6 +446,7 @@
                     if (type === 'change_order_status') return {status: Object.keys(statuses)[0]};
                     if (type === 'create_inpost_shipment') return defaultShipmentConfiguration();
                     if (type === 'call_url') return {url: ''};
+                    if (type === 'issue_invoice') return {invoice_series_id: Object.keys(invoiceSeries)[0] || ''};
                     return {minutes: 1};
                 };
 

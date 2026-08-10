@@ -6,6 +6,8 @@ use App\Models\OrderStatusSetting;
 use Illuminate\Support\Str;
 use Modules\Integrations\DPD\Services\DpdServiceResolver;
 use Modules\Integrations\InPost\Services\InPostCourierServiceResolver;
+use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\InPostCourierParcelTemplateService;
@@ -22,6 +24,8 @@ class AutomationCatalog
     public const ACTION_DELAY = 'delay';
 
     public const ACTION_CALL_URL = 'call_url';
+
+    public const ACTION_ISSUE_INVOICE = 'issue_invoice';
 
     public function __construct(
         private readonly InPostCourierServiceResolver $inPostCourierServices,
@@ -125,6 +129,7 @@ class AutomationCatalog
             self::ACTION_CREATE_SHIPMENT => $this->decode('Utw&oacute;rz przesy&#322;k&#281;'),
             self::ACTION_DELAY => 'Poczekaj przez',
             self::ACTION_CALL_URL => $this->decode('Wywo&#322;aj URL'),
+            self::ACTION_ISSUE_INVOICE => $this->decode('Wystaw Faktur&#281;'),
         ];
     }
 
@@ -160,8 +165,21 @@ class AutomationCatalog
             self::ACTION_DELAY => $this->actionLabel($type).' '.((int) ($configuration['minutes'] ?? 0)).' min',
             self::ACTION_CALL_URL => $this->actionLabel($type).': '
                 .Str::limit((string) ($configuration['url'] ?? '...'), 80),
+            self::ACTION_ISSUE_INVOICE => $this->invoiceActionSummary($type, $configuration),
             default => $type,
         };
+    }
+
+    public function invoiceSeries(): array
+    {
+        return InvoiceSeries::query()
+            ->where('document_type', InvoiceDocumentType::Invoice)
+            ->where('is_active', true)
+            ->orderByDesc('is_system')
+            ->orderBy('name')
+            ->orderBy('id')
+            ->pluck('name', 'id')
+            ->all();
     }
 
     public function parcelTemplates(): array
@@ -328,6 +346,23 @@ class AutomationCatalog
         }
 
         return $this->actionLabel($type).' ('.$providerLabel.', '.$details.')';
+    }
+
+    private function invoiceActionSummary(string $type, array $configuration): string
+    {
+        $seriesId = filter_var(
+            $configuration['invoice_series_id'] ?? null,
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1]],
+        );
+        $seriesName = $seriesId === false
+            ? null
+            : InvoiceSeries::query()
+                ->whereKey($seriesId)
+                ->where('document_type', InvoiceDocumentType::Invoice)
+                ->value('name');
+
+        return $this->actionLabel($type).': '.($seriesName ?? 'brak serii');
     }
 
     private function measurement(mixed $value): string

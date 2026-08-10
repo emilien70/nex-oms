@@ -132,13 +132,14 @@ class CorrectionService
     public function issue(
         Invoice $sourceInvoice,
         InvoiceSeries $series,
+        int $expectedSourceLockVersion,
         array $data,
         InvoiceOperationContext $context,
     ): Invoice {
         $this->sourceState->assertSourceInvoice($sourceInvoice);
         $this->assertSeries($series);
 
-        return DB::transaction(function () use ($sourceInvoice, $series, $data, $context): Invoice {
+        return DB::transaction(function () use ($sourceInvoice, $series, $expectedSourceLockVersion, $data, $context): Invoice {
             $managedOrder = Order::query()->lockForUpdate()->findOrFail($sourceInvoice->order_id);
             $source = Invoice::query()->lockForUpdate()->findOrFail($sourceInvoice->getKey());
             $managedSeries = InvoiceSeries::query()->lockForUpdate()->findOrFail($series->getKey());
@@ -152,6 +153,13 @@ class CorrectionService
                     'correction_already_exists',
                     'Dla tego zamówienia istnieje już Korekta. Edytuj aktualną Korektę.',
                     ['correction_id' => $currentCorrection->getKey()],
+                );
+            }
+
+            if ($source->lock_version !== $expectedSourceLockVersion) {
+                throw new InvoiceDomainException(
+                    'correction_source_changed',
+                    'Korygowana Faktura została w międzyczasie zmieniona. Odśwież formularz Korekty i ponownie sprawdź dane.',
                 );
             }
 

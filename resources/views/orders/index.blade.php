@@ -208,7 +208,7 @@
         }
 
         .orders-table tbody td {
-            border-bottom: 1px solid #eef2f6;
+            border-bottom: 1px solid #d1d5dc;
             padding: 7px 6px;
             vertical-align: top;
         }

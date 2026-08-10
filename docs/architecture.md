@@ -735,7 +735,7 @@ Jedno zamówienie może mieć:
 - korekty,
 - zewnętrzne dokumenty.
 
-Relacja nadal pozostaje `Order hasMany Invoices`, ponieważ obejmuje różne typy dokumentów i historię. Zaimplementowany `InvoiceIssuingService` jest centralnym wejściem dla przyszłego ręcznego wystawiania, automatyzacji, API i integracji. Regułę jednej faktury VAT egzekwuje transakcja, kontrola domenowa i unikalny slot dokumentu. Próba ponownego wystawienia zwraca błąd biznesowy `invoice_already_exists`, bez pobierania kolejnego numeru.
+Relacja nadal pozostaje `Order hasMany Invoices`, ponieważ obejmuje różne typy dokumentów i historię. Zaimplementowany `InvoiceIssuingService` jest centralnym wejściem dla ręcznego wystawiania, automatyzacji, API i integracji. Akcja automatyczna `issue_invoice` przechowuje jawny `invoice_series_id`, a konfigurator dopuszcza wyłącznie aktywne serie typu `invoice`. Wykonanie ponownie sprawdza serię w warstwie domenowej. Regułę jednej faktury VAT egzekwuje transakcja, kontrola domenowa i unikalny slot dokumentu. Próba ponownego wystawienia zwraca błąd biznesowy `invoice_already_exists`, bez pobierania kolejnego numeru.
 
 ---
 

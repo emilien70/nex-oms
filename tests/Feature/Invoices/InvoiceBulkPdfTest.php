@@ -294,6 +294,7 @@ class InvoiceBulkPdfTest extends TestCase
         return app(CorrectionService::class)->issue(
             $source,
             $series,
+            $source->lock_version,
             [
                 'correction_series_id' => $series->getKey(),
                 'reason' => CorrectionReason::InvoiceError->value,

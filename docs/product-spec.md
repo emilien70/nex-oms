@@ -702,7 +702,7 @@ Przed pierwszym wystawieniem nie planuje się rozbudowanego formularza.
 
 Przy ręcznym wystawianiu użytkownik wybiera jedną z aktywnych serii właściwego typu. Seria systemowa jest zawsze dostępna, ale aktywne serie własne również mogą zostać wybrane.
 
-Automatyczna akcja wystawiania dokumentu musi przechowywać jawny `invoice_series_id`. Nie wolno w niej wybierać serii na podstawie nazwy ani niejawnej „domyślności”.
+Akcja automatyczna `Wystaw Fakturę` przechowuje jawny `invoice_series_id` aktywnej serii typu `invoice`. Nie wybiera serii na podstawie nazwy ani niejawnej „domyślności” i deleguje wystawienie do centralnego `InvoiceIssuingService`.
 
 System:
 
@@ -733,7 +733,7 @@ Jedno zamówienie może mieć wiele dokumentów różnych typów, ale najwyżej 
 
 ## 15.1. Jedna faktura VAT na zamówienie
 
-Wszystkie przyszłe ścieżki wystawiania faktury VAT — ręczne, automatyczne, API i integracje — muszą korzystać z zaimplementowanego centralnego `InvoiceIssuingService`.
+Wszystkie ścieżki wystawiania faktury VAT — ręczne, automatyczne, API i integracje — muszą korzystać z zaimplementowanego centralnego `InvoiceIssuingService`.
 
 Serwis przed pobraniem numeru sprawdza, czy faktura VAT już istnieje, i zabezpiecza tę regułę transakcyjnie również przed równoległymi procesami. W przypadku duplikatu użytkownik otrzymuje komunikat:
 
@@ -741,7 +741,7 @@ Serwis przed pobraniem numeru sprawdza, czy faktura VAT już istnieje, i zabezpi
 Nie można wystawić faktury VAT. Faktura do tego zamówienia została już wystawiona.
 ```
 
-Serwis zwraca błąd biznesowy `invoice_already_exists` z komunikatem `Nie można wystawić faktury VAT. Faktura do tego zamówienia została już wystawiona.` Przyszła automatyzacja nie może ponawiać tego błędu bez końca i powinna zachować go w historii wykonania.
+Serwis zwraca błąd biznesowy `invoice_already_exists` z komunikatem `Nie można wystawić faktury VAT. Faktura do tego zamówienia została już wystawiona.` Automatyczna akcja zachowuje kontrolowany błąd wykonania i nie pobiera kolejnego numeru.
 
 Relacja pozostaje `Order hasMany Invoices`; nie dodajemy `invoice_id` do `orders`.
 
@@ -1456,6 +1456,8 @@ Etap nie obejmuje edycji Pro form i Korekt, usuwania dokumentów, zewnętrznych 
 Wystawiona Faktura VAT może otrzymać jedną Korektę. Korekta odnosi się do Faktury źródłowej, a dokument źródłowy nie jest nadpisywany. Kolejna próba tworzenia otwiera edycję istniejącej Korekty zamiast tworzyć następny rekord.
 
 Korekta otrzymuje własną aktywną serię, numer i daty oraz jest od razu wystawiana w jednej transakcji. Przy jednej dostępnej serii przycisk `Korekta` prowadzi bezpośrednio do formularza, a przy wielu seriach najpierw pokazuje wybór serii. Formularz obsługuje zamkniętą listę powodów oraz opcjonalną zmianę pozycji i danych Nabywcy. Aktualne pozycje i dane z zamówienia są kopiowane wyłącznie po jawnej decyzji użytkownika.
+
+Formularz pierwszego wystawienia Korekty zapisuje oczekiwaną `lock_version` Faktury źródłowej. Rzeczywista zmiana Faktury po otwarciu formularza powoduje kontrolowany konflikt; użytkownik musi odświeżyć formularz i ponownie sprawdzić aktualne dane źródłowe.
 
 Pozycje Korekty zapisują kompletne snapshoty stanu przed zmianą, po zmianie i różnicy. Obliczenia netto, VAT i brutto korzystają z centralnej arytmetyki dziesiętnej, a brak rzeczywistej zmiany kończy operację kontrolowanym błędem bez zużycia numeru. Każda udana operacja zapisuje zdarzenie `correction_issued` w historii zamówienia.
 

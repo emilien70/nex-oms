@@ -59,7 +59,13 @@ class CorrectionController extends Controller
 
         try {
             $series = InvoiceSeries::query()->findOrFail($request->integer('correction_series_id'));
-            $correction = $service->issue($invoice, $series, $request->validated(), $contexts->manual($request));
+            $correction = $service->issue(
+                $invoice,
+                $series,
+                $request->integer('expected_source_lock_version'),
+                $request->validated(),
+                $contexts->manual($request),
+            );
 
             return redirect()->route('invoices.corrections.edit', [
                 'correction' => $correction,
