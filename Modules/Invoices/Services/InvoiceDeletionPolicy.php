@@ -21,6 +21,7 @@ class InvoiceDeletionPolicy
         Invoice $invoice,
         ?OrderDocumentSlot $slot,
         int $expectedLockVersion,
+        ?bool $hasOtherCorrection = null,
     ): void {
         if (! in_array($invoice->document_type, [
             InvoiceDocumentType::Invoice,
@@ -76,7 +77,7 @@ class InvoiceDeletionPolicy
         }
 
         if ($invoice->isCorrection()) {
-            $this->assertCorrectionRelations($invoice);
+            $this->assertCorrectionRelations($invoice, $hasOtherCorrection);
         }
 
         if ($slot === null
@@ -103,9 +104,11 @@ class InvoiceDeletionPolicy
         );
     }
 
-    private function assertCorrectionRelations(Invoice $invoice): void
+    private function assertCorrectionRelations(Invoice $invoice, ?bool $hasOtherCorrection): void
     {
-        $source = $invoice->correctedInvoice()->first();
+        $source = $invoice->relationLoaded('correctedInvoice')
+            ? $invoice->correctedInvoice
+            : $invoice->correctedInvoice()->first();
 
         if ($source === null
             || ! $source->isInvoice()
@@ -114,12 +117,13 @@ class InvoiceDeletionPolicy
             throw $this->inconsistent($invoice);
         }
 
-        if ($invoice->previous_correction_id !== null
-            || Invoice::query()
-                ->where('order_id', $invoice->order_id)
-                ->where('document_type', InvoiceDocumentType::Correction)
-                ->whereKeyNot($invoice->getKey())
-                ->exists()) {
+        $hasOtherCorrection ??= Invoice::query()
+            ->where('order_id', $invoice->order_id)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->whereKeyNot($invoice->getKey())
+            ->exists();
+
+        if ($invoice->previous_correction_id !== null || $hasOtherCorrection) {
             throw $this->inconsistent($invoice);
         }
     }

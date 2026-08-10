@@ -4,6 +4,7 @@ namespace Modules\Invoices\Services;
 
 use App\Models\Order;
 use DomainException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
@@ -37,9 +38,30 @@ class InvoiceDeletionService
                 $managedInvoice = Invoice::query()
                     ->lockForUpdate()
                     ->findOrFail($invoice->getKey());
-                $slot = $this->lockDocumentSlot($managedOrder, $managedInvoice);
+                $slot = OrderDocumentSlot::query()
+                    ->where('order_id', $managedOrder->getKey())
+                    ->where('document_type', $managedInvoice->document_type)
+                    ->lockForUpdate()
+                    ->first();
+                $corrections = $managedInvoice->isCorrection()
+                    ? $this->lockCorrectionsByOrder([$managedOrder->getKey()])
+                        ->get($managedOrder->getKey(), collect())
+                    : collect();
+                $slot = $this->resolveDocumentSlotForDeletion(
+                    $managedOrder,
+                    $managedInvoice,
+                    $slot,
+                    $corrections,
+                );
 
-                $this->policy->assertDeletable($managedInvoice, $slot, $expectedLockVersion);
+                $this->policy->assertDeletable(
+                    $managedInvoice,
+                    $slot,
+                    $expectedLockVersion,
+                    $managedInvoice->isCorrection()
+                        ? $this->hasOtherCorrection($managedInvoice, $corrections)
+                        : null,
+                );
                 $this->deleteManagedInvoice($managedOrder, $managedInvoice, $slot, $context);
 
                 return $managedOrder;
@@ -129,21 +151,47 @@ class InvoiceDeletionService
                     ->lockForUpdate()
                     ->get()
                     ->keyBy('id');
+
+                if ($documentType === InvoiceDocumentType::Correction) {
+                    $invoices->load('correctedInvoice');
+                }
+
                 $slots = OrderDocumentSlot::query()
                     ->whereIn('order_id', $orderIds)
                     ->where('document_type', $documentType)
                     ->lockForUpdate()
                     ->get()
                     ->keyBy('order_id');
+                $correctionsByOrder = $documentType === InvoiceDocumentType::Correction
+                    ? $this->lockCorrectionsByOrder($orderIds->all())
+                    : collect();
 
                 foreach ($invoiceIds as $invoiceId) {
                     /** @var Invoice $invoice */
                     $invoice = $invoices->get($invoiceId);
                     $this->policy->assertHasOrderReference($invoice);
-                    $this->policy->assertDeletable(
+                    /** @var Order $order */
+                    $order = $orders->get($invoice->order_id);
+                    /** @var Collection<int, Invoice> $corrections */
+                    $corrections = $correctionsByOrder->get($invoice->order_id, collect());
+                    $slot = $this->resolveDocumentSlotForDeletion(
+                        $order,
                         $invoice,
                         $slots->get($invoice->order_id),
+                        $corrections,
+                    );
+
+                    if ($slot !== null) {
+                        $slots->put($invoice->order_id, $slot);
+                    }
+
+                    $this->policy->assertDeletable(
+                        $invoice,
+                        $slot,
                         $expectedLockVersions[$invoiceId],
+                        $invoice->isCorrection()
+                            ? $this->hasOtherCorrection($invoice, $corrections)
+                            : null,
                     );
                 }
 
@@ -224,25 +272,18 @@ class InvoiceDeletionService
         $invoice->delete();
     }
 
-    private function lockDocumentSlot(Order $order, Invoice $invoice): ?OrderDocumentSlot
-    {
-        $slot = OrderDocumentSlot::query()
-            ->where('order_id', $order->getKey())
-            ->where('document_type', $invoice->document_type)
-            ->lockForUpdate()
-            ->first();
-
+    /**
+     * @param  Collection<int, Invoice>  $corrections
+     */
+    private function resolveDocumentSlotForDeletion(
+        Order $order,
+        Invoice $invoice,
+        ?OrderDocumentSlot $slot,
+        Collection $corrections,
+    ): ?OrderDocumentSlot {
         if ($slot !== null || ! $invoice->isCorrection() || $invoice->corrected_invoice_id === null) {
             return $slot;
         }
-
-        $corrections = Invoice::query()
-            ->where('order_id', $order->getKey())
-            ->where('document_type', InvoiceDocumentType::Correction)
-            ->where('status', InvoiceDocumentStatus::Issued)
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get();
 
         if ($corrections->count() !== 1 || ! $corrections->first()->is($invoice)) {
             return null;
@@ -253,6 +294,34 @@ class InvoiceDeletionService
             'document_type' => InvoiceDocumentType::Correction,
             'invoice_id' => $invoice->getKey(),
         ]);
+    }
+
+    /**
+     * @param  array<int, int>  $orderIds
+     * @return Collection<int, Collection<int, Invoice>>
+     */
+    private function lockCorrectionsByOrder(array $orderIds): Collection
+    {
+        if ($orderIds === []) {
+            return collect();
+        }
+
+        return Invoice::query()
+            ->whereIn('order_id', $orderIds)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->orderBy('order_id')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->groupBy('order_id');
+    }
+
+    /** @param Collection<int, Invoice> $corrections */
+    private function hasOtherCorrection(Invoice $invoice, Collection $corrections): bool
+    {
+        return $corrections->contains(
+            static fn (Invoice $correction): bool => ! $correction->is($invoice),
+        );
     }
 
     private function releaseDocumentSlot(Invoice $invoice, ?OrderDocumentSlot $slot): void

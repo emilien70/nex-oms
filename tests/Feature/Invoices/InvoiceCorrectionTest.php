@@ -178,6 +178,221 @@ class InvoiceCorrectionTest extends TestCase
         $this->assertDatabaseMissing('invoices', ['id' => $second->getKey()]);
     }
 
+    public function test_selected_legacy_correction_without_slot_is_deleted_with_related_state(): void
+    {
+        Storage::fake('local');
+
+        $source = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $source,
+            $this->systemCorrectionSeries(),
+            'Nabywca legacy',
+        );
+        $pdfPath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($pdfPath, '%PDF-test');
+        OrderDocumentSlot::query()
+            ->where('order_id', $source->order_id)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->delete();
+
+        $this->from(route('invoices.corrections.index'))
+            ->delete(route('invoices.corrections.bulk-delete'), [
+                'selection' => json_encode((object) [
+                    $correction->getKey() => $correction->lock_version,
+                ], JSON_THROW_ON_ERROR),
+            ])
+            ->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHas('success', 'Usunięto 1 Korektę.');
+
+        $this->assertDatabaseMissing('invoices', ['id' => $correction->getKey()]);
+        $this->assertDatabaseMissing('invoice_items', ['invoice_id' => $correction->getKey()]);
+        $this->assertDatabaseMissing('order_document_slots', [
+            'order_id' => $source->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $source->order_id,
+            'event_type' => 'correction_deleted',
+        ]);
+        Storage::disk('local')->assertMissing($pdfPath);
+    }
+
+    public function test_bulk_deletion_accepts_normal_and_legacy_corrections_from_different_orders(): void
+    {
+        $series = $this->systemCorrectionSeries();
+        $normalSource = $this->issuedInvoice();
+        $normal = $this->issueBuyerCorrection($normalSource, $series, 'Nabywca normalny');
+        $legacySource = $this->issuedInvoice();
+        $legacy = $this->issueBuyerCorrection($legacySource, $series, 'Nabywca legacy');
+        OrderDocumentSlot::query()
+            ->where('order_id', $legacySource->order_id)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->delete();
+
+        $this->from(route('invoices.corrections.index'))
+            ->delete(route('invoices.corrections.bulk-delete'), [
+                'selection' => json_encode((object) [
+                    $normal->getKey() => $normal->lock_version,
+                    $legacy->getKey() => $legacy->lock_version,
+                ], JSON_THROW_ON_ERROR),
+            ])
+            ->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHas('success', 'Usunięto 2 Korekty.');
+
+        $this->assertDatabaseMissing('invoices', ['id' => $normal->getKey()]);
+        $this->assertDatabaseMissing('invoices', ['id' => $legacy->getKey()]);
+        $this->assertDatabaseMissing('order_document_slots', [
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $normal->getKey(),
+        ]);
+        $this->assertDatabaseMissing('order_document_slots', [
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $legacy->getKey(),
+        ]);
+    }
+
+    public function test_stale_legacy_correction_in_bulk_rolls_back_reconciled_slot_and_all_deletions(): void
+    {
+        $series = $this->systemCorrectionSeries();
+        $normalSource = $this->issuedInvoice();
+        $normal = $this->issueBuyerCorrection($normalSource, $series, 'Nabywca normalny');
+        $legacySource = $this->issuedInvoice();
+        $legacy = $this->issueBuyerCorrection($legacySource, $series, 'Nabywca legacy');
+        OrderDocumentSlot::query()
+            ->where('order_id', $legacySource->order_id)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->delete();
+
+        $this->from(route('invoices.corrections.index'))
+            ->delete(route('invoices.corrections.bulk-delete'), [
+                'selection' => json_encode((object) [
+                    $normal->getKey() => $normal->lock_version,
+                    $legacy->getKey() => $legacy->lock_version + 1,
+                ], JSON_THROW_ON_ERROR),
+            ])
+            ->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHasErrors('invoice_ids');
+
+        $this->assertDatabaseHas('invoices', ['id' => $normal->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $legacy->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', [
+            'order_id' => $normalSource->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $normal->getKey(),
+        ]);
+        $this->assertDatabaseMissing('order_document_slots', [
+            'order_id' => $legacySource->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
+    }
+
+    public function test_multiple_legacy_corrections_without_slot_are_rejected_by_single_and_bulk_deletion(): void
+    {
+        $source = $this->issuedInvoice();
+        $first = $this->issueBuyerCorrection(
+            $source,
+            $this->systemCorrectionSeries(),
+            'Pierwsza zmiana',
+        );
+        $second = $first->replicate(['number', 'sequence_number', 'lock_version']);
+        $second->number = 'BLK 999/2026';
+        $second->sequence_number = 999;
+        $second->lock_version = 1;
+        $second->save();
+        OrderDocumentSlot::query()
+            ->where('order_id', $source->order_id)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->delete();
+
+        $this->deleteJson(route('invoices.destroy', $first), [
+            'expected_lock_version' => $first->lock_version,
+        ])->assertConflict()
+            ->assertJsonPath('code', 'correction_delete_inconsistent_document');
+
+        $this->from(route('invoices.corrections.index'))
+            ->delete(route('invoices.corrections.bulk-delete'), [
+                'selection' => json_encode((object) [
+                    $first->getKey() => $first->lock_version,
+                ], JSON_THROW_ON_ERROR),
+            ])
+            ->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHasErrors('invoice_ids');
+
+        $this->assertDatabaseHas('invoices', ['id' => $first->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $second->getKey()]);
+        $this->assertDatabaseMissing('order_document_slots', [
+            'order_id' => $source->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
+    }
+
+    public function test_correction_slot_pointing_to_another_document_is_rejected(): void
+    {
+        $source = $this->issuedInvoice();
+        $correction = $this->issueBuyerCorrection(
+            $source,
+            $this->systemCorrectionSeries(),
+            'Poprawiony nabywca',
+        );
+        OrderDocumentSlot::query()
+            ->where('order_id', $source->order_id)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->update(['invoice_id' => $source->getKey()]);
+
+        $this->deleteJson(route('invoices.destroy', $correction), [
+            'expected_lock_version' => $correction->lock_version,
+        ])->assertConflict()
+            ->assertJsonPath('code', 'correction_delete_inconsistent_document');
+
+        $this->assertDatabaseHas('invoices', ['id' => $correction->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', [
+            'order_id' => $source->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $source->getKey(),
+        ]);
+    }
+
+    public function test_inconsistent_legacy_correction_rolls_back_other_bulk_deletions(): void
+    {
+        $series = $this->systemCorrectionSeries();
+        $normalSource = $this->issuedInvoice();
+        $normal = $this->issueBuyerCorrection($normalSource, $series, 'Nabywca normalny');
+        $inconsistentSource = $this->issuedInvoice();
+        $first = $this->issueBuyerCorrection($inconsistentSource, $series, 'Pierwsza zmiana');
+        $second = $first->replicate(['number', 'sequence_number', 'lock_version']);
+        $second->number = 'BLK 999/2026';
+        $second->sequence_number = 999;
+        $second->lock_version = 1;
+        $second->save();
+        OrderDocumentSlot::query()
+            ->where('order_id', $inconsistentSource->order_id)
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->delete();
+
+        $this->from(route('invoices.corrections.index'))
+            ->delete(route('invoices.corrections.bulk-delete'), [
+                'selection' => json_encode((object) [
+                    $normal->getKey() => $normal->lock_version,
+                    $first->getKey() => $first->lock_version,
+                ], JSON_THROW_ON_ERROR),
+            ])
+            ->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHasErrors('invoice_ids');
+
+        $this->assertDatabaseHas('invoices', ['id' => $normal->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $first->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $second->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', [
+            'order_id' => $normalSource->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+            'invoice_id' => $normal->getKey(),
+        ]);
+        $this->assertDatabaseMissing('order_document_slots', [
+            'order_id' => $inconsistentSource->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
+    }
+
     public function test_issued_correction_can_be_opened_and_updated_without_changing_its_identity(): void
     {
         Storage::fake('local');
