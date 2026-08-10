@@ -95,7 +95,7 @@ class InvoiceCorrectionTest extends TestCase
         ]))->assertOk();
     }
 
-    public function test_correction_deleted_from_list_returns_to_correction_tab(): void
+    public function test_correction_deleted_from_list_returns_to_the_full_correction_list_context(): void
     {
         $source = $this->issuedInvoice();
         $correction = $this->issueBuyerCorrection(
@@ -103,12 +103,19 @@ class InvoiceCorrectionTest extends TestCase
             $this->systemCorrectionSeries(),
             'Nabywca po korekcie',
         );
+        $filters = [
+            'page' => 2,
+            'buyer' => 'XYZ',
+            'sort' => 'gross',
+            'direction' => 'asc',
+        ];
 
         $this->delete(route('invoices.destroy', $correction), [
             'expected_lock_version' => $correction->lock_version,
             'return_to' => 'corrections',
-        ])->assertRedirect(route('invoices.corrections.index'))
-            ->assertSessionHas('success', 'Korekta została usunięta.');
+            'return_query' => http_build_query($filters, '', '&', PHP_QUERY_RFC3986),
+        ])->assertRedirect(route('invoices.corrections.index', $filters))
+            ->assertSessionMissing('success');
 
         $this->assertDatabaseMissing('invoices', ['id' => $correction->getKey()]);
         $this->assertDatabaseHas('invoices', ['id' => $source->getKey()]);

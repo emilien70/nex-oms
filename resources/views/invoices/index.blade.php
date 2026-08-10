@@ -518,7 +518,8 @@
                                             @csrf
                                             @method('DELETE')
                                             <input type="hidden" name="expected_lock_version" value="{{ $invoice->lock_version }}">
-                                            <input type="hidden" name="return_to" value="{{ $returnTo }}">
+                                            <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                                            <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
                                             <button class="invoice-icon-button is-delete" type="submit" title="Usuń {{ $documentName }}" aria-label="Usuń {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
                                         </form>
                                     </div>

@@ -28,7 +28,6 @@ class InvoiceDeletionController extends Controller
         $isProforma = $invoice->isProforma();
         $isCorrection = $invoice->isCorrection();
         $returnContext = InvoiceReturnContext::fromRequest($request);
-        $returningFromEditor = $request->exists('return_query');
 
         try {
             $order = $deletion->delete(
@@ -41,17 +40,7 @@ class InvoiceDeletionController extends Controller
                 return $responder->deleted($order);
             }
 
-            $response = redirect($returnContext->url($order));
-
-            if ($returningFromEditor || ! $returnContext->isList()) {
-                return $response;
-            }
-
-            return $response->with('success', match ($returnContext->returnTo()) {
-                InvoiceReturnContext::PROFORMAS => 'Pro forma została usunięta.',
-                InvoiceReturnContext::CORRECTIONS => 'Korekta została usunięta.',
-                default => 'Faktura została usunięta.',
-            });
+            return redirect($returnContext->url($order));
         } catch (InvoiceDomainException $exception) {
             if ($request->expectsJson()) {
                 return $responder->domainError($exception);

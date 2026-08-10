@@ -76,7 +76,8 @@ class InvoiceDeletionTest extends TestCase
 
         $this->delete(route('invoices.destroy', $invoice), [
             'expected_lock_version' => $invoice->lock_version,
-        ])->assertRedirect(route('orders.show', $order));
+        ])->assertRedirect(route('orders.show', $order))
+            ->assertSessionMissing('success');
 
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
     }
@@ -136,31 +137,82 @@ class InvoiceDeletionTest extends TestCase
         $this->assertStringNotContainsString('evil.example', $response->headers->get('Location'));
     }
 
-    public function test_invoice_deleted_from_list_returns_to_invoice_list(): void
+    public function test_invoice_deleted_from_list_returns_to_the_full_invoice_list_context(): void
+    {
+        [, , $invoice] = $this->issuedInvoice();
+        $filters = [
+            'page' => 3,
+            'year' => 2026,
+            'buyer' => 'ABC',
+            'per_page' => 100,
+        ];
+
+        $this->delete(route('invoices.destroy', $invoice), [
+            'expected_lock_version' => $invoice->lock_version,
+            'return_to' => 'invoices',
+            'return_query' => http_build_query($filters, '', '&', PHP_QUERY_RFC3986),
+        ])->assertRedirect(route('invoices.index', $filters))
+            ->assertSessionMissing('success');
+
+        $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
+    }
+
+    public function test_invoice_deleted_from_unfiltered_list_returns_to_invoice_list(): void
     {
         [, , $invoice] = $this->issuedInvoice();
 
         $this->delete(route('invoices.destroy', $invoice), [
             'expected_lock_version' => $invoice->lock_version,
             'return_to' => 'invoices',
+            'return_query' => '',
         ])->assertRedirect(route('invoices.index'))
-            ->assertSessionHas('success', 'Faktura została usunięta.');
+            ->assertSessionMissing('success');
 
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
     }
 
-    public function test_proforma_deleted_from_list_returns_to_proforma_list(): void
+    public function test_proforma_deleted_from_list_returns_to_the_full_proforma_list_context(): void
     {
         $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
         $proforma = $this->proformaForNewOrder($series);
+        $filters = [
+            'page' => 2,
+            'year' => 2026,
+        ];
 
         $this->delete(route('invoices.destroy', $proforma), [
             'expected_lock_version' => $proforma->lock_version,
             'return_to' => 'proformas',
-        ])->assertRedirect(route('invoices.proformas.index'))
-            ->assertSessionHas('success', 'Pro forma została usunięta.');
+            'return_query' => http_build_query($filters, '', '&', PHP_QUERY_RFC3986),
+        ])->assertRedirect(route('invoices.proformas.index', $filters))
+            ->assertSessionMissing('success');
 
         $this->assertDatabaseMissing('invoices', ['id' => $proforma->getKey()]);
+    }
+
+    public function test_single_deletion_discards_unknown_and_invalid_return_query_parameters(): void
+    {
+        [, , $invoice] = $this->issuedInvoice();
+
+        $response = $this->delete(route('invoices.destroy', $invoice), [
+            'expected_lock_version' => $invoice->lock_version,
+            'return_to' => 'invoices',
+            'return_query' => http_build_query([
+                'buyer' => 'ABC',
+                'page' => 2,
+                'redirect' => 'https://evil.example/foo',
+                'sort' => 'unsupported',
+                'direction' => 'sideways',
+                'per_page' => 42,
+            ], '', '&', PHP_QUERY_RFC3986),
+        ]);
+
+        $response->assertRedirect(route('invoices.index', [
+            'page' => 2,
+            'buyer' => 'ABC',
+        ]));
+        $this->assertStringNotContainsString('evil.example', $response->headers->get('Location'));
+        $response->assertSessionMissing('success');
     }
 
     public function test_selected_invoices_can_be_deleted_from_invoice_list_atomically(): void

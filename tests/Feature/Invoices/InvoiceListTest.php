@@ -118,7 +118,14 @@ class InvoiceListTest extends TestCase
                 'series_id' => $correctionSeries->getKey(),
                 'return_to' => 'invoices',
                 'return_query' => $returnQuery,
-            ])), false);
+            ])), false)
+            ->assertSee('name="return_to" value="invoices"', false)
+            ->assertSee('name="return_query" value="'.e($returnQuery).'"', false);
+
+        $this->assertMatchesRegularExpression(
+            '/<form\b[^>]*action="'.preg_quote(route('invoices.destroy', $invoice), '/').'"[^>]*>.*?name="return_to" value="invoices".*?name="return_query" value="'.preg_quote(e($returnQuery), '/').'".*?<\/form>/s',
+            $response->getContent(),
+        );
     }
 
     public function test_proforma_tab_shows_only_issued_proformas_with_pdf_and_shared_list_controls(): void
