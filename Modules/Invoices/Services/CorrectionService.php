@@ -8,9 +8,7 @@ use BackedEnum;
 use Carbon\CarbonImmutable;
 use DomainException;
 use Illuminate\Support\Facades\DB;
-use Modules\Invoices\Enums\CorrectionIssuerSource;
 use Modules\Invoices\Enums\CorrectionReason;
-use Modules\Invoices\Enums\CorrectionSaleDateSource;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
@@ -32,6 +30,7 @@ class CorrectionService
         private readonly InvoicePdfStorage $pdfStorage,
         private readonly InvoiceNumberingPeriodResolver $periods,
         private readonly InvoiceNumberFormatter $numbers,
+        private readonly CorrectionSeriesSourceResolver $seriesSources,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -78,16 +77,16 @@ class CorrectionService
                 config('app.timezone'),
             );
             $this->assertNumberingDates($managed, $issueDate);
-
-            $issuer = is_array($managed->issuer_snapshot) ? $managed->issuer_snapshot : [];
-            $issuer['issuer_name'] = $this->nullableText($data['issuer_name'] ?? null);
-            $payment = is_array($managed->payment_snapshot) ? $managed->payment_snapshot : [];
-            $payment['effective_payment_method'] = $this->nullableText($data['payment_method'] ?? null);
+            $resolvedSources = $this->seriesSources->forUpdate(
+                $source,
+                $managed,
+                $issueDate->toDateString(),
+            );
             $sourceTotals = data_get($managed->correction_totals_snapshot, 'source_invoice');
 
             $managed->fill([
                 'issue_date' => $issueDate->toDateString(),
-                'sale_date' => (string) $data['sale_date'],
+                'sale_date' => $resolvedSources['sale_date'],
                 'correction_reason' => $this->reason($data),
                 'correction_totals_snapshot' => [
                     'source_invoice' => is_array($sourceTotals) ? $sourceTotals : [
@@ -102,8 +101,8 @@ class CorrectionService
                 'buyer_name_snapshot' => $this->partyName($buyerAfter),
                 'buyer_tax_id_snapshot' => $buyerAfter['tax_id'] ?? null,
                 'buyer_snapshot' => $buyerAfter,
-                'issuer_snapshot' => $issuer,
-                'payment_snapshot' => $payment,
+                'issuer_snapshot' => $resolvedSources['issuer_snapshot'],
+                'payment_snapshot' => $resolvedSources['payment_snapshot'],
                 'tax_summary_snapshot' => $differenceTotals['tax_summary_snapshot'],
                 'tax_metadata_snapshot' => $this->currencyConversion->metadataFor(
                     $source,
@@ -191,8 +190,11 @@ class CorrectionService
                 config('app.timezone'),
             );
             $reason = $this->reason($data);
-            $issuer = $this->issuerSnapshot($source, $managedSeries, $data);
-            $payment = $this->paymentSnapshot($effective, $managedSeries, $data);
+            $resolvedSources = $this->seriesSources->forIssue(
+                $source,
+                $managedSeries,
+                $issueDate->toDateString(),
+            );
             $orderSnapshot = $this->orderSnapshot($source, $buyerBefore);
             $settings = $this->seriesSettingsSnapshot($source, $managedSeries);
             $buyerName = $this->partyName($buyerAfter);
@@ -204,7 +206,7 @@ class CorrectionService
                 'document_type' => InvoiceDocumentType::Correction,
                 'status' => InvoiceDocumentStatus::Draft,
                 'issue_date' => $issueDate->toDateString(),
-                'sale_date' => $this->saleDate($source, $managedSeries, $data),
+                'sale_date' => $resolvedSources['sale_date'],
                 'payment_due_date' => null,
                 'issued_at' => null,
                 'lock_version' => 1,
@@ -230,9 +232,9 @@ class CorrectionService
                 'seller_snapshot' => $source->seller_snapshot,
                 'buyer_snapshot' => $buyerAfter,
                 'recipient_snapshot' => $source->recipient_snapshot,
-                'issuer_snapshot' => $issuer,
+                'issuer_snapshot' => $resolvedSources['issuer_snapshot'],
                 'order_snapshot' => $orderSnapshot,
-                'payment_snapshot' => $payment,
+                'payment_snapshot' => $resolvedSources['payment_snapshot'],
                 'shipping_snapshot' => $effective->shipping_snapshot,
                 'series_settings_snapshot' => $settings,
                 'tax_summary_snapshot' => $differenceTotals['tax_summary_snapshot'],
@@ -753,27 +755,6 @@ class CorrectionService
     }
 
     /** @return array<string, mixed> */
-    private function issuerSnapshot(Invoice $source, InvoiceSeries $series, array $data): array
-    {
-        $issuer = $series->correction_issuer_source === CorrectionIssuerSource::Series
-            ? ['issuer_name' => $series->issuer_name, 'place_of_issue' => $series->place_of_issue]
-            : (is_array($source->issuer_snapshot) ? $source->issuer_snapshot : []);
-
-        $issuer['issuer_name'] = $this->nullableText($data['issuer_name'] ?? null);
-
-        return $issuer;
-    }
-
-    /** @param array<string, mixed> $data */
-    private function paymentSnapshot(Invoice $effective, InvoiceSeries $series, array $data): array
-    {
-        $payment = is_array($effective->payment_snapshot) ? $effective->payment_snapshot : [];
-        $payment['effective_payment_method'] = $this->nullableText($data['payment_method'] ?? null);
-
-        return $payment;
-    }
-
-    /** @return array<string, mixed> */
     private function orderSnapshot(Invoice $source, array $buyerBefore): array
     {
         $snapshot = is_array($source->order_snapshot) ? $source->order_snapshot : [];
@@ -812,14 +793,6 @@ class CorrectionService
             'show_return_id_in_header' => (bool) $series->show_return_id_in_header,
             'show_payment_identifier' => (bool) $series->show_payment_identifier,
         ]);
-    }
-
-    /** @param array<string, mixed> $data */
-    private function saleDate(Invoice $source, InvoiceSeries $series, array $data): string
-    {
-        return $series->correction_sale_date_source === CorrectionSaleDateSource::IssueDate
-            ? (string) $data['issue_date']
-            : (string) ($data['sale_date'] ?? $source->sale_date?->toDateString());
     }
 
     /** @param array<string, mixed> $data */

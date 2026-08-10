@@ -624,6 +624,8 @@ Dane prawne sprzedawcy, bank i logo nie są konfigurowane w serii korekt. Przysz
 
 Korekta jest osobnym dokumentem powiązanym z fakturą źródłową. Obowiązkowo pokazuje wartości przed zmianą, po zmianie i różnicę. Jedno zamówienie może mieć najwyżej jedną istniejącą Korektę; jej późniejsza edycja nadpisuje bieżące snapshoty i pozycje tego samego dokumentu, zachowując numer oraz tożsamość Korekty. Data sprzedaży może pochodzić z faktury źródłowej albo z daty wystawienia korekty; wystawiający może pochodzić z faktury źródłowej albo z serii; sposób płatności może pochodzić z faktury źródłowej, zostać ukryty albo przyjąć stałą wartość serii.
 
+Źródła daty sprzedaży, wystawiającego i sposobu płatności są autorytatywną konfiguracją serii; wartości przesłane przez formularz nie mogą ich nadpisać. Podczas edycji istniejąca Korekta korzysta z trybów zapisanych w `series_settings_snapshot` oraz z własnych rozwiązanych snapshotów, dlatego późniejsza zmiana konfiguracji serii nie zmienia wystawionego dokumentu.
+
 Etap 1C.3 nie tworzy korekt ani innych dokumentów, nie nadaje numerów i nie generuje PDF, JPK ani danych KSeF. Formularz Pro formy został rozbudowany w Etapie 1C.4. Nie ma paragonów.
 
 ## 13.10. Ustawienia serii Pro forma — Etap 1C.4

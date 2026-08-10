@@ -4,7 +4,6 @@ namespace Modules\Invoices\Services;
 
 use App\Models\Order;
 use App\Support\CountryCatalog;
-use BackedEnum;
 use Modules\Invoices\Enums\CorrectionIssuerSource;
 use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
 use Modules\Invoices\Enums\CorrectionReason;
@@ -23,6 +22,7 @@ class CorrectionViewModelFactory
         private readonly CorrectionSeriesResolver $seriesResolver,
         private readonly AdditionalInformationRenderer $additionalInformation,
         private readonly CountryCatalog $countries,
+        private readonly CorrectionSeriesSourceResolver $seriesSources,
     ) {}
 
     /** @return array<string, mixed> */
@@ -32,11 +32,13 @@ class CorrectionViewModelFactory
         $sourceInvoice->loadMissing(['order.items', 'series.defaultCorrectionSeries']);
 
         $series = $this->seriesResolver->resolve($sourceInvoice, $seriesId);
-        $effective = $this->sourceState->effectiveDocument($sourceInvoice);
         $buyer = $this->sourceState->effectiveBuyer($sourceInvoice);
         $items = $this->sourceState->effectiveItems($sourceInvoice)
             ->map(fn (array $item): array => $this->formItem($item))
             ->values();
+
+        $issueDate = now(config('app.timezone'))->toDateString();
+        $resolvedSources = $this->seriesSources->forIssue($sourceInvoice, $series, $issueDate);
 
         return [
             'sourceInvoice' => $sourceInvoice,
@@ -49,7 +51,8 @@ class CorrectionViewModelFactory
             'currentBuyer' => $this->currentBuyer($sourceInvoice->order),
             'currentOrderItems' => $this->currentOrderItems($sourceInvoice->order),
             'countries' => $this->countries->all(),
-            'defaults' => $this->seriesDefaults($sourceInvoice, $effective, $series),
+            'defaults' => $this->seriesDefaults($sourceInvoice, $series, $issueDate, $resolvedSources),
+            'sourceModes' => $this->sourceModes($resolvedSources['sources']),
             'defaultChangeItems' => false,
             'defaultChangeBuyer' => false,
             'correction' => null,
@@ -91,6 +94,11 @@ class CorrectionViewModelFactory
         $items = $correction->items
             ->map(fn (InvoiceItem $item): array => $this->correctionFormItem($item))
             ->values();
+        $resolvedSources = $this->seriesSources->forUpdate(
+            $sourceInvoice,
+            $correction,
+            $correction->issue_date?->toDateString() ?? '',
+        );
 
         return [
             'sourceInvoice' => $sourceInvoice,
@@ -103,7 +111,8 @@ class CorrectionViewModelFactory
             'currentBuyer' => $this->currentBuyer($correction->order),
             'currentOrderItems' => $this->currentOrderItems($correction->order),
             'countries' => $this->countries->all(),
-            'defaults' => $this->correctionDefaults($correction),
+            'defaults' => $this->correctionDefaults($correction, $resolvedSources),
+            'sourceModes' => $this->sourceModes($resolvedSources['sources']),
             'defaultChangeItems' => $this->itemsChanged($correction),
             'defaultChangeBuyer' => $this->comparableBuyer($buyerBefore) !== $this->comparableBuyer($correction->buyer_snapshot),
             'correction' => $correction,
@@ -152,19 +161,17 @@ class CorrectionViewModelFactory
     }
 
     /** @return array<string, mixed> */
-    private function correctionDefaults(Invoice $correction): array
+    private function correctionDefaults(Invoice $correction, array $resolvedSources): array
     {
         $reason = $this->correctionReasonDefault($correction->correction_reason);
-        $payment = is_array($correction->payment_snapshot) ? $correction->payment_snapshot : [];
-        $issuer = is_array($correction->issuer_snapshot) ? $correction->issuer_snapshot : [];
 
         return [
             'reason' => $reason['reason'],
             'other_reason' => $reason['other_reason'],
             'issue_date' => $correction->issue_date?->toDateString(),
-            'sale_date' => $correction->sale_date?->toDateString(),
-            'payment_method' => $payment['effective_payment_method'] ?? null,
-            'issuer_name' => $issuer['issuer_name'] ?? null,
+            'sale_date' => $resolvedSources['sale_date'],
+            'payment_method' => $resolvedSources['payment_snapshot']['effective_payment_method'] ?? null,
+            'issuer_name' => $resolvedSources['issuer_snapshot']['issuer_name'] ?? null,
             'additional_information' => $correction->additional_information_text,
         ];
     }
@@ -249,28 +256,48 @@ class CorrectionViewModelFactory
     }
 
     /** @return array<string, mixed> */
-    private function seriesDefaults(Invoice $source, Invoice $effective, InvoiceSeries $series): array
-    {
-        $payment = is_array($effective->payment_snapshot) ? $effective->payment_snapshot : [];
-        $sourceIssuer = is_array($source->issuer_snapshot) ? $source->issuer_snapshot : [];
+    private function seriesDefaults(
+        Invoice $source,
+        InvoiceSeries $series,
+        string $issueDate,
+        array $resolvedSources,
+    ): array {
         $reason = $this->correctionReasonDefault($series->default_correction_reason);
 
         return [
             'reason' => $reason['reason'],
             'other_reason' => $reason['other_reason'],
-            'issue_date' => now(config('app.timezone'))->toDateString(),
-            'sale_date' => $series->correction_sale_date_source === CorrectionSaleDateSource::IssueDate
-                ? now(config('app.timezone'))->toDateString()
-                : $source->sale_date?->toDateString(),
-            'payment_method' => match ($series->correction_payment_method_source) {
-                CorrectionPaymentMethodSource::None => null,
-                CorrectionPaymentMethodSource::Fixed => $series->fixed_payment_method,
-                default => $payment['effective_payment_method'] ?? null,
-            },
-            'issuer_name' => $series->correction_issuer_source === CorrectionIssuerSource::Series
-                ? $series->issuer_name
-                : ($sourceIssuer['issuer_name'] ?? null),
+            'issue_date' => $issueDate,
+            'sale_date' => $resolvedSources['sale_date'],
+            'payment_method' => $resolvedSources['payment_snapshot']['effective_payment_method'] ?? null,
+            'issuer_name' => $resolvedSources['issuer_snapshot']['issuer_name'] ?? null,
             'additional_information' => $this->additionalInformation->render($series, $source->order),
+        ];
+    }
+
+    /**
+     * @param  array{
+     *     sale_date: CorrectionSaleDateSource,
+     *     issuer: CorrectionIssuerSource,
+     *     payment_method: CorrectionPaymentMethodSource
+     * }  $sources
+     * @return array<string, array{mode: string, help: string}>
+     */
+    private function sourceModes(array $sources): array
+    {
+        return [
+            'sale_date' => [
+                'mode' => $sources['sale_date']->value,
+                'help' => $sources['sale_date']->description(),
+            ],
+            'issuer' => [
+                'mode' => $sources['issuer']->value,
+                'help' => $sources['issuer']->description(),
+            ],
+            'payment_method' => [
+                'mode' => $sources['payment_method']->value,
+                'help' => $sources['payment_method']->description(),
+            ],
         ];
     }
 

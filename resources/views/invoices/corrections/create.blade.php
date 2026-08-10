@@ -10,6 +10,10 @@
         $changeItems = (bool) old('change_items', $defaultChangeItems);
         $changeBuyer = (bool) old('change_buyer', $defaultChangeBuyer);
         $selectedReason = old('reason', $defaults['reason']);
+        $issueDateValue = old('issue_date', $defaults['issue_date']);
+        $saleDateValue = $sourceModes['sale_date']['mode'] === 'issue_date'
+            ? $issueDateValue
+            : $defaults['sale_date'];
         $backUrl = $isEditing
             ? $returnContext->url($order)
             : route('invoices.edit', ['invoice' => $sourceInvoice, ...$returnContext->parameters()]);
@@ -167,15 +171,21 @@
                     </div>
                     <div class="correction-field">
                         <label for="correctionIssueDate">Data wystawienia</label>
-                        <input class="form-control" id="correctionIssueDate" type="date" name="issue_date" value="{{ old('issue_date', $defaults['issue_date']) }}" required>
+                        <input class="form-control" id="correctionIssueDate" type="date" name="issue_date" value="{{ $issueDateValue }}" required data-correction-issue-date>
                     </div>
-                    <div class="correction-field">
+                    <div class="correction-field correction-field-with-help">
                         <label for="correctionSaleDate">Data sprzedaży</label>
-                        <input class="form-control" id="correctionSaleDate" type="date" name="sale_date" value="{{ old('sale_date', $defaults['sale_date']) }}" required>
+                        <div>
+                            <input class="form-control" id="correctionSaleDate" type="date" name="sale_date" value="{{ $saleDateValue }}" required readonly data-correction-sale-date data-source-mode="{{ $sourceModes['sale_date']['mode'] }}">
+                            <div class="correction-help">{{ $sourceModes['sale_date']['help'] }}</div>
+                        </div>
                     </div>
-                    <div class="correction-field">
+                    <div class="correction-field correction-field-with-help">
                         <label for="correctionPaymentMethod">Sposób płatności</label>
-                        <input class="form-control" id="correctionPaymentMethod" name="payment_method" value="{{ old('payment_method', $defaults['payment_method']) }}" maxlength="255">
+                        <div>
+                            <input class="form-control" id="correctionPaymentMethod" name="payment_method" value="{{ $defaults['payment_method'] }}" maxlength="255" readonly data-source-mode="{{ $sourceModes['payment_method']['mode'] }}">
+                            <div class="correction-help">{{ $sourceModes['payment_method']['help'] }}</div>
+                        </div>
                     </div>
                 </div>
 
@@ -185,8 +195,8 @@
                     <div class="correction-field correction-field-with-help">
                         <label for="correctionIssuer">Wystawiający</label>
                         <div>
-                            <input class="form-control" id="correctionIssuer" name="issuer_name" value="{{ old('issuer_name', $defaults['issuer_name']) }}" maxlength="255">
-                            <div class="correction-help">Osoba upoważniona do wystawienia faktury.</div>
+                            <input class="form-control" id="correctionIssuer" name="issuer_name" value="{{ $defaults['issuer_name'] }}" maxlength="255" readonly data-source-mode="{{ $sourceModes['issuer']['mode'] }}">
+                            <div class="correction-help">{{ $sourceModes['issuer']['help'] }}</div>
                         </div>
                     </div>
                     <div class="correction-field correction-field-textarea">
@@ -298,9 +308,15 @@
             const initialItems = @json($formItems);
             const currentOrderItems = @json($currentOrderItems);
             const currentBuyer = @json($currentBuyer);
+            const issueDate = document.querySelector('[data-correction-issue-date]');
+            const saleDate = document.querySelector('[data-correction-sale-date]');
             const itemsBody = document.querySelector('[data-correction-items]');
             const template = document.getElementById('correctionItemTemplate');
             let nextItemKey = 0;
+
+            if (issueDate && saleDate?.dataset.sourceMode === 'issue_date') {
+                issueDate.addEventListener('input', () => { saleDate.value = issueDate.value; });
+            }
 
             const updateCount = () => {
                 const count = itemsBody?.querySelectorAll('[data-item-row]').length ?? 0;
