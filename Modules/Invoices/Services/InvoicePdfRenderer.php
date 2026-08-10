@@ -3,6 +3,7 @@
 namespace Modules\Invoices\Services;
 
 use Illuminate\Support\Collection;
+use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Throwable;
@@ -20,16 +21,37 @@ class InvoicePdfRenderer
     }
 
     /** @param Collection<int, Invoice> $invoices */
-    public function renderMany(Collection $invoices): string
+    public function renderMany(Collection $invoices, InvoiceDocumentType $documentType): string
     {
+        $metadata = $this->bulkMetadata($documentType);
+
         if ($invoices->isEmpty()) {
             throw new InvoiceDomainException(
                 'invoice_bulk_pdf_empty',
-                'Zaznacz co najmniej jedną fakturę do wydruku.',
+                $metadata['empty_message'],
             );
         }
 
-        return $this->renderDocuments($invoices, 'Faktury zbiorcze');
+        return $this->renderDocuments($invoices, $metadata['title']);
+    }
+
+    /** @return array{title: string, empty_message: string} */
+    private function bulkMetadata(InvoiceDocumentType $documentType): array
+    {
+        return match ($documentType) {
+            InvoiceDocumentType::Invoice => [
+                'title' => 'Faktury zbiorcze',
+                'empty_message' => 'Zaznacz co najmniej jedną fakturę do wydruku.',
+            ],
+            InvoiceDocumentType::Proforma => [
+                'title' => 'Pro formy zbiorcze',
+                'empty_message' => 'Zaznacz co najmniej jedną Pro formę do wydruku.',
+            ],
+            InvoiceDocumentType::Correction => [
+                'title' => 'Korekty zbiorcze',
+                'empty_message' => 'Zaznacz co najmniej jedną Korektę do wydruku.',
+            ],
+        };
     }
 
     /** @param Collection<int, Invoice> $invoices */

@@ -45,6 +45,6 @@ class InvoiceBulkPdfService
         }
 
         /** @var Collection<int, Invoice> $invoices */
-        return $this->renderer->renderMany($invoices);
+        return $this->renderer->renderMany($invoices, $documentType);
     }
 }

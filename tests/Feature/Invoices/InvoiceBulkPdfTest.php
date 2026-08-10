@@ -6,10 +6,13 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionService;
+use Modules\Invoices\Services\InvoiceBulkPdfService;
 use Modules\Invoices\Services\InvoiceIssuingService;
+use Modules\Invoices\Services\InvoicePdfRenderer;
 use Modules\Invoices\Services\ProformaService;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
@@ -44,8 +47,9 @@ class InvoiceBulkPdfTest extends TestCase
 
         $response->assertOk()
             ->assertHeader('content-type', 'application/pdf');
-        $this->assertStringContainsString('inline;', (string) $response->headers->get('content-disposition'));
+        $this->assertStringContainsString('filename="faktury-zbiorcze.pdf"', (string) $response->headers->get('content-disposition'));
         $this->assertStringStartsWith('%PDF-', $response->getContent());
+        $this->assertSame('Faktury zbiorcze', $this->pdfMetadataTitle($response->getContent()));
         $this->assertGreaterThanOrEqual(2, preg_match_all('/\/Type\s*\/Page\b/', $response->getContent()));
     }
 
@@ -163,6 +167,7 @@ class InvoiceBulkPdfTest extends TestCase
             ->assertHeader('content-type', 'application/pdf');
         $this->assertStringContainsString('filename="proformy-zbiorcze.pdf"', (string) $response->headers->get('content-disposition'));
         $this->assertStringStartsWith('%PDF-', $response->getContent());
+        $this->assertSame('Pro formy zbiorcze', $this->pdfMetadataTitle($response->getContent()));
         $this->assertGreaterThanOrEqual(2, preg_match_all('/\/Type\s*\/Page\b/', $response->getContent()));
 
         $invoiceOrder = $this->createDocumentOrder();
@@ -197,6 +202,7 @@ class InvoiceBulkPdfTest extends TestCase
             ->assertHeader('content-type', 'application/pdf');
         $this->assertStringContainsString('filename="korekty-zbiorcze.pdf"', (string) $response->headers->get('content-disposition'));
         $this->assertStringStartsWith('%PDF-', $response->getContent());
+        $this->assertSame('Korekty zbiorcze', $this->pdfMetadataTitle($response->getContent()));
         $this->assertGreaterThanOrEqual(2, preg_match_all('/\/Type\s*\/Page\b/', $response->getContent()));
 
         $invoiceOrder = $this->createDocumentOrder();
@@ -217,10 +223,59 @@ class InvoiceBulkPdfTest extends TestCase
             ]);
     }
 
+    public function test_empty_bulk_collection_uses_document_specific_message(): void
+    {
+        $service = app(InvoiceBulkPdfService::class);
+
+        foreach ([
+            InvoiceDocumentType::Invoice->value => [InvoiceDocumentType::Invoice, 'Zaznacz co najmniej jedną fakturę do wydruku.'],
+            InvoiceDocumentType::Proforma->value => [InvoiceDocumentType::Proforma, 'Zaznacz co najmniej jedną Pro formę do wydruku.'],
+            InvoiceDocumentType::Correction->value => [InvoiceDocumentType::Correction, 'Zaznacz co najmniej jedną Korektę do wydruku.'],
+        ] as [$documentType, $message]) {
+            try {
+                $service->contents([], $documentType);
+                $this->fail('Pusta kolekcja dokumentów powinna zostać odrzucona.');
+            } catch (InvoiceDomainException $exception) {
+                $this->assertSame('invoice_bulk_pdf_empty', $exception->errorCode());
+                $this->assertSame($message, $exception->getMessage());
+            }
+        }
+    }
+
+    public function test_single_pdf_keeps_document_number_as_metadata_title(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext('2026-08-07 10:00:00'),
+        );
+
+        $contents = app(InvoicePdfRenderer::class)->render($invoice);
+
+        $this->assertSame($invoice->number, $this->pdfMetadataTitle($contents));
+    }
+
     /** @param array<int, mixed> $invoiceIds */
     private function printSelection(array $invoiceIds): string
     {
         return json_encode($invoiceIds, JSON_THROW_ON_ERROR);
+    }
+
+    private function pdfMetadataTitle(string $contents): string
+    {
+        $matched = preg_match('/\/Title\s*\((.*?)\)/s', $contents, $matches);
+
+        $this->assertSame(1, $matched, 'Wygenerowany PDF nie zawiera metadanej Title.');
+
+        $title = $matches[1];
+
+        if (str_starts_with($title, "\xFE\xFF")) {
+            return mb_convert_encoding(substr($title, 2), 'UTF-8', 'UTF-16BE');
+        }
+
+        return $title;
     }
 
     private function issueCorrectionForBulkPdf(
