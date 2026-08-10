@@ -25,6 +25,8 @@ class CorrectionService
         private readonly CorrectionSourceStateService $sourceState,
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTotalsCalculator $totals,
+        private readonly CorrectionTotalsCalculator $correctionTotals,
+        private readonly CorrectionCurrencyConversionService $currencyConversion,
         private readonly InvoiceNumberingService $numbering,
         private readonly CountryCatalog $countries,
         private readonly InvoicePdfStorage $pdfStorage,
@@ -60,9 +62,8 @@ class CorrectionService
                 (bool) $data['change_items'],
                 $source,
             );
-            $beforeTotals = $this->documentTotals($itemAttributes, 'correction_before_snapshot');
-            $afterTotals = $this->documentTotals($itemAttributes, 'correction_after_snapshot');
-            $differenceTotals = $this->differenceTotals($beforeTotals, $afterTotals);
+            $totals = $this->correctionTotals->calculate($itemAttributes);
+            $differenceTotals = $totals['difference'];
 
             if (! $this->hasActualChange($itemAttributes, $buyerBefore, $buyerAfter)) {
                 throw new InvoiceDomainException(
@@ -94,8 +95,8 @@ class CorrectionService
                         'number' => $source->number,
                         'issue_date' => $source->issue_date?->toDateString(),
                     ],
-                    'before' => $this->compactTotals($beforeTotals),
-                    'after' => $this->compactTotals($afterTotals),
+                    'before' => $totals['before'],
+                    'after' => $totals['after'],
                     'difference' => $differenceTotals,
                 ],
                 'buyer_name_snapshot' => $this->partyName($buyerAfter),
@@ -103,7 +104,12 @@ class CorrectionService
                 'buyer_snapshot' => $buyerAfter,
                 'issuer_snapshot' => $issuer,
                 'payment_snapshot' => $payment,
-                'tax_summary_snapshot' => $afterTotals['tax_summary_snapshot'],
+                'tax_summary_snapshot' => $differenceTotals['tax_summary_snapshot'],
+                'tax_metadata_snapshot' => $this->currencyConversion->metadataFor(
+                    $source,
+                    $differenceTotals['tax_summary_snapshot'],
+                    $this->correctionTotals->isMonetary($differenceTotals),
+                ),
                 'additional_information_text' => trim((string) ($data['additional_information'] ?? '')),
                 'total_net' => $differenceTotals['net'],
                 'total_vat' => $differenceTotals['vat'],
@@ -161,9 +167,8 @@ class CorrectionService
                 (bool) $data['change_items'],
                 $source,
             );
-            $beforeTotals = $this->documentTotals($itemAttributes, 'correction_before_snapshot');
-            $afterTotals = $this->documentTotals($itemAttributes, 'correction_after_snapshot');
-            $differenceTotals = $this->differenceTotals($beforeTotals, $afterTotals);
+            $totals = $this->correctionTotals->calculate($itemAttributes);
+            $differenceTotals = $totals['difference'];
 
             if (! $this->hasActualChange($itemAttributes, $buyerBefore, $buyerAfter)) {
                 throw new InvoiceDomainException(
@@ -204,8 +209,8 @@ class CorrectionService
                         'number' => $source->number,
                         'issue_date' => $source->issue_date?->toDateString(),
                     ],
-                    'before' => $this->compactTotals($beforeTotals),
-                    'after' => $this->compactTotals($afterTotals),
+                    'before' => $totals['before'],
+                    'after' => $totals['after'],
                     'difference' => $differenceTotals,
                 ],
                 'order_reference_snapshot' => $source->order_reference_snapshot,
@@ -222,8 +227,12 @@ class CorrectionService
                 'payment_snapshot' => $payment,
                 'shipping_snapshot' => $effective->shipping_snapshot,
                 'series_settings_snapshot' => $settings,
-                'tax_summary_snapshot' => $afterTotals['tax_summary_snapshot'],
-                'tax_metadata_snapshot' => $effective->tax_metadata_snapshot,
+                'tax_summary_snapshot' => $differenceTotals['tax_summary_snapshot'],
+                'tax_metadata_snapshot' => $this->currencyConversion->metadataFor(
+                    $source,
+                    $differenceTotals['tax_summary_snapshot'],
+                    $this->correctionTotals->isMonetary($differenceTotals),
+                ),
                 'additional_information_text' => trim((string) ($data['additional_information'] ?? '')),
                 'currency' => $source->currency,
                 'total_net' => $differenceTotals['net'],
@@ -692,38 +701,6 @@ class CorrectionService
             'total_vat' => $this->decimal->subtract((string) $after['total_vat'], (string) $before['total_vat']),
             'total_gross' => $this->decimal->subtract((string) $after['total_gross'], (string) $before['total_gross']),
         ]);
-    }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $items
-     * @return array<string, mixed>
-     */
-    private function documentTotals(array $items, string $snapshotKey): array
-    {
-        return $this->totals->calculateEditedDocument(
-            array_map(static fn (array $item): array => $item[$snapshotKey], $items),
-            '0.00',
-        );
-    }
-
-    /** @return array{net: string, vat: string, gross: string} */
-    private function differenceTotals(array $before, array $after): array
-    {
-        return [
-            'net' => $this->decimal->subtract($after['total_net'], $before['total_net']),
-            'vat' => $this->decimal->subtract($after['total_vat'], $before['total_vat']),
-            'gross' => $this->decimal->subtract($after['total_gross'], $before['total_gross']),
-        ];
-    }
-
-    /** @return array{net: string, vat: string, gross: string} */
-    private function compactTotals(array $totals): array
-    {
-        return [
-            'net' => $totals['total_net'],
-            'vat' => $totals['total_vat'],
-            'gross' => $totals['total_gross'],
-        ];
     }
 
     /** @param array<int, array<string, mixed>> $items */

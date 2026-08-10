@@ -11,6 +11,8 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceItemType;
 use Modules\Invoices\Enums\InvoicePaymentDueMode;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\CorrectionCurrencyConversionService;
+use Modules\Invoices\Services\CorrectionTotalsCalculator;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\Services\InvoicePdfRenderer;
@@ -110,6 +112,95 @@ class InvoicePdfTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_current_foreign_correction_pdf_shows_difference_in_currency_and_pln(): void
+    {
+        Http::preventStrayRequests();
+        $source = $this->foreignInvoice();
+        $correction = $this->createCorrection($source);
+        $items = $correction->items->map(static fn ($item): array => [
+            'correction_before_snapshot' => $item->correction_before_snapshot,
+            'correction_after_snapshot' => $item->correction_after_snapshot,
+        ])->all();
+        $totals = app(CorrectionTotalsCalculator::class)->calculate($items);
+        $metadata = app(CorrectionCurrencyConversionService::class)->metadataFor(
+            $source,
+            $totals['difference']['tax_summary_snapshot'],
+            true,
+        );
+        $correction->update([
+            'currency' => 'EUR',
+            'correction_totals_snapshot' => [
+                'source_invoice' => $correction->correction_totals_snapshot['source_invoice'],
+                ...$totals,
+            ],
+            'tax_summary_snapshot' => $totals['difference']['tax_summary_snapshot'],
+            'tax_metadata_snapshot' => $metadata,
+            'total_net' => $totals['difference']['net'],
+            'total_vat' => $totals['difference']['vat'],
+            'total_gross' => $totals['difference']['gross'],
+        ]);
+
+        $document = app(InvoicePdfViewModelFactory::class)->make($correction->fresh('items'));
+        $html = app(InvoicePdfRenderer::class)->html($correction->fresh('items'));
+
+        $this->assertSame('-20.00', $document['difference_totals']['gross']);
+        $this->assertSame('-86.84', $document['pln_conversion']['totals']['gross']);
+        $this->assertSame('4.3420', $document['pln_conversion']['rate']);
+        $this->assertSame('2026-07-17', $document['pln_conversion']['effective_date']);
+        $this->assertCount(1, $document['tax_row_pairs']);
+        foreach (['W tym (EUR):', 'W tym (PLN):', '20.00 EUR', '86.84 PLN', '1 EUR = 4.3420 PLN', '137/A/NBP/2026'] as $text) {
+            $this->assertStringContainsString($text, $html);
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_legacy_foreign_correction_pdf_rebuilds_difference_without_mutating_database(): void
+    {
+        Http::preventStrayRequests();
+        $source = $this->foreignInvoice();
+        $correction = $this->createCorrection($source);
+        $correction->update([
+            'currency' => 'EUR',
+            'tax_summary_snapshot' => $source->tax_summary_snapshot,
+            'tax_metadata_snapshot' => $source->tax_metadata_snapshot,
+        ]);
+        $sourceBefore = $source->fresh()->getAttributes();
+        $correctionBefore = $correction->fresh()->getAttributes();
+
+        $document = app(InvoicePdfViewModelFactory::class)->make($correction->fresh('items'));
+        $html = app(InvoicePdfRenderer::class)->html($correction->fresh('items'));
+
+        $this->assertSame('-20.00', $document['difference_totals']['gross']);
+        $this->assertSame('-86.84', $document['pln_conversion']['totals']['gross']);
+        $this->assertStringContainsString('W tym (EUR):', $html);
+        $this->assertStringContainsString('W tym (PLN):', $html);
+        $this->assertStringContainsString('86.84 PLN', $html);
+        $this->assertSame($sourceBefore, $source->fresh()->getAttributes());
+        $this->assertSame($correctionBefore, $correction->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public function test_legacy_foreign_correction_without_source_rate_returns_controlled_error(): void
+    {
+        Http::preventStrayRequests();
+        $source = $this->foreignInvoice();
+        $source->update(['tax_metadata_snapshot' => []]);
+        $correction = $this->createCorrection($source->fresh('items'));
+        $correction->update([
+            'currency' => 'EUR',
+            'tax_summary_snapshot' => $source->tax_summary_snapshot,
+            'tax_metadata_snapshot' => [],
+        ]);
+        $before = $correction->fresh()->getAttributes();
+
+        $this->get(route('invoices.pdf', $correction))
+            ->assertUnprocessable()
+            ->assertSeeText('historycznego kursu waluty');
+
+        $this->assertSame($before, $correction->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
     public function test_documents_use_one_current_layout_versioned_cache_file(): void
     {
         Storage::fake('local');
@@ -137,7 +228,7 @@ class InvoicePdfTest extends TestCase
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
         $this->assertStringEndsWith('/proforma-v34.pdf', $filenames->storagePath($proforma));
-        $this->assertStringEndsWith('/correction-v35.pdf', $filenames->storagePath($correction));
+        $this->assertStringEndsWith('/correction-v36.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
 
@@ -539,7 +630,7 @@ class InvoicePdfTest extends TestCase
         $this->assertStringContainsString('<table class="correction-adjustment-summary"', $html);
         $this->assertStringContainsString('<td width="50%" align="right">W tym:</td>', $html);
         $this->assertStringContainsString('<td width="77%" align="right">', $html);
-        $this->assertStringContainsString('<td width="23%" align="right">16.26 PLN</td>', $html);
+        $this->assertStringContainsString('16.26 PLN', $html);
         $this->assertStringContainsString('23%', $html);
         $this->assertStringNotContainsString('<div align="right">'.PHP_EOL.'        do faktury', $html);
 
@@ -551,20 +642,14 @@ class InvoicePdfTest extends TestCase
     {
         $source = $this->issueInvoice();
         $correction = $this->createCorrection($source);
-        $correction->update([
-            'correction_totals_snapshot' => [
-                'source_invoice' => [
-                    'number' => $source->number,
-                    'issue_date' => $source->issue_date->toDateString(),
-                ],
-                'before' => ['net' => '100.00', 'vat' => '23.00', 'gross' => '123.00'],
-                'after' => ['net' => '116.26', 'vat' => '26.74', 'gross' => '143.00'],
-                'difference' => ['net' => '16.26', 'vat' => '3.74', 'gross' => '20.00'],
-            ],
-            'total_net' => '16.26',
-            'total_vat' => '3.74',
-            'total_gross' => '20.00',
-        ]);
+        $item = $correction->items()->firstOrFail();
+        $after = $item->correction_after_snapshot;
+        $after['unit_price_net'] = '116.2600';
+        $after['unit_price_gross'] = '143.0000';
+        $after['total_net'] = '116.26';
+        $after['total_vat'] = '26.74';
+        $after['total_gross'] = '143.00';
+        $item->update(['correction_after_snapshot' => $after]);
 
         $html = app(InvoicePdfRenderer::class)->html($correction->refresh());
 

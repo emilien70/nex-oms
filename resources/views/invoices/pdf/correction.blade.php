@@ -46,27 +46,65 @@
             <td width="15%" class="summary-heading" align="center">VAT</td>
             <td width="15%" class="summary-heading" align="center">Wart. brutto</td>
         </tr>
+        @if ($document['pln_conversion'])
+            @foreach ($document['tax_row_pairs'] as $pair)
+                <tr>
+                    <td width="50%" align="right">W tym ({{ $document['currency'] }}):</td>
+                    <td width="15%">{{ $pair['source']['net'] }}</td>
+                    <td width="5%" align="center">{{ $pair['source']['vat'] }}</td>
+                    <td width="15%">{{ $pair['source']['vat_amount'] }}</td>
+                    <td width="15%">{{ $pair['source']['gross'] }}</td>
+                </tr>
+                <tr>
+                    <td width="50%" align="right">W tym (PLN):</td>
+                    <td width="15%">{{ $pair['converted']['net'] }}</td>
+                    <td width="5%" align="center">{{ $pair['converted']['vat'] }}</td>
+                    <td width="15%">{{ $pair['converted']['vat_amount'] }}</td>
+                    <td width="15%">{{ $pair['converted']['gross'] }}</td>
+                </tr>
+            @endforeach
+        @else
+            @foreach ($document['difference_tax_rows'] as $tax)
+                <tr>
+                    <td width="50%" align="right">W tym:</td>
+                    <td width="15%">{{ $tax['net'] }}<br>{{ $document['currency'] }}</td>
+                    <td width="5%" align="center">{{ $tax['vat'] }}</td>
+                    <td width="15%">{{ $tax['vat_amount'] }}<br>{{ $document['currency'] }}</td>
+                    <td width="15%">{{ $tax['gross'] }}<br>{{ $document['currency'] }}</td>
+                </tr>
+            @endforeach
+        @endif
         <tr>
-            <td width="50%" align="right">W tym:</td>
-            <td width="15%">{{ $document['difference_totals']['net'] }}<br>{{ $document['currency'] }}</td>
-            <td width="5%" align="center">{{ $document['difference_vat_label'] }}</td>
-            <td width="15%">{{ $document['difference_totals']['vat'] }}<br>{{ $document['currency'] }}</td>
-            <td width="15%">{{ $document['difference_totals']['gross'] }}<br>{{ $document['currency'] }}</td>
-        </tr>
-        <tr>
-            <td width="50%" align="right">Razem:</td>
+            <td width="50%" align="right">Razem{{ $document['pln_conversion'] ? ' ('.$document['currency'].')' : '' }}:</td>
             <td width="15%">{{ $document['difference_totals']['net'] }}<br>{{ $document['currency'] }}</td>
             <td width="5%"></td>
             <td width="15%">{{ $document['difference_totals']['vat'] }}<br>{{ $document['currency'] }}</td>
             <td width="15%">{{ $document['difference_totals']['gross'] }}<br>{{ $document['currency'] }}</td>
         </tr>
+        @if ($document['pln_conversion'])
+            <tr>
+                <td width="50%" align="right">Razem (PLN):</td>
+                <td width="15%">{{ $document['pln_conversion']['totals']['net'] }}<br>PLN</td>
+                <td width="5%"></td>
+                <td width="15%">{{ $document['pln_conversion']['totals']['vat'] }}<br>PLN</td>
+                <td width="15%">{{ $document['pln_conversion']['totals']['gross'] }}<br>PLN</td>
+            </tr>
+        @endif
     </table>
 
     <br>
     <table class="correction-adjustment-summary" cellpadding="1" cellspacing="0" width="65%">
-        <tr><td width="77%" align="right">{{ $document['difference_labels']['net'] }}:</td><td width="23%" align="right">{{ $document['difference_magnitudes']['net'] }} {{ $document['currency'] }}</td></tr>
-        <tr><td align="right">{{ $document['difference_labels']['vat'] }}:</td><td align="right">{{ $document['difference_magnitudes']['vat'] }} {{ $document['currency'] }}</td></tr>
-        <tr><td align="right">{{ $document['difference_labels']['gross'] }}:</td><td align="right">{{ $document['difference_magnitudes']['gross'] }} {{ $document['currency'] }}</td></tr>
+        @foreach (['net', 'vat', 'gross'] as $component)
+            <tr>
+                <td width="77%" align="right">{{ $document['difference_labels'][$component] }}:</td>
+                <td width="23%" align="right">
+                    {{ $document['difference_magnitudes'][$component] }} {{ $document['currency'] }}
+                    @if ($document['pln_difference_magnitudes'])
+                        <br>{{ $document['pln_difference_magnitudes'][$component] }} PLN
+                    @endif
+                </td>
+            </tr>
+        @endforeach
     </table>
 
     <br><br><br>
@@ -74,7 +112,12 @@
         <tr>
             <td width="15%" class="muted-label grand-total-label">Razem:</td>
             <td width="2%"></td>
-            <td width="38%" class="grand-total">{{ $document['difference_totals']['gross'] }} {{ $document['currency'] }}</td>
+            <td width="38%" class="grand-total">
+                {{ $document['difference_totals']['gross'] }} {{ $document['currency'] }}
+                @if ($document['pln_conversion'])
+                    <br>{{ $document['pln_conversion']['totals']['gross'] }} PLN
+                @endif
+            </td>
             <td width="45%"></td>
         </tr>
     </table>
@@ -87,6 +130,21 @@
             <td width="83%" class="final-value">{{ $document['amount_in_words'] }}</td>
         </tr>
     </table>
+
+    @if ($document['pln_conversion'])
+        <br><br>
+        <table class="final-details exchange-rate" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+                <td width="15%" class="muted-label">Kurs waluty:</td>
+                <td width="2%"></td>
+                <td width="38%" class="final-value">
+                    {{ $document['pln_conversion']['rate_text'] }}<br>
+                    {{ $document['pln_conversion']['effective_date'] }} ({{ $document['pln_conversion']['table_number'] }})
+                </td>
+                <td width="45%"></td>
+            </tr>
+        </table>
+    @endif
 
     @if ($document['issuer_name'])
         <br><br><br>

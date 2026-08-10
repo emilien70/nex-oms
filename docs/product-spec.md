@@ -1365,7 +1365,7 @@ Pełna tekstowa wartość `Mid` z XML NBP jest używana do obliczeń i zapisywan
 
 Pobranie i walidacja kursu muszą zakończyć się przed utworzeniem trwałych danych Faktury i przed numeracją. Zmiana waluty, dat albo tabeli pomiędzy pobraniem kursu a blokadą transakcyjną wymaga ponownego pobrania dla aktualnego kontekstu. Błąd nie może zużyć numeru ani pozostawić slotu, szkicu, pozycji lub zdarzenia.
 
-Pro forma w każdej walucie pozostaje całkowicie niezależna od NBP: nie pobiera kursu, nie zapisuje wartości PLN i nie zmienia hasha z powodu kursu. Etap nie zmienia PDF. Wyświetlenie kursu i podsumowania PLN na Fakturze będzie zakresem Etapu 1E.3. Nie wdraża się lokalnej tabeli kursów, cache kursów ani walutowej Korekty.
+Pro forma w każdej walucie pozostaje całkowicie niezależna od NBP: nie pobiera kursu, nie zapisuje wartości PLN i nie zmienia hasha z powodu kursu. Etap nie zmienia PDF. Wyświetlenie kursu i podsumowania PLN na Fakturze będzie zakresem Etapu 1E.3. Etap 1E.2 nie wdrażał lokalnej tabeli kursów, cache kursów ani walutowej Korekty; obsługa Korekty walutowej została dodana później.
 
 ### Etap 1E.3 — kurs NBP i podsumowanie PLN na PDF Faktury VAT
 
@@ -1373,7 +1373,7 @@ PDF Faktury VAT w walucie obcej pokazuje główne wartości, pozycje, kwotę „
 
 PDF nie kontaktuje się z NBP, nie odczytuje bieżącego rekordu waluty, nie wykonuje ponownego mnożenia ani zaokrąglania i nie modyfikuje dokumentu. Kurs zachowuje dokładną tekstową wartość, w tym końcowe zera, bez wymuszania sześciu miejsc; gotowe kwoty PLN muszą mieć dokładnie dwa miejsca. Pozycje, `paid_amount` i `amount_due` nie są prezentowane w PLN.
 
-Grupy są parowane po znormalizowanym kodzie VAT albo stawce VAT, niezależnie od ich kolejności w snapshocie. Pusty snapshot historycznej Faktury walutowej nadal pozwala wygenerować poprzedni układ bez PLN i kursu. Niepusty, niekompletny albo niespójny snapshot kończy generowanie kontrolowanym błędem. Faktura PLN nie otrzymuje drugiego podsumowania, Pro forma nie pokazuje kursu ani PLN, a Korekta nie posiada jeszcze prezentacji walutowej.
+Grupy są parowane po znormalizowanym kodzie VAT albo stawce VAT, niezależnie od ich kolejności w snapshocie. Pusty snapshot historycznej Faktury walutowej nadal pozwala wygenerować poprzedni układ bez PLN i kursu. Niepusty, niekompletny albo niespójny snapshot kończy generowanie kontrolowanym błędem. Faktura PLN nie otrzymuje drugiego podsumowania, a Pro forma nie pokazuje kursu ani PLN. Prezentacja walutowa Korekty została dodana później i korzysta z historycznego kursu Faktury źródłowej.
 
 Cache PDF jest wersjonowany per typ layoutu. Etap podnosi wyłącznie wersję Faktury VAT; stare pliki pozostają prywatnie na dysku, a cache Pro formy i Korekty nie jest niepotrzebnie unieważniany.
 
@@ -1459,7 +1459,7 @@ Korekta otrzymuje własną aktywną serię, numer i daty oraz jest od razu wysta
 
 Pozycje Korekty zapisują kompletne snapshoty stanu przed zmianą, po zmianie i różnicy. Obliczenia netto, VAT i brutto korzystają z centralnej arytmetyki dziesiętnej, a brak rzeczywistej zmiany kończy operację kontrolowanym błędem bez zużycia numeru. Każda udana operacja zapisuje zdarzenie `correction_issued` w historii zamówienia.
 
-PDF Korekty jest generowany z zapisanych snapshotów przez istniejący prywatny renderer. Wystawiona Korekta może być edytowana przez nadpisanie jej bieżącego stanu bez zmiany numeru oraz usunięta przy użyciu wspólnego, transakcyjnego mechanizmu usuwania dokumentów. Usunięcie obejmuje pozycje, slot, prywatny cache PDF, zdarzenie zamówienia i ewentualne cofnięcie wolnego końca licznika. Korekty walutowe z przeliczeniem NBP, automatyzacje, JPK i KSeF pozostają poza zakresem.
+PDF Korekty jest generowany z zapisanych snapshotów przez istniejący prywatny renderer. Wystawiona Korekta może być edytowana przez nadpisanie jej bieżącego stanu bez zmiany numeru oraz usunięta przy użyciu wspólnego, transakcyjnego mechanizmu usuwania dokumentów. Usunięcie obejmuje pozycje, slot, prywatny cache PDF, zdarzenie zamówienia i ewentualne cofnięcie wolnego końca licznika. Zwykła Korekta walutowa korzysta z historycznego kursu Faktury źródłowej, zapisuje różnice w walucie dokumentu i PLN oraz nie wykonuje nowego żądania do NBP. Automatyzacje, JPK, KSeF i szczególne korekty rabatów zbiorczych pozostają poza zakresem.
 
 Zakładka `Korekty` udostępnia listę wystawionych Korekt z filtrowaniem, sortowaniem, paginacją, podglądem PDF, przejściem do edycji oraz usuwaniem pojedynczym i zbiorczym. Zaznaczone Korekty można wydrukować w jednym zbiorczym PDF. Korekta jest dokumentem księgowym i zostanie ujęta razem z Fakturami VAT w rejestrze sprzedaży wdrażanym w Etapie 3A; obecny przycisk rejestru jest wyłącznie nieaktywną zapowiedzią tej funkcji.
 

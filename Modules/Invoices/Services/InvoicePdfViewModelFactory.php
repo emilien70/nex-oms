@@ -17,6 +17,8 @@ class InvoicePdfViewModelFactory
         private readonly InvoiceAmountInWordsFormatter $amountInWords,
         private readonly CountryCatalog $countries,
         private readonly InvoicePdfCurrencyConversionPresenter $currencyConversion,
+        private readonly CorrectionTotalsCalculator $correctionTotals,
+        private readonly CorrectionCurrencyConversionService $correctionCurrencyConversion,
     ) {}
 
     /** @return array<string, mixed> */
@@ -82,9 +84,11 @@ class InvoicePdfViewModelFactory
         $settings = $invoice->series_settings_snapshot;
         $seller = $invoice->seller_snapshot;
         $source = $this->sourceInvoiceReference($invoice);
-        $totals = $invoice->correction_totals_snapshot;
+        $storedTotals = $invoice->correction_totals_snapshot;
+        $totals = $this->reconstructedCorrectionTotals($invoice);
         $difference = $totals['difference'];
         $decreasing = $this->decimal->compare((string) $difference['gross'], '0.00') < 0;
+        $plnConversion = $this->correctionPlnConversion($invoice, $storedTotals, $difference);
 
         return [
             'type' => InvoiceDocumentType::Correction->value,
@@ -107,17 +111,14 @@ class InvoicePdfViewModelFactory
             'after_totals' => $this->snapshotTotals($totals['after']),
             'difference_totals' => $this->snapshotTotals($difference),
             'difference_magnitudes' => $this->snapshotMagnitudeTotals($difference),
-            'difference_vat_label' => $this->correctionDifferenceVatLabel($invoice->items),
+            'difference_tax_rows' => $this->taxRows($difference['tax_summary_snapshot']),
+            'tax_row_pairs' => $plnConversion['tax_row_pairs'] ?? [],
+            'pln_conversion' => $plnConversion,
+            'pln_difference_magnitudes' => $plnConversion !== null
+                ? $this->snapshotMagnitudeTotals($plnConversion['totals'])
+                : null,
             'decreasing' => $decreasing,
-            'difference_labels' => $decreasing ? [
-                'net' => 'Kwota zmniejszająca podstawę opodatkowania',
-                'vat' => 'Kwota zmniejszająca podatek VAT',
-                'gross' => 'Do zwrotu',
-            ] : [
-                'net' => 'Kwota zwiększająca podstawę opodatkowania',
-                'vat' => 'Kwota zwiększająca podatek VAT',
-                'gross' => 'Do zapłaty',
-            ],
+            'difference_labels' => $this->correctionDifferenceLabels($difference),
             'currency' => $invoice->currency,
             'amount_in_words' => $this->amountInWords->format((string) $difference['gross'], $invoice->currency),
             'issuer_name' => $this->text($invoice->issuer_snapshot['issuer_name'] ?? null),
@@ -204,22 +205,6 @@ class InvoicePdfViewModelFactory
         return $items->map(fn ($item): array => $this->item($item->{$snapshot}))->values()->all();
     }
 
-    /** @param Collection<int, mixed> $items */
-    private function correctionDifferenceVatLabel(Collection $items): ?string
-    {
-        $labels = [];
-
-        foreach ($items as $item) {
-            foreach (['correction_before_snapshot', 'correction_after_snapshot'] as $snapshotName) {
-                $snapshot = $item->{$snapshotName};
-                $label = $this->vatLabel($snapshot['vat_rate'] ?? null, $snapshot['vat_code'] ?? null);
-                $labels[$label] = true;
-            }
-        }
-
-        return count($labels) === 1 ? array_key_first($labels) : null;
-    }
-
     /** @param array<string, mixed> $item */
     private function item(array $item): array
     {
@@ -287,6 +272,126 @@ class InvoicePdfViewModelFactory
                 return [$key => $this->money($magnitude)];
             })
             ->all();
+    }
+
+    /** @return array<string, mixed> */
+    private function reconstructedCorrectionTotals(Invoice $invoice): array
+    {
+        $items = $invoice->items
+            ->map(static fn ($item): array => [
+                'correction_before_snapshot' => $item->correction_before_snapshot,
+                'correction_after_snapshot' => $item->correction_after_snapshot,
+            ])
+            ->values()
+            ->all();
+
+        return $this->correctionTotals->calculate($items);
+    }
+
+    /**
+     * @param  array<string, mixed>  $difference
+     * @return array<string, mixed>|null
+     */
+    private function correctionPlnConversion(
+        Invoice $invoice,
+        mixed $storedTotals,
+        array $difference,
+    ): ?array {
+        $monetary = $this->correctionTotals->isMonetary($difference);
+        if (! $monetary || strtoupper(trim((string) $invoice->currency)) === 'PLN') {
+            return null;
+        }
+
+        if ($this->hasCanonicalCorrectionTaxSummaries($storedTotals)) {
+            $presented = $this->currencyConversion->presentSnapshots(
+                (string) $invoice->currency,
+                $difference['tax_summary_snapshot'],
+                $invoice->tax_metadata_snapshot,
+            );
+
+            if ($presented === null) {
+                throw new InvoiceDomainException(
+                    'invoice_pdf_invalid_currency_conversion_snapshot',
+                    'Nie można wygenerować PDF, ponieważ zapisane dane przeliczenia walutowego są niekompletne.',
+                );
+            }
+
+            return $presented;
+        }
+
+        $source = $invoice->correctedInvoice()->first();
+        if ($source === null) {
+            throw $this->incompleteData();
+        }
+
+        $metadata = $this->correctionCurrencyConversion->metadataFor(
+            $source,
+            $difference['tax_summary_snapshot'],
+            true,
+        );
+
+        return $this->currencyConversion->presentSnapshots(
+            (string) $invoice->currency,
+            $difference['tax_summary_snapshot'],
+            $metadata,
+        );
+    }
+
+    private function hasCanonicalCorrectionTaxSummaries(mixed $totals): bool
+    {
+        if (! is_array($totals)) {
+            return false;
+        }
+
+        foreach (['before', 'after', 'difference'] as $key) {
+            if (! is_array($totals[$key] ?? null)
+                || ! is_array($totals[$key]['tax_summary_snapshot'] ?? null)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $difference
+     * @return array{net: string, vat: string, gross: string}
+     */
+    private function correctionDifferenceLabels(array $difference): array
+    {
+        return [
+            'net' => $this->differenceLabel(
+                (string) $difference['net'],
+                'Kwota zmniejszająca podstawę opodatkowania',
+                'Kwota zwiększająca podstawę opodatkowania',
+                'Różnica podstawy opodatkowania',
+            ),
+            'vat' => $this->differenceLabel(
+                (string) $difference['vat'],
+                'Kwota zmniejszająca podatek VAT',
+                'Kwota zwiększająca podatek VAT',
+                'Różnica podatku VAT',
+            ),
+            'gross' => $this->differenceLabel(
+                (string) $difference['gross'],
+                'Do zwrotu',
+                'Do zapłaty',
+                'Różnica brutto',
+            ),
+        ];
+    }
+
+    private function differenceLabel(
+        string $value,
+        string $decreasing,
+        string $increasing,
+        string $neutral,
+    ): string {
+        return match ($this->decimal->compare($value, '0.00')) {
+            -1 => $decreasing,
+            1 => $increasing,
+            default => $neutral,
+        };
     }
 
     /** @return array<string, mixed> */

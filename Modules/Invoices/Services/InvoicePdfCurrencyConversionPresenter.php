@@ -16,11 +16,26 @@ class InvoicePdfCurrencyConversionPresenter
     /** @return array<string, mixed>|null */
     public function present(Invoice $invoice): ?array
     {
-        if (! $invoice->isInvoice() || strtoupper(trim((string) $invoice->currency)) === 'PLN') {
+        if ((! $invoice->isInvoice() && ! $invoice->isCorrection())
+            || strtoupper(trim((string) $invoice->currency)) === 'PLN') {
             return null;
         }
 
-        $metadata = $invoice->tax_metadata_snapshot;
+        return $this->presentSnapshots(
+            (string) $invoice->currency,
+            $invoice->tax_summary_snapshot,
+            $invoice->tax_metadata_snapshot,
+        );
+    }
+
+    /** @return array<string, mixed>|null */
+    public function presentSnapshots(string $documentCurrency, mixed $taxSummary, mixed $metadata): ?array
+    {
+        $documentCurrency = strtoupper(trim($documentCurrency));
+        if ($documentCurrency === 'PLN') {
+            return null;
+        }
+
         if ($metadata === null || $metadata === []) {
             return null;
         }
@@ -38,11 +53,9 @@ class InvoicePdfCurrencyConversionPresenter
 
         $sourceCurrency = $this->currencyCode($conversion['source_currency'] ?? null, 'waluty źródłowej');
         $targetCurrency = $this->currencyCode($conversion['target_currency'] ?? null, 'waluty docelowej');
-        $invoiceCurrency = strtoupper(trim((string) $invoice->currency));
-
         if (($conversion['version'] ?? null) !== 1
             || ($conversion['source'] ?? null) !== 'NBP'
-            || $sourceCurrency !== $invoiceCurrency
+            || $sourceCurrency !== $documentCurrency
             || $targetCurrency !== 'PLN'
             || ! in_array($conversion['table_type'] ?? null, ['A', 'B'], true)
             || ! is_string($conversion['table_number'] ?? null)
@@ -72,7 +85,7 @@ class InvoicePdfCurrencyConversionPresenter
         ];
         $this->assertGross($convertedTotals, 'podsumowania PLN');
 
-        $sourceGroups = $this->sourceGroups($invoice->tax_summary_snapshot);
+        $sourceGroups = $this->sourceGroups($taxSummary);
         $convertedGroups = $this->convertedGroups($convertedSummary['groups']);
         $this->assertSummarySums($convertedGroups, $convertedTotals);
 

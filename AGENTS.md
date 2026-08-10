@@ -1255,7 +1255,7 @@ Kurs nie przechodzi przez `float`. Każda grupa VAT jest przeliczana osobno meto
 
 Pobranie HTTP odbywa się przed transakcją i numeracją. W transakcji kontekst waluty, dat i tabeli jest ponownie sprawdzany; zmiana powoduje pełny rollback i najwyżej jedną pełną ponowną próbę z nowym kursem. Błąd NBP nie tworzy slotu, szkicu, pozycji, numeru ani zdarzenia.
 
-Pro forma nie pobiera kursu, nie zapisuje przeliczenia PLN i nie zmienia hasha z powodu kursu. Faktura PLN oraz każda Pro forma zachowują pusty `tax_metadata_snapshot`. Etap 1E.2 nie zmienia PDF; prezentacja kursu i podsumowania PLN należy do Etapu 1E.3. Walutowe Korekty nie są jeszcze wystawiane.
+Pro forma nie pobiera kursu, nie zapisuje przeliczenia PLN i nie zmienia hasha z powodu kursu. Faktura PLN oraz każda Pro forma zachowują pusty `tax_metadata_snapshot`. Etap 1E.2 nie zmienia PDF; prezentacja kursu i podsumowania PLN należy do Etapu 1E.3. Etap 1E.2 sam nie wdrażał walutowych Korekt; ich obsługa została dodana później.
 
 ---
 
@@ -1267,7 +1267,7 @@ Etap 1E.3 prezentuje na PDF Faktury VAT w walucie obcej wyłącznie dane zapisan
 
 Pusty snapshot Faktury walutowej oznacza historyczny dokument sprzed Etapu 1E.2 i pozwala wygenerować dotychczasowy PDF bez kursu i PLN. Niepusty, częściowy albo niespójny snapshot blokuje generowanie kontrolowanym błędem `invoice_pdf_invalid_currency_conversion_snapshot`.
 
-Faktura PLN, każda Pro forma i renderer Korekty pozostają bez dodatkowego kursu oraz podsumowania PLN. Cache PDF jest wersjonowany osobno: zmiana Etapu 1E.3 podnosi wyłącznie wersję layoutu Faktury, bez usuwania poprzednich plików i bez unieważniania cache Pro formy lub Korekty. Etap nie dodaje migracji, zależności, walutowej Korekty ani połączeń HTTP podczas generowania PDF.
+W samym Etapie 1E.3 Faktura PLN, każda Pro forma i renderer Korekty pozostawały bez dodatkowego kursu oraz podsumowania PLN. Etap podnosił wyłącznie wersję layoutu Faktury, bez usuwania poprzednich plików i bez unieważniania cache Pro formy lub Korekty. Obsługa walutowej Korekty została dodana później i nadal nie wykonuje połączeń HTTP podczas generowania PDF.
 
 ---
 
@@ -1300,4 +1300,4 @@ Etap 2F wdraża centralne wystawianie Korekt do istniejącej Faktury VAT:
 
 Operacja jest transakcyjna. Brak rzeczywistej zmiany, niekompletny stan źródłowy, druga Korekta, niespójny slot albo niewłaściwa seria nie mogą zużyć numeru ani pozostawić częściowych danych. Faktura źródłowa nie jest nadpisywana. Ponowna ścieżka tworzenia kieruje do edycji istniejącej Korekty, której zapis nadpisuje bieżące snapshoty i pozycje bez zmiany numeru.
 
-Edycja i usuwanie Korekty zostały dodane później. Korekty walutowe z przeliczeniem NBP, automatyzacje, JPK, KSeF i dokumenty zewnętrzne pozostają poza zakresem Etapu 2F.
+Edycja i usuwanie Korekty zostały dodane później. Zwykła Korekta walutowa korzysta z historycznego kursu zapisanego na Fakturze źródłowej, zapisuje różnicowe podsumowanie w walucie dokumentu i PLN oraz nie pobiera nowego kursu NBP. Automatyzacje, JPK, KSeF, dokumenty zewnętrzne i szczególne korekty rabatów zbiorczych pozostają poza zakresem.
