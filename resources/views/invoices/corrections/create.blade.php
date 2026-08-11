@@ -329,9 +329,10 @@
                     const display = row.querySelector(`[data-item-display="${field}"]`);
                     const input = editor.querySelector(`[data-item-field="${field}"]`);
                     if (!display || !input) return;
+                    const vatCode = editor.querySelector('[data-item-field="vat_code"]')?.value.trim().toUpperCase();
                     display.textContent = field === 'unit_price_gross'
                         ? `${input.value} {{ $sourceInvoice->currency }}`
-                        : field === 'vat_rate' ? `${input.value || '—'}${input.value ? '%' : ''}` : input.value;
+                        : field === 'vat_rate' ? (vatCode || `${input.value || '—'}${input.value ? '%' : ''}`) : input.value;
                 });
             };
             const addItem = (item, open = false) => {

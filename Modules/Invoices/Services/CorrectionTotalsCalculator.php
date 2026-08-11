@@ -2,11 +2,14 @@
 
 namespace Modules\Invoices\Services;
 
+use Modules\Invoices\Exceptions\InvoiceDomainException;
+
 class CorrectionTotalsCalculator
 {
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTotalsCalculator $totals,
+        private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
     ) {}
 
     /**
@@ -137,16 +140,19 @@ class CorrectionTotalsCalculator
         $indexed = [];
 
         foreach ($groups as $group) {
-            $vatCode = isset($group['vat_code']) && trim((string) $group['vat_code']) !== ''
-                ? strtoupper(trim((string) $group['vat_code']))
-                : null;
-            $vatRate = $vatCode === null
-                ? $this->decimal->normalize((string) $group['vat_rate'], 2)
-                : null;
-            $key = $vatCode !== null ? 'code:'.$vatCode : 'rate:'.$vatRate;
+            $identity = $this->taxIdentity->normalize(
+                $group['vat_rate'] ?? null,
+                $group['vat_code'] ?? null,
+            );
+            $key = $this->taxIdentity->key($identity);
+            if ($key === null) {
+                throw new InvoiceDomainException(
+                    'invoice_tax_calculation_failed',
+                    'Nie można prawidłowo obliczyć wartości podatkowych dokumentu.',
+                );
+            }
             $indexed[$key] ??= [
-                'vat_rate' => $vatRate,
-                'vat_code' => $vatCode,
+                ...$identity,
                 'net' => '0.00',
                 'vat' => '0.00',
                 'gross' => '0.00',

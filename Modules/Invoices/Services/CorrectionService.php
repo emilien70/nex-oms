@@ -32,6 +32,7 @@ class CorrectionService
         private readonly InvoiceNumberFormatter $numbers,
         private readonly CorrectionSeriesSourceResolver $seriesSources,
         private readonly CorrectionStateComparator $stateComparator,
+        private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -605,13 +606,15 @@ class CorrectionService
     private function normalizeSnapshot(array $snapshot): array
     {
         $gross = $this->decimal->normalize((string) ($snapshot['total_gross'] ?? '0'), 2);
-        $vatRate = $snapshot['vat_rate'] ?? null;
-        $vatCode = $snapshot['vat_code'] ?? null;
+        $identity = $this->correctionTaxIdentity(
+            $snapshot['vat_rate'] ?? null,
+            $snapshot['vat_code'] ?? null,
+        );
         $amounts = $this->totals->calculateLine(
             (string) ($snapshot['unit_price_gross'] ?? '0'),
             $gross,
-            $vatRate !== null ? (string) $vatRate : null,
-            $vatCode !== null ? (string) $vatCode : null,
+            $identity['vat_rate'],
+            $identity['vat_code'],
         );
 
         return array_merge([
@@ -621,8 +624,7 @@ class CorrectionService
             'description' => $this->nullableText($snapshot['description'] ?? null),
             'unit_name' => trim((string) ($snapshot['unit_name'] ?? 'szt.')),
             'quantity' => $this->decimal->normalize((string) ($snapshot['quantity'] ?? '0'), 4),
-            'vat_rate' => $vatRate !== null ? $this->decimal->normalize((string) $vatRate, 2) : null,
-            'vat_code' => $vatCode !== null ? trim((string) $vatCode) : null,
+            ...$identity,
         ], $amounts);
     }
 
@@ -632,21 +634,16 @@ class CorrectionService
         $quantity = $this->decimal->normalize((string) ($submitted['quantity'] ?? '0'), 4);
         $unitGross = $this->decimal->normalize((string) ($submitted['unit_price_gross'] ?? '0'), 4);
         $totalGross = $this->decimal->multiplyAndRound($unitGross, $quantity, 2);
-        $vatRate = $submitted['vat_rate'] ?? null;
-        $vatCode = $this->nullableText($submitted['vat_code'] ?? null);
-
-        if ($vatRate === null && $vatCode === null) {
-            throw new InvoiceDomainException(
-                'correction_tax_missing',
-                'Każda pozycja Korekty musi posiadać stawkę albo kod VAT.',
-            );
-        }
+        $identity = $this->correctionTaxIdentity(
+            $submitted['vat_rate'] ?? null,
+            $submitted['vat_code'] ?? null,
+        );
 
         $amounts = $this->totals->calculateLine(
             $unitGross,
             $totalGross,
-            $vatRate !== null ? (string) $vatRate : null,
-            $vatCode,
+            $identity['vat_rate'],
+            $identity['vat_code'],
         );
 
         return array_merge([
@@ -656,9 +653,23 @@ class CorrectionService
             'description' => $this->nullableText($submitted['description'] ?? null),
             'unit_name' => trim((string) ($submitted['unit_name'] ?? 'szt.')),
             'quantity' => $quantity,
-            'vat_rate' => $vatRate !== null ? $this->decimal->normalize((string) $vatRate, 2) : null,
-            'vat_code' => $vatCode,
+            ...$identity,
         ], $amounts);
+    }
+
+    /** @return array{vat_rate: ?string, vat_code: ?string} */
+    private function correctionTaxIdentity(mixed $vatRate, mixed $vatCode): array
+    {
+        $identity = $this->taxIdentity->normalize($vatRate, $vatCode);
+
+        if ($this->taxIdentity->key($identity) === null) {
+            throw new InvoiceDomainException(
+                'correction_tax_missing',
+                'Każda pozycja Korekty musi posiadać stawkę albo kod VAT.',
+            );
+        }
+
+        return $identity;
     }
 
     /** @param array<string, mixed> $snapshot */

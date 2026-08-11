@@ -642,6 +642,42 @@ class InvoicePdfTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $response->getContent());
     }
 
+    public function test_correction_pdf_renders_vat_codes_without_a_percent_suffix(): void
+    {
+        $source = $this->issueInvoice();
+        $correction = $this->createCorrection($source);
+        $item = $correction->items()->sole();
+        $before = array_merge($item->correction_before_snapshot, [
+            'vat_rate' => null,
+            'vat_code' => 'ZW',
+            'total_net' => '100.00',
+            'total_vat' => '0.00',
+            'total_gross' => '100.00',
+        ]);
+        $after = array_merge($before, [
+            'vat_code' => 'NP',
+        ]);
+
+        $item->update([
+            'correction_before_snapshot' => $before,
+            'correction_after_snapshot' => $after,
+            'correction_difference_snapshot' => array_merge($after, [
+                'quantity' => '0.0000',
+                'unit_price_net' => '0.0000',
+                'total_net' => '0.00',
+                'total_vat' => '0.00',
+                'total_gross' => '0.00',
+            ]),
+        ]);
+
+        $html = app(InvoicePdfRenderer::class)->html($correction->fresh(['items', 'correctedInvoice']));
+
+        $this->assertStringContainsString('ZW', $html);
+        $this->assertStringContainsString('NP', $html);
+        $this->assertStringNotContainsString('ZW%', $html);
+        $this->assertStringNotContainsString('NP%', $html);
+    }
+
     public function test_buyer_only_correction_pdf_shows_buyer_before_and_after(): void
     {
         $source = $this->issueInvoice();

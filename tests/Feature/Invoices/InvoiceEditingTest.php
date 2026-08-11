@@ -461,6 +461,35 @@ class InvoiceEditingTest extends TestCase
             ->assertJsonValidationErrors(['vat_rate', 'vat_code']);
     }
 
+    public function test_item_edit_canonicalizes_vat_code_and_discards_stale_rate(): void
+    {
+        $invoice = $this->issueInvoice();
+        $item = $invoice->items()->where('line_type', 'product')->firstOrFail();
+
+        $this->patchJson(route('invoices.items.update', [$invoice, $item]), $this->itemPayload($invoice, [
+            'name' => $item->name,
+            'quantity' => '1',
+            'unit_price_gross' => '100.00',
+            'position' => $item->position,
+            'vat_rate' => '23.00',
+            'vat_code' => 'zw',
+        ]))->assertOk();
+
+        $invoice = $invoice->fresh('items');
+        $item = $invoice->items->firstWhere('id', $item->getKey());
+        $this->assertSame('ZW', $item->vat_code);
+        $this->assertNull($item->vat_rate);
+        $this->assertSame('100.00', $item->total_net);
+        $this->assertSame('0.00', $item->total_vat);
+        $this->assertContains([
+            'vat_rate' => null,
+            'vat_code' => 'ZW',
+            'net' => '100.00',
+            'vat' => '0.00',
+            'gross' => '100.00',
+        ], $invoice->tax_summary_snapshot);
+    }
+
     public function test_item_form_uses_integer_quantity_and_two_decimal_gross_price(): void
     {
         $invoice = $this->issueInvoice();

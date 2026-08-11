@@ -9,6 +9,7 @@ class InvoiceTotalsCalculator
 {
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
+        private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
     ) {}
 
     /**
@@ -23,7 +24,9 @@ class InvoiceTotalsCalculator
         $unitGross = $this->decimal->normalize($unitPriceGross, 4);
         $gross = $this->decimal->normalize($totalGross, 2);
 
-        if ($vatCode !== null) {
+        $identity = $this->taxIdentity->normalize($vatRate, $vatCode);
+
+        if ($identity['vat_code'] !== null) {
             return [
                 'unit_price_net' => $unitGross,
                 'unit_price_gross' => $unitGross,
@@ -33,14 +36,14 @@ class InvoiceTotalsCalculator
             ];
         }
 
-        if ($vatRate === null) {
+        if ($identity['vat_rate'] === null) {
             throw new InvoiceDomainException(
                 'invoice_tax_calculation_failed',
                 'Nie można prawidłowo obliczyć wartości podatkowych dokumentu.',
             );
         }
 
-        $rate = $this->decimal->normalize($vatRate, 2);
+        $rate = $identity['vat_rate'];
         $unitNet = $this->decimal->netFromGross($unitGross, $rate, 4);
         $net = $this->decimal->netFromGross($gross, $rate, 2);
 
@@ -89,15 +92,20 @@ class InvoiceTotalsCalculator
             $totalNet = $this->decimal->add($totalNet, $itemNet);
             $totalVat = $this->decimal->add($totalVat, $itemVat);
             $totalGross = $this->decimal->add($totalGross, $itemGross);
-            $vatRate = $item['vat_rate'] !== null
-                ? $this->decimal->normalize((string) $item['vat_rate'], 2)
-                : null;
-            $vatCode = $item['vat_code'] ?? null;
-            $key = $vatCode !== null ? 'code:'.$vatCode : 'rate:'.$vatRate;
+            $identity = $this->taxIdentity->normalize(
+                $item['vat_rate'] ?? null,
+                $item['vat_code'] ?? null,
+            );
+            $key = $this->taxIdentity->key($identity);
+            if ($key === null) {
+                throw new InvoiceDomainException(
+                    'invoice_tax_calculation_failed',
+                    'Nie można prawidłowo obliczyć wartości podatkowych dokumentu.',
+                );
+            }
 
             $taxGroups[$key] ??= [
-                'vat_rate' => $vatRate,
-                'vat_code' => $vatCode,
+                ...$identity,
                 'net' => '0.00',
                 'vat' => '0.00',
                 'gross' => '0.00',

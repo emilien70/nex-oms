@@ -14,6 +14,7 @@ class InvoiceEditableItemsService
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTotalsCalculator $totals,
+        private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
     ) {}
 
     /** @param array<string, mixed> $data
@@ -24,14 +25,12 @@ class InvoiceEditableItemsService
         $quantity = $this->decimal->normalize((string) $data['quantity'], 4);
         $unitGross = $this->decimal->normalize((string) $data['unit_price_gross'], 4);
         $totalGross = $this->decimal->multiplyAndRound($quantity, $unitGross, 2);
-        $vatRate = isset($data['vat_rate']) && $data['vat_rate'] !== ''
-            ? $this->decimal->normalize((string) $data['vat_rate'], 2)
-            : null;
-        $vatCode = isset($data['vat_code']) && trim((string) $data['vat_code']) !== ''
-            ? strtoupper(trim((string) $data['vat_code']))
-            : null;
+        $identity = $this->taxIdentity->normalize(
+            $data['vat_rate'] ?? null,
+            $data['vat_code'] ?? null,
+        );
 
-        if ($vatRate === null && $vatCode === null) {
+        if ($this->taxIdentity->key($identity) === null) {
             throw new InvoiceDomainException(
                 'invoice_tax_calculation_failed',
                 'Wybierz stawkę VAT albo podaj kod VAT.',
@@ -45,12 +44,16 @@ class InvoiceEditableItemsService
             'description' => $this->nullableText($data['description'] ?? null),
             'unit_name' => trim((string) $data['unit_name']),
             'quantity' => $quantity,
-            'vat_rate' => $vatRate,
-            'vat_code' => $vatCode,
+            ...$identity,
             'gtu_codes' => $item?->gtu_codes ?? [],
             'product_snapshot' => $item?->product_snapshot,
             'metadata' => $item?->metadata ?? ['source' => 'manual_invoice_edit'],
-        ], $this->totals->calculateLine($unitGross, $totalGross, $vatRate, $vatCode));
+        ], $this->totals->calculateLine(
+            $unitGross,
+            $totalGross,
+            $identity['vat_rate'],
+            $identity['vat_code'],
+        ));
     }
 
     /** @return array<int, array<string, mixed>> */

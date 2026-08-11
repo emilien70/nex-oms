@@ -57,6 +57,89 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_zw_eur_reduction_uses_historical_rate_and_canonical_code_without_http(): void
+    {
+        Http::preventStrayRequests();
+        $source = $this->sourceInvoice([['gross' => '100.00', 'vat_rate' => '23.00']]);
+        $source = $this->updateSourceTaxIdentity($source, null, 'zw');
+        $source = $this->makeForeign($source);
+        $items = $this->submittedItems($source);
+        $items[0]['unit_price_gross'] = '75.00';
+        $items[0]['vat_rate'] = '23.00';
+        $items[0]['vat_code'] = ' zw ';
+
+        $correction = $this->issueItemCorrection($source, $items, '2026-08-10');
+        $converted = $correction->tax_metadata_snapshot['converted_tax_summary'];
+
+        $this->assertSame('-25.00', $correction->total_net);
+        $this->assertSame('0.00', $correction->total_vat);
+        $this->assertSame('-25.00', $correction->total_gross);
+        $this->assertSame('ZW', $correction->tax_summary_snapshot[0]['vat_code']);
+        $this->assertNull($correction->tax_summary_snapshot[0]['vat_rate']);
+        $this->assertSame('-108.55', $converted['total_net']);
+        $this->assertSame('0.00', $converted['total_vat']);
+        $this->assertSame('-108.55', $converted['total_gross']);
+        $this->assertSame('ZW', $converted['groups'][0]['vat_code']);
+        $this->assertNull($converted['groups'][0]['vat_rate']);
+        $this->assertSame('4.342000', $correction->tax_metadata_snapshot['currency_conversion']['rate']);
+        Http::assertNothingSent();
+    }
+
+    public function test_rate_to_code_eur_correction_preserves_both_source_and_pln_groups(): void
+    {
+        Http::preventStrayRequests();
+        $source = $this->foreignSource([['gross' => '123.00', 'vat_rate' => '23.00']]);
+        $items = $this->submittedItems($source);
+        $items[0]['vat_code'] = 'zw';
+        $items[0]['vat_rate'] = '23.00';
+
+        $correction = $this->issueItemCorrection($source, $items);
+        $converted = $correction->tax_metadata_snapshot['converted_tax_summary'];
+        $html = app(InvoicePdfRenderer::class)->html($correction->fresh('items'));
+
+        $this->assertSame(['ZW', null], array_column($correction->tax_summary_snapshot, 'vat_code'));
+        $this->assertSame([null, '23.00'], array_column($correction->tax_summary_snapshot, 'vat_rate'));
+        $this->assertSame(['ZW', null], array_column($converted['groups'], 'vat_code'));
+        $this->assertSame([null, '23.00'], array_column($converted['groups'], 'vat_rate'));
+        $this->assertSame('99.87', $converted['total_net']);
+        $this->assertSame('-99.87', $converted['total_vat']);
+        $this->assertSame('0.00', $converted['total_gross']);
+        $this->assertStringContainsString('23%', $html);
+        $this->assertStringContainsString('ZW', $html);
+        $this->assertStringNotContainsString('ZW%', $html);
+        $this->assertStringContainsString('137/A/NBP/2026', $html);
+        Http::assertNothingSent();
+    }
+
+    public function test_code_to_code_eur_correction_converts_nonzero_groups_despite_zero_aggregate(): void
+    {
+        Http::preventStrayRequests();
+        $source = $this->sourceInvoice([['gross' => '100.00', 'vat_rate' => '23.00']]);
+        $source = $this->updateSourceTaxIdentity($source, null, 'ZW');
+        $source = $this->makeForeign($source);
+        $items = $this->submittedItems($source);
+        $items[0]['vat_code'] = 'np';
+        $items[0]['vat_rate'] = '8.00';
+
+        $correction = $this->issueItemCorrection($source, $items);
+        $converted = $correction->tax_metadata_snapshot['converted_tax_summary'];
+        $html = app(InvoicePdfRenderer::class)->html($correction->fresh('items'));
+
+        $this->assertSame('0.00', $correction->total_gross);
+        $this->assertSame(['NP', 'ZW'], array_column($correction->tax_summary_snapshot, 'vat_code'));
+        $this->assertCount(2, $converted['groups']);
+        $this->assertSame(['NP', 'ZW'], array_column($converted['groups'], 'vat_code'));
+        $this->assertSame(['434.20', '-434.20'], array_column($converted['groups'], 'gross'));
+        $this->assertSame('0.00', $converted['total_net']);
+        $this->assertSame('0.00', $converted['total_vat']);
+        $this->assertSame('0.00', $converted['total_gross']);
+        $this->assertStringContainsString('ZW', $html);
+        $this->assertStringContainsString('NP', $html);
+        $this->assertStringNotContainsString('ZW%', $html);
+        $this->assertStringNotContainsString('NP%', $html);
+        Http::assertNothingSent();
+    }
+
     public function test_vat_rate_change_keeps_two_difference_groups_and_component_signs(): void
     {
         Http::preventStrayRequests();
@@ -368,6 +451,23 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         ]);
 
         return $source->fresh('items');
+    }
+
+    private function updateSourceTaxIdentity(Invoice $source, ?string $vatRate, ?string $vatCode): Invoice
+    {
+        $item = $source->fresh('items')->items->sole();
+
+        return app(InvoiceEditService::class)->updateItem($source, $item, [
+            'expected_lock_version' => $source->lock_version,
+            'name' => $item->name,
+            'description' => $item->description,
+            'unit_name' => $item->unit_name,
+            'quantity' => (string) $item->quantity,
+            'unit_price_gross' => (string) $item->unit_price_gross,
+            'vat_rate' => $vatRate,
+            'vat_code' => $vatCode,
+            'position' => $item->position,
+        ]);
     }
 
     /** @param array<int, array<string, mixed>> $items */

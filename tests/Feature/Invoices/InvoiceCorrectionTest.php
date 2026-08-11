@@ -16,6 +16,7 @@ use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\CorrectionSourceStateService;
+use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
@@ -39,6 +40,16 @@ class InvoiceCorrectionTest extends TestCase
             ->assertSeeText(CorrectionReason::GoodsReturn->label())
             ->assertSeeText('Produkt testowy')
             ->assertSeeText('Jan Kowalski');
+    }
+
+    public function test_correction_form_displays_existing_vat_code_instead_of_an_empty_rate(): void
+    {
+        $invoice = $this->updateSourceTaxIdentity($this->issuedInvoice(), '23.00', ' zw ');
+
+        $this->get(route('invoices.corrections.create', $invoice))
+            ->assertOk()
+            ->assertSee('"vat_rate":null,"vat_code":"ZW"', false)
+            ->assertSee('vatCode ||', false);
     }
 
     public function test_correction_tab_lists_only_issued_corrections_with_shared_document_actions(): void
@@ -547,6 +558,199 @@ class InvoiceCorrectionTest extends TestCase
         $this->assertSame($lockVersion, $updated->lock_version);
         $this->assertSame($itemIds, $updated->items->modelKeys());
         $this->assertSame('80.0000', $updated->items->first()->unit_price_gross);
+        Storage::disk('local')->assertExists($cachePath);
+    }
+
+    public function test_case_only_vat_code_change_does_not_issue_a_correction(): void
+    {
+        $source = $this->updateSourceTaxIdentity($this->issuedInvoice(), null, 'ZW');
+        $items = $this->submittedItems($source);
+        $items[0]['vat_code'] = ' zw ';
+        $items[0]['vat_rate'] = '23.00';
+
+        try {
+            app(CorrectionService::class)->issue(
+                $source,
+                $this->systemCorrectionSeries(),
+                $source->lock_version,
+                $this->payload($this->systemCorrectionSeries(), [
+                    'change_items' => true,
+                    'items' => $items,
+                ]),
+                $this->documentContext('2026-08-05 10:00:00'),
+            );
+            $this->fail('Zmiana wyłącznie zapisu kodu VAT nie powinna tworzyć Korekty.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('correction_has_no_changes', $exception->errorCode());
+        }
+
+        $this->assertDatabaseMissing('invoices', [
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
+    }
+
+    public function test_rate_to_code_correction_persists_canonical_snapshots_and_difference_groups(): void
+    {
+        $source = $this->issuedInvoiceWithoutShipping('123.00');
+        $items = $this->submittedItems($source);
+        $items[0]['vat_code'] = ' zw ';
+        $items[0]['vat_rate'] = '23.00';
+
+        $correction = app(CorrectionService::class)->issue(
+            $source,
+            $this->systemCorrectionSeries(),
+            $source->lock_version,
+            $this->payload($this->systemCorrectionSeries(), [
+                'change_items' => true,
+                'items' => $items,
+            ]),
+            $this->documentContext('2026-08-05 10:00:00'),
+        )->fresh('items');
+
+        $item = $correction->items->sole();
+        $this->assertSame('23.00', $item->correction_before_snapshot['vat_rate']);
+        $this->assertNull($item->correction_before_snapshot['vat_code']);
+        $this->assertNull($item->correction_after_snapshot['vat_rate']);
+        $this->assertSame('ZW', $item->correction_after_snapshot['vat_code']);
+        $this->assertSame('ZW', $item->correction_difference_snapshot['vat_code']);
+        $this->assertSame('23.00', $correction->total_net);
+        $this->assertSame('-23.00', $correction->total_vat);
+        $this->assertSame('0.00', $correction->total_gross);
+        $this->assertSame([
+            ['vat_rate' => null, 'vat_code' => 'ZW', 'net' => '123.00', 'vat' => '0.00', 'gross' => '123.00'],
+            ['vat_rate' => '23.00', 'vat_code' => null, 'net' => '-100.00', 'vat' => '-23.00', 'gross' => '-123.00'],
+        ], $correction->tax_summary_snapshot);
+        $this->assertSame(
+            $correction->correction_totals_snapshot['difference']['tax_summary_snapshot'],
+            $correction->tax_summary_snapshot,
+        );
+    }
+
+    public function test_code_to_code_correction_is_real_even_when_aggregate_totals_are_zero(): void
+    {
+        $source = $this->updateSourceTaxIdentity($this->issuedInvoiceWithoutShipping('100.00'), null, 'ZW');
+        $items = $this->submittedItems($source);
+        $items[0]['vat_code'] = 'np';
+        $items[0]['vat_rate'] = '23.00';
+
+        $correction = app(CorrectionService::class)->issue(
+            $source,
+            $this->systemCorrectionSeries(),
+            $source->lock_version,
+            $this->payload($this->systemCorrectionSeries(), [
+                'change_items' => true,
+                'items' => $items,
+            ]),
+            $this->documentContext('2026-08-05 10:00:00'),
+        );
+
+        $this->assertSame('0.00', $correction->total_net);
+        $this->assertSame('0.00', $correction->total_vat);
+        $this->assertSame('0.00', $correction->total_gross);
+        $this->assertSame([
+            ['vat_rate' => null, 'vat_code' => 'NP', 'net' => '100.00', 'vat' => '0.00', 'gross' => '100.00'],
+            ['vat_rate' => null, 'vat_code' => 'ZW', 'net' => '-100.00', 'vat' => '0.00', 'gross' => '-100.00'],
+        ], $correction->tax_summary_snapshot);
+    }
+
+    public function test_code_correction_update_is_canonical_no_op_and_different_code_is_real_change(): void
+    {
+        Storage::fake('local');
+        $source = $this->updateSourceTaxIdentity($this->issuedInvoiceWithoutShipping('100.00'), null, 'ZW');
+        $items = $this->submittedItems($source);
+        $items[0]['unit_price_gross'] = '75.00';
+        $correction = app(CorrectionService::class)->issue(
+            $source,
+            $this->systemCorrectionSeries(),
+            $source->lock_version,
+            $this->payload($this->systemCorrectionSeries(), ['change_items' => true, 'items' => $items]),
+            $this->documentContext('2026-08-05 10:00:00'),
+        )->fresh('items');
+        $cachePath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($cachePath, '%PDF-current');
+        $itemIds = $correction->items->modelKeys();
+        $lockVersion = $correction->lock_version;
+        $submitted = $this->submittedCorrectionItems($correction);
+        $submitted[0]['vat_code'] = ' zw ';
+        $submitted[0]['vat_rate'] = '23.00';
+
+        $unchanged = app(CorrectionService::class)->update($correction, $this->payload($this->systemCorrectionSeries(), [
+            'expected_lock_version' => $lockVersion,
+            'change_items' => true,
+            'items' => $submitted,
+        ]));
+
+        $this->assertSame($lockVersion, $unchanged->lock_version);
+        $this->assertSame($itemIds, $unchanged->items->modelKeys());
+        Storage::disk('local')->assertExists($cachePath);
+
+        $submitted[0]['vat_code'] = 'np';
+        $changed = app(CorrectionService::class)->update($unchanged, $this->payload($this->systemCorrectionSeries(), [
+            'expected_lock_version' => $lockVersion,
+            'change_items' => true,
+            'items' => $submitted,
+        ]));
+
+        $this->assertSame($lockVersion + 1, $changed->lock_version);
+        $this->assertSame('NP', $changed->items->sole()->correction_after_snapshot['vat_code']);
+        $this->assertNull($changed->items->sole()->correction_after_snapshot['vat_rate']);
+        Storage::disk('local')->assertMissing($cachePath);
+    }
+
+    public function test_legacy_lowercase_vat_code_is_canonicalized_once_and_the_next_update_is_a_no_op(): void
+    {
+        Storage::fake('local');
+        $source = $this->updateSourceTaxIdentity($this->issuedInvoiceWithoutShipping('100.00'), null, 'ZW');
+        $items = $this->submittedItems($source);
+        $items[0]['unit_price_gross'] = '75.00';
+        $correction = app(CorrectionService::class)->issue(
+            $source,
+            $this->systemCorrectionSeries(),
+            $source->lock_version,
+            $this->payload($this->systemCorrectionSeries(), ['change_items' => true, 'items' => $items]),
+            $this->documentContext('2026-08-05 10:00:00'),
+        )->fresh('items');
+        $item = $correction->items->sole();
+        $legacyAfter = array_merge($item->correction_after_snapshot, ['vat_code' => 'zw']);
+        $legacyDifference = array_merge($item->correction_difference_snapshot, ['vat_code' => 'zw']);
+        $item->update([
+            'vat_code' => 'zw',
+            'correction_after_snapshot' => $legacyAfter,
+            'correction_difference_snapshot' => $legacyDifference,
+        ]);
+        $correction = $correction->fresh('items');
+        $cachePath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($cachePath, '%PDF-legacy');
+        $submitted = $this->submittedCorrectionItems($correction);
+        $submitted[0]['vat_code'] = ' zw ';
+        $submitted[0]['vat_rate'] = '23.00';
+
+        $canonicalized = app(CorrectionService::class)->update($correction, $this->payload($this->systemCorrectionSeries(), [
+            'expected_lock_version' => $correction->lock_version,
+            'change_items' => true,
+            'items' => $submitted,
+        ]));
+
+        $this->assertSame($correction->lock_version + 1, $canonicalized->lock_version);
+        $this->assertSame('ZW', $canonicalized->items->sole()->vat_code);
+        $this->assertSame('ZW', $canonicalized->items->sole()->correction_after_snapshot['vat_code']);
+        $this->assertNull($canonicalized->items->sole()->vat_rate);
+        Storage::disk('local')->assertMissing($cachePath);
+
+        Storage::disk('local')->put($cachePath, '%PDF-canonical');
+        $canonicalItemIds = $canonicalized->items->modelKeys();
+        $submitted = $this->submittedCorrectionItems($canonicalized);
+        $submitted[0]['vat_code'] = ' zw ';
+        $submitted[0]['vat_rate'] = '23.00';
+
+        $unchanged = app(CorrectionService::class)->update($canonicalized, $this->payload($this->systemCorrectionSeries(), [
+            'expected_lock_version' => $canonicalized->lock_version,
+            'change_items' => true,
+            'items' => $submitted,
+        ]));
+
+        $this->assertSame($canonicalized->lock_version, $unchanged->lock_version);
+        $this->assertSame($canonicalItemIds, $unchanged->items->modelKeys());
         Storage::disk('local')->assertExists($cachePath);
     }
 
@@ -1153,6 +1357,43 @@ class InvoiceCorrectionTest extends TestCase
             $this->createDocumentSeries(),
             $this->documentContext(),
         );
+    }
+
+    private function issuedInvoiceWithoutShipping(string $gross): Invoice
+    {
+        $order = $this->createDocumentOrder([
+            'total_gross' => $gross,
+            'paid_amount' => '0.00',
+            'delivery_cost_gross' => '0.00',
+        ]);
+        $this->createDocumentItem($order, [
+            'unit_price_gross' => $gross,
+            'total_price_gross' => $gross,
+        ]);
+
+        return app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(attributes: ['include_shipping' => false]),
+            $this->documentContext(),
+        );
+    }
+
+    private function updateSourceTaxIdentity(Invoice $source, ?string $vatRate, ?string $vatCode): Invoice
+    {
+        $item = $source->fresh('items')->items->firstWhere('line_type', 'product');
+        $this->assertNotNull($item);
+
+        return app(InvoiceEditService::class)->updateItem($source, $item, [
+            'expected_lock_version' => $source->lock_version,
+            'name' => $item->name,
+            'description' => $item->description,
+            'unit_name' => $item->unit_name,
+            'quantity' => (string) $item->quantity,
+            'unit_price_gross' => (string) $item->unit_price_gross,
+            'vat_rate' => $vatRate,
+            'vat_code' => $vatCode,
+            'position' => $item->position,
+        ]);
     }
 
     private function systemCorrectionSeries(): InvoiceSeries

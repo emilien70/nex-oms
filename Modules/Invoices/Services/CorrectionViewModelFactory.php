@@ -23,6 +23,7 @@ class CorrectionViewModelFactory
         private readonly AdditionalInformationRenderer $additionalInformation,
         private readonly CountryCatalog $countries,
         private readonly CorrectionSeriesSourceResolver $seriesSources,
+        private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
     ) {}
 
     /** @return array<string, mixed> */
@@ -143,6 +144,11 @@ class CorrectionViewModelFactory
             );
         }
 
+        $identity = $this->taxIdentity->normalize(
+            $snapshot['vat_rate'] ?? null,
+            $snapshot['vat_code'] ?? null,
+        );
+
         return [
             'source_item_id' => $item->getKey(),
             'order_item_id' => $item->order_item_id,
@@ -153,10 +159,7 @@ class CorrectionViewModelFactory
             'unit_name' => (string) ($snapshot['unit_name'] ?? 'szt.'),
             'quantity' => $this->integerQuantity($snapshot['quantity'] ?? 0),
             'unit_price_gross' => $this->decimalForForm($snapshot['unit_price_gross'] ?? 0, 2),
-            'vat_rate' => ($snapshot['vat_rate'] ?? null) !== null
-                ? $this->decimalForForm($snapshot['vat_rate'], 2)
-                : null,
-            'vat_code' => $snapshot['vat_code'] ?? null,
+            ...$identity,
         ];
     }
 
@@ -200,6 +203,10 @@ class CorrectionViewModelFactory
     private function formItem(array $item): array
     {
         $snapshot = $item['snapshot'];
+        $identity = $this->taxIdentity->normalize(
+            $snapshot['vat_rate'] ?? null,
+            $snapshot['vat_code'] ?? null,
+        );
 
         return [
             'source_item_id' => $item['source_item_id'],
@@ -211,10 +218,7 @@ class CorrectionViewModelFactory
             'unit_name' => (string) ($snapshot['unit_name'] ?? 'szt.'),
             'quantity' => $this->integerQuantity($snapshot['quantity'] ?? 0),
             'unit_price_gross' => $this->decimalForForm($snapshot['unit_price_gross'] ?? 0, 2),
-            'vat_rate' => $snapshot['vat_rate'] !== null
-                ? $this->decimalForForm($snapshot['vat_rate'], 2)
-                : null,
-            'vat_code' => $snapshot['vat_code'] ?? null,
+            ...$identity,
         ];
     }
 

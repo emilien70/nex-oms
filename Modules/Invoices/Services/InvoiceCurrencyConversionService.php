@@ -16,6 +16,7 @@ class InvoiceCurrencyConversionService
         private readonly InvoiceExchangeRateReferenceDateResolver $referenceDateResolver,
         private readonly NbpExchangeRateClient $rates,
         private readonly InvoiceDecimalCalculator $decimal,
+        private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
     ) {}
 
     public function contextFor(PreparedInvoiceDocument $prepared): InvoiceCurrencyConversionContext
@@ -224,10 +225,16 @@ class InvoiceCurrencyConversionService
             $net = $this->decimal->multiplyAndRound((string) $group['net'], $rate, 2);
             $vat = $this->decimal->multiplyAndRound((string) $group['vat'], $rate, 2);
             $gross = $this->decimal->add($net, $vat, 2);
+            $identity = $this->taxIdentity->normalize(
+                $group['vat_rate'] ?? null,
+                $group['vat_code'] ?? null,
+            );
+            if ($this->taxIdentity->key($identity) === null) {
+                throw new InvoiceDomainException('invoice_exchange_rate_calculation_failed', 'Nieprawidłowa grupa podatkowa.');
+            }
 
             $groups[] = [
-                'vat_rate' => $group['vat_rate'] ?? null,
-                'vat_code' => $group['vat_code'] ?? null,
+                ...$identity,
                 'net' => $net,
                 'vat' => $vat,
                 'gross' => $gross,
