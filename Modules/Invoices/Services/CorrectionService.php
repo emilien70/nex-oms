@@ -31,6 +31,7 @@ class CorrectionService
         private readonly InvoiceNumberingPeriodResolver $periods,
         private readonly InvoiceNumberFormatter $numbers,
         private readonly CorrectionSeriesSourceResolver $seriesSources,
+        private readonly CorrectionStateComparator $stateComparator,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -84,7 +85,7 @@ class CorrectionService
             );
             $sourceTotals = data_get($managed->correction_totals_snapshot, 'source_invoice');
 
-            $managed->fill([
+            $documentAttributes = [
                 'issue_date' => $issueDate->toDateString(),
                 'sale_date' => $resolvedSources['sale_date'],
                 'correction_reason' => $this->reason($data),
@@ -114,6 +115,14 @@ class CorrectionService
                 'total_vat' => $differenceTotals['vat'],
                 'total_gross' => $differenceTotals['gross'],
                 'amount_due' => $this->decimal->max($differenceTotals['gross'], '0.00'),
+            ];
+
+            if ($this->stateComparator->matches($managed, $documentAttributes, $itemAttributes)) {
+                return $managed->refresh()->load(['items', 'correctedInvoice', 'previousCorrection']);
+            }
+
+            $managed->fill([
+                ...$documentAttributes,
                 'lock_version' => $managed->lock_version + 1,
             ])->save();
 
@@ -425,6 +434,7 @@ class CorrectionService
 
         $result = [];
         $existingItems = $correction->items()->lockForUpdate()->get();
+        $correction->setRelation('items', $existingItems);
         $allowedSourceIds = $existingItems->modelKeys();
 
         foreach ($existingItems as $existingItem) {

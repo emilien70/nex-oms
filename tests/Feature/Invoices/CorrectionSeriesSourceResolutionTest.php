@@ -3,6 +3,7 @@
 namespace Tests\Feature\Invoices;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\CorrectionIssuerSource;
 use Modules\Invoices\Enums\CorrectionPaymentMethodSource;
 use Modules\Invoices\Enums\CorrectionReason;
@@ -13,6 +14,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\InvoiceIssuingService;
+use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -170,6 +172,32 @@ class CorrectionSeriesSourceResolutionTest extends TestCase
         $this->assertSame('Wystawca z faktury', data_get($updated->issuer_snapshot, 'issuer_name'));
         $this->assertSame('Gdansk', data_get($updated->issuer_snapshot, 'place_of_issue'));
         $this->assertSame('Przelew z faktury', data_get($updated->payment_snapshot, 'effective_payment_method'));
+    }
+
+    public function test_tampered_post_sources_do_not_turn_an_identical_update_into_a_change(): void
+    {
+        Storage::fake('local');
+        $source = $this->issuedInvoice();
+        $series = $this->correctionSeries();
+        $correction = $this->issueCorrection($source, $series)->fresh('items');
+        $cachePath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($cachePath, '%PDF-current');
+        $lockVersion = $correction->lock_version;
+        $itemIds = $correction->items->modelKeys();
+
+        $updated = app(CorrectionService::class)->update($correction, $this->updatePayload($correction, [
+            'buyer' => $correction->buyer_snapshot,
+            'sale_date' => '2099-01-01',
+            'issuer_name' => 'HACKED',
+            'payment_method' => 'HACKED',
+        ]));
+
+        $this->assertSame($lockVersion, $updated->lock_version);
+        $this->assertSame($itemIds, $updated->items->modelKeys());
+        $this->assertSame($source->sale_date?->toDateString(), $updated->sale_date?->toDateString());
+        $this->assertSame($source->issuer_snapshot, $updated->issuer_snapshot);
+        $this->assertSame($source->payment_snapshot, $updated->payment_snapshot);
+        Storage::disk('local')->assertExists($cachePath);
     }
 
     public function test_incomplete_saved_source_modes_reject_update_and_editor_with_controlled_error(): void

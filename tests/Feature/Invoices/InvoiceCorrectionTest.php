@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Invoices;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\CorrectionReason;
@@ -412,6 +413,8 @@ class InvoiceCorrectionTest extends TestCase
             ->sole();
         $number = $correction->number;
         $period = $correction->numbering_period_key;
+        $cachePath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($cachePath, '%PDF-current');
 
         $this->get(route('invoices.corrections.edit', $correction))
             ->assertOk()
@@ -446,12 +449,198 @@ class InvoiceCorrectionTest extends TestCase
         $this->assertSame($invoice->getKey(), $correction->corrected_invoice_id);
         $this->assertSame(2, $correction->lock_version);
         $this->assertSame('Zmieniona informacja korekty', $correction->additional_information_text);
+        Storage::disk('local')->assertMissing($cachePath);
         $this->assertDatabaseCount('invoices', 2);
         $this->assertDatabaseHas('order_document_slots', [
             'order_id' => $invoice->order_id,
             'document_type' => InvoiceDocumentType::Correction->value,
             'invoice_id' => $correction->getKey(),
         ]);
+    }
+
+    public function test_buyer_only_correction_update_is_a_true_no_op_for_identical_canonical_state(): void
+    {
+        Storage::fake('local');
+        $this->travelTo(CarbonImmutable::parse('2026-08-05 10:00:00'));
+        $source = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $correction = $this->issueBuyerCorrection($source, $series, 'Nabywca po korekcie')->fresh('items');
+        $correction->update(['buyer_snapshot' => array_reverse($correction->buyer_snapshot, true)]);
+        $correction = $correction->fresh('items');
+        $cachePath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($cachePath, '%PDF-current');
+        $lockVersion = $correction->lock_version;
+        $updatedAt = $correction->updated_at;
+        $snapshots = [
+            $correction->buyer_snapshot,
+            $correction->correction_totals_snapshot,
+            $correction->tax_summary_snapshot,
+            $correction->tax_metadata_snapshot,
+        ];
+        $itemState = $correction->items->map(fn ($item): array => [
+            $item->getKey(),
+            $item->updated_at?->toJSON(),
+        ])->all();
+        $eventCount = $source->order->events()->count();
+        $this->travelTo(CarbonImmutable::parse('2026-08-06 10:00:00'));
+
+        $updated = app(CorrectionService::class)->update($correction, $this->payload($series, [
+            'expected_lock_version' => $lockVersion,
+            'change_buyer' => true,
+            'buyer' => $correction->buyer_snapshot,
+        ]));
+
+        $this->assertSame($lockVersion, $updated->lock_version);
+        $this->assertTrue($updatedAt->equalTo($updated->updated_at));
+        $this->assertSame($snapshots, [
+            $updated->buyer_snapshot,
+            $updated->correction_totals_snapshot,
+            $updated->tax_summary_snapshot,
+            $updated->tax_metadata_snapshot,
+        ]);
+        $this->assertSame($itemState, $updated->items->map(fn ($item): array => [
+            $item->getKey(),
+            $item->updated_at?->toJSON(),
+        ])->all());
+        $this->assertSame($eventCount, $source->order->events()->count());
+        Storage::disk('local')->assertExists($cachePath);
+    }
+
+    public function test_exact_item_update_and_equivalent_decimal_input_are_true_no_ops(): void
+    {
+        Storage::fake('local');
+        $source = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $items = $this->submittedItems($source);
+        $items[0]['unit_price_gross'] = '80.00';
+        $correction = app(CorrectionService::class)->issue(
+            $source,
+            $series,
+            $source->lock_version,
+            $this->payload($series, ['change_items' => true, 'items' => $items]),
+            $this->documentContext('2026-08-05 10:00:00'),
+        )->fresh('items');
+        $cachePath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($cachePath, '%PDF-current');
+        $itemIds = $correction->items->modelKeys();
+        $lockVersion = $correction->lock_version;
+        $submittedItems = $this->submittedCorrectionItems($correction);
+
+        $exact = app(CorrectionService::class)->update($correction, $this->payload($series, [
+            'expected_lock_version' => $lockVersion,
+            'change_items' => true,
+            'items' => $submittedItems,
+        ]));
+
+        $this->assertSame($lockVersion, $exact->lock_version);
+        $this->assertSame($itemIds, $exact->items->modelKeys());
+        Storage::disk('local')->assertExists($cachePath);
+
+        $submittedItems[0]['unit_price_gross'] = '80';
+
+        $updated = app(CorrectionService::class)->update($exact, $this->payload($series, [
+            'expected_lock_version' => $lockVersion,
+            'change_items' => true,
+            'items' => $submittedItems,
+        ]));
+
+        $this->assertSame($lockVersion, $updated->lock_version);
+        $this->assertSame($itemIds, $updated->items->modelKeys());
+        $this->assertSame('80.0000', $updated->items->first()->unit_price_gross);
+        Storage::disk('local')->assertExists($cachePath);
+    }
+
+    public function test_identical_correction_payload_still_rejects_a_stale_expected_lock_version(): void
+    {
+        $source = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $correction = $this->issueBuyerCorrection($source, $series, 'Nabywca po korekcie');
+
+        try {
+            app(CorrectionService::class)->update($correction, $this->payload($series, [
+                'expected_lock_version' => $correction->lock_version + 1,
+                'change_buyer' => true,
+                'buyer' => $correction->buyer_snapshot,
+            ]));
+            $this->fail('Nieaktualna wersja Korekty powinna zostac odrzucona.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('correction_edit_conflict', $exception->errorCode());
+        }
+
+        $this->assertSame($correction->lock_version, $correction->fresh()->lock_version);
+    }
+
+    public function test_reverting_the_only_buyer_change_is_not_treated_as_a_no_op(): void
+    {
+        $source = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $correction = $this->issueBuyerCorrection($source, $series, 'Nabywca po korekcie');
+
+        try {
+            app(CorrectionService::class)->update($correction, $this->payload($series, [
+                'expected_lock_version' => $correction->lock_version,
+                'change_buyer' => true,
+                'buyer' => $source->buyer_snapshot,
+            ]));
+            $this->fail('Korekta bez rzeczywistej zmiany wzgledem Faktury powinna zostac odrzucona.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('correction_has_no_changes', $exception->errorCode());
+        }
+
+        $this->assertSame($correction->lock_version, $correction->fresh()->lock_version);
+    }
+
+    public function test_legacy_correction_is_canonicalized_once_and_then_identical_update_is_a_no_op(): void
+    {
+        Storage::fake('local');
+        $source = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $items = $this->submittedItems($source);
+        $items[0]['unit_price_gross'] = '80.00';
+        $correction = app(CorrectionService::class)->issue(
+            $source,
+            $series,
+            $source->lock_version,
+            $this->payload($series, ['change_items' => true, 'items' => $items]),
+            $this->documentContext('2026-08-05 10:00:00'),
+        )->fresh('items');
+        $legacyTotals = $correction->correction_totals_snapshot;
+        foreach (['before', 'after', 'difference'] as $key) {
+            unset($legacyTotals[$key]['tax_summary_snapshot']);
+        }
+        $correction->update([
+            'correction_totals_snapshot' => $legacyTotals,
+            'tax_summary_snapshot' => $source->tax_summary_snapshot,
+        ]);
+        $correction = $correction->fresh('items');
+        $legacyItemIds = $correction->items->modelKeys();
+        $cachePath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($cachePath, '%PDF-legacy');
+
+        $canonical = app(CorrectionService::class)->update($correction, $this->payload($series, [
+            'expected_lock_version' => $correction->lock_version,
+            'change_items' => true,
+            'items' => $this->submittedCorrectionItems($correction),
+        ]));
+
+        $this->assertSame($correction->lock_version + 1, $canonical->lock_version);
+        $this->assertNotSame($legacyItemIds, $canonical->items->modelKeys());
+        foreach (['before', 'after', 'difference'] as $key) {
+            $this->assertIsArray($canonical->correction_totals_snapshot[$key]['tax_summary_snapshot']);
+        }
+        Storage::disk('local')->assertMissing($cachePath);
+
+        Storage::disk('local')->put($cachePath, '%PDF-canonical');
+        $canonicalItemIds = $canonical->items->modelKeys();
+        $unchanged = app(CorrectionService::class)->update($canonical, $this->payload($series, [
+            'expected_lock_version' => $canonical->lock_version,
+            'change_items' => true,
+            'items' => $this->submittedCorrectionItems($canonical),
+        ]));
+
+        $this->assertSame($canonical->lock_version, $unchanged->lock_version);
+        $this->assertSame($canonicalItemIds, $unchanged->items->modelKeys());
+        Storage::disk('local')->assertExists($cachePath);
     }
 
     public function test_correction_editor_returns_to_the_correction_list_when_opened_from_that_list(): void

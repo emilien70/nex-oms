@@ -214,6 +214,34 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_foreign_correction_identical_update_is_a_no_op_with_historical_rate_and_cache(): void
+    {
+        Storage::fake('local');
+        Http::preventStrayRequests();
+        $source = $this->foreignSource([['gross' => '100.00', 'vat_rate' => '23.00']]);
+        $items = $this->submittedItems($source);
+        $items[0]['unit_price_gross'] = '75.00';
+        $correction = $this->issueItemCorrection($source, $items)->fresh('items');
+        $cachePath = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        Storage::disk('local')->put($cachePath, '%PDF-current');
+        $lockVersion = $correction->lock_version;
+        $metadata = $correction->tax_metadata_snapshot;
+        $itemIds = $correction->items->modelKeys();
+
+        $updated = app(CorrectionService::class)->update($correction, $this->payload([
+            'expected_lock_version' => $lockVersion,
+            'change_items' => true,
+            'items' => $this->submittedCorrectionItems($correction),
+            'issue_date' => $correction->issue_date?->toDateString(),
+        ]));
+
+        $this->assertSame($lockVersion, $updated->lock_version);
+        $this->assertSame($metadata, $updated->tax_metadata_snapshot);
+        $this->assertSame($itemIds, $updated->items->modelKeys());
+        Storage::disk('local')->assertExists($cachePath);
+        Http::assertNothingSent();
+    }
+
     public function test_foreign_correction_update_recalculates_with_the_same_historical_rate(): void
     {
         Storage::fake('local');
