@@ -7,6 +7,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\OrderDocumentSlot;
+use Modules\Invoices\ValueObjects\InvoiceDeletionFacts;
 
 class InvoiceDeletionPolicy
 {
@@ -21,7 +22,7 @@ class InvoiceDeletionPolicy
         Invoice $invoice,
         ?OrderDocumentSlot $slot,
         int $expectedLockVersion,
-        ?bool $hasOtherCorrection = null,
+        ?InvoiceDeletionFacts $facts = null,
     ): void {
         if (! in_array($invoice->document_type, [
             InvoiceDocumentType::Invoice,
@@ -56,12 +57,12 @@ class InvoiceDeletionPolicy
             || $invoice->numbering_period_key === null
             || $invoice->invoice_series_id === null
             || $invoice->order_id === null
-            || $invoice->series()->doesntExist()
-            || $invoice->order()->doesntExist()) {
+            || ! ($facts?->seriesExists ?? $invoice->series()->exists())
+            || ! ($facts?->orderExists ?? $invoice->order()->exists())) {
             throw $this->inconsistent($invoice);
         }
 
-        if ($invoice->isInvoice() && $invoice->corrections()->exists()) {
+        if ($invoice->isInvoice() && ($facts?->hasCorrection ?? $invoice->corrections()->exists())) {
             throw new InvoiceDomainException(
                 'invoice_delete_blocked_by_correction',
                 'Nie można usunąć Faktury, ponieważ została do niej wystawiona Korekta.',
@@ -77,7 +78,7 @@ class InvoiceDeletionPolicy
         }
 
         if ($invoice->isCorrection()) {
-            $this->assertCorrectionRelations($invoice, $hasOtherCorrection);
+            $this->assertCorrectionRelations($invoice, $facts?->hasOtherCorrection);
         }
 
         if ($slot === null

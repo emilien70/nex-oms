@@ -5,6 +5,7 @@ namespace Tests\Feature\Invoices;
 use App\Models\Order;
 use DomainException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
@@ -235,6 +236,162 @@ class InvoiceDeletionTest extends TestCase
         $this->assertDatabaseMissing('invoices', ['id' => $second->getKey()]);
         $this->assertDatabaseCount('order_document_slots', 0);
         $this->assertSame(0, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+    }
+
+    public function test_bulk_invoice_prevalidation_batches_relationship_facts_independently_of_selection_size(): void
+    {
+        $small = $this->captureBulkInvoiceDeletionQueries(2);
+        $larger = $this->captureBulkInvoiceDeletionQueries(20);
+
+        foreach ([$small, $larger] as $queries) {
+            $this->assertSame(0, $this->countQueriesMatching($queries, static function (string $sql): bool {
+                return str_contains($sql, 'select exists')
+                    && (str_contains($sql, 'from invoice_series')
+                        || str_contains($sql, 'from orders')
+                        || str_contains($sql, 'corrected_invoice_id'));
+            }));
+            $this->assertSame(1, $this->countQueriesMatching($queries, static function (string $sql): bool {
+                return str_starts_with($sql, 'select')
+                    && str_contains($sql, 'from invoice_series')
+                    && str_contains($sql, ' in (');
+            }));
+            $this->assertSame(1, $this->countQueriesMatching($queries, static function (string $sql): bool {
+                return str_starts_with($sql, 'select')
+                    && str_contains($sql, 'from orders')
+                    && str_contains($sql, ' in (');
+            }));
+            $this->assertSame(1, $this->countQueriesMatching($queries, static function (string $sql): bool {
+                return str_starts_with($sql, 'select')
+                    && str_contains($sql, 'corrected_invoice_id')
+                    && str_contains($sql, ' in (');
+            }));
+            $this->assertSame(1, $this->countQueriesMatching($queries, static function (string $sql): bool {
+                return str_starts_with($sql, 'select')
+                    && str_contains($sql, 'superseded_by_invoice_id')
+                    && str_contains($sql, ' in (');
+            }));
+        }
+    }
+
+    public function test_bulk_invoice_deletion_preloads_and_restores_all_linked_proformas(): void
+    {
+        $proformaSeries = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
+        $invoiceSeries = $this->createDocumentSeries();
+        $pairs = collect(range(1, 2))->map(function () use ($proformaSeries, $invoiceSeries): array {
+            $order = $this->createDocumentOrder();
+            $this->createDocumentItem($order);
+            $proforma = app(ProformaService::class)
+                ->createOrRefresh($order, $proformaSeries, $this->documentContext())
+                ->invoice;
+            $invoice = app(InvoiceIssuingService::class)
+                ->issue($order, $invoiceSeries, $this->documentContext('2026-07-28 13:00:00'));
+
+            return [$order, $proforma, $invoice];
+        });
+        $queries = [];
+        $recording = true;
+        DB::listen(function (object $query) use (&$queries, &$recording): void {
+            if ($recording) {
+                $queries[] = $this->normalizeSql($query->sql);
+            }
+        });
+
+        try {
+            app(InvoiceDeletionService::class)->deleteMany(
+                $pairs->mapWithKeys(static fn (array $pair): array => [
+                    $pair[2]->getKey() => $pair[2]->lock_version,
+                ])->all(),
+                $this->documentContext(),
+            );
+        } finally {
+            $recording = false;
+        }
+
+        foreach ($pairs as [$order, $proforma, $invoice]) {
+            $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
+            $this->assertFalse($proforma->refresh()->isProformaSuperseded());
+            $this->assertDatabaseHas('order_events', [
+                'order_id' => $order->getKey(),
+                'event_type' => 'proforma_restored',
+            ]);
+        }
+
+        $this->assertSame(1, $this->countQueriesMatching($queries, static function (string $sql): bool {
+            return str_starts_with($sql, 'select')
+                && str_contains($sql, 'superseded_by_invoice_id')
+                && str_contains($sql, ' in (');
+        }));
+        $this->assertSame(0, $this->countQueriesMatching($queries, static function (string $sql): bool {
+            return str_starts_with($sql, 'select')
+                && str_contains($sql, 'superseded_by_invoice_id = ?');
+        }));
+    }
+
+    public function test_bulk_invoice_deletion_rejects_multiple_linked_proformas_before_any_delete(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $proforma = app(ProformaService::class)
+            ->createOrRefresh(
+                $order,
+                $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+                $this->documentContext(),
+            )
+            ->invoice;
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext('2026-07-28 13:00:00'),
+        );
+        $duplicate = $proforma->replicate();
+        $duplicate->invoice_series_id = $this->createDocumentSeries(InvoiceDocumentType::Proforma)->getKey();
+        $duplicate->number = 'BLPF 999/2026';
+        $duplicate->sequence_number = 999;
+        $duplicate->proforma_superseded_at = '2026-07-28 13:00:00';
+        $duplicate->superseded_by_invoice_id = $invoice->getKey();
+        $duplicate->save();
+
+        $this->from(route('invoices.index'))
+            ->delete(route('invoices.bulk-delete'), [
+                'selection' => $this->deleteSelection([
+                    $invoice->getKey() => $invoice->lock_version,
+                ]),
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors('invoice_ids');
+
+        $this->assertDatabaseHas('invoices', ['id' => $invoice->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $proforma->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $duplicate->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $invoice->getKey()]);
+        $this->assertSame(1, InvoiceNumberCounter::query()
+            ->where('invoice_series_id', $invoice->invoice_series_id)
+            ->firstOrFail()
+            ->last_sequence_number);
+    }
+
+    public function test_bulk_invoice_deletion_with_missing_order_is_controlled_and_atomic(): void
+    {
+        $series = $this->createDocumentSeries();
+        $deletable = $this->issueForNewOrder($series);
+        $orphaned = $this->issueForNewOrder($series);
+        Order::query()->findOrFail($orphaned->order_id)->forceDelete();
+        $orphaned->refresh();
+
+        $this->from(route('invoices.index'))
+            ->delete(route('invoices.bulk-delete'), [
+                'selection' => $this->deleteSelection([
+                    $deletable->getKey() => $deletable->lock_version,
+                    $orphaned->getKey() => $orphaned->lock_version,
+                ]),
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors('invoice_ids');
+
+        $this->assertDatabaseHas('invoices', ['id' => $deletable->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $orphaned->getKey()]);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $deletable->getKey()]);
+        $this->assertSame(2, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
     }
 
     public function test_bulk_deletion_rejects_invalid_json_and_lock_versions(): void
@@ -712,6 +869,50 @@ class InvoiceDeletionTest extends TestCase
         return app(ProformaService::class)
             ->createOrRefresh($order, $series, $this->documentContext())
             ->invoice;
+    }
+
+    /** @return array<int, string> */
+    private function captureBulkInvoiceDeletionQueries(int $documentCount): array
+    {
+        $series = $this->createDocumentSeries();
+        $invoices = collect(range(1, $documentCount))
+            ->map(fn (): Invoice => $this->issueForNewOrder($series));
+        $queries = [];
+        $recording = true;
+        DB::listen(function (object $query) use (&$queries, &$recording): void {
+            if ($recording) {
+                $queries[] = $this->normalizeSql($query->sql);
+            }
+        });
+
+        try {
+            app(InvoiceDeletionService::class)->deleteMany(
+                $invoices->mapWithKeys(static fn (Invoice $invoice): array => [
+                    $invoice->getKey() => $invoice->lock_version,
+                ])->all(),
+                $this->documentContext(),
+            );
+        } finally {
+            $recording = false;
+        }
+
+        return $queries;
+    }
+
+    /**
+     * @param  array<int, string>  $queries
+     * @param  callable(string): bool  $predicate
+     */
+    private function countQueriesMatching(array $queries, callable $predicate): int
+    {
+        return count(array_filter($queries, $predicate));
+    }
+
+    private function normalizeSql(string $sql): string
+    {
+        $withoutIdentifierQuotes = str_replace(['`', '"', '[', ']'], '', $sql);
+
+        return strtolower(trim((string) preg_replace('/\s+/', ' ', $withoutIdentifierQuotes)));
     }
 
     /** @param array<int, mixed> $lockVersions */

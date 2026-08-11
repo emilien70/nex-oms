@@ -7,11 +7,14 @@ use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use LogicException;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Models\OrderDocumentSlot;
+use Modules\Invoices\ValueObjects\InvoiceDeletionFacts;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
 use Throwable;
 
@@ -53,14 +56,19 @@ class InvoiceDeletionService
                     $slot,
                     $corrections,
                 );
+                $facts = new InvoiceDeletionFacts(
+                    seriesExists: $managedInvoice->series()->exists(),
+                    orderExists: true,
+                    hasCorrection: $managedInvoice->isInvoice() && $managedInvoice->corrections()->exists(),
+                    hasOtherCorrection: $managedInvoice->isCorrection()
+                        && $this->hasOtherCorrection($managedInvoice, $corrections),
+                );
 
                 $this->policy->assertDeletable(
                     $managedInvoice,
                     $slot,
                     $expectedLockVersion,
-                    $managedInvoice->isCorrection()
-                        ? $this->hasOtherCorrection($managedInvoice, $corrections)
-                        : null,
+                    $facts,
                 );
                 $this->deleteManagedInvoice($managedOrder, $managedInvoice, $slot, $context);
 
@@ -104,7 +112,7 @@ class InvoiceDeletionService
             /** @var array<int, Invoice> $deletedInvoices */
             $deletedInvoices = DB::transaction(function () use ($invoiceIds, $expectedLockVersions, $context, $documentType): array {
                 $references = Invoice::query()
-                    ->whereIn('id', $invoiceIds)
+                    ->whereIntegerInRaw('id', $invoiceIds)
                     ->get(['id', 'order_id', 'document_type']);
 
                 if ($references->count() !== count($invoiceIds)) {
@@ -140,13 +148,13 @@ class InvoiceDeletionService
                     ->values();
 
                 $orders = Order::query()
-                    ->whereIn('id', $orderIds)
+                    ->whereIntegerInRaw('id', $orderIds->all())
                     ->orderBy('id')
                     ->lockForUpdate()
                     ->get()
                     ->keyBy('id');
                 $invoices = Invoice::query()
-                    ->whereIn('id', $invoiceIds)
+                    ->whereIntegerInRaw('id', $invoiceIds)
                     ->orderBy('id')
                     ->lockForUpdate()
                     ->get()
@@ -157,21 +165,47 @@ class InvoiceDeletionService
                 }
 
                 $slots = OrderDocumentSlot::query()
-                    ->whereIn('order_id', $orderIds)
+                    ->whereIntegerInRaw('order_id', $orderIds->all())
                     ->where('document_type', $documentType)
+                    ->orderBy('order_id')
                     ->lockForUpdate()
                     ->get()
                     ->keyBy('order_id');
                 $correctionsByOrder = $documentType === InvoiceDocumentType::Correction
                     ? $this->lockCorrectionsByOrder($orderIds->all())
                     : collect();
+                $factsByInvoice = $this->buildDeletionFacts(
+                    $invoices,
+                    $orders,
+                    $correctionsByOrder,
+                );
+                $linkedProformasByInvoice = $documentType === InvoiceDocumentType::Invoice
+                    ? $this->lockSupersededProformasByInvoice($invoiceIds)
+                    : collect();
 
                 foreach ($invoiceIds as $invoiceId) {
                     /** @var Invoice $invoice */
                     $invoice = $invoices->get($invoiceId);
                     $this->policy->assertHasOrderReference($invoice);
-                    /** @var Order $order */
+                    $facts = $factsByInvoice->get($invoiceId);
+
+                    if (! $facts instanceof InvoiceDeletionFacts) {
+                        throw new LogicException('Incomplete deletion facts for a bulk document.');
+                    }
+
                     $order = $orders->get($invoice->order_id);
+
+                    if (! $order instanceof Order) {
+                        $this->policy->assertDeletable(
+                            $invoice,
+                            null,
+                            $expectedLockVersions[$invoiceId],
+                            $facts,
+                        );
+
+                        throw new LogicException('Deletion policy accepted a document without an order.');
+                    }
+
                     /** @var Collection<int, Invoice> $corrections */
                     $corrections = $correctionsByOrder->get($invoice->order_id, collect());
                     $slot = $this->resolveDocumentSlotForDeletion(
@@ -189,10 +223,15 @@ class InvoiceDeletionService
                         $invoice,
                         $slot,
                         $expectedLockVersions[$invoiceId],
-                        $invoice->isCorrection()
-                            ? $this->hasOtherCorrection($invoice, $corrections)
-                            : null,
+                        $facts,
                     );
+
+                    if ($invoice->isInvoice()) {
+                        $this->validatedSupersededProforma(
+                            $order,
+                            $linkedProformasByInvoice->get($invoiceId, collect()),
+                        );
+                    }
                 }
 
                 $orderedInvoices = $invoices->values()->sort(static function (Invoice $left, Invoice $right): int {
@@ -212,6 +251,9 @@ class InvoiceDeletionService
                         $invoice,
                         $slots->get($invoice->order_id),
                         $context,
+                        $invoice->isInvoice()
+                            ? $linkedProformasByInvoice->get($invoice->getKey(), collect())
+                            : null,
                     );
                     $deleted[] = $invoice;
                 }
@@ -248,13 +290,14 @@ class InvoiceDeletionService
         Invoice $invoice,
         ?OrderDocumentSlot $slot,
         InvoiceOperationContext $context,
+        ?Collection $linkedProformas = null,
     ): void {
         $this->numbering->releaseTailNumberAfterDeletion(
             $invoice,
             $context->actorSnapshot,
         );
         $restoredProforma = $invoice->isInvoice()
-            ? $this->restoreSupersededProforma($order, $invoice)
+            ? $this->restoreSupersededProforma($order, $invoice, $linkedProformas)
             : null;
         $this->afterNumberReleased($invoice);
         $this->createOrderEvent($order, $invoice, $context);
@@ -307,7 +350,7 @@ class InvoiceDeletionService
         }
 
         return Invoice::query()
-            ->whereIn('order_id', $orderIds)
+            ->whereIntegerInRaw('order_id', $orderIds)
             ->where('document_type', InvoiceDocumentType::Correction)
             ->orderBy('order_id')
             ->orderBy('id')
@@ -329,13 +372,32 @@ class InvoiceDeletionService
         $slot?->delete();
     }
 
-    private function restoreSupersededProforma(Order $order, Invoice $invoice): ?Invoice
-    {
-        $linkedDocuments = Invoice::query()
+    /** @param Collection<int, Invoice>|null $linkedDocuments */
+    private function restoreSupersededProforma(
+        Order $order,
+        Invoice $invoice,
+        ?Collection $linkedDocuments = null,
+    ): ?Invoice {
+        $linkedDocuments ??= Invoice::query()
             ->where('superseded_by_invoice_id', $invoice->getKey())
             ->lockForUpdate()
             ->get();
+        $proforma = $this->validatedSupersededProforma($order, $linkedDocuments);
 
+        if ($proforma === null) {
+            return null;
+        }
+
+        $proforma->proforma_superseded_at = null;
+        $proforma->superseded_by_invoice_id = null;
+        $proforma->save();
+
+        return $proforma;
+    }
+
+    /** @param Collection<int, Invoice> $linkedDocuments */
+    private function validatedSupersededProforma(Order $order, Collection $linkedDocuments): ?Invoice
+    {
         if ($linkedDocuments->count() > 1) {
             throw new InvoiceDomainException(
                 'invoice_delete_inconsistent_document',
@@ -343,7 +405,6 @@ class InvoiceDeletionService
             );
         }
 
-        /** @var Invoice|null $proforma */
         $proforma = $linkedDocuments->first();
 
         if ($proforma === null) {
@@ -362,11 +423,87 @@ class InvoiceDeletionService
             );
         }
 
-        $proforma->proforma_superseded_at = null;
-        $proforma->superseded_by_invoice_id = null;
-        $proforma->save();
-
         return $proforma;
+    }
+
+    /**
+     * @param  Collection<int, Invoice>  $invoices
+     * @param  Collection<int, Order>  $orders
+     * @param  Collection<int, Collection<int, Invoice>>  $correctionsByOrder
+     * @return Collection<int, InvoiceDeletionFacts>
+     */
+    private function buildDeletionFacts(
+        Collection $invoices,
+        Collection $orders,
+        Collection $correctionsByOrder,
+    ): Collection {
+        $seriesIds = $invoices
+            ->pluck('invoice_series_id')
+            ->filter()
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+        $existingSeriesIds = InvoiceSeries::query()
+            ->whereIntegerInRaw('id', $seriesIds)
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->flip();
+        $selectedInvoiceIds = $invoices
+            ->filter(static fn (Invoice $invoice): bool => $invoice->isInvoice())
+            ->map(static fn (Invoice $invoice): int => (int) $invoice->getKey())
+            ->values()
+            ->all();
+        $invoiceIdsWithCorrections = $selectedInvoiceIds === []
+            ? collect()
+            : Invoice::query()
+                ->where('document_type', InvoiceDocumentType::Correction)
+                ->whereIntegerInRaw('corrected_invoice_id', $selectedInvoiceIds)
+                ->distinct()
+                ->pluck('corrected_invoice_id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->flip();
+
+        return $invoices->mapWithKeys(function (Invoice $invoice) use (
+            $orders,
+            $correctionsByOrder,
+            $existingSeriesIds,
+            $invoiceIdsWithCorrections,
+        ): array {
+            /** @var Collection<int, Invoice> $corrections */
+            $corrections = $correctionsByOrder->get($invoice->order_id, collect());
+
+            return [
+                $invoice->getKey() => new InvoiceDeletionFacts(
+                    seriesExists: $invoice->invoice_series_id !== null
+                        && $existingSeriesIds->has((int) $invoice->invoice_series_id),
+                    orderExists: $invoice->order_id !== null
+                        && $orders->has((int) $invoice->order_id),
+                    hasCorrection: $invoiceIdsWithCorrections->has((int) $invoice->getKey()),
+                    hasOtherCorrection: $invoice->isCorrection()
+                        && $this->hasOtherCorrection($invoice, $corrections),
+                ),
+            ];
+        });
+    }
+
+    /**
+     * @param  array<int, int>  $invoiceIds
+     * @return Collection<int, Collection<int, Invoice>>
+     */
+    private function lockSupersededProformasByInvoice(array $invoiceIds): Collection
+    {
+        if ($invoiceIds === []) {
+            return collect();
+        }
+
+        return Invoice::query()
+            ->whereIntegerInRaw('superseded_by_invoice_id', $invoiceIds)
+            ->orderBy('superseded_by_invoice_id')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->groupBy('superseded_by_invoice_id');
     }
 
     private function createOrderEvent(
