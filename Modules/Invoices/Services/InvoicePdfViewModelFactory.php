@@ -12,6 +12,18 @@ use Modules\Invoices\Models\Invoice;
 
 class InvoicePdfViewModelFactory
 {
+    private const BUYER_COMPARISON_FIELDS = [
+        'name',
+        'company_name',
+        'tax_id',
+        'street',
+        'building_number',
+        'apartment_number',
+        'postal_code',
+        'city',
+        'country_code',
+    ];
+
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceAmountInWordsFormatter $amountInWords,
@@ -25,7 +37,9 @@ class InvoicePdfViewModelFactory
     public function make(Invoice $invoice): array
     {
         $this->assertAvailable($invoice);
-        $invoice->loadMissing('items');
+        $invoice->loadMissing($invoice->isCorrection()
+            ? ['items', 'correctedInvoice']
+            : ['items']);
 
         return $invoice->isCorrection()
             ? $this->correction($invoice)
@@ -89,6 +103,7 @@ class InvoicePdfViewModelFactory
         $difference = $totals['difference'];
         $decreasing = $this->decimal->compare((string) $difference['gross'], '0.00') < 0;
         $plnConversion = $this->correctionPlnConversion($invoice, $storedTotals, $difference);
+        $buyerChange = $this->buyerChange($invoice);
 
         return [
             'type' => InvoiceDocumentType::Correction->value,
@@ -105,6 +120,7 @@ class InvoicePdfViewModelFactory
             'payment_method' => $this->paymentMethod($invoice),
             'seller' => $this->party($seller, includeCountry: false, includeRegon: false),
             'buyer' => $this->party($invoice->buyer_snapshot),
+            'buyer_change' => $buyerChange,
             'before_items' => $this->correctionItems($invoice->items, 'correction_before_snapshot'),
             'after_items' => $this->correctionItems($invoice->items, 'correction_after_snapshot'),
             'before_totals' => $this->snapshotTotals($totals['before']),
@@ -415,6 +431,49 @@ class InvoicePdfViewModelFactory
         }
 
         return ['number' => $source->number, 'issue_date' => $source->issue_date->format('d.m.Y')];
+    }
+
+    /** @return array{before: array<string, mixed>, after: array<string, mixed>}|null */
+    private function buyerChange(Invoice $invoice): ?array
+    {
+        $before = data_get($invoice->order_snapshot, 'correction.buyer_before');
+
+        if (! is_array($before)) {
+            $source = $invoice->correctedInvoice;
+            $before = $source !== null && is_array($source->buyer_snapshot)
+                ? $source->buyer_snapshot
+                : null;
+        }
+
+        $after = $invoice->buyer_snapshot;
+        if (! is_array($before)
+            || ! is_array($after)
+            || $this->comparableBuyer($before) === $this->comparableBuyer($after)) {
+            return null;
+        }
+
+        return [
+            'before' => $this->party($before),
+            'after' => $this->party($after),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $buyer
+     * @return array<string, ?string>
+     */
+    private function comparableBuyer(array $buyer): array
+    {
+        $comparable = [];
+
+        foreach (self::BUYER_COMPARISON_FIELDS as $field) {
+            $value = $this->text($buyer[$field] ?? null);
+            $comparable[$field] = $field === 'country_code'
+                ? $this->countries->normalize($value)
+                : $value;
+        }
+
+        return $comparable;
     }
 
     /** @param array<string, mixed> $party */

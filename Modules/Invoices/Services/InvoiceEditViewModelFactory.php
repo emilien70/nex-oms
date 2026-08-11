@@ -11,6 +11,7 @@ class InvoiceEditViewModelFactory
         private readonly CountryCatalog $countries,
         private readonly InvoicePdfCurrencyConversionPresenter $currencyPresenter,
         private readonly CorrectionSeriesResolver $correctionSeries,
+        private readonly InvoiceMoneyFormatter $moneyFormatter,
     ) {}
 
     /** @return array<string, mixed> */
@@ -24,6 +25,7 @@ class InvoiceEditViewModelFactory
             'countries' => $this->countries->all(),
             'nbp' => $this->currencyPresenter->present($invoice),
             'correctionSeries' => $this->correctionSeries->active(),
+            'moneyFormatter' => $this->moneyFormatter,
         ];
     }
 }

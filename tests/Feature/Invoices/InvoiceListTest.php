@@ -248,6 +248,43 @@ class InvoiceListTest extends TestCase
             ->assertSeeInOrder([$older->number, $newer->number]);
     }
 
+    public function test_document_lists_format_positive_and_negative_money_without_float(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+        $invoice->update(['total_gross' => '1234.56']);
+
+        $correctionSeries = $this->createDocumentSeries(InvoiceDocumentType::Correction);
+        Invoice::query()->create([
+            'order_id' => $order->getKey(),
+            'invoice_series_id' => $correctionSeries->getKey(),
+            'document_type' => InvoiceDocumentType::Correction,
+            'status' => InvoiceDocumentStatus::Issued,
+            'number' => 'KOR LISTA 1/2026',
+            'sequence_number' => 1,
+            'numbering_period_key' => '2026',
+            'issue_date' => '2026-08-02',
+            'sale_date' => '2026-08-01',
+            'issued_at' => '2026-08-02 10:00:00',
+            'currency' => 'EUR',
+            'total_gross' => '-108.55',
+            'lock_version' => 1,
+        ]);
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSee('1 234,56 PLN');
+
+        $this->get(route('invoices.corrections.index'))
+            ->assertOk()
+            ->assertSee('-108,55 EUR');
+    }
+
     public function test_list_defaults_to_invoice_number_descending_and_quick_selects_submit_filters(): void
     {
         $series = $this->createDocumentSeries();

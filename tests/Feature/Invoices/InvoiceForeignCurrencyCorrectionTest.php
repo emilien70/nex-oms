@@ -17,6 +17,8 @@ use Modules\Invoices\Services\InvoiceCurrencyConversionService;
 use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
+use Modules\Invoices\Services\InvoicePdfRenderer;
+use Modules\Invoices\Services\InvoicePdfViewModelFactory;
 use Modules\Invoices\ValueObjects\NbpExchangeRate;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
@@ -122,6 +124,12 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         $this->assertSame([], $correction->tax_summary_snapshot);
         $this->assertSame([], $correction->correction_totals_snapshot['difference']['tax_summary_snapshot']);
         $this->assertSame([], $correction->tax_metadata_snapshot);
+        $document = app(InvoicePdfViewModelFactory::class)->make($correction->fresh('items'));
+        $html = app(InvoicePdfRenderer::class)->html($correction->fresh('items'));
+        $this->assertNotNull($document['buyer_change']);
+        $this->assertNull($document['pln_conversion']);
+        $this->assertStringContainsString('class="correction-buyer-change"', $html);
+        $this->assertStringNotContainsString('Kurs waluty:', $html);
         Http::assertNothingSent();
     }
 

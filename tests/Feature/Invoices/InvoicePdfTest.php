@@ -228,7 +228,7 @@ class InvoicePdfTest extends TestCase
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
         $this->assertStringEndsWith('/proforma-v34.pdf', $filenames->storagePath($proforma));
-        $this->assertStringEndsWith('/correction-v42.pdf', $filenames->storagePath($correction));
+        $this->assertStringEndsWith('/correction-v43.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
 
@@ -642,6 +642,115 @@ class InvoicePdfTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $response->getContent());
     }
 
+    public function test_buyer_only_correction_pdf_shows_buyer_before_and_after(): void
+    {
+        $source = $this->issueInvoice();
+        $correction = $this->createCorrection($source);
+        $before = array_merge($source->buyer_snapshot, [
+            'name' => 'Jan Kowalski',
+            'company_name' => null,
+            'tax_id' => '1111111111',
+            'street' => 'Stara',
+            'building_number' => '1',
+            'postal_code' => '00-001',
+            'city' => 'Warszawa',
+            'country_code' => 'PL',
+            'country_name' => 'Polska',
+        ]);
+        $after = array_merge($before, [
+            'name' => null,
+            'company_name' => 'ABC Sp. z o.o.',
+            'tax_id' => '2222222222',
+            'street' => 'Nowa',
+            'building_number' => '5',
+            'postal_code' => '00-002',
+            'city' => 'Kraków',
+        ]);
+        $this->setCorrectionBuyerSnapshots($correction, $before, $after);
+        $this->makeCorrectionItemsUnchanged($correction);
+
+        $correction = $correction->fresh(['items', 'correctedInvoice']);
+        $document = app(InvoicePdfViewModelFactory::class)->make($correction);
+        $html = app(InvoicePdfRenderer::class)->html($correction);
+
+        $this->assertNotNull($document['buyer_change']);
+        $this->assertContains('Jan Kowalski', $document['buyer_change']['before']['lines']);
+        $this->assertContains('ABC Sp. z o.o.', $document['buyer_change']['after']['lines']);
+        foreach (['Dane nabywcy:', 'Jan Kowalski', 'ABC Sp. z o.o.', 'NIP: 1111111111', 'NIP: 2222222222'] as $expected) {
+            $this->assertStringContainsString($expected, $html);
+        }
+        $this->assertStringContainsString('class="correction-buyer-change"', $html);
+        $this->assertSame(2, substr_count($html, 'correction-section correction-items-section'));
+    }
+
+    public function test_item_only_correction_does_not_show_buyer_comparison(): void
+    {
+        $source = $this->issueInvoice();
+        $correction = $this->createCorrection($source)->fresh(['items', 'correctedInvoice']);
+
+        $document = app(InvoicePdfViewModelFactory::class)->make($correction);
+        $html = app(InvoicePdfRenderer::class)->html($correction);
+
+        $this->assertNull($document['buyer_change']);
+        $this->assertStringNotContainsString('class="correction-buyer-change"', $html);
+        $this->assertSame(2, substr_count($html, 'correction-section correction-items-section'));
+        $this->assertStringContainsString('Podsumowanie:', $html);
+    }
+
+    public function test_mixed_correction_shows_buyer_and_item_comparisons(): void
+    {
+        $source = $this->issueInvoice();
+        $correction = $this->createCorrection($source);
+        $before = $source->buyer_snapshot;
+        $after = array_merge($before, ['name' => 'Nabywca po Korekcie']);
+        $this->setCorrectionBuyerSnapshots($correction, $before, $after);
+
+        $correction = $correction->fresh(['items', 'correctedInvoice']);
+        $html = app(InvoicePdfRenderer::class)->html($correction);
+
+        $this->assertStringContainsString('class="correction-buyer-change"', $html);
+        $this->assertStringContainsString('Nabywca po Korekcie', $html);
+        $this->assertSame(2, substr_count($html, 'correction-section correction-items-section'));
+        $this->assertStringContainsString('Produkt przed korektą', $html);
+        $this->assertStringContainsString('Produkt po korekcie', $html);
+    }
+
+    public function test_derived_country_name_does_not_create_a_buyer_change(): void
+    {
+        $source = $this->issueInvoice();
+        $correction = $this->createCorrection($source);
+        $before = $source->buyer_snapshot;
+        unset($before['country_name']);
+        $after = array_reverse(array_merge($before, ['country_name' => 'Inna nazwa pochodna']), true);
+        $this->setCorrectionBuyerSnapshots($correction, $before, $after);
+
+        $document = app(InvoicePdfViewModelFactory::class)->make(
+            $correction->fresh(['items', 'correctedInvoice']),
+        );
+
+        $this->assertNull($document['buyer_change']);
+    }
+
+    public function test_legacy_buyer_before_falls_back_to_source_snapshot_without_mutation(): void
+    {
+        $source = $this->issueInvoice();
+        $correction = $this->createCorrection($source);
+        $correction->update([
+            'buyer_snapshot' => array_merge($source->buyer_snapshot, ['name' => 'Nabywca legacy po zmianie']),
+        ]);
+        $sourceBefore = $source->fresh()->getAttributes();
+        $correctionBefore = $correction->fresh()->getAttributes();
+
+        $document = app(InvoicePdfViewModelFactory::class)->make(
+            $correction->fresh(['items', 'correctedInvoice']),
+        );
+
+        $this->assertNotNull($document['buyer_change']);
+        $this->assertContains('Nabywca legacy po zmianie', $document['buyer_change']['after']['lines']);
+        $this->assertSame($sourceBefore, $source->fresh()->getAttributes());
+        $this->assertSame($correctionBefore, $correction->fresh()->getAttributes());
+    }
+
     public function test_increasing_correction_uses_increasing_labels_and_amount_due(): void
     {
         $source = $this->issueInvoice();
@@ -830,5 +939,36 @@ class InvoicePdfTest extends TestCase
         ]);
 
         return $correction->refresh();
+    }
+
+    /** @param array<string, mixed> $before
+     * @param  array<string, mixed>  $after
+     */
+    private function setCorrectionBuyerSnapshots(Invoice $correction, array $before, array $after): void
+    {
+        $orderSnapshot = $correction->order_snapshot;
+        data_set($orderSnapshot, 'correction.buyer_before', $before);
+
+        $correction->update([
+            'order_snapshot' => $orderSnapshot,
+            'buyer_snapshot' => $after,
+        ]);
+    }
+
+    private function makeCorrectionItemsUnchanged(Invoice $correction): void
+    {
+        foreach ($correction->items as $item) {
+            $before = $item->correction_before_snapshot;
+            $item->update([
+                'correction_after_snapshot' => $before,
+                'correction_difference_snapshot' => array_merge($before, [
+                    'quantity' => '0.0000',
+                    'unit_price_net' => '0.0000',
+                    'total_net' => '0.00',
+                    'total_vat' => '0.00',
+                    'total_gross' => '0.00',
+                ]),
+            ]);
+        }
     }
 }

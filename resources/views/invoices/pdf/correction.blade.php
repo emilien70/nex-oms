@@ -30,6 +30,29 @@
 
     @include('invoices.pdf.partials.parties')
 
+    @if ($document['buyer_change'])
+        <div class="unicode-heading-font correction-section correction-buyer-change-title">Dane nabywcy:</div>
+        <table class="correction-buyer-change" cellpadding="3" cellspacing="0" width="98%" align="center">
+            <tr>
+                <td width="50%" class="correction-buyer-change-heading">Było:</td>
+                <td width="50%" class="correction-buyer-change-heading">Powinno być:</td>
+            </tr>
+            <tr>
+                <td width="50%" class="correction-buyer-change-details">
+                    @foreach ($document['buyer_change']['before']['lines'] as $line)
+                        {{ $line }}<br>
+                    @endforeach
+                </td>
+                <td width="50%" class="correction-buyer-change-details">
+                    @foreach ($document['buyer_change']['after']['lines'] as $line)
+                        {{ $line }}<br>
+                    @endforeach
+                </td>
+            </tr>
+        </table>
+        <br><br>
+    @endif
+
     <div class="unicode-heading-font correction-section correction-items-section">Było:</div>
     @include('invoices.pdf.partials.items-table', ['rows' => $document['before_items']])
     <br><br>

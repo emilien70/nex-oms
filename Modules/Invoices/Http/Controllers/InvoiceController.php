@@ -11,12 +11,14 @@ use Modules\Invoices\Http\Requests\InvoiceIndexRequest;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionSeriesResolver;
+use Modules\Invoices\Services\InvoiceMoneyFormatter;
 use Modules\Invoices\Support\InvoiceReturnContext;
 
 class InvoiceController
 {
     public function __construct(
         private readonly CorrectionSeriesResolver $correctionSeries,
+        private readonly InvoiceMoneyFormatter $moneyFormatter,
     ) {}
 
     public function index(InvoiceIndexRequest $request): View
@@ -153,6 +155,7 @@ class InvoiceController
             },
             'returnTo' => $returnTo,
             'returnContext' => InvoiceReturnContext::forList($request, $returnTo),
+            'moneyFormatter' => $this->moneyFormatter,
             'showSalesRegisterAction' => $documentType !== InvoiceDocumentType::Proforma,
             'correctionSeries' => $isInvoiceList
                 ? $this->correctionSeries->active()

@@ -493,7 +493,7 @@
                                     @endif
                                 </td>
                                 <td>{{ $buyerName }}</td>
-                                <td class="invoice-money">{{ number_format((float) $invoice->total_gross, 2, ',', ' ') }} {{ $invoice->currency }}</td>
+                                <td class="invoice-money">{{ $moneyFormatter->format($invoice->total_gross) }} {{ $invoice->currency }}</td>
                                 <td class="invoice-date">{{ $invoice->issue_date?->format('d.m.Y') ?? '—' }}</td>
                                 @if ($isInvoiceList)
                                     <td class="text-center">

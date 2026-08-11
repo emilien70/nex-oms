@@ -10,7 +10,7 @@
                 <tr class="invoice-item-row" data-invoice-item-row="{{ $item->id }}">
                     <td><div>{{ $item->name }}</div>@if($item->description)<small class="text-muted">{{ $item->description }}</small>@endif</td>
                     <td class="text-end">{{ rtrim(rtrim($item->quantity, '0'), '.') }}</td>
-                    <td class="text-end">{{ number_format((float) $item->unit_price_gross, 2, ',', ' ') }} {{ $invoice->currency }}</td>
+                    <td class="text-end">{{ $moneyFormatter->format($item->unit_price_gross) }} {{ $invoice->currency }}</td>
                     <td class="text-end">{{ $item->vat_code ?: rtrim(rtrim($item->vat_rate, '0'), '.').'%' }}</td>
                     <td class="text-center">
                         <button
@@ -55,7 +55,7 @@
                                     </div>
                                     <div class="col-6 col-lg-2">
                                         <label class="form-label">Cena brutto</label>
-                                        <input type="number" name="unit_price_gross" class="form-control form-control-sm" value="{{ number_format((float) $item->unit_price_gross, 2, '.', '') }}" min="0" step="0.01" inputmode="decimal" required>
+                                        <input type="number" name="unit_price_gross" class="form-control form-control-sm" value="{{ $moneyFormatter->formatForInput($item->unit_price_gross) }}" min="0" step="0.01" inputmode="decimal" required>
                                     </div>
                                     <div class="col-6 col-lg-1">
                                         <label class="form-label">Waluta</label>

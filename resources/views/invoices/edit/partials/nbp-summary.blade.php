@@ -5,7 +5,7 @@
             <div><span>Kurs</span>{{ $nbp['rate_text'] }}</div>
             <div><span>Data publikacji</span>{{ $nbp['effective_date'] }}</div>
             <div><span>Tabela</span>{{ $nbp['table_number'] }}</div>
-            <div><span>Brutto w PLN</span>{{ number_format((float) $nbp['totals']['gross'], 2, ',', ' ') }} PLN</div>
+            <div><span>Brutto w PLN</span>{{ $moneyFormatter->format($nbp['totals']['gross']) }} PLN</div>
         </div>
     </section>
 @endif

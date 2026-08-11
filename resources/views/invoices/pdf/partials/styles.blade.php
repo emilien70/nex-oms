@@ -34,6 +34,10 @@
       .exchange-rate .final-value { line-height: 1.35; }
       .correction-section { font-size: 8.5pt; font-weight: normal; padding: 2px 5px; }
       .correction-items-section { line-height: 1.64; }
+      .correction-buyer-change-title { line-height: 1.4; }
+      .correction-buyer-change td { border: 1px solid #c8c8c8; font-size: 7.5pt; padding: 5px; vertical-align: top; }
+      .correction-buyer-change .correction-buyer-change-heading { background-color: #eeeeee; text-align: center; }
+      .correction-buyer-change .correction-buyer-change-details { line-height: 1.45; }
       .correction-summary td { font-size: 7.5pt; }
     .correction-summary .correction-adjustment-cell { padding: 4px; }
 </style>
