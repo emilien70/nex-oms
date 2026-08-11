@@ -30,10 +30,10 @@
 
     @include('invoices.pdf.partials.parties')
 
-    <div class="unicode-heading-font correction-section">Było:</div>
+    <div class="unicode-heading-font correction-section correction-items-section">Było:</div>
     @include('invoices.pdf.partials.items-table', ['rows' => $document['before_items']])
     <br><br>
-    <div class="unicode-heading-font correction-section">Powinno być:</div>
+    <div class="unicode-heading-font correction-section correction-items-section">Powinno być:</div>
     @include('invoices.pdf.partials.items-table', ['rows' => $document['after_items']])
 
     <br><br>
@@ -90,19 +90,16 @@
                 <td width="15%">{{ $document['pln_conversion']['totals']['gross'] }}<br>PLN</td>
             </tr>
         @endif
-    </table>
-
-    <br>
-    <table class="correction-adjustment-summary" cellpadding="1" cellspacing="0" width="65%">
         @foreach (['net', 'vat', 'gross'] as $component)
             <tr>
-                <td width="77%" align="right">{{ $document['difference_labels'][$component] }}:</td>
-                <td width="23%" align="right">
+                <td width="50%" class="correction-adjustment-cell" align="right">{{ $document['difference_labels'][$component] }}:</td>
+                <td width="15%" class="correction-adjustment-cell" align="right">
                     {{ $document['difference_magnitudes'][$component] }} {{ $document['currency'] }}
                     @if ($document['pln_difference_magnitudes'])
                         <br>{{ $document['pln_difference_magnitudes'][$component] }} PLN
                     @endif
                 </td>
+                <td width="35%" class="plain"></td>
             </tr>
         @endforeach
     </table>

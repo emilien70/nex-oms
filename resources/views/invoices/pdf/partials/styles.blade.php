@@ -30,9 +30,10 @@
     .final-details td { padding: 3px 4px; vertical-align: middle; }
     .issuer-block { padding-top: 6px; }
     .additional-information { padding-top: 6px; }
-    .exchange-rate td { font-size: 8.5pt; }
-    .exchange-rate .final-value { line-height: 1.35; }
-    .correction-section { font-size: 8.5pt; font-weight: normal; padding: 2px 5px; }
-    .correction-summary td { font-size: 7.5pt; }
-    .correction-adjustment-summary td { border: 1px solid #c8c8c8; font-size: 7.5pt; padding: 4px; }
+      .exchange-rate td { font-size: 8.5pt; }
+      .exchange-rate .final-value { line-height: 1.35; }
+      .correction-section { font-size: 8.5pt; font-weight: normal; padding: 2px 5px; }
+      .correction-items-section { line-height: 1.64; }
+      .correction-summary td { font-size: 7.5pt; }
+    .correction-summary .correction-adjustment-cell { padding: 4px; }
 </style>

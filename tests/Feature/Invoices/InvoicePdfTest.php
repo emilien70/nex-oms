@@ -228,7 +228,7 @@ class InvoicePdfTest extends TestCase
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
         $this->assertStringEndsWith('/proforma-v34.pdf', $filenames->storagePath($proforma));
-        $this->assertStringEndsWith('/correction-v36.pdf', $filenames->storagePath($correction));
+        $this->assertStringEndsWith('/correction-v42.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
 
@@ -621,15 +621,19 @@ class InvoicePdfTest extends TestCase
         }
 
         $this->assertStringNotContainsString('Faktura korygująca', $html);
+        $this->assertSame(2, substr_count($html, 'correction-section correction-items-section'));
+        $this->assertStringNotContainsString('correction-items-spacing', $html);
         $this->assertStringContainsString('Przelew', $html);
         $this->assertStringNotContainsString('Bank korekty', $html);
         $this->assertStringNotContainsString('11 2222 3333 4444 5555 6666 7777', $html);
         $this->assertStringContainsString('class="unicode-heading-font document-title correction-document-title"', $html);
         $this->assertStringContainsString('width="30%" class="related-document" align="right">', $html);
         $this->assertStringContainsString('<table class="summary correction-summary"', $html);
-        $this->assertStringContainsString('<table class="correction-adjustment-summary"', $html);
+        $this->assertStringNotContainsString('<table class="correction-adjustment-summary"', $html);
         $this->assertStringContainsString('<td width="50%" align="right">W tym:</td>', $html);
-        $this->assertStringContainsString('<td width="77%" align="right">', $html);
+        $this->assertStringNotContainsString('correction-summary-spacer', $html);
+        $this->assertStringContainsString('<td width="50%" class="correction-adjustment-cell" align="right">', $html);
+        $this->assertStringContainsString('<td width="35%" class="plain"></td>', $html);
         $this->assertStringContainsString('16.26 PLN', $html);
         $this->assertStringContainsString('23%', $html);
         $this->assertStringNotContainsString('<div align="right">'.PHP_EOL.'        do faktury', $html);

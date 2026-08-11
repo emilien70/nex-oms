@@ -10,7 +10,7 @@ class InvoicePdfFilenameGenerator
 
     private const PROFORMA_LAYOUT_VERSION = 'v34';
 
-    private const CORRECTION_LAYOUT_VERSION = 'v36';
+    private const CORRECTION_LAYOUT_VERSION = 'v42';
 
     private const FALLBACK_LAYOUT_VERSION = 'v33';
 
