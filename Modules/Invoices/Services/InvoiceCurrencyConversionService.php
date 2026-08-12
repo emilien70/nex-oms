@@ -17,6 +17,7 @@ class InvoiceCurrencyConversionService
         private readonly NbpExchangeRateClient $rates,
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
+        private readonly InvoiceFinancialValueValidator $financial,
     ) {}
 
     public function contextFor(PreparedInvoiceDocument $prepared): InvoiceCurrencyConversionContext
@@ -225,6 +226,9 @@ class InvoiceCurrencyConversionService
             $net = $this->decimal->multiplyAndRound((string) $group['net'], $rate, 2);
             $vat = $this->decimal->multiplyAndRound((string) $group['vat'], $rate, 2);
             $gross = $this->decimal->add($net, $vat, 2);
+            $net = $this->financial->assertCorrectionDifference($net);
+            $vat = $this->financial->assertCorrectionDifference($vat);
+            $gross = $this->financial->assertCorrectionDifference($gross);
             $identity = $this->taxIdentity->normalize(
                 $group['vat_rate'] ?? null,
                 $group['vat_code'] ?? null,
@@ -242,6 +246,9 @@ class InvoiceCurrencyConversionService
             $totalNet = $this->decimal->add($totalNet, $net, 2);
             $totalVat = $this->decimal->add($totalVat, $vat, 2);
             $totalGross = $this->decimal->add($totalGross, $gross, 2);
+            $totalNet = $this->financial->assertCorrectionDifference($totalNet);
+            $totalVat = $this->financial->assertCorrectionDifference($totalVat);
+            $totalGross = $this->financial->assertCorrectionDifference($totalGross);
         }
 
         return [

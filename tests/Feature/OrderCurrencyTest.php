@@ -43,6 +43,90 @@ class OrderCurrencyTest extends TestCase
         $this->assertSame('0.40', $order->refresh()->total_gross);
     }
 
+    public function test_order_product_accepts_integer_vat_rates_including_future_rates(): void
+    {
+        Http::preventStrayRequests();
+
+        foreach (['0', '8', '23', '24', '100'] as $vatRate) {
+            $order = $this->order();
+
+            $this->post(route('orders.products.store', $order), [
+                'product_name' => 'Produkt VAT '.$vatRate,
+                'quantity' => 1,
+                'unit_price_gross' => '10.00',
+                'currency' => 'PLN',
+                'vat_rate' => $vatRate,
+            ])->assertSessionDoesntHaveErrors();
+
+            $this->assertSame($vatRate.'.00', $order->items()->sole()->vat_rate);
+        }
+    }
+
+    public function test_order_product_rejects_non_integer_and_out_of_range_vat_input(): void
+    {
+        $order = $this->order();
+
+        foreach (['23.0', '23.00', '23,00', '23.5', '100.01', '101', '1000', '-1'] as $vatRate) {
+            $this->from(route('orders.show', $order))->post(route('orders.products.store', $order), [
+                'product_name' => 'Nieprawidłowy VAT',
+                'quantity' => 1,
+                'unit_price_gross' => '10.00',
+                'currency' => 'PLN',
+                'vat_rate' => $vatRate,
+            ])->assertSessionHasErrors('vat_rate');
+        }
+
+        $this->assertDatabaseMissing('order_items', ['order_id' => $order->getKey()]);
+        $this->assertSame('0.00', $order->fresh()->total_gross);
+    }
+
+    public function test_order_product_price_boundary_is_validated_before_persistence(): void
+    {
+        $invalidOrder = $this->order();
+
+        $this->from(route('orders.show', $invalidOrder))->post(route('orders.products.store', $invalidOrder), [
+            'product_name' => 'Za wysoka cena',
+            'quantity' => 1,
+            'unit_price_gross' => '10000000000.00',
+            'currency' => 'PLN',
+            'vat_rate' => '23',
+        ])->assertSessionHasErrors('unit_price_gross');
+
+        $this->assertDatabaseMissing('order_items', ['order_id' => $invalidOrder->getKey()]);
+
+        $validOrder = $this->order();
+        $this->post(route('orders.products.store', $validOrder), [
+            'product_name' => 'Maksymalna bezpieczna cena',
+            'quantity' => 1,
+            'unit_price_gross' => '9999999999.99',
+            'currency' => 'PLN',
+            'vat_rate' => '24',
+        ])->assertSessionDoesntHaveErrors();
+
+        $this->assertSame('9999999999.99', $validOrder->fresh()->total_gross);
+        $this->assertSame('9999999999.99', $validOrder->items()->sole()->total_price_gross);
+    }
+
+    public function test_order_line_overflow_rolls_back_item_total_and_event(): void
+    {
+        $order = $this->order();
+
+        $this->from(route('orders.show', $order))->post(route('orders.products.store', $order), [
+            'product_name' => 'Przepełniona wartość pozycji',
+            'quantity' => 2,
+            'unit_price_gross' => '9999999999.99',
+            'currency' => 'PLN',
+            'vat_rate' => '24',
+        ])->assertSessionHasErrors('unit_price_gross');
+
+        $this->assertDatabaseMissing('order_items', ['order_id' => $order->getKey()]);
+        $this->assertDatabaseMissing('order_events', [
+            'order_id' => $order->getKey(),
+            'event_type' => 'product_added',
+        ]);
+        $this->assertSame('0.00', $order->fresh()->total_gross);
+    }
+
     public function test_product_currency_must_exist_and_match_order_currency(): void
     {
         Currency::query()->create(['code' => 'EUR', 'name' => 'euro', 'nbp_table' => 'A']);

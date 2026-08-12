@@ -156,7 +156,7 @@
                         <div class="col-4"><label class="form-label">Ilość</label><input type="number" class="form-control form-control-sm" name="quantity" value="1" min="0" step="1" inputmode="numeric" required></div>
                         <div class="col-4"><label class="form-label">Pozycja</label><input class="form-control form-control-sm" name="position" value="{{ $invoice->items->count() + 1 }}" inputmode="numeric" required></div>
                         <div class="col-6"><label class="form-label">Cena brutto</label><input type="number" class="form-control form-control-sm" name="unit_price_gross" value="0.00" min="0" step="0.01" inputmode="decimal" required></div>
-                        <div class="col-6"><label class="form-label">VAT (%)</label><input class="form-control form-control-sm" name="vat_rate" value="23" inputmode="decimal"></div>
+                        <div class="col-6"><label class="form-label">VAT (%)</label><input type="number" class="form-control form-control-sm" name="vat_rate" value="23" min="0" max="100" step="1" inputmode="numeric"></div>
                         <input type="hidden" name="vat_code" value="">
                     </div>
                 </div>

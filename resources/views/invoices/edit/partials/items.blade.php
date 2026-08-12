@@ -63,7 +63,7 @@
                                     </div>
                                     <div class="col-6 col-lg-1">
                                         <label class="form-label">VAT (%)</label>
-                                        <input type="text" name="vat_rate" class="form-control form-control-sm" value="{{ $item->vat_rate }}" inputmode="decimal">
+                                        <input type="number" name="vat_rate" class="form-control form-control-sm" value="{{ $item->vat_rate === null ? '' : rtrim(rtrim($item->vat_rate, '0'), '.') }}" min="0" max="100" step="1" inputmode="numeric">
                                     </div>
                                     <div class="col-12 col-lg-2 d-flex justify-content-end">
                                         <button type="submit" class="btn btn-sm btn-primary invoice-item-inline-save">Zapisz</button>

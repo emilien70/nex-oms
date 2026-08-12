@@ -33,6 +33,7 @@ class CorrectionService
         private readonly CorrectionSeriesSourceResolver $seriesSources,
         private readonly CorrectionStateComparator $stateComparator,
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
+        private readonly InvoiceFinancialValueValidator $financial,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -605,7 +606,7 @@ class CorrectionService
     /** @param array<string, mixed> $snapshot */
     private function normalizeSnapshot(array $snapshot): array
     {
-        $gross = $this->decimal->normalize((string) ($snapshot['total_gross'] ?? '0'), 2);
+        $gross = $this->financial->assertInvoiceItemTotal($snapshot['total_gross'] ?? '0');
         $identity = $this->correctionTaxIdentity(
             $snapshot['vat_rate'] ?? null,
             $snapshot['vat_code'] ?? null,
@@ -623,7 +624,7 @@ class CorrectionService
             'name' => trim((string) ($snapshot['name'] ?? 'Pozycja')),
             'description' => $this->nullableText($snapshot['description'] ?? null),
             'unit_name' => trim((string) ($snapshot['unit_name'] ?? 'szt.')),
-            'quantity' => $this->decimal->normalize((string) ($snapshot['quantity'] ?? '0'), 4),
+            'quantity' => $this->financial->assertInvoiceItemQuantity($snapshot['quantity'] ?? '0'),
             ...$identity,
         ], $amounts);
     }
@@ -631,8 +632,8 @@ class CorrectionService
     /** @param array<string, mixed> $submitted */
     private function afterSnapshot(array $submitted): array
     {
-        $quantity = $this->decimal->normalize((string) ($submitted['quantity'] ?? '0'), 4);
-        $unitGross = $this->decimal->normalize((string) ($submitted['unit_price_gross'] ?? '0'), 4);
+        $quantity = $this->financial->assertInvoiceItemQuantity($submitted['quantity'] ?? '0');
+        $unitGross = $this->financial->assertInvoiceItemUnitPrice($submitted['unit_price_gross'] ?? '0');
         $totalGross = $this->decimal->multiplyAndRound($unitGross, $quantity, 2);
         $identity = $this->correctionTaxIdentity(
             $submitted['vat_rate'] ?? null,
@@ -725,12 +726,24 @@ class CorrectionService
     private function differenceItem(array $before, array $after): array
     {
         return array_merge($after, [
-            'quantity' => $this->decimal->subtract((string) $after['quantity'], (string) $before['quantity'], 4),
-            'unit_price_net' => $this->decimal->subtract((string) $after['unit_price_net'], (string) $before['unit_price_net'], 4),
-            'unit_price_gross' => $this->decimal->subtract((string) $after['unit_price_gross'], (string) $before['unit_price_gross'], 4),
-            'total_net' => $this->decimal->subtract((string) $after['total_net'], (string) $before['total_net']),
-            'total_vat' => $this->decimal->subtract((string) $after['total_vat'], (string) $before['total_vat']),
-            'total_gross' => $this->decimal->subtract((string) $after['total_gross'], (string) $before['total_gross']),
+            'quantity' => $this->financial->assertCorrectionQuantityDifference(
+                $this->decimal->subtract((string) $after['quantity'], (string) $before['quantity'], 4),
+            ),
+            'unit_price_net' => $this->financial->assertCorrectionUnitPriceDifference(
+                $this->decimal->subtract((string) $after['unit_price_net'], (string) $before['unit_price_net'], 4),
+            ),
+            'unit_price_gross' => $this->financial->assertCorrectionUnitPriceDifference(
+                $this->decimal->subtract((string) $after['unit_price_gross'], (string) $before['unit_price_gross'], 4),
+            ),
+            'total_net' => $this->financial->assertCorrectionDifference(
+                $this->decimal->subtract((string) $after['total_net'], (string) $before['total_net']),
+            ),
+            'total_vat' => $this->financial->assertCorrectionDifference(
+                $this->decimal->subtract((string) $after['total_vat'], (string) $before['total_vat']),
+            ),
+            'total_gross' => $this->financial->assertCorrectionDifference(
+                $this->decimal->subtract((string) $after['total_gross'], (string) $before['total_gross']),
+            ),
         ]);
     }
 

@@ -171,6 +171,33 @@ class InvoiceIssuingServiceTest extends TestCase
         $this->assertDatabaseCount('order_events', 0);
     }
 
+    public function test_financial_storage_violation_does_not_create_invoice_or_consume_number(): void
+    {
+        $order = $this->createDocumentOrder(['delivery_cost_gross' => '0.00']);
+        $item = $this->createDocumentItem($order, [
+            'unit_price_gross' => '9999999999.99',
+            'total_price_gross' => '10000000000.00',
+        ]);
+        $series = $this->createDocumentSeries();
+
+        try {
+            app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext());
+            $this->fail('Wystawiono Fakturę z wartością przekraczającą zakres zamówienia.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('invoice_financial_value_out_of_range', $exception->errorCode());
+        }
+
+        foreach (['invoices', 'invoice_items', 'order_document_slots', 'invoice_number_counters', 'order_events'] as $table) {
+            $this->assertDatabaseCount($table, 0);
+        }
+
+        $item->update(['total_price_gross' => '9999999999.99']);
+        $invoice = app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext());
+
+        $this->assertSame(1, $invoice->sequence_number);
+        $this->assertSame(1, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+    }
+
     public function test_slot_database_constraints_protect_document_types(): void
     {
         $order = $this->createDocumentOrder();

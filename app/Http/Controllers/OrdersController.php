@@ -24,6 +24,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
+use Modules\Invoices\Services\InvoiceFinancialLimits;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
@@ -176,31 +180,37 @@ class OrdersController extends Controller
     ): RedirectResponse {
         $validated = $this->validateOrder($request);
 
-        $order = DB::transaction(function () use ($validated, $orderCurrencyService, $orderTotalService): Order {
-            $order = Order::create($this->orderData($validated)
-                + $this->orderAddressData($validated, 'shipping')
-                + $this->orderAddressData($validated, 'billing')
-                + [
-                    'status_changed_at' => now(),
+        try {
+            $order = DB::transaction(function () use ($validated, $orderCurrencyService, $orderTotalService): Order {
+                $order = Order::create($this->orderData($validated)
+                    + $this->orderAddressData($validated, 'shipping')
+                    + $this->orderAddressData($validated, 'billing')
+                    + [
+                        'status_changed_at' => now(),
+                    ]);
+
+                $order->currency = $orderCurrencyService->currencyForOrder($order, $validated['currency']);
+                $order->save();
+                $this->syncItems($order, $validated['items'] ?? [], $orderTotalService);
+                $orderTotalService->recalculate($order);
+
+                $order->events()->create([
+                    'event_type' => 'order_created',
+                    'title' => html_entity_decode('Zam&oacute;wienie utworzone', ENT_QUOTES, 'UTF-8'),
+                    'description' => html_entity_decode('Utworzono zam&oacute;wienie r&#281;cznie', ENT_QUOTES, 'UTF-8'),
+                    'payload' => [
+                        'source' => $order->source,
+                        'order_id' => $order->id,
+                    ],
                 ]);
 
-            $order->currency = $orderCurrencyService->currencyForOrder($order, $validated['currency']);
-            $order->save();
-            $this->syncItems($order, $validated['items'] ?? [], $orderTotalService);
-            $orderTotalService->recalculate($order);
-
-            $order->events()->create([
-                'event_type' => 'order_created',
-                'title' => html_entity_decode('Zam&oacute;wienie utworzone', ENT_QUOTES, 'UTF-8'),
-                'description' => html_entity_decode('Utworzono zam&oacute;wienie r&#281;cznie', ENT_QUOTES, 'UTF-8'),
-                'payload' => [
-                    'source' => $order->source,
-                    'order_id' => $order->id,
-                ],
-            ]);
-
-            return $order;
-        });
+                return $order;
+            });
+        } catch (OrderCurrencyException $exception) {
+            throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['items' => $exception->getMessage()]);
+        }
 
         return redirect()
             ->route('orders.show', $order)
@@ -329,69 +339,98 @@ class OrdersController extends Controller
         return redirect()->route('orders.show', $newOrder);
     }
 
-    public function duplicate(Order $order): RedirectResponse
-    {
+    public function duplicate(
+        Order $order,
+        OrderTotalService $orderTotalService,
+        InvoiceFinancialValueValidator $financial,
+    ): RedirectResponse {
         $order->load(['items']);
 
-        $newOrder = DB::transaction(function () use ($order): Order {
-            $orderData = $order->only([
-                'source',
-                'status',
-                'star_color',
-                'customer_login',
-                'customer_email',
-                'customer_phone',
-                ...$this->orderAddressFieldNames(),
-                'currency',
-                'total_gross',
-                'paid_amount',
-                'delivery_cost_gross',
-                'shipping_method',
-                'pickup_point_name',
-                'pickup_point_id',
-                'pickup_point_address',
-                'pickup_point_postal_code',
-                'pickup_point_city',
-                'cash_on_delivery',
-                'payment_status',
-                'payment_method',
-                'purchased_at',
-                'paid_at',
-                'notes',
-            ]);
-
-            $newOrder = Order::create($orderData + [
-                'external_id' => null,
-                'status_changed_at' => now(),
-            ]);
-
-            foreach ($order->items as $item) {
-                $newOrder->items()->create($item->only([
-                    'external_id',
-                    'product_name',
-                    'sku',
-                    'ean',
-                    'offer_id',
-                    'quantity',
-                    'unit_price_gross',
-                    'total_price_gross',
+        try {
+            $newOrder = DB::transaction(function () use ($order, $orderTotalService, $financial): Order {
+                $orderData = $order->only([
+                    'source',
+                    'status',
+                    'star_color',
+                    'customer_login',
+                    'customer_email',
+                    'customer_phone',
+                    ...$this->orderAddressFieldNames(),
                     'currency',
-                    'vat_rate',
-                    'weight',
-                ]));
-            }
+                    'total_gross',
+                    'paid_amount',
+                    'delivery_cost_gross',
+                    'shipping_method',
+                    'pickup_point_name',
+                    'pickup_point_id',
+                    'pickup_point_address',
+                    'pickup_point_postal_code',
+                    'pickup_point_city',
+                    'cash_on_delivery',
+                    'payment_status',
+                    'payment_method',
+                    'purchased_at',
+                    'paid_at',
+                    'notes',
+                ]);
+                $orderData['total_gross'] = $financial->assertOrderMoney(
+                    $orderData['total_gross'],
+                    'Wartość zamówienia przekracza maksymalny obsługiwany zakres.',
+                );
+                $orderData['paid_amount'] = $financial->assertOrderMoney(
+                    $orderData['paid_amount'],
+                    'Kwota zapłacona przekracza maksymalną obsługiwaną wartość.',
+                );
+                $orderData['delivery_cost_gross'] = $financial->assertOrderMoney(
+                    $orderData['delivery_cost_gross'],
+                    'Koszt wysyłki przekracza maksymalną obsługiwaną wartość.',
+                );
 
-            $newOrder->events()->create([
-                'event_type' => 'order_duplicated',
-                'title' => html_entity_decode('Zam&oacute;wienie skopiowane', ENT_QUOTES, 'UTF-8'),
-                'description' => html_entity_decode('Utworzono kopi&#281; zam&oacute;wienia', ENT_QUOTES, 'UTF-8'),
-                'payload' => [
-                    'source_order_id' => $order->id,
-                ],
-            ]);
+                $newOrder = Order::create($orderData + [
+                    'external_id' => null,
+                    'status_changed_at' => now(),
+                ]);
 
-            return $newOrder;
-        });
+                foreach ($order->items as $item) {
+                    $itemData = $item->only([
+                        'external_id',
+                        'product_name',
+                        'sku',
+                        'ean',
+                        'offer_id',
+                        'quantity',
+                        'unit_price_gross',
+                        'total_price_gross',
+                        'currency',
+                        'vat_rate',
+                        'weight',
+                    ]);
+                    $orderTotalService->lineTotal((string) $itemData['unit_price_gross'], (int) $itemData['quantity']);
+                    $itemData['total_price_gross'] = $financial->assertOrderMoney(
+                        $itemData['total_price_gross'],
+                        'Wartość pozycji przekracza maksymalny obsługiwany zakres.',
+                    );
+                    if ($itemData['vat_rate'] !== null) {
+                        $itemData['vat_rate'] = $financial->assertVatPercentage($itemData['vat_rate']);
+                    }
+
+                    $newOrder->items()->create($itemData);
+                }
+
+                $newOrder->events()->create([
+                    'event_type' => 'order_duplicated',
+                    'title' => html_entity_decode('Zam&oacute;wienie skopiowane', ENT_QUOTES, 'UTF-8'),
+                    'description' => html_entity_decode('Utworzono kopi&#281; zam&oacute;wienia', ENT_QUOTES, 'UTF-8'),
+                    'payload' => [
+                        'source_order_id' => $order->id,
+                    ],
+                ]);
+
+                return $newOrder;
+            });
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['order' => $exception->getMessage()]);
+        }
 
         return redirect()->route('orders.show', $newOrder);
     }
@@ -751,6 +790,8 @@ class OrdersController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['items' => $exception->getMessage()]);
         }
 
         return redirect()
@@ -812,9 +853,21 @@ class OrdersController extends Controller
                 'regex:/^[A-Z]{3}$/',
                 new ValidCurrencyCode($this->currencies, $order?->currency),
             ],
-            'total_gross' => ['nullable', 'numeric', 'min:0'],
-            'paid_amount' => ['nullable', 'numeric', 'min:0'],
-            'delivery_cost_gross' => ['nullable', 'numeric', 'min:0'],
+            'total_gross' => [
+                'nullable',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                $this->orderMoneyRule('Wartość zamówienia przekracza maksymalny obsługiwany zakres.'),
+            ],
+            'paid_amount' => [
+                'nullable',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                $this->orderMoneyRule('Kwota zapłacona przekracza maksymalną obsługiwaną wartość.'),
+            ],
+            'delivery_cost_gross' => [
+                'nullable',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                $this->orderMoneyRule('Koszt wysyłki przekracza maksymalną obsługiwaną wartość.'),
+            ],
             'shipping_method' => ['nullable', 'string', 'max:255'],
             'cash_on_delivery' => ['nullable', 'boolean'],
             'pickup_point_name' => ['nullable', 'string', 'max:255'],
@@ -827,8 +880,12 @@ class OrdersController extends Controller
             'paid_at' => ['nullable', 'date'],
             'items' => ['nullable', 'array'],
             'items.*.product_name' => ['nullable', 'string', 'max:255'],
-            'items.*.quantity' => ['nullable', 'integer', 'min:1'],
-            'items.*.unit_price_gross' => ['nullable', 'numeric', 'min:0'],
+            'items.*.quantity' => ['nullable', 'integer', 'min:1', 'max:'.InvoiceFinancialLimits::ORDER_QUANTITY_MAX],
+            'items.*.unit_price_gross' => [
+                'nullable',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                $this->orderMoneyRule('Cena brutto przekracza maksymalną obsługiwaną wartość.'),
+            ],
         ], [
             'shipping_country_code.required' => 'Wybierz prawidłowy kraj.',
             'shipping_country_code.string' => 'Wybierz prawidłowy kraj.',
@@ -940,6 +997,15 @@ class OrdersController extends Controller
             'paid_at' => $validated['paid_at'] ?? null,
             'notes' => $validated['notes'] ?? null,
         ];
+    }
+
+    private function orderMoneyRule(string $message): InvoiceFinancialStorageRule
+    {
+        return new InvoiceFinancialStorageRule(
+            app(InvoiceFinancialValueValidator::class),
+            InvoiceFinancialLimits::ORDER_MONEY,
+            $message,
+        );
     }
 
     private function syncItems(Order $order, array $items, OrderTotalService $orderTotalService): void

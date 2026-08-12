@@ -65,7 +65,7 @@ class OrderAjaxUpdatesTest extends TestCase
             'customer_phone' => '501294368',
             'shipping_method' => 'Paczkomat',
             'cash_on_delivery' => false,
-            'delivery_cost_gross' => 12.50,
+            'delivery_cost_gross' => '12.50',
             'payment_method' => 'Przelew',
             'notes' => 'Zapis bez przeładowania',
         ])
@@ -78,7 +78,7 @@ class OrderAjaxUpdatesTest extends TestCase
             'id' => $order->id,
             'customer_login' => 'ajax-user',
             'shipping_method' => 'Paczkomat',
-            'total_gross' => 112.50,
+            'total_gross' => '112.50',
         ]);
     }
 
@@ -95,7 +95,7 @@ class OrderAjaxUpdatesTest extends TestCase
         $this->postJson(route('orders.products.store', $order), [
             'product_name' => 'Nowy produkt',
             'quantity' => 1,
-            'unit_price_gross' => 49.99,
+            'unit_price_gross' => '49.99',
             'currency' => 'PLN',
         ])
             ->assertOk()

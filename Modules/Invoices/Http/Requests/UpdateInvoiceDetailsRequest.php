@@ -4,6 +4,9 @@ namespace Modules\Invoices\Http\Requests;
 
 use App\Support\CountryCatalog;
 use Illuminate\Validation\Rule;
+use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
+use Modules\Invoices\Services\InvoiceFinancialLimits;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 
 class UpdateInvoiceDetailsRequest extends InvoiceEditRequest
 {
@@ -22,7 +25,15 @@ class UpdateInvoiceDetailsRequest extends InvoiceEditRequest
             'payment_due_date' => ['nullable', 'date_format:Y-m-d'],
             'payment_method' => ['nullable', 'string', 'max:255'],
             'payment_identifier' => ['nullable', 'string', 'max:255'],
-            'paid_amount' => ['required', 'regex:/^\d+(?:[\.,]\d{1,2})?$/'],
+            'paid_amount' => [
+                'required',
+                'regex:/^\d+(?:[\.,]\d{1,2})?$/',
+                new InvoiceFinancialStorageRule(
+                    app(InvoiceFinancialValueValidator::class),
+                    InvoiceFinancialLimits::INVOICE_DOCUMENT_TOTAL,
+                    'Kwota zapłacona przekracza maksymalną obsługiwaną wartość.',
+                ),
+            ],
             'place_of_issue' => ['nullable', 'string', 'max:255'],
             'issuer_name' => ['nullable', 'string', 'max:255'],
             'additional_information_text' => ['nullable', 'string', 'max:10000'],

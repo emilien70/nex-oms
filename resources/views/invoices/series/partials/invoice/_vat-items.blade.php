@@ -12,7 +12,7 @@
         </div>
         <div class="col-md-6" data-invoice-dependent="default-vat-rate">
             <label class="form-label" for="invoice-series-default-vat">Domyślna stawka VAT (%)</label>
-            <input class="form-control form-control-sm {{ $invoiceHasError('default_vat_rate') ? 'is-invalid' : '' }}" id="invoice-series-default-vat" name="default_vat_rate" type="number" min="0" max="100" step="0.01" value="{{ $invoiceValue('default_vat_rate') }}">
+            <input class="form-control form-control-sm {{ $invoiceHasError('default_vat_rate') ? 'is-invalid' : '' }}" id="invoice-series-default-vat" name="default_vat_rate" type="number" min="0" max="100" step="1" value="{{ ($value = $invoiceValue('default_vat_rate')) === null ? '' : rtrim(rtrim((string) $value, '0'), '.') }}">
             @if ($invoiceHasError('default_vat_rate'))<div class="invalid-feedback">{{ $errors->first('default_vat_rate') }}</div>@endif
         </div>
         <div class="col-md-4 d-flex align-items-end">
@@ -34,7 +34,7 @@
         </div>
         <div class="col-md-4" data-invoice-dependent="shipping-vat-rate">
             <label class="form-label" for="invoice-series-shipping-vat">Stała stawka VAT dostawy (%)</label>
-            <input class="form-control form-control-sm {{ $invoiceHasError('default_shipping_vat_rate') ? 'is-invalid' : '' }}" id="invoice-series-shipping-vat" name="default_shipping_vat_rate" type="number" min="0" max="100" step="0.01" value="{{ $invoiceValue('default_shipping_vat_rate') }}">
+            <input class="form-control form-control-sm {{ $invoiceHasError('default_shipping_vat_rate') ? 'is-invalid' : '' }}" id="invoice-series-shipping-vat" name="default_shipping_vat_rate" type="number" min="0" max="100" step="1" value="{{ ($value = $invoiceValue('default_shipping_vat_rate')) === null ? '' : rtrim(rtrim((string) $value, '0'), '.') }}">
             @if ($invoiceHasError('default_shipping_vat_rate'))<div class="invalid-feedback">{{ $errors->first('default_shipping_vat_rate') }}</div>@endif
         </div>
         <div class="col-md-4">

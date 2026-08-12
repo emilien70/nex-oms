@@ -10,6 +10,7 @@ class InvoiceTotalsCalculator
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
+        private readonly InvoiceFinancialValueValidator $financial,
     ) {}
 
     /**
@@ -21,19 +22,19 @@ class InvoiceTotalsCalculator
         ?string $vatRate,
         ?string $vatCode = null,
     ): array {
-        $unitGross = $this->decimal->normalize($unitPriceGross, 4);
-        $gross = $this->decimal->normalize($totalGross, 2);
+        $unitGross = $this->financial->assertInvoiceItemUnitPrice($unitPriceGross);
+        $gross = $this->financial->assertInvoiceItemTotal($totalGross);
 
         $identity = $this->taxIdentity->normalize($vatRate, $vatCode);
 
         if ($identity['vat_code'] !== null) {
-            return [
+            return $this->validatedLine([
                 'unit_price_net' => $unitGross,
                 'unit_price_gross' => $unitGross,
                 'total_net' => $gross,
                 'total_vat' => '0.00',
                 'total_gross' => $gross,
-            ];
+            ]);
         }
 
         if ($identity['vat_rate'] === null) {
@@ -47,13 +48,13 @@ class InvoiceTotalsCalculator
         $unitNet = $this->decimal->netFromGross($unitGross, $rate, 4);
         $net = $this->decimal->netFromGross($gross, $rate, 2);
 
-        return [
+        return $this->validatedLine([
             'unit_price_net' => $unitNet,
             'unit_price_gross' => $unitGross,
             'total_net' => $net,
             'total_vat' => $this->decimal->subtract($gross, $net),
             'total_gross' => $gross,
-        ];
+        ]);
     }
 
     /**
@@ -62,7 +63,12 @@ class InvoiceTotalsCalculator
      */
     public function calculateDocument(array $items, Order $order): array
     {
-        return $this->calculateForPaidAmount($items, (string) ($order->paid_amount ?? '0'), true);
+        $paidAmount = $this->financial->assertOrderMoney(
+            (string) ($order->paid_amount ?? '0'),
+            'Kwota zapłacona przekracza maksymalną obsługiwaną wartość.',
+        );
+
+        return $this->calculateForPaidAmount($items, $paidAmount, true);
     }
 
     /**
@@ -86,12 +92,15 @@ class InvoiceTotalsCalculator
         $taxGroups = [];
 
         foreach ($items as $item) {
-            $itemNet = $this->decimal->normalize((string) $item['total_net'], 2);
-            $itemVat = $this->decimal->normalize((string) $item['total_vat'], 2);
-            $itemGross = $this->decimal->normalize((string) $item['total_gross'], 2);
+            $itemNet = $this->financial->assertInvoiceItemTotal($item['total_net']);
+            $itemVat = $this->financial->assertInvoiceItemTotal($item['total_vat']);
+            $itemGross = $this->financial->assertInvoiceItemTotal($item['total_gross']);
             $totalNet = $this->decimal->add($totalNet, $itemNet);
             $totalVat = $this->decimal->add($totalVat, $itemVat);
             $totalGross = $this->decimal->add($totalGross, $itemGross);
+            $totalNet = $this->financial->assertInvoiceDocumentTotal($totalNet);
+            $totalVat = $this->financial->assertInvoiceDocumentTotal($totalVat);
+            $totalGross = $this->financial->assertInvoiceDocumentTotal($totalGross);
             $identity = $this->taxIdentity->normalize(
                 $item['vat_rate'] ?? null,
                 $item['vat_code'] ?? null,
@@ -113,10 +122,13 @@ class InvoiceTotalsCalculator
             $taxGroups[$key]['net'] = $this->decimal->add($taxGroups[$key]['net'], $itemNet);
             $taxGroups[$key]['vat'] = $this->decimal->add($taxGroups[$key]['vat'], $itemVat);
             $taxGroups[$key]['gross'] = $this->decimal->add($taxGroups[$key]['gross'], $itemGross);
+            $taxGroups[$key]['net'] = $this->financial->assertInvoiceDocumentTotal($taxGroups[$key]['net']);
+            $taxGroups[$key]['vat'] = $this->financial->assertInvoiceDocumentTotal($taxGroups[$key]['vat']);
+            $taxGroups[$key]['gross'] = $this->financial->assertInvoiceDocumentTotal($taxGroups[$key]['gross']);
         }
 
         ksort($taxGroups, SORT_STRING);
-        $paid = $this->decimal->normalize($paidAmount, 2);
+        $paid = $this->financial->assertInvoiceDocumentTotal($paidAmount);
         $paid = $this->decimal->max($paid, '0.00');
         if (! $clampPaid && $this->decimal->compare($paid, $totalGross) > 0) {
             throw new InvoiceDomainException(
@@ -128,6 +140,7 @@ class InvoiceTotalsCalculator
             $paid = $this->decimal->min($paid, $totalGross);
         }
         $due = $this->decimal->max($this->decimal->subtract($totalGross, $paid), '0.00');
+        $due = $this->financial->assertInvoiceDocumentTotal($due);
 
         return [
             'total_net' => $totalNet,
@@ -137,5 +150,20 @@ class InvoiceTotalsCalculator
             'amount_due' => $due,
             'tax_summary_snapshot' => array_values($taxGroups),
         ];
+    }
+
+    /**
+     * @param  array{unit_price_net: string, unit_price_gross: string, total_net: string, total_vat: string, total_gross: string}  $line
+     * @return array{unit_price_net: string, unit_price_gross: string, total_net: string, total_vat: string, total_gross: string}
+     */
+    private function validatedLine(array $line): array
+    {
+        $line['unit_price_net'] = $this->financial->assertInvoiceItemUnitPrice($line['unit_price_net']);
+        $line['unit_price_gross'] = $this->financial->assertInvoiceItemUnitPrice($line['unit_price_gross']);
+        $line['total_net'] = $this->financial->assertInvoiceItemTotal($line['total_net']);
+        $line['total_vat'] = $this->financial->assertInvoiceItemTotal($line['total_vat']);
+        $line['total_gross'] = $this->financial->assertInvoiceItemTotal($line['total_gross']);
+
+        return $line;
     }
 }

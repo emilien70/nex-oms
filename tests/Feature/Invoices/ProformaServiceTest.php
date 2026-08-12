@@ -151,6 +151,45 @@ class ProformaServiceTest extends TestCase
         $this->assertSame([$path], Storage::disk('local')->allFiles('invoices/'.$proforma->getKey()));
     }
 
+    public function test_financial_storage_violation_rolls_back_proforma_refresh_and_keeps_pdf_cache(): void
+    {
+        Storage::fake('local');
+        $order = $this->createDocumentOrder();
+        $item = $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Proforma);
+        $service = app(ProformaService::class);
+        $proforma = $service->createOrRefresh($order, $series, $this->documentContext())->invoice;
+        $path = app(InvoicePdfFilenameGenerator::class)->storagePath($proforma);
+        Storage::disk('local')->put($path, '%PDF-1.7 current proforma');
+        $beforeAttributes = $proforma->only([
+            'lock_version',
+            'source_snapshot_hash',
+            'seller_snapshot',
+            'buyer_snapshot',
+            'order_snapshot',
+            'total_net',
+            'total_vat',
+            'total_gross',
+        ]);
+        $beforeItemIds = $proforma->items()->orderBy('id')->pluck('id')->all();
+
+        $item->update(['total_price_gross' => '10000000000.00']);
+
+        try {
+            $service->createOrRefresh($order->refresh(), $series, $this->documentContext('2026-07-30 10:00:00'));
+            $this->fail('Odświeżono Pro formę z wartością poza zakresem storage.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('invoice_financial_value_out_of_range', $exception->errorCode());
+        }
+
+        $proforma->refresh();
+        $this->assertSame($beforeAttributes, $proforma->only(array_keys($beforeAttributes)));
+        $this->assertSame($beforeItemIds, $proforma->items()->orderBy('id')->pluck('id')->all());
+        $this->assertSame(0, $order->events()->where('event_type', 'proforma_refreshed')->count());
+        $this->assertSame(1, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+        Storage::disk('local')->assertExists($path);
+    }
+
     public function test_existing_proforma_cannot_change_series_and_hidden_original_series_blocks_refresh(): void
     {
         $order = $this->createDocumentOrder();

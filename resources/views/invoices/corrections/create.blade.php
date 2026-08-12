@@ -297,7 +297,7 @@
             <div><label>Nazwa produktu</label><input class="form-control form-control-sm" data-item-field="name" required maxlength="255"></div>
             <div><label>Ilość</label><input class="form-control form-control-sm" type="number" min="0" step="1" inputmode="numeric" data-item-field="quantity" required></div>
             <div><label>Cena brutto</label><input class="form-control form-control-sm" type="number" min="0" step="0.01" inputmode="decimal" data-item-field="unit_price_gross" required></div>
-            <div><label>VAT (%)</label><input class="form-control form-control-sm" inputmode="decimal" data-item-field="vat_rate"></div>
+            <div><label>VAT (%)</label><input class="form-control form-control-sm" type="number" min="0" max="100" step="1" inputmode="numeric" data-item-field="vat_rate"></div>
             <button class="btn btn-sm btn-primary" type="button" data-close-item>Zapisz</button>
             <input type="hidden" data-item-field="source_item_id"><input type="hidden" data-item-field="order_item_id"><input type="hidden" data-item-field="line_type"><input type="hidden" data-item-field="position"><input type="hidden" data-item-field="description"><input type="hidden" data-item-field="unit_name"><input type="hidden" data-item-field="vat_code">
         </div></td></tr>
@@ -370,7 +370,7 @@
             document.querySelector('[data-change-items]')?.addEventListener('change', (event) => { document.querySelector('[data-items-section]').hidden = !event.target.checked; });
             document.querySelector('[data-change-buyer]')?.addEventListener('change', (event) => { document.querySelector('[data-buyer-section]').hidden = !event.target.checked; });
             document.querySelector('[data-correction-reason]')?.addEventListener('change', (event) => { document.querySelector('[data-other-reason]').hidden = event.target.value !== 'other'; });
-            document.querySelector('[data-add-item]')?.addEventListener('click', () => addItem({ name:'', quantity:1, unit_price_gross:'0.00', vat_rate:'23.00', line_type:'custom', unit_name:'szt.', position:nextItemKey + 1 }, true));
+            document.querySelector('[data-add-item]')?.addEventListener('click', () => addItem({ name:'', quantity:1, unit_price_gross:'0.00', vat_rate:'23', line_type:'custom', unit_name:'szt.', position:nextItemKey + 1 }, true));
             document.querySelector('[data-copy-order-items]')?.addEventListener('click', () => {
                 const nonProductItems = currentFormItems().filter((item) => item.line_type !== 'product');
                 replaceItems([...currentOrderItems, ...nonProductItems]);

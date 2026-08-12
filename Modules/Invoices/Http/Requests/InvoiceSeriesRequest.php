@@ -26,6 +26,8 @@ use Modules\Invoices\Enums\InvoiceShippingVatMode;
 use Modules\Invoices\Enums\InvoiceUnitPriceMode;
 use Modules\Invoices\Enums\InvoiceVatRateSource;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Rules\InvoiceVatPercentageRule;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 use Modules\Invoices\Services\InvoiceNumberingConfigurationValidator;
 
 abstract class InvoiceSeriesRequest extends FormRequest
@@ -331,9 +333,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
             'default_vat_rate' => [
                 Rule::requiredIf(fn (): bool => $this->input('vat_rate_source') === InvoiceVatRateSource::Fixed->value),
                 'nullable',
-                'numeric',
-                'between:0,100',
-                'decimal:0,2',
+                new InvoiceVatPercentageRule(app(InvoiceFinancialValueValidator::class)),
             ],
             'include_shipping' => ['required', 'boolean'],
             'shipping_vat_mode' => ['required', Rule::enum(InvoiceShippingVatMode::class)],
@@ -341,9 +341,7 @@ abstract class InvoiceSeriesRequest extends FormRequest
                 Rule::requiredIf(fn (): bool => $this->boolean('include_shipping')
                     && $this->input('shipping_vat_mode') === InvoiceShippingVatMode::Fixed->value),
                 'nullable',
-                'numeric',
-                'between:0,100',
-                'decimal:0,2',
+                new InvoiceVatPercentageRule(app(InvoiceFinancialValueValidator::class)),
             ],
             'skip_zero_price_items' => ['required', 'boolean'],
             'payment_method_source' => ['required', Rule::enum(InvoicePaymentMethodSource::class)],

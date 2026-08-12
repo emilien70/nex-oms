@@ -15,6 +15,7 @@ class InvoiceEditableItemsService
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTotalsCalculator $totals,
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
+        private readonly InvoiceFinancialValueValidator $financial,
     ) {}
 
     /** @param array<string, mixed> $data
@@ -22,8 +23,8 @@ class InvoiceEditableItemsService
      */
     public function manualAttributes(array $data, ?InvoiceItem $item = null): array
     {
-        $quantity = $this->decimal->normalize((string) $data['quantity'], 4);
-        $unitGross = $this->decimal->normalize((string) $data['unit_price_gross'], 4);
+        $quantity = $this->financial->assertInvoiceItemQuantity($data['quantity']);
+        $unitGross = $this->financial->assertInvoiceItemUnitPrice($data['unit_price_gross']);
         $totalGross = $this->decimal->multiplyAndRound($quantity, $unitGross, 2);
         $identity = $this->taxIdentity->normalize(
             $data['vat_rate'] ?? null,
@@ -74,7 +75,14 @@ class InvoiceEditableItemsService
         $items = [];
         $position = 1;
         foreach ($order->items()->orderBy('id')->get() as $orderItem) {
-            $gross = $this->decimal->normalize((string) $orderItem->total_price_gross, 2);
+            $unitGross = $this->financial->assertOrderMoney(
+                (string) $orderItem->unit_price_gross,
+                'Cena brutto przekracza maksymalną obsługiwaną wartość.',
+            );
+            $gross = $this->financial->assertOrderMoney(
+                (string) $orderItem->total_price_gross,
+                'Wartość pozycji przekracza maksymalny obsługiwany zakres.',
+            );
             if (($settings['skip_zero_price_items'] ?? false) && $this->decimal->compare($gross, '0.00') === 0) {
                 continue;
             }
@@ -96,18 +104,21 @@ class InvoiceEditableItemsService
                 'name' => $orderItem->product_name,
                 'description' => null,
                 'unit_name' => 'szt.',
-                'quantity' => $this->decimal->normalize((string) $orderItem->quantity, 4),
+                'quantity' => $this->financial->assertInvoiceItemQuantity($orderItem->quantity),
                 'vat_rate' => $vatRate,
                 'vat_code' => null,
                 'gtu_codes' => [],
                 'product_snapshot' => ['order_item_id' => $orderItem->getKey(), 'name' => $orderItem->product_name],
                 'metadata' => ['source' => 'order_item'],
-            ], $this->totals->calculateLine((string) $orderItem->unit_price_gross, $gross, $vatRate));
+            ], $this->totals->calculateLine($unitGross, $gross, $vatRate));
         }
 
         if (($settings['include_shipping'] ?? false) && trim((string) $order->shipping_method) !== '') {
             $rate = $this->shippingRate($items, $settings);
-            $gross = $this->decimal->normalize((string) $order->delivery_cost_gross, 2);
+            $gross = $this->financial->assertOrderMoney(
+                (string) $order->delivery_cost_gross,
+                'Koszt wysyłki przekracza maksymalną obsługiwaną wartość.',
+            );
             $items[] = array_merge([
                 'order_item_id' => null,
                 'product_id' => null,

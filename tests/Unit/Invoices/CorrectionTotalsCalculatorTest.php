@@ -4,6 +4,7 @@ namespace Tests\Unit\Invoices;
 
 use Modules\Invoices\Services\CorrectionTotalsCalculator;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 use Modules\Invoices\Services\InvoiceTaxIdentityNormalizer;
 use Modules\Invoices\Services\InvoiceTotalsCalculator;
 use PHPUnit\Framework\TestCase;
@@ -191,12 +192,14 @@ class CorrectionTotalsCalculatorTest extends TestCase
     private function calculator(): CorrectionTotalsCalculator
     {
         $decimal = new InvoiceDecimalCalculator;
-        $taxIdentity = new InvoiceTaxIdentityNormalizer($decimal);
+        $financial = new InvoiceFinancialValueValidator;
+        $taxIdentity = new InvoiceTaxIdentityNormalizer($financial);
 
         return new CorrectionTotalsCalculator(
             $decimal,
-            new InvoiceTotalsCalculator($decimal, $taxIdentity),
+            new InvoiceTotalsCalculator($decimal, $taxIdentity, $financial),
             $taxIdentity,
+            $financial,
         );
     }
 

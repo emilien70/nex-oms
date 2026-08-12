@@ -19,6 +19,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
+use Modules\Invoices\Services\InvoiceFinancialLimits;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 
 class OrderSectionController extends Controller
 {
@@ -42,7 +46,11 @@ class OrderSectionController extends Controller
             'customer_phone' => ['nullable', 'string', 'max:50'],
             'shipping_method' => ['nullable', 'string', 'max:255'],
             'cash_on_delivery' => ['nullable', 'boolean'],
-            'delivery_cost_gross' => ['nullable', 'numeric', 'min:0'],
+            'delivery_cost_gross' => [
+                'nullable',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                $this->orderMoneyRule('Koszt wysyłki przekracza maksymalną obsługiwaną wartość.'),
+            ],
             'payment_method' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -73,6 +81,8 @@ class OrderSectionController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['delivery_cost_gross' => $exception->getMessage()]);
         }
 
         return $this->orderMutationResponse($request, ['order-info', 'history'], back());
@@ -136,8 +146,16 @@ class OrderSectionController extends Controller
                 'regex:/^[A-Z]{3}$/',
                 new ValidCurrencyCode($this->currencies, $order->currency),
             ],
-            'total_gross' => ['nullable', 'numeric', 'min:0'],
-            'delivery_cost_gross' => ['nullable', 'numeric', 'min:0'],
+            'total_gross' => [
+                'nullable',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                $this->orderMoneyRule('Wartość zamówienia przekracza maksymalny obsługiwany zakres.'),
+            ],
+            'delivery_cost_gross' => [
+                'nullable',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                $this->orderMoneyRule('Koszt wysyłki przekracza maksymalną obsługiwaną wartość.'),
+            ],
             'payment_status' => ['required', 'string', 'in:unpaid,paid,refunded'],
             'payment_method' => ['nullable', 'string', 'max:255'],
             'paid_at' => ['nullable', 'date'],
@@ -161,6 +179,8 @@ class OrderSectionController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['total_gross' => $exception->getMessage()]);
         }
 
         $this->addEvent(
@@ -180,43 +200,60 @@ class OrderSectionController extends Controller
         $validated = $request->validate([
             'items' => ['nullable', 'array'],
             'items.*.product_name' => ['nullable', 'string', 'max:255'],
-            'items.*.quantity' => ['nullable', 'integer', 'min:1'],
-            'items.*.unit_price_gross' => ['nullable', 'numeric', 'min:0'],
+            'items.*.quantity' => ['nullable', 'integer', 'min:1', 'max:'.InvoiceFinancialLimits::ORDER_QUANTITY_MAX],
+            'items.*.unit_price_gross' => [
+                'nullable',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                $this->orderMoneyRule('Cena brutto przekracza maksymalną obsługiwaną wartość.'),
+            ],
         ]);
 
-        DB::transaction(function () use ($order, $validated, $orderTotalService): void {
-            $order->items()->delete();
+        try {
+            DB::transaction(function () use ($order, $validated, $orderTotalService): void {
+                $order->items()->delete();
 
-            foreach (array_slice($validated['items'] ?? [], 0, 5) as $item) {
-                if (empty($item['product_name'])) {
-                    continue;
+                foreach (array_slice($validated['items'] ?? [], 0, 5) as $item) {
+                    if (empty($item['product_name'])) {
+                        continue;
+                    }
+
+                    $quantity = (int) ($item['quantity'] ?? 1);
+                    $unitPriceGross = (string) ($item['unit_price_gross'] ?? '0');
+
+                    $order->items()->create([
+                        'product_name' => $item['product_name'],
+                        'sku' => null,
+                        'ean' => null,
+                        'quantity' => $quantity,
+                        'unit_price_gross' => $unitPriceGross,
+                        'total_price_gross' => $orderTotalService->lineTotal($unitPriceGross, $quantity),
+                        'currency' => $order->currency,
+                    ]);
                 }
 
-                $quantity = (int) ($item['quantity'] ?? 1);
-                $unitPriceGross = (string) ($item['unit_price_gross'] ?? '0');
+                $orderTotalService->recalculate($order);
 
-                $order->items()->create([
-                    'product_name' => $item['product_name'],
-                    'sku' => null,
-                    'ean' => null,
-                    'quantity' => $quantity,
-                    'unit_price_gross' => $unitPriceGross,
-                    'total_price_gross' => $orderTotalService->lineTotal($unitPriceGross, $quantity),
-                    'currency' => $order->currency,
-                ]);
-            }
-
-            $orderTotalService->recalculate($order);
-
-            $this->addEvent(
-                $order,
-                'products_updated',
-                'Produkty zaktualizowane',
-                html_entity_decode('Zaktualizowano produkty w zam&oacute;wieniu', ENT_QUOTES, 'UTF-8')
-            );
-        });
+                $this->addEvent(
+                    $order,
+                    'products_updated',
+                    'Produkty zaktualizowane',
+                    html_entity_decode('Zaktualizowano produkty w zam&oacute;wieniu', ENT_QUOTES, 'UTF-8')
+                );
+            });
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['items' => $exception->getMessage()]);
+        }
 
         return back()->with('success', 'Produkty zostaly zapisane.');
+    }
+
+    private function orderMoneyRule(string $message): InvoiceFinancialStorageRule
+    {
+        return new InvoiceFinancialStorageRule(
+            app(InvoiceFinancialValueValidator::class),
+            InvoiceFinancialLimits::ORDER_MONEY,
+            $message,
+        );
     }
 
     private function validateAddress(Request $request, string $prefix, array $additionalRules = []): array

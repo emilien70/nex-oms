@@ -14,6 +14,7 @@ use Modules\Invoices\Models\InvoiceNumberCounter;
 use Modules\Invoices\Services\InvoiceCurrencyConversionService;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Invoices\Services\InvoiceExchangeRateReferenceDateResolver;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceTaxIdentityNormalizer;
 use Modules\Invoices\Services\NbpExchangeRateClient;
@@ -174,7 +175,7 @@ class InvoiceCurrencyIssuingTest extends TestCase
         $this->createDocumentItem($order, ['currency' => 'EUR']);
         Http::fake(['*' => Http::response($this->xml('A', 'EUR', '4.3420'))]);
 
-        $failingConversion = new class(app(CurrencyCatalog::class), app(InvoiceExchangeRateReferenceDateResolver::class), app(NbpExchangeRateClient::class), app(InvoiceDecimalCalculator::class), app(InvoiceTaxIdentityNormalizer::class)) extends InvoiceCurrencyConversionService
+        $failingConversion = new class(app(CurrencyCatalog::class), app(InvoiceExchangeRateReferenceDateResolver::class), app(NbpExchangeRateClient::class), app(InvoiceDecimalCalculator::class), app(InvoiceTaxIdentityNormalizer::class), app(InvoiceFinancialValueValidator::class)) extends InvoiceCurrencyConversionService
         {
             public function apply(
                 PreparedInvoiceDocument $prepared,

@@ -72,7 +72,7 @@
                         </div>
                         <div class="col-6 col-lg-1">
                             <label class="form-label">VAT (%)</label>
-                            <input type="number" step="0.01" min="0" name="vat_rate" class="form-control form-control-sm" value="{{ old('vat_rate', $item->vat_rate) }}">
+                            <input type="number" step="1" min="0" max="100" name="vat_rate" class="form-control form-control-sm" value="{{ old('vat_rate', $item->vat_rate === null ? '' : rtrim(rtrim($item->vat_rate, '0'), '.')) }}">
                         </div>
                         <div class="col-6 col-lg-1">
                             <label class="form-label">Waga</label>

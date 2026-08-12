@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesResetPeriod;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Services\InvoiceSeriesManagementService;
 use Tests\TestCase;
 
 class InvoiceSeriesInvoiceSettingsTest extends TestCase
@@ -98,10 +100,10 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
             'seller_bank_swift' => 'abcddexx',
             'default_correction_series_id' => $correction->id,
             'vat_rate_source' => 'fixed',
-            'default_vat_rate' => '23.00',
+            'default_vat_rate' => '23',
             'include_shipping' => true,
             'shipping_vat_mode' => 'fixed',
-            'default_shipping_vat_rate' => '8.00',
+            'default_shipping_vat_rate' => '8',
             'skip_zero_price_items' => true,
             'payment_method_source' => 'fixed',
             'fixed_payment_method' => 'Przelew bankowy',
@@ -205,7 +207,7 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
         }
     }
 
-    public function test_vat_rules_are_conditional_and_reject_out_of_range_values(): void
+    public function test_vat_rules_are_conditional_accept_future_integer_rates_and_reject_invalid_input(): void
     {
         $this->post(route('invoices.series.store'), $this->validPayload([
             'name' => 'Brak stałego VAT',
@@ -219,13 +221,41 @@ class InvoiceSeriesInvoiceSettingsTest extends TestCase
             'default_vat_rate' => null,
         ]))->assertSessionDoesntHaveErrors();
 
-        foreach ([-0.01, 100.01] as $vat) {
+        $this->post(route('invoices.series.store'), $this->validPayload([
+            'name' => 'Przyszła stawka VAT',
+            'vat_rate_source' => 'fixed',
+            'default_vat_rate' => '24',
+        ]))->assertSessionDoesntHaveErrors();
+        $this->assertDatabaseHas('invoice_series', [
+            'name' => 'Przyszła stawka VAT',
+            'default_vat_rate' => '24.00',
+        ]);
+
+        foreach (['-0.01', '23.00', '23.50', '100.01', '101'] as $vat) {
             $this->post(route('invoices.series.store'), $this->validPayload([
                 'name' => 'VAT poza zakresem '.$vat,
                 'vat_rate_source' => 'fixed',
                 'default_vat_rate' => $vat,
             ]))->assertSessionHasErrors('default_vat_rate');
         }
+    }
+
+    public function test_series_service_rejects_fractional_active_vat_rate_without_http_validation(): void
+    {
+        try {
+            app(InvoiceSeriesManagementService::class)->create($this->validPayload([
+                'name' => 'Bezpośrednia stawka ułamkowa',
+                'vat_rate_source' => 'fixed',
+                'default_vat_rate' => '23.50',
+            ]));
+            $this->fail('Oczekiwano kontrolowanego błędu domenowego.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('invoice_vat_rate_invalid', $exception->errorCode());
+        }
+
+        $this->assertDatabaseMissing('invoice_series', [
+            'name' => 'Bezpośrednia stawka ułamkowa',
+        ]);
     }
 
     public function test_shipping_vat_is_required_only_for_included_shipping_with_fixed_rate(): void

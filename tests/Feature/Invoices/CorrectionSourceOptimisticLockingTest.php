@@ -255,7 +255,7 @@ class CorrectionSourceOptimisticLockingTest extends TestCase
                     'quantity' => (int) $snapshot['quantity'],
                     'unit_price_gross' => $this->twoDecimals($snapshot['unit_price_gross']),
                     'vat_rate' => $snapshot['vat_rate'] !== null
-                        ? $this->twoDecimals($snapshot['vat_rate'])
+                        ? rtrim(rtrim($this->twoDecimals($snapshot['vat_rate']), '0'), '.')
                         : null,
                     'vat_code' => $snapshot['vat_code'],
                 ];

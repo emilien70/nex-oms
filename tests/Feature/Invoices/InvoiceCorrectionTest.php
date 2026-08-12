@@ -52,6 +52,19 @@ class InvoiceCorrectionTest extends TestCase
             ->assertSee('vatCode ||', false);
     }
 
+    public function test_correction_form_rejects_legacy_fractional_vat_rate_without_silently_truncating_it(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $invoice->items()->where('line_type', 'product')->firstOrFail()->update([
+            'vat_rate' => '23.50',
+            'vat_code' => null,
+        ]);
+
+        $this->get(route('invoices.corrections.create', $invoice))
+            ->assertStatus(422)
+            ->assertSeeText('Stawka VAT musi być liczbą całkowitą od 0 do 100%.');
+    }
+
     public function test_correction_tab_lists_only_issued_corrections_with_shared_document_actions(): void
     {
         $series = $this->systemCorrectionSeries();
@@ -1107,6 +1120,163 @@ class InvoiceCorrectionTest extends TestCase
             ->assertHeader('content-type', 'application/pdf');
     }
 
+    public function test_correction_http_accepts_integer_vat_rates_including_future_rate(): void
+    {
+        foreach (['0', '8', '23', '24', '100'] as $vatRate) {
+            $invoice = $this->issuedInvoice();
+            $items = $this->submittedItems($invoice);
+            $items[0]['quantity'] = '2';
+            $items[0]['vat_rate'] = $vatRate;
+
+            $this->post(route('invoices.corrections.store', $invoice), $this->payload($this->systemCorrectionSeries(), [
+                'change_items' => true,
+                'items' => $items,
+            ]))->assertSessionDoesntHaveErrors();
+
+            $correction = Invoice::query()
+                ->where('corrected_invoice_id', $invoice->getKey())
+                ->where('document_type', InvoiceDocumentType::Correction)
+                ->sole();
+            $after = $correction->items->firstWhere('line_type', 'product')->correction_after_snapshot;
+            $this->assertSame($vatRate.'.00', $after['vat_rate']);
+
+            if ($vatRate === '24') {
+                $futureRateSummary = collect($correction->tax_summary_snapshot)->firstWhere('vat_rate', '24.00');
+                $this->assertNotNull($futureRateSummary);
+                $this->assertNull($futureRateSummary['vat_code']);
+            }
+        }
+    }
+
+    public function test_correction_http_rejects_non_integer_and_out_of_range_vat_input(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+
+        foreach (['23.0', '23.00', '23,00', '23.5', '100.01', '101', '1000', '-1'] as $vatRate) {
+            $items = $this->submittedItems($invoice);
+            $items[0]['vat_rate'] = $vatRate;
+
+            $this->post(route('invoices.corrections.store', $invoice), $this->payload($series, [
+                'change_items' => true,
+                'items' => $items,
+            ]))->assertSessionHasErrors('items.0.vat_rate');
+        }
+
+        $this->assertDatabaseMissing('invoices', [
+            'corrected_invoice_id' => $invoice->getKey(),
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
+    }
+
+    public function test_correction_http_applies_code_wins_before_validating_stale_fractional_rate(): void
+    {
+        $invoice = $this->issuedInvoice();
+        $items = $this->submittedItems($invoice);
+        $items[0]['vat_rate'] = '23.50';
+        $items[0]['vat_code'] = ' zw ';
+
+        $this->post(route('invoices.corrections.store', $invoice), $this->payload($this->systemCorrectionSeries(), [
+            'change_items' => true,
+            'items' => $items,
+        ]))->assertSessionDoesntHaveErrors();
+
+        $correction = Invoice::query()
+            ->where('corrected_invoice_id', $invoice->getKey())
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->sole();
+        $after = $correction->items->firstWhere('line_type', 'product')->correction_after_snapshot;
+        $this->assertSame('ZW', $after['vat_code']);
+        $this->assertNull($after['vat_rate']);
+    }
+
+    public function test_correction_issue_overflow_has_no_side_effects_and_does_not_consume_a_number(): void
+    {
+        Storage::fake('local');
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $beforeInvoiceCount = Invoice::query()->count();
+        $beforeEventCount = $invoice->order->events()->where('event_type', 'correction_issued')->count();
+        $items = $this->submittedItems($invoice);
+        $items[0]['quantity'] = '99999999999';
+        $items[0]['unit_price_gross'] = '99999999999.99';
+
+        $this->post(route('invoices.corrections.store', $invoice), $this->payload($series, [
+            'change_items' => true,
+            'items' => $items,
+        ]))
+            ->assertRedirect()
+            ->assertSessionHasErrors('correction');
+
+        $this->assertSame($beforeInvoiceCount, Invoice::query()->count());
+        $this->assertSame($beforeEventCount, $invoice->order->events()->where('event_type', 'correction_issued')->count());
+        $this->assertDatabaseMissing('order_document_slots', [
+            'order_id' => $invoice->order_id,
+            'document_type' => InvoiceDocumentType::Correction->value,
+        ]);
+        $this->assertDatabaseMissing('invoice_number_counters', [
+            'invoice_series_id' => $series->getKey(),
+        ]);
+
+        $validItems = $this->submittedItems($invoice);
+        $validItems[0]['quantity'] = '0';
+        $this->post(route('invoices.corrections.store', $invoice), $this->payload($series, [
+            'change_items' => true,
+            'items' => $validItems,
+        ]))->assertSessionDoesntHaveErrors();
+
+        $correction = Invoice::query()
+            ->where('corrected_invoice_id', $invoice->getKey())
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->sole();
+        $this->assertSame(1, $correction->sequence_number);
+        $this->assertSame(1, InvoiceNumberCounter::query()
+            ->where('invoice_series_id', $series->getKey())
+            ->sole()
+            ->last_sequence_number);
+    }
+
+    public function test_correction_update_overflow_rolls_back_document_items_lock_and_pdf_cache(): void
+    {
+        Storage::fake('local');
+        $invoice = $this->issuedInvoice();
+        $series = $this->systemCorrectionSeries();
+        $items = $this->submittedItems($invoice);
+        $items[0]['quantity'] = '0';
+
+        $this->post(route('invoices.corrections.store', $invoice), $this->payload($series, [
+            'change_items' => true,
+            'items' => $items,
+        ]))->assertSessionDoesntHaveErrors();
+
+        $correction = Invoice::query()
+            ->where('corrected_invoice_id', $invoice->getKey())
+            ->where('document_type', InvoiceDocumentType::Correction)
+            ->sole();
+        $this->get(route('invoices.pdf', $correction))->assertOk();
+        $path = app(InvoicePdfFilenameGenerator::class)->storagePath($correction);
+        $beforeLockVersion = $correction->lock_version;
+        $beforeSnapshots = $correction->items()->orderBy('id')->pluck('correction_after_snapshot', 'id')->all();
+        $beforeTotals = $correction->correction_totals_snapshot;
+        $submitted = $this->submittedCorrectionItems($correction->load('items'));
+        $submitted[0]['quantity'] = '99999999999';
+        $submitted[0]['unit_price_gross'] = '99999999999.99';
+
+        $this->patch(route('invoices.corrections.update', $correction), $this->payload($series, [
+            'expected_lock_version' => $beforeLockVersion,
+            'change_items' => true,
+            'items' => $submitted,
+        ]))
+            ->assertRedirect()
+            ->assertSessionHasErrors('correction');
+
+        $correction->refresh();
+        $this->assertSame($beforeLockVersion, $correction->lock_version);
+        $this->assertSame($beforeTotals, $correction->correction_totals_snapshot);
+        $this->assertSame($beforeSnapshots, $correction->items()->orderBy('id')->pluck('correction_after_snapshot', 'id')->all());
+        Storage::disk('local')->assertExists($path);
+    }
+
     public function test_buyer_only_correction_keeps_amounts_and_snapshots_changed_buyer(): void
     {
         $invoice = $this->issuedInvoice();
@@ -1443,7 +1613,7 @@ class InvoiceCorrectionTest extends TestCase
                     'quantity' => (int) $snapshot['quantity'],
                     'unit_price_gross' => $this->twoDecimals($snapshot['unit_price_gross']),
                     'vat_rate' => $snapshot['vat_rate'] !== null
-                        ? $this->twoDecimals($snapshot['vat_rate'])
+                        ? $this->vatRateForInput($snapshot['vat_rate'])
                         : null,
                     'vat_code' => $snapshot['vat_code'],
                 ];
@@ -1469,11 +1639,16 @@ class InvoiceCorrectionTest extends TestCase
                 'quantity' => (int) $snapshot['quantity'],
                 'unit_price_gross' => $this->twoDecimals($snapshot['unit_price_gross']),
                 'vat_rate' => $snapshot['vat_rate'] !== null
-                    ? $this->twoDecimals($snapshot['vat_rate'])
+                    ? $this->vatRateForInput($snapshot['vat_rate'])
                     : null,
                 'vat_code' => $snapshot['vat_code'],
             ];
         })->values()->all();
+    }
+
+    private function vatRateForInput(mixed $value): string
+    {
+        return rtrim(rtrim($this->twoDecimals($value), '0'), '.');
     }
 
     /** @return array<string, mixed> */

@@ -12,7 +12,11 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
+use Modules\Invoices\Services\InvoiceFinancialLimits;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 
 class OrderMetaController extends Controller
 {
@@ -28,7 +32,21 @@ class OrderMetaController extends Controller
         $maximum = $decimal->max((string) ($order->total_gross ?? '0'), '0.00');
 
         $validated = $request->validate([
-            'paid_amount' => ['required', 'numeric', 'min:0', 'max:'.$maximum],
+            'paid_amount' => [
+                'bail',
+                'required',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                new InvoiceFinancialStorageRule(
+                    app(InvoiceFinancialValueValidator::class),
+                    InvoiceFinancialLimits::ORDER_MONEY,
+                    'Kwota zapłacona przekracza maksymalną obsługiwaną wartość.',
+                ),
+                function (string $attribute, mixed $value, \Closure $fail) use ($decimal, $maximum): void {
+                    if ($decimal->compare((string) $value, $maximum) > 0) {
+                        $fail('Kwota zapłacona nie może przekraczać wartości zamówienia.');
+                    }
+                },
+            ],
         ]);
 
         $order->update([
@@ -53,6 +71,8 @@ class OrderMetaController extends Controller
             $totalGross = $orderTotalService->recalculate($order);
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['total_gross' => $exception->getMessage()]);
         }
 
         $order->events()->create([

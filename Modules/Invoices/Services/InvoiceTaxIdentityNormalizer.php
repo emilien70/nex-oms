@@ -5,7 +5,7 @@ namespace Modules\Invoices\Services;
 class InvoiceTaxIdentityNormalizer
 {
     public function __construct(
-        private readonly InvoiceDecimalCalculator $decimal,
+        private readonly InvoiceFinancialValueValidator $financial,
     ) {}
 
     /** @return array{vat_rate: ?string, vat_code: ?string} */
@@ -23,7 +23,7 @@ class InvoiceTaxIdentityNormalizer
         $rate = trim((string) $vatRate);
 
         return [
-            'vat_rate' => $rate === '' ? null : $this->decimal->normalize($rate, 2),
+            'vat_rate' => $rate === '' ? null : $this->financial->assertVatPercentage($rate),
             'vat_code' => null,
         ];
     }

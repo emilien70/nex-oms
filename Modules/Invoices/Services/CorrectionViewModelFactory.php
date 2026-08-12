@@ -159,7 +159,8 @@ class CorrectionViewModelFactory
             'unit_name' => (string) ($snapshot['unit_name'] ?? 'szt.'),
             'quantity' => $this->integerQuantity($snapshot['quantity'] ?? 0),
             'unit_price_gross' => $this->decimalForForm($snapshot['unit_price_gross'] ?? 0, 2),
-            ...$identity,
+            'vat_rate' => $this->vatRateForForm($identity['vat_rate']),
+            'vat_code' => $identity['vat_code'],
         ];
     }
 
@@ -218,7 +219,8 @@ class CorrectionViewModelFactory
             'unit_name' => (string) ($snapshot['unit_name'] ?? 'szt.'),
             'quantity' => $this->integerQuantity($snapshot['quantity'] ?? 0),
             'unit_price_gross' => $this->decimalForForm($snapshot['unit_price_gross'] ?? 0, 2),
-            ...$identity,
+            'vat_rate' => $this->vatRateForForm($identity['vat_rate']),
+            'vat_code' => $identity['vat_code'],
         ];
     }
 
@@ -254,7 +256,7 @@ class CorrectionViewModelFactory
             'unit_name' => 'szt.',
             'quantity' => (int) $item->quantity,
             'unit_price_gross' => $this->decimalForForm($item->unit_price_gross, 2),
-            'vat_rate' => $item->vat_rate !== null ? $this->decimalForForm($item->vat_rate, 2) : null,
+            'vat_rate' => $this->vatRateForForm($item->vat_rate),
             'vat_code' => null,
         ])->values()->all();
     }
@@ -361,5 +363,14 @@ class CorrectionViewModelFactory
         [$integer, $fraction] = array_pad(explode('.', $normalized, 2), 2, '');
 
         return $integer.'.'.str_pad(substr($fraction, 0, $scale), $scale, '0');
+    }
+
+    private function vatRateForForm(mixed $value): ?string
+    {
+        if ($value === null || trim((string) $value) === '') {
+            return null;
+        }
+
+        return rtrim(rtrim(trim((string) $value), '0'), '.');
     }
 }

@@ -2,7 +2,9 @@
 
 namespace Tests\Unit\Invoices;
 
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 use Modules\Invoices\Services\InvoiceTaxIdentityNormalizer;
 use Modules\Invoices\Services\InvoiceTotalsCalculator;
 use PHPUnit\Framework\TestCase;
@@ -46,11 +48,62 @@ class InvoiceTotalsCalculatorTest extends TestCase
         );
     }
 
+    public function test_future_integer_vat_rate_is_accepted_and_canonicalized_without_whitelist(): void
+    {
+        $line = $this->calculator()->calculateLine('124.00', '124.00', '24');
+
+        $this->assertSame('100.0000', $line['unit_price_net']);
+        $this->assertSame('100.00', $line['total_net']);
+        $this->assertSame('24.00', $line['total_vat']);
+
+        $totals = $this->calculator()->calculateEditedDocument([[
+            ...$line,
+            'vat_rate' => '24.00',
+            'vat_code' => null,
+        ]], '0.00');
+
+        $this->assertSame('24.00', $totals['tax_summary_snapshot'][0]['vat_rate']);
+    }
+
+    public function test_service_accepts_integral_canonical_rate_and_code_wins_over_stale_rate(): void
+    {
+        $canonical = $this->calculator()->calculateLine('123.00', '123.00', '23.00');
+        $coded = $this->calculator()->calculateLine('100.00', '100.00', '1000', ' zw ');
+
+        $this->assertSame('23.00', $canonical['total_vat']);
+        $this->assertSame('100.00', $coded['total_net']);
+        $this->assertSame('0.00', $coded['total_vat']);
+    }
+
+    public function test_service_rejects_active_fractional_vat_rate(): void
+    {
+        $this->expectException(InvoiceDomainException::class);
+        $this->expectExceptionMessage('Stawka VAT musi być liczbą całkowitą od 0 do 100%.');
+
+        $this->calculator()->calculateLine('123.00', '123.00', '23.50');
+    }
+
+    public function test_document_aggregate_overflow_is_rejected_before_persistence(): void
+    {
+        $this->expectException(InvoiceDomainException::class);
+        $this->expectExceptionMessage('Wartość dokumentu przekracza maksymalny obsługiwany zakres.');
+
+        $this->calculator()->calculateEditedDocument([
+            $this->item('6000000000000.00', '6000000000000.00', 'ZW'),
+            $this->item('6000000000000.00', '6000000000000.00', 'ZW'),
+        ], '0.00');
+    }
+
     private function calculator(): InvoiceTotalsCalculator
     {
         $decimal = new InvoiceDecimalCalculator;
+        $financial = new InvoiceFinancialValueValidator;
 
-        return new InvoiceTotalsCalculator($decimal, new InvoiceTaxIdentityNormalizer($decimal));
+        return new InvoiceTotalsCalculator(
+            $decimal,
+            new InvoiceTaxIdentityNormalizer($financial),
+            $financial,
+        );
     }
 
     /** @return array<string, mixed> */

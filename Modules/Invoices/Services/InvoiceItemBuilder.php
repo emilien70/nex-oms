@@ -15,6 +15,7 @@ class InvoiceItemBuilder
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTotalsCalculator $totals,
+        private readonly InvoiceFinancialValueValidator $financial,
     ) {}
 
     /**
@@ -26,7 +27,14 @@ class InvoiceItemBuilder
         $position = 1;
 
         foreach ($order->items()->orderBy('id')->get() as $orderItem) {
-            $totalGross = $this->decimal->normalize((string) $orderItem->total_price_gross, 2);
+            $unitGross = $this->financial->assertOrderMoney(
+                (string) $orderItem->unit_price_gross,
+                'Cena brutto przekracza maksymalną obsługiwaną wartość.',
+            );
+            $totalGross = $this->financial->assertOrderMoney(
+                (string) $orderItem->total_price_gross,
+                'Wartość pozycji przekracza maksymalny obsługiwany zakres.',
+            );
 
             if ($series->skip_zero_price_items && $this->decimal->compare($totalGross, '0.00') === 0) {
                 continue;
@@ -34,7 +42,7 @@ class InvoiceItemBuilder
 
             $vatRate = $this->productVatRate($orderItem, $series);
             $amounts = $this->totals->calculateLine(
-                (string) $orderItem->unit_price_gross,
+                $unitGross,
                 $totalGross,
                 $vatRate,
             );
@@ -48,7 +56,7 @@ class InvoiceItemBuilder
                 'name' => $orderItem->product_name,
                 'description' => null,
                 'unit_name' => 'szt.',
-                'quantity' => $this->decimal->normalize((string) $orderItem->quantity, 4),
+                'quantity' => $this->financial->assertInvoiceItemQuantity($orderItem->quantity),
                 'vat_rate' => $vatRate,
                 'vat_code' => null,
                 'gtu_codes' => [],
@@ -64,7 +72,10 @@ class InvoiceItemBuilder
 
         if ($series->include_shipping && $shippingMethod !== '') {
             $shippingVatRate = $this->shippingVatRate($items, $series);
-            $shippingGross = $this->decimal->normalize((string) $order->delivery_cost_gross, 2);
+            $shippingGross = $this->financial->assertOrderMoney(
+                (string) $order->delivery_cost_gross,
+                'Koszt wysyłki przekracza maksymalną obsługiwaną wartość.',
+            );
             $amounts = $this->totals->calculateLine(
                 $this->decimal->normalize($shippingGross, 4),
                 $shippingGross,

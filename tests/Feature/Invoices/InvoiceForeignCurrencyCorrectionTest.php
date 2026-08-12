@@ -525,7 +525,9 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
             'unit_name' => $snapshot['unit_name'],
             'quantity' => (int) $snapshot['quantity'],
             'unit_price_gross' => $this->twoDecimals($snapshot['unit_price_gross']),
-            'vat_rate' => $snapshot['vat_rate'] !== null ? $this->twoDecimals($snapshot['vat_rate']) : null,
+            'vat_rate' => $snapshot['vat_rate'] !== null
+                ? rtrim(rtrim($this->twoDecimals($snapshot['vat_rate']), '0'), '.')
+                : null,
             'vat_code' => $snapshot['vat_code'],
         ];
     }

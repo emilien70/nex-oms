@@ -125,6 +125,7 @@ class InvoiceSeriesManagementService
     public function __construct(
         private readonly InvoiceNumberingConfigurationValidator $numberingConfigurationValidator,
         private readonly CurrencyCatalog $currencies,
+        private readonly InvoiceFinancialValueValidator $financial,
     ) {}
 
     /**
@@ -368,6 +369,12 @@ class InvoiceSeriesManagementService
 
         if (array_key_exists('default_currency', $data)) {
             $data['default_currency'] = $this->currencies->normalize($data['default_currency']);
+        }
+
+        foreach (['default_vat_rate', 'default_shipping_vat_rate'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] !== null && $data[$field] !== '') {
+                $data[$field] = $this->financial->assertVatPercentage($data[$field]);
+            }
         }
 
         foreach ([

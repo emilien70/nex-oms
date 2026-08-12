@@ -16,6 +16,11 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
+use Modules\Invoices\Rules\InvoiceVatPercentageRule;
+use Modules\Invoices\Services\InvoiceFinancialLimits;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 
 class OrderProductController extends Controller
 {
@@ -30,7 +35,7 @@ class OrderProductController extends Controller
         OrderTotalService $orderTotalService,
         OrderCurrencyService $orderCurrencyService,
     ): JsonResponse|RedirectResponse {
-        $this->normalizeDecimalFields($request, ['unit_price_gross', 'vat_rate', 'weight']);
+        $this->normalizeDecimalFields($request, ['unit_price_gross', 'weight']);
 
         if (! $request->exists('currency')) {
             $orderCurrency = $this->currencies->normalize($order->currency);
@@ -82,6 +87,8 @@ class OrderProductController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['unit_price_gross' => $exception->getMessage()]);
         }
 
         return $this->orderMutationResponse($request, ['products', 'order-info', 'history'], back());
@@ -93,7 +100,7 @@ class OrderProductController extends Controller
         OrderTotalService $orderTotalService,
         OrderCurrencyService $orderCurrencyService,
     ): JsonResponse|RedirectResponse {
-        $this->normalizeDecimalFields($request, ['unit_price_gross', 'vat_rate', 'weight']);
+        $this->normalizeDecimalFields($request, ['unit_price_gross', 'weight']);
         $request->merge([
             'currency' => $this->currencies->normalize(
                 $request->exists('currency') ? $request->input('currency') : ($orderItem->currency ?? $orderItem->order->currency),
@@ -138,6 +145,8 @@ class OrderProductController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['unit_price_gross' => $exception->getMessage()]);
         }
 
         return $this->orderMutationResponse($request, ['products', 'order-info', 'history'], back());
@@ -168,6 +177,8 @@ class OrderProductController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (InvoiceDomainException $exception) {
+            throw ValidationException::withMessages(['products' => $exception->getMessage()]);
         }
 
         return $this->orderMutationResponse(
@@ -181,8 +192,16 @@ class OrderProductController extends Controller
     {
         return $request->validate([
             'product_name' => ['required', 'string', 'max:255'],
-            'quantity' => ['required', 'integer', 'min:1'],
-            'unit_price_gross' => ['required', 'numeric', 'min:0'],
+            'quantity' => ['required', 'integer', 'min:1', 'max:'.InvoiceFinancialLimits::ORDER_QUANTITY_MAX],
+            'unit_price_gross' => [
+                'required',
+                'regex:/^\d+(?:\.\d{1,2})?$/',
+                new InvoiceFinancialStorageRule(
+                    app(InvoiceFinancialValueValidator::class),
+                    InvoiceFinancialLimits::ORDER_MONEY,
+                    'Cena brutto przekracza maksymalną obsługiwaną wartość.',
+                ),
+            ],
             'currency' => [
                 'required',
                 'string',
@@ -190,7 +209,7 @@ class OrderProductController extends Controller
                 'regex:/^[A-Z]{3}$/',
                 new ValidCurrencyCode($this->currencies, $unchangedHistoricalCurrency),
             ],
-            'vat_rate' => ['nullable', 'numeric', 'min:0'],
+            'vat_rate' => ['nullable', new InvoiceVatPercentageRule(app(InvoiceFinancialValueValidator::class))],
             'weight' => ['nullable', 'numeric', 'min:0'],
         ], [
             'currency.required' => CurrencyCatalog::INVALID_CURRENCY_MESSAGE,

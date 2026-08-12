@@ -7,6 +7,10 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 use Modules\Invoices\Enums\CorrectionReason;
+use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
+use Modules\Invoices\Rules\InvoiceVatPercentageRule;
+use Modules\Invoices\Services\InvoiceFinancialLimits;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 
 class CorrectionDraftRequest extends FormRequest
 {
@@ -22,10 +26,24 @@ class CorrectionDraftRequest extends FormRequest
             $buyer['country_code'] = app(CountryCatalog::class)->normalize($buyer['country_code'] ?? null);
         }
 
+        $items = $this->input('items', []);
+        if (is_array($items)) {
+            foreach ($items as $index => $item) {
+                if (is_array($item)) {
+                    $code = strtoupper(trim((string) ($item['vat_code'] ?? '')));
+                    $items[$index]['vat_code'] = $code === '' ? null : $code;
+                    if ($code !== '') {
+                        $items[$index]['vat_rate'] = null;
+                    }
+                }
+            }
+        }
+
         $this->merge([
             'change_items' => $this->boolean('change_items'),
             'change_buyer' => $this->boolean('change_buyer'),
             'buyer' => $buyer,
+            'items' => $items,
         ]);
     }
 
@@ -52,9 +70,28 @@ class CorrectionDraftRequest extends FormRequest
             'items.*.name' => ['required', 'string', 'max:255'],
             'items.*.description' => ['nullable', 'string', 'max:1000'],
             'items.*.unit_name' => ['required', 'string', 'max:30'],
-            'items.*.quantity' => ['required', 'regex:/^(?:0|[1-9]\d*)$/'],
-            'items.*.unit_price_gross' => ['required', 'regex:/^\d+(?:[\.,]\d{1,2})?$/'],
-            'items.*.vat_rate' => ['nullable', 'regex:/^\d+(?:[\.,]\d{1,2})?$/'],
+            'items.*.quantity' => [
+                'required',
+                'regex:/^(?:0|[1-9]\d*)$/',
+                new InvoiceFinancialStorageRule(
+                    app(InvoiceFinancialValueValidator::class),
+                    InvoiceFinancialLimits::INVOICE_ITEM_QUANTITY,
+                    'Ilość przekracza maksymalny obsługiwany zakres.',
+                ),
+            ],
+            'items.*.unit_price_gross' => [
+                'required',
+                'regex:/^\d+(?:[\.,]\d{1,2})?$/',
+                new InvoiceFinancialStorageRule(
+                    app(InvoiceFinancialValueValidator::class),
+                    InvoiceFinancialLimits::INVOICE_ITEM_UNIT_PRICE,
+                    'Cena brutto przekracza maksymalną obsługiwaną wartość.',
+                ),
+            ],
+            'items.*.vat_rate' => [
+                'nullable',
+                new InvoiceVatPercentageRule(app(InvoiceFinancialValueValidator::class)),
+            ],
             'items.*.vat_code' => ['nullable', 'string', 'max:20', 'regex:/^[A-Za-z0-9_]+$/'],
             'buyer.name' => ['nullable', 'string', 'max:255'],
             'buyer.company_name' => ['nullable', 'string', 'max:255'],

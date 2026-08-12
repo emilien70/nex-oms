@@ -10,6 +10,7 @@ class CorrectionTotalsCalculator
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTotalsCalculator $totals,
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
+        private readonly InvoiceFinancialValueValidator $financial,
     ) {}
 
     /**
@@ -121,12 +122,15 @@ class CorrectionTotalsCalculator
 
             foreach (['net', 'vat', 'gross'] as $component) {
                 $totals[$component] = $this->decimal->add($totals[$component], $group[$component]);
+                $totals[$component] = $this->financial->assertCorrectionDifference($totals[$component]);
             }
             $groups[] = $group;
         }
 
         return [
-            ...$totals,
+            'net' => $this->financial->assertCorrectionDifference($totals['net']),
+            'vat' => $this->financial->assertCorrectionDifference($totals['vat']),
+            'gross' => $this->financial->assertCorrectionDifference($totals['gross']),
             'tax_summary_snapshot' => $groups,
         ];
     }
@@ -160,6 +164,9 @@ class CorrectionTotalsCalculator
             $indexed[$key]['net'] = $this->decimal->add($indexed[$key]['net'], (string) $group['net']);
             $indexed[$key]['vat'] = $this->decimal->add($indexed[$key]['vat'], (string) $group['vat']);
             $indexed[$key]['gross'] = $this->decimal->add($indexed[$key]['gross'], (string) $group['gross']);
+            $indexed[$key]['net'] = $this->financial->assertCorrectionDifference($indexed[$key]['net']);
+            $indexed[$key]['vat'] = $this->financial->assertCorrectionDifference($indexed[$key]['vat']);
+            $indexed[$key]['gross'] = $this->financial->assertCorrectionDifference($indexed[$key]['gross']);
         }
 
         return $indexed;

@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\InvoiceEditableItemsService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\Services\InvoicePdfRenderer;
@@ -471,8 +473,8 @@ class InvoiceEditingTest extends TestCase
             'quantity' => '1',
             'unit_price_gross' => '100.00',
             'position' => $item->position,
-            'vat_rate' => '23.00',
-            'vat_code' => 'zw',
+            'vat_rate' => '23.50',
+            'vat_code' => ' zw ',
         ]))->assertOk();
 
         $invoice = $invoice->fresh('items');
@@ -488,6 +490,146 @@ class InvoiceEditingTest extends TestCase
             'vat' => '0.00',
             'gross' => '100.00',
         ], $invoice->tax_summary_snapshot);
+    }
+
+    public function test_invoice_item_http_accepts_integer_vat_rates_without_a_whitelist(): void
+    {
+        $invoice = $this->issueInvoice();
+
+        foreach (['0', '8', '23', '24', '100'] as $index => $vatRate) {
+            $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice->fresh(), [
+                'name' => 'Stawka VAT '.$vatRate,
+                'vat_rate' => $vatRate,
+                'position' => 30 + $index,
+            ]))->assertOk();
+        }
+
+        $futureRateItem = $invoice->fresh('items')->items->firstWhere('name', 'Stawka VAT 24');
+        $this->assertNotNull($futureRateItem);
+        $this->assertSame('24.00', $futureRateItem->vat_rate);
+        $this->assertContains([
+            'vat_rate' => '24.00',
+            'vat_code' => null,
+            'net' => '8.06',
+            'vat' => '1.94',
+            'gross' => '10.00',
+        ], $invoice->fresh()->tax_summary_snapshot);
+    }
+
+    public function test_invoice_item_http_rejects_non_integer_and_out_of_range_vat_input(): void
+    {
+        $invoice = $this->issueInvoice();
+        $itemCount = $invoice->items()->count();
+
+        foreach (['23.0', '23.00', '23,00', '23.5', '100.01', '101', '1000', '-1'] as $vatRate) {
+            $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+                'vat_rate' => $vatRate,
+            ]))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('vat_rate');
+        }
+
+        $this->assertSame($itemCount, $invoice->items()->count());
+        $this->assertSame(1, $invoice->fresh()->lock_version);
+    }
+
+    public function test_invoice_item_http_enforces_storage_boundaries_and_accepts_safe_price(): void
+    {
+        $invoice = $this->issueInvoice();
+
+        $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+            'quantity' => '100000000000',
+        ]))->assertUnprocessable()->assertJsonValidationErrors('quantity');
+
+        $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+            'unit_price_gross' => '100000000000.00',
+        ]))->assertUnprocessable()->assertJsonValidationErrors('unit_price_gross');
+
+        $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+            'name' => 'Bezpieczna cena graniczna',
+            'unit_price_gross' => '99999999999.99',
+            'position' => 31,
+        ]))->assertOk();
+
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $invoice->getKey(),
+            'name' => 'Bezpieczna cena graniczna',
+            'unit_price_gross' => '99999999999.99',
+            'total_gross' => '99999999999.99',
+        ]);
+    }
+
+    public function test_legal_item_inputs_with_an_oversized_derived_line_are_rejected_by_the_service(): void
+    {
+        try {
+            app(InvoiceEditableItemsService::class)->manualAttributes([
+                'name' => 'Przepełniona pozycja',
+                'description' => null,
+                'unit_name' => 'szt.',
+                'quantity' => '99999999999',
+                'unit_price_gross' => '99999999999.9999',
+                'vat_rate' => '23.00',
+                'vat_code' => null,
+                'position' => 1,
+            ]);
+            $this->fail('Przepełniona wartość pozycji powinna zostać odrzucona.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('invoice_financial_value_out_of_range', $exception->errorCode());
+        }
+    }
+
+    public function test_document_total_overflow_rolls_back_item_addition_and_pdf_invalidation(): void
+    {
+        Storage::fake('local');
+        $invoice = $this->issueInvoice();
+        $this->get(route('invoices.pdf', $invoice))->assertOk();
+        $path = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
+        $beforeItemIds = $invoice->items()->orderBy('id')->pluck('id')->all();
+        $beforeTotals = [$invoice->total_net, $invoice->total_vat, $invoice->total_gross];
+
+        $this->postJson(route('invoices.items.store', $invoice), $this->itemPayload($invoice, [
+            'name' => 'Legalna pozycja przepełniająca dokument',
+            'quantity' => '100',
+            'unit_price_gross' => '99999999999.99',
+            'position' => 32,
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'invoice_financial_value_out_of_range');
+
+        $invoice->refresh();
+        $this->assertSame($beforeItemIds, $invoice->items()->orderBy('id')->pluck('id')->all());
+        $this->assertSame($beforeTotals, [$invoice->total_net, $invoice->total_vat, $invoice->total_gross]);
+        $this->assertSame(1, $invoice->lock_version);
+        Storage::disk('local')->assertExists($path);
+    }
+
+    public function test_document_total_overflow_rolls_back_item_update_and_pdf_invalidation(): void
+    {
+        Storage::fake('local');
+        $invoice = $this->issueInvoice();
+        $item = $invoice->items()->orderBy('id')->firstOrFail();
+        $this->get(route('invoices.pdf', $invoice))->assertOk();
+        $path = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
+        $beforeItemIds = $invoice->items()->orderBy('id')->pluck('id')->all();
+        $beforeItem = $item->only(['name', 'quantity', 'unit_price_gross', 'total_gross', 'vat_rate', 'vat_code']);
+        $beforeTotals = [$invoice->total_net, $invoice->total_vat, $invoice->total_gross];
+
+        $this->patchJson(route('invoices.items.update', [$invoice, $item]), $this->itemPayload($invoice, [
+            'name' => $item->name,
+            'quantity' => '100',
+            'unit_price_gross' => '99999999999.99',
+            'position' => $item->position,
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'invoice_financial_value_out_of_range');
+
+        $invoice->refresh();
+        $item->refresh();
+        $this->assertSame($beforeItemIds, $invoice->items()->orderBy('id')->pluck('id')->all());
+        $this->assertSame($beforeItem, $item->only(array_keys($beforeItem)));
+        $this->assertSame($beforeTotals, [$invoice->total_net, $invoice->total_vat, $invoice->total_gross]);
+        $this->assertSame(1, $invoice->lock_version);
+        Storage::disk('local')->assertExists($path);
     }
 
     public function test_item_form_uses_integer_quantity_and_two_decimal_gross_price(): void
