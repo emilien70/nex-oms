@@ -1171,7 +1171,13 @@ Enum `KsefZeroVatClassification` mapuje ustawienie `zero_vat_classification` na 
 
 Zapis konfiguracji nie modyfikuje `InvoiceSeries`, dokumentów, pozycji, `vat_rate`, `vat_code`, `finalized_at`, snapshotów ani PDF.
 
-KSeF.1 nie wykonuje żadnych połączeń HTTP. Obecnie nie tworzymy:
+KSeF.2A wprowadza centralny `KsefHttpClient` dla oficjalnych adresów TEST, DEMO i PRODUCTION kończących się na `/v2`, bez przypinania numeru builda API i bez automatycznych retry. Klient zawsze wysyła `Accept: application/json` oraz `X-Error-Format: problem-details`, obsługuje bezpiecznie Problem Details i starszy kształt błędów, `Retry-After` oraz `X-System-Warning`, ale nigdy nie przechowuje surowych body ani nagłówków autoryzacji w wyjątku.
+
+`KsefTokenAuthenticationService` realizuje świeży flow Tokena KSeF: ważny przez 10 minut challenge i `timestampMs` pochodzące z MF, dynamiczny aktualny certyfikat `KsefTokenEncryption` oraz jego `publicKeyId`, RSA-OAEP SHA-256/MGF1 SHA-256 przez `phpseclib/phpseclib`, inicjację, ograniczony polling i dokładnie jeden redeem. Status `100` jest pollowany, `200` prowadzi do redeem, a status terminalny kończy operację bez redeem. Przejściowy authentication token nie jest zapisywany. `KsefCredential` przechowuje szyfrowane access i refresh tokeny oraz ich terminy ważności per środowisko; `KsefAccessTokenManager` zwraca ważny access token, odświeża go ważnym refresh tokenem albo rozpoczyna jeden pełny flow. Błędy sieciowe, `429` i `5xx` nie uruchamiają ukrytego fallbacku.
+
+`KsefConnectionTestService` zawsze wykonuje świeże uwierzytelnienie z zapisanej konfiguracji, niezależnie od `is_active`, a następnie diagnozuje `InvoiceWrite`. Wynik `success`, `warning` albo `error` i niesekretne ostrzeżenie są bieżącym stanem per środowisko, bez tabeli historii. Osobny formularz testu zawiera wyłącznie CSRF; token, NIP i środowisko nie są przyjmowane z browsera. Zmiana Tokena KSeF czyści runtime i wynik testu tego środowiska, a zmiana NIP-u kontekstu robi to dla wszystkich środowisk, zachowując Tokeny KSeF.
+
+KSeF.2A nie tworzy:
 
 ```text
 ksef_submissions
@@ -1180,6 +1186,10 @@ XML FA(3)
 UPO
 statusów KSeF
 kodów QR KSeF
+sesji fakturowania
+wysyłki dokumentów
+XAdES
+trybu offline
 ```
 
 Architektura ma jednak zapewnić:
@@ -1197,7 +1207,7 @@ Architektura ma jednak zapewnić:
 - niezmienne snapshoty,
 - zdarzenia cyklu życia bez kopii poprzednich stanów.
 
-Kolejne etapy wdrożą klienta API, rzeczywiste uwierzytelnianie, mapowanie FA(3), transmisję i obsługę odpowiedzi. Fundament konfiguracji nie finalizuje dokumentów i nie zmienia istniejącej domeny cyklu życia Faktur ani Korekt.
+Kolejne etapy wdrożą mapowanie FA(3), sesje, transmisję i obsługę odpowiedzi dokumentowych. KSeF.2A nie finalizuje dokumentów i nie zmienia istniejącej domeny cyklu życia Faktur ani Korekt. Szczegóły protokołu są w oficjalnych źródłach MF: [OpenAPI KSeF](https://github.com/CIRFMF/ksef-api/blob/main/open-api.json), [uwierzytelnianie](https://github.com/CIRFMF/ksef-docs/blob/main/uwierzytelnianie.md) i [historia zmian API](https://github.com/CIRFMF/ksef-api/blob/main/api-changelog.md).
 
 ---
 

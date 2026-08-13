@@ -4,8 +4,13 @@
 
 @php
     $selectedEnvironment = old('environment', $settings->environment->value);
+    $persistedEnvironment = $settings->environment->value;
+    $persistedTokenConfigured = $tokenConfiguredByEnvironment[$persistedEnvironment] ?? false;
     $environmentNotices = collect($environmentOptions)
         ->mapWithKeys(fn ($environment) => [$environment->value => $environment->notice()])
+        ->all();
+    $environmentLabels = collect($environmentOptions)
+        ->mapWithKeys(fn ($environment) => [$environment->value => $environment->label()])
         ->all();
     $booleanOptions = [
         '0' => 'Nie',
@@ -148,6 +153,36 @@
             line-height: 1.45;
             margin-top: 8px;
             padding: 10px 12px;
+        }
+
+        .ksef-connection-status {
+            background: #f8fafc;
+            border: 1px solid #dfe4ea;
+            border-radius: 6px;
+            color: #4b5563;
+            font-size: 12px;
+            line-height: 1.5;
+            padding: 12px;
+        }
+
+        .ksef-connection-status[data-status="success"] {
+            border-left: 3px solid #198754;
+        }
+
+        .ksef-connection-status[data-status="warning"] {
+            border-left: 3px solid #f59e0b;
+        }
+
+        .ksef-connection-status[data-status="error"] {
+            border-left: 3px solid #dc3545;
+        }
+
+        .ksef-connection-status strong {
+            color: #374151;
+        }
+
+        .ksef-connection-status-line + .ksef-connection-status-line {
+            margin-top: 4px;
         }
 
         .ksef-form-actions {
@@ -315,6 +350,10 @@
                         </div>
                     </form>
                 @else
+                    <form id="ksef-test-connection-form" method="POST" action="{{ route('integrations.ksef.test-connection') }}" data-ksef-test-form>
+                        @csrf
+                    </form>
+
                     <form class="ksef-form" method="POST" action="{{ route('integrations.ksef.update') }}" data-ksef-connection-form>
                         @csrf
                         @method('PUT')
@@ -404,9 +443,51 @@
                             <div class="ksef-field">
                                 <span></span>
                                 <div class="ksef-control">
-                                    <button class="btn btn-outline-secondary btn-sm" type="button" disabled title="Test połączenia będzie dostępny po wdrożeniu komunikacji z API KSeF.">
+                                    <button
+                                        class="btn btn-outline-secondary btn-sm"
+                                        type="submit"
+                                        form="ksef-test-connection-form"
+                                        data-ksef-test-button
+                                        @disabled(! $persistedTokenConfigured)
+                                    >
                                         Przetestuj połączenie
                                     </button>
+                                    <div class="ksef-help" data-ksef-test-help>
+                                        {{ $persistedTokenConfigured
+                                            ? 'Test połączenia używa zapisanej konfiguracji. Zapisz zmiany przed testem połączenia.'
+                                            : 'Najpierw zapisz Token KSeF.' }}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="ksef-field">
+                                <span></span>
+                                <div class="ksef-connection-status" data-ksef-connection-status data-status="">
+                                    <div class="ksef-connection-status-line" data-ksef-test-message>Połączenie nie było jeszcze testowane.</div>
+                                    <div class="ksef-connection-status-line">
+                                        <strong>Środowisko:</strong>
+                                        <span data-ksef-status-environment></span>
+                                    </div>
+                                    <div class="ksef-connection-status-line">
+                                        <strong>NIP:</strong>
+                                        <span data-ksef-status-nip></span>
+                                    </div>
+                                    <div class="ksef-connection-status-line">
+                                        <strong>Uwierzytelnienie:</strong>
+                                        Token KSeF
+                                    </div>
+                                    <div class="ksef-connection-status-line" data-ksef-invoice-write-row hidden>
+                                        <strong>InvoiceWrite:</strong>
+                                        <span data-ksef-invoice-write></span>
+                                    </div>
+                                    <div class="ksef-connection-status-line" data-ksef-tested-at-row hidden>
+                                        <strong>Ostatni test:</strong>
+                                        <span data-ksef-tested-at></span>
+                                    </div>
+                                    <div class="ksef-connection-status-line" data-ksef-system-warning-row hidden>
+                                        <strong>Ostrzeżenie KSeF:</strong>
+                                        <span data-ksef-system-warning></span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -466,13 +547,73 @@
             const tokenInput = document.querySelector('[data-ksef-api-token]');
             const tokenEnvironmentInput = document.querySelector('[data-ksef-token-environment]');
             const tokenStatus = document.querySelector('[data-ksef-token-status]');
+            const contextNipInput = document.querySelector('#ksef-context-nip');
+            const authenticationMethodSelect = document.querySelector('#ksef-authentication-method');
+            const testButton = document.querySelector('[data-ksef-test-button]');
+            const testHelp = document.querySelector('[data-ksef-test-help]');
+            const connectionStatus = document.querySelector('[data-ksef-connection-status]');
+            const testMessage = document.querySelector('[data-ksef-test-message]');
+            const statusEnvironment = document.querySelector('[data-ksef-status-environment]');
+            const statusNip = document.querySelector('[data-ksef-status-nip]');
+            const invoiceWriteRow = document.querySelector('[data-ksef-invoice-write-row]');
+            const invoiceWrite = document.querySelector('[data-ksef-invoice-write]');
+            const testedAtRow = document.querySelector('[data-ksef-tested-at-row]');
+            const testedAt = document.querySelector('[data-ksef-tested-at]');
+            const systemWarningRow = document.querySelector('[data-ksef-system-warning-row]');
+            const systemWarning = document.querySelector('[data-ksef-system-warning]');
 
-            if (!environmentSelect || !notice || !tokenInput || !tokenEnvironmentInput || !tokenStatus) {
+            if (!environmentSelect || !notice || !tokenInput || !tokenEnvironmentInput || !tokenStatus
+                || !contextNipInput || !authenticationMethodSelect || !testButton || !testHelp
+                || !connectionStatus || !testMessage || !statusEnvironment || !statusNip
+                || !invoiceWriteRow || !invoiceWrite
+                || !testedAtRow || !testedAt || !systemWarningRow || !systemWarning) {
                 return;
             }
 
             const notices = @json($environmentNotices);
+            const environmentLabels = @json($environmentLabels);
             const configuredTokens = @json($tokenConfiguredByEnvironment);
+            const connectionStatuses = @json($connectionStatusByEnvironment);
+            const persistedEnvironment = @json($persistedEnvironment);
+            const persistedContextNip = @json((string) $settings->context_nip);
+            const persistedAuthenticationMethod = @json('token');
+
+            const refreshConnectionStatus = () => {
+                const status = connectionStatuses[environmentSelect.value] || {};
+                connectionStatus.dataset.status = status.status || '';
+                testMessage.textContent = status.message || 'Połączenie nie było jeszcze testowane.';
+                statusEnvironment.textContent = environmentLabels[environmentSelect.value] || '';
+                statusNip.textContent = persistedContextNip || 'Nie skonfigurowano';
+
+                invoiceWriteRow.hidden = !status.status;
+                invoiceWrite.textContent = status.invoice_write === true
+                    ? 'Tak'
+                    : (status.invoice_write === false ? 'Nie wykryto' : 'Nie sprawdzono');
+
+                testedAtRow.hidden = !status.tested_at;
+                testedAt.textContent = status.tested_at || '';
+
+                systemWarningRow.hidden = !status.system_warning;
+                systemWarning.textContent = status.system_warning || '';
+            };
+
+            const refreshTestAvailability = () => {
+                const hasUnsavedAuthenticationChanges = environmentSelect.value !== persistedEnvironment
+                    || contextNipInput.value !== persistedContextNip
+                    || authenticationMethodSelect.value !== persistedAuthenticationMethod
+                    || tokenInput.value !== '';
+                const persistedTokenConfigured = configuredTokens[persistedEnvironment] === true;
+
+                testButton.disabled = hasUnsavedAuthenticationChanges || !persistedTokenConfigured;
+
+                if (hasUnsavedAuthenticationChanges) {
+                    testHelp.textContent = 'Zapisz zmiany przed testem połączenia.';
+                } else if (!persistedTokenConfigured) {
+                    testHelp.textContent = 'Najpierw zapisz Token KSeF.';
+                } else {
+                    testHelp.textContent = 'Test połączenia używa zapisanej konfiguracji.';
+                }
+            };
 
             const refreshEnvironmentDetails = () => {
                 const environment = environmentSelect.value;
@@ -480,6 +621,8 @@
                 tokenStatus.textContent = configuredTokens[environment]
                     ? 'Token skonfigurowany dla wybranego środowiska.'
                     : 'Token nie został jeszcze skonfigurowany dla wybranego środowiska.';
+                refreshConnectionStatus();
+                refreshTestAvailability();
             };
 
             const changeEnvironment = () => {
@@ -489,6 +632,9 @@
             };
 
             environmentSelect.addEventListener('change', changeEnvironment);
+            contextNipInput.addEventListener('input', refreshTestAvailability);
+            authenticationMethodSelect.addEventListener('change', refreshTestAvailability);
+            tokenInput.addEventListener('input', refreshTestAvailability);
             tokenEnvironmentInput.value = environmentSelect.value;
             refreshEnvironmentDetails();
         })();

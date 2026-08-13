@@ -22,6 +22,7 @@ class KsefSettingsController extends Controller
             'authenticationMethods' => KsefAuthenticationMethod::cases(),
             'zeroVatClassifications' => KsefZeroVatClassification::cases(),
             'tokenConfiguredByEnvironment' => $settingsService->tokenConfiguredByEnvironment(),
+            'connectionStatusByEnvironment' => $settingsService->connectionStatusByEnvironment(),
             'series' => $settingsService->seriesForConfiguration(),
             'activeTab' => $request->query('tab') === 'series' ? 'series' : 'connection',
         ]);

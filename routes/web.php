@@ -32,6 +32,7 @@ use Modules\Invoices\Http\Controllers\InvoiceSeriesController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesNextNumberController;
 use Modules\Invoices\Http\Controllers\OrderInvoiceController;
 use Modules\Invoices\Http\Controllers\OrderProformaController;
+use Modules\Ksef\Http\Controllers\KsefConnectionTestController;
 use Modules\Ksef\Http\Controllers\KsefSeriesSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSettingsController;
 
@@ -62,6 +63,7 @@ Route::get('/api/gus/company-by-nip', [GusCompanyController::class, 'show'])->na
 Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
 Route::get('/integrations/ksef', [KsefSettingsController::class, 'edit'])->name('integrations.ksef.edit');
 Route::put('/integrations/ksef', [KsefSettingsController::class, 'update'])->name('integrations.ksef.update');
+Route::post('/integrations/ksef/test-connection', KsefConnectionTestController::class)->name('integrations.ksef.test-connection');
 Route::put('/integrations/ksef/series', [KsefSeriesSettingsController::class, 'update'])->name('integrations.ksef.series.update');
 Route::get('/integrations/couriers', [CourierIntegrationController::class, 'index'])->name('integrations.couriers.index');
 Route::get('/integrations/couriers/inpost-lockers', [CourierIntegrationController::class, 'editInPostLockers'])->name('integrations.couriers.inpost-lockers.edit');

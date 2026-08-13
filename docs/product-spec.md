@@ -1167,9 +1167,8 @@ Pole `zero_vat_classification` ma wartości `wdt`, `export` albo `domestic` i do
 
 Ustawienie `include_sale_date` zostało usunięte. Data sprzedaży jest cechą dokumentu i w przyszłym FA(3) będzie mapowana z Faktury, a nie sterowana przełącznikiem transportowym.
 
-KSeF.1 nie wykonuje połączeń z API i nie wpływa na wystawione dokumenty, ich finalizację, snapshoty, numerację ani PDF. Bez kolejnych etapów nadal nie implementujemy:
+Konfiguracja KSeF nie wpływa na wystawione dokumenty, ich finalizację, snapshoty, numerację ani PDF. Nadal nie implementujemy:
 
-- API KSeF i uwierzytelniania zewnętrznego,
 - XML FA(3),
 - wysyłki dokumentów,
 - numeru i statusów KSeF,
@@ -1180,7 +1179,17 @@ KSeF.1 nie wykonuje połączeń z API i nie wpływa na wystawione dokumenty, ich
 - tabeli `ksef_submissions`,
 - pól `ksef_*` w dokumentach.
 
-## 30.3. Audyt gotowości KSeF
+## 30.3. Uwierzytelnianie tokenem i test połączenia KSeF.2A
+
+KSeF.2A dodaje rzeczywistą komunikację diagnostyczną z oficjalnym API `/v2` dla środowisk TEST, DEMO i PRODUCTION. Nie przypina numeru builda API. Pełny test połączenia zawsze korzysta z zapisanej konfiguracji, pobiera ważny przez 10 minut challenge i jego `timestampMs` z MF oraz bieżący certyfikat MF do `KsefTokenEncryption`, szyfruje tekst `TokenKSeF|timestampMs` przez RSA-OAEP z SHA-256 i MGF1 SHA-256, przekazuje `publicKeyId`, oczekuje na wynik uwierzytelnienia, jednokrotnie pobiera access i refresh token oraz sprawdza aktywne uprawnienie `InvoiceWrite`. Asynchroniczny status `100` oznacza oczekiwanie, `200` pozwala wykonać redeem, a statusy terminalne kończą flow bez redeem.
+
+Token KSeF, access token i refresh token są szyfrowane w bazie i ukryte w serializacji. Runtime tokeny oraz ostatni wynik testu są przechowywane osobno dla każdego środowiska. Zmiana Tokena KSeF unieważnia runtime tylko tego środowiska, a zmiana NIP-u kontekstu unieważnia runtime wszystkich środowisk bez usuwania ich Tokenów KSeF. Przycisk testu działa także przy `is_active = false`, ale nie przyjmuje z przeglądarki tokenu, NIP-u ani środowiska i wymaga wcześniejszego zapisania zmian.
+
+Brak `InvoiceWrite` jest ostrzeżeniem diagnostycznym, a nie błędem samego uwierzytelnienia. Żądania używają `X-Error-Format: problem-details`; ostrzeżenia `X-System-Warning`, limity `Retry-After` i bezpieczne kody Problem Details są prezentowane bez surowych odpowiedzi i sekretów. KSeF.2A nie tworzy XML FA(3), nie otwiera sesji fakturowania, nie wysyła dokumentów, nie pobiera UPO, nie implementuje XAdES, trybu offline ani kodów QR i nie zmienia cyklu życia Faktur ani Korekt.
+
+Kontrakt techniczny opiera się na oficjalnych źródłach MF: [OpenAPI KSeF](https://github.com/CIRFMF/ksef-api/blob/main/open-api.json), [uwierzytelnianie](https://github.com/CIRFMF/ksef-docs/blob/main/uwierzytelnianie.md) i [historia zmian API](https://github.com/CIRFMF/ksef-api/blob/main/api-changelog.md).
+
+## 30.4. Audyt gotowości KSeF
 
 Po zakończeniu modułu faktur zostanie wykonany osobny audyt obejmujący:
 

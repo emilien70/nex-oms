@@ -16,6 +16,18 @@ use Modules\Ksef\Models\KsefSetting;
 
 class KsefSettingsService
 {
+    private const RUNTIME_AUTH_AND_TEST_STATE = [
+        'access_token' => null,
+        'access_token_valid_until' => null,
+        'refresh_token' => null,
+        'refresh_token_valid_until' => null,
+        'last_tested_at' => null,
+        'last_test_status' => null,
+        'last_test_message' => null,
+        'last_test_invoice_write' => null,
+        'last_system_warning' => null,
+    ];
+
     private const SETTINGS_FIELDS = [
         'name',
         'environment',
@@ -50,8 +62,13 @@ class KsefSettingsService
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            $contextNipChanged = $settings->context_nip !== $data['context_nip'];
             $settings->fill(collect($data)->only(self::SETTINGS_FIELDS)->all());
             $settings->save();
+
+            if ($contextNipChanged) {
+                KsefCredential::query()->update(self::RUNTIME_AUTH_AND_TEST_STATE);
+            }
 
             $environment = KsefEnvironment::from($data['environment']);
             $credential = KsefCredential::query()->firstOrNew([
@@ -60,7 +77,10 @@ class KsefSettingsService
             $credential->authentication_method = KsefAuthenticationMethod::Token;
 
             if (filled($data['api_token'] ?? null)) {
-                $credential->api_token = $data['api_token'];
+                $credential->forceFill(array_merge(
+                    self::RUNTIME_AUTH_AND_TEST_STATE,
+                    ['api_token' => $data['api_token']],
+                ));
             }
 
             $credential->save();
@@ -80,6 +100,35 @@ class KsefSettingsService
             ->mapWithKeys(fn (KsefEnvironment $environment): array => [
                 $environment->value => in_array($environment->value, $configured, true),
             ])
+            ->all();
+    }
+
+    public function connectionStatusByEnvironment(): array
+    {
+        $statuses = KsefCredential::query()
+            ->get([
+                'environment',
+                'last_tested_at',
+                'last_test_status',
+                'last_test_message',
+                'last_test_invoice_write',
+                'last_system_warning',
+            ])
+            ->keyBy(fn (KsefCredential $credential): string => $credential->environment->value);
+
+        return collect(KsefEnvironment::cases())
+            ->mapWithKeys(function (KsefEnvironment $environment) use ($statuses): array {
+                /** @var KsefCredential|null $credential */
+                $credential = $statuses->get($environment->value);
+
+                return [$environment->value => [
+                    'tested_at' => $credential?->last_tested_at?->format('d.m.Y H:i'),
+                    'status' => $credential?->last_test_status?->value,
+                    'message' => $credential?->last_test_message,
+                    'invoice_write' => $credential?->last_test_invoice_write,
+                    'system_warning' => $credential?->last_system_warning,
+                ]];
+            })
             ->all();
     }
 

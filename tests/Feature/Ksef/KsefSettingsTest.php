@@ -81,6 +81,17 @@ class KsefSettingsTest extends TestCase
         $this->assertSame(KsefZeroVatClassification::Wdt, $settings->zero_vat_classification);
         $this->assertTrue(Schema::hasColumns('ksef_settings', ['is_active', 'zero_vat_classification']));
         $this->assertFalse(Schema::hasColumn('ksef_settings', 'include_sale_date'));
+        $this->assertTrue(Schema::hasColumns('ksef_credentials', [
+            'access_token',
+            'access_token_valid_until',
+            'refresh_token',
+            'refresh_token_valid_until',
+            'last_tested_at',
+            'last_test_status',
+            'last_test_message',
+            'last_test_invoice_write',
+            'last_system_warning',
+        ]));
     }
 
     public function test_repeated_saves_update_one_singleton_and_persist_each_environment(): void

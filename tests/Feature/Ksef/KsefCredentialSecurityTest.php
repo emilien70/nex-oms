@@ -5,6 +5,9 @@ namespace Tests\Feature\Ksef;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Modules\Ksef\Enums\KsefAuthenticationMethod;
+use Modules\Ksef\Enums\KsefConnectionTestStatus;
+use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefSetting;
 use Tests\TestCase;
@@ -204,12 +207,125 @@ class KsefCredentialSecurityTest extends TestCase
             ->assertDontSee($token);
     }
 
+    public function test_replacing_api_token_clears_runtime_only_for_its_environment(): void
+    {
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'api_token' => 'OLD_TEST_TOKEN',
+        ]))->assertSessionDoesntHaveErrors();
+        $testCredential = KsefCredential::query()->where('environment', 'test')->firstOrFail();
+        $this->fillRuntimeState($testCredential, 'TEST');
+        $demoCredential = KsefCredential::query()->create([
+            'environment' => KsefEnvironment::Demo,
+            'authentication_method' => KsefAuthenticationMethod::Token,
+            'api_token' => 'DEMO_TOKEN',
+        ]);
+        $this->fillRuntimeState($demoCredential, 'DEMO');
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'api_token' => 'NEW_TEST_TOKEN',
+        ]))->assertSessionDoesntHaveErrors();
+
+        $testCredential->refresh();
+        $this->assertSame('NEW_TEST_TOKEN', $testCredential->api_token);
+        $this->assertRuntimeStateCleared($testCredential);
+        $demoCredential->refresh();
+        $this->assertSame('DEMO_TOKEN', $demoCredential->api_token);
+        $this->assertSame('DEMO_ACCESS', $demoCredential->access_token);
+        $this->assertSame('DEMO_REFRESH', $demoCredential->refresh_token);
+        $this->assertSame(KsefConnectionTestStatus::Success, $demoCredential->last_test_status);
+    }
+
+    public function test_context_nip_change_clears_runtime_for_all_environments_but_preserves_api_tokens(): void
+    {
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'api_token' => 'TEST_TOKEN',
+        ]))->assertSessionDoesntHaveErrors();
+
+        foreach (KsefEnvironment::cases() as $environment) {
+            $credential = KsefCredential::query()->firstOrCreate(
+                ['environment' => $environment],
+                [
+                    'authentication_method' => KsefAuthenticationMethod::Token,
+                    'api_token' => strtoupper($environment->value).'_TOKEN',
+                ],
+            );
+
+            if ($credential->api_token === null) {
+                $credential->forceFill(['api_token' => strtoupper($environment->value).'_TOKEN'])->save();
+            }
+
+            $this->fillRuntimeState($credential, strtoupper($environment->value));
+        }
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'context_nip' => '0987654321',
+            'api_token' => '',
+        ]))->assertSessionDoesntHaveErrors();
+
+        foreach (KsefEnvironment::cases() as $environment) {
+            $credential = KsefCredential::query()->where('environment', $environment->value)->firstOrFail();
+            $this->assertSame(strtoupper($environment->value).'_TOKEN', $credential->api_token);
+            $this->assertRuntimeStateCleared($credential);
+        }
+    }
+
+    public function test_unrelated_settings_change_preserves_runtime_authentication_and_test_state(): void
+    {
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'api_token' => 'TEST_TOKEN',
+        ]))->assertSessionDoesntHaveErrors();
+        $credential = KsefCredential::query()->where('environment', 'test')->firstOrFail();
+        $this->fillRuntimeState($credential, 'UNCHANGED');
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'automatic_submission' => true,
+            'zero_vat_classification' => 'export',
+            'api_token' => '',
+        ]))->assertSessionDoesntHaveErrors();
+
+        $credential->refresh();
+        $this->assertSame('TEST_TOKEN', $credential->api_token);
+        $this->assertSame('UNCHANGED_ACCESS', $credential->access_token);
+        $this->assertSame('UNCHANGED_REFRESH', $credential->refresh_token);
+        $this->assertSame(KsefConnectionTestStatus::Success, $credential->last_test_status);
+        $this->assertTrue($credential->last_test_invoice_write);
+        $this->assertSame('UNCHANGED warning', $credential->last_system_warning);
+    }
+
     private function tokenFor(string $environment): string
     {
         return KsefCredential::query()
             ->where('environment', $environment)
             ->firstOrFail()
             ->api_token;
+    }
+
+    private function fillRuntimeState(KsefCredential $credential, string $prefix): void
+    {
+        $credential->forceFill([
+            'access_token' => $prefix.'_ACCESS',
+            'access_token_valid_until' => now()->addMinutes(10),
+            'refresh_token' => $prefix.'_REFRESH',
+            'refresh_token_valid_until' => now()->addDay(),
+            'last_tested_at' => now(),
+            'last_test_status' => KsefConnectionTestStatus::Success,
+            'last_test_message' => $prefix.' message',
+            'last_test_invoice_write' => true,
+            'last_system_warning' => $prefix.' warning',
+        ])->save();
+    }
+
+    private function assertRuntimeStateCleared(KsefCredential $credential): void
+    {
+        $this->assertNull($credential->access_token);
+        $this->assertNull($credential->access_token_valid_until);
+        $this->assertNull($credential->refresh_token);
+        $this->assertNull($credential->refresh_token_valid_until);
+        $this->assertNull($credential->last_tested_at);
+        $this->assertNull($credential->last_test_status);
+        $this->assertNull($credential->last_test_message);
+        $this->assertNull($credential->last_test_invoice_write);
+        $this->assertNull($credential->last_system_warning);
     }
 
     private function assertTokenEnvironmentInput(string $html, string $environment): void
