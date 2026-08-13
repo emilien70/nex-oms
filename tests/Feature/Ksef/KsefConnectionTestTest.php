@@ -11,6 +11,7 @@ use Modules\Ksef\Enums\KsefConnectionTestStatus;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Services\KsefSettingsService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\KsefApiFake;
 use Tests\TestCase;
 
@@ -34,6 +35,7 @@ class KsefConnectionTestTest extends TestCase
         $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
         $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
         $this->assertSame(1, $fake->redeemCalls);
+        $this->assertSame(0, $fake->tokenQueryCalls);
 
         Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/permissions/query/personal/grants')
             && $request->hasHeader('Authorization', 'Bearer '.KsefApiFake::ACCESS_TOKEN)
@@ -68,7 +70,7 @@ class KsefConnectionTestTest extends TestCase
         );
     }
 
-    public function test_missing_invoice_write_is_a_warning_and_keeps_runtime_tokens(): void
+    public function test_implicit_nip_owner_with_invoice_write_succeeds_and_uses_safe_token_query(): void
     {
         $credential = $this->configuredCredential();
         $fake = new KsefApiFake;
@@ -78,15 +80,172 @@ class KsefConnectionTestTest extends TestCase
         $this->post(route('integrations.ksef.test-connection'));
 
         $credential->refresh();
+        $this->assertSame(KsefConnectionTestStatus::Success, $credential->last_test_status);
+        $this->assertTrue($credential->last_test_invoice_write);
+        $this->assertSame('Połączenie z KSeF działa poprawnie.', $credential->last_test_message);
+        $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
+        $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
+        $this->assertSame(1, $fake->tokenQueryCalls);
+
+        $this->get(route('integrations.ksef.edit'))
+            ->assertOk()
+            ->assertSee('"invoice_write":true', false)
+            ->assertDontSee(KsefApiFake::API_TOKEN);
+
+        Http::assertSent(function (Request $request): bool {
+            if (! str_contains($request->url(), '/tokens')) {
+                return false;
+            }
+
+            $requestData = json_encode($request->data(), JSON_THROW_ON_ERROR);
+
+            return $request->method() === 'GET'
+                && $request->hasHeader('Authorization', 'Bearer '.KsefApiFake::ACCESS_TOKEN)
+                && str_contains($request->url(), 'status=Active')
+                && str_contains($request->url(), 'pageSize=100')
+                && ! str_contains($requestData, KsefApiFake::API_TOKEN)
+                && ! str_contains($requestData, KsefApiFake::REFRESH_TOKEN)
+                && ! str_contains($requestData, 'encryptedToken');
+        });
+    }
+
+    public function test_implicit_owner_system_warning_keeps_invoice_write_true_and_redacts_secrets(): void
+    {
+        $credential = $this->configuredCredential();
+        $fake = new KsefApiFake;
+        $fake->permissions = [];
+        $fake->warnings['/tokens'] = 'metadata '.KsefApiFake::ACCESS_TOKEN.' '.KsefApiFake::REFRESH_TOKEN.' code=ABC';
+        $this->fakeApi($fake);
+
+        $this->post(route('integrations.ksef.test-connection'));
+
+        $credential->refresh();
+        $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
+        $this->assertTrue($credential->last_test_invoice_write);
+        $this->assertSame('metadata [ukryto] [ukryto] code=ABC', $credential->last_system_warning);
+        $this->assertStringNotContainsString(KsefApiFake::ACCESS_TOKEN, $credential->last_test_message);
+        $this->assertStringNotContainsString(KsefApiFake::REFRESH_TOKEN, $credential->last_test_message);
+
+        $this->get(route('integrations.ksef.edit'))
+            ->assertOk()
+            ->assertDontSee(KsefApiFake::API_TOKEN)
+            ->assertDontSee(KsefApiFake::ACCESS_TOKEN)
+            ->assertDontSee(KsefApiFake::REFRESH_TOKEN);
+    }
+
+    public function test_implicit_owner_token_without_invoice_write_is_a_warning(): void
+    {
+        $credential = $this->configuredCredential();
+        $fake = new KsefApiFake;
+        $fake->permissions = [];
+        $fake->tokens[0]['requestedPermissions'] = ['InvoiceRead', 'Introspection'];
+        $this->fakeApi($fake);
+
+        $this->post(route('integrations.ksef.test-connection'));
+
+        $credential->refresh();
+        $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
+        $this->assertFalse($credential->last_test_invoice_write);
+        $this->assertStringContainsString('Token KSeF nie posiada uprawnienia InvoiceWrite', $credential->last_test_message);
+        $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
+        $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
+    }
+
+    public function test_non_owner_token_with_invoice_write_and_empty_grants_is_a_warning(): void
+    {
+        $credential = $this->configuredCredential();
+        $fake = new KsefApiFake;
+        $fake->permissions = [];
+        $fake->tokens[0]['authorIdentifier']['value'] = '1111111111';
+        $fake->tokens[0]['contextIdentifier']['value'] = '2222222222';
+        $this->fakeApi($fake);
+
+        $this->post(route('integrations.ksef.test-connection'));
+
+        $credential->refresh();
+        $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
+        $this->assertFalse($credential->last_test_invoice_write);
+        $this->assertStringContainsString('Token posiada InvoiceWrite', $credential->last_test_message);
+        $this->assertStringContainsString('w bieżącym kontekście', $credential->last_test_message);
+    }
+
+    #[DataProvider('unresolvedCurrentTokenResponses')]
+    public function test_ambiguous_or_malformed_current_token_is_reported_as_unknown(
+        array $tokens,
+        ?string $continuationToken,
+    ): void {
+        $credential = $this->configuredCredential();
+        $fake = new KsefApiFake;
+        $fake->permissions = [];
+        $fake->tokens = $tokens;
+        $fake->tokenContinuationToken = $continuationToken;
+        $this->fakeApi($fake);
+
+        $this->post(route('integrations.ksef.test-connection'));
+
+        $credential->refresh();
+        $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
+        $this->assertNull($credential->last_test_invoice_write);
+        $this->assertStringContainsString('nie udało się jednoznacznie potwierdzić uprawnienia InvoiceWrite', $credential->last_test_message);
+        $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
+        $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
+    }
+
+    public static function unresolvedCurrentTokenResponses(): array
+    {
+        $ownerToken = self::ownerTokenMetadata();
+
+        return [
+            'multiple tokens' => [[$ownerToken, $ownerToken], null],
+            'continuation token' => [[$ownerToken], 'NEXT_PAGE'],
+            'zero tokens' => [[], null],
+            'malformed requested permissions' => [[array_replace(
+                $ownerToken,
+                ['requestedPermissions' => 'InvoiceWrite'],
+            )], null],
+            'inactive metadata' => [[array_replace($ownerToken, ['status' => 'Blocked'])], null],
+        ];
+    }
+
+    public function test_current_token_lookup_failure_is_warning_unknown_and_keeps_runtime_tokens(): void
+    {
+        $credential = $this->configuredCredential();
+        $fake = new KsefApiFake;
+        $fake->permissions = [];
+        $fake->failures['/tokens'] = [
+            'status' => 500,
+            'headers' => ['X-System-Warning' => 'token diagnostic '.KsefApiFake::ACCESS_TOKEN],
+        ];
+        $this->fakeApi($fake);
+
+        $this->post(route('integrations.ksef.test-connection'));
+
+        $credential->refresh();
+        $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
+        $this->assertNull($credential->last_test_invoice_write);
+        $this->assertStringContainsString('nie udało się jednoznacznie potwierdzić uprawnienia InvoiceWrite', $credential->last_test_message);
+        $this->assertSame('token diagnostic [ukryto]', $credential->last_system_warning);
+        $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
+        $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
+    }
+
+    public function test_pesel_author_is_not_inferred_as_owner(): void
+    {
+        $credential = $this->configuredCredential();
+        $fake = new KsefApiFake;
+        $fake->permissions = [];
+        $fake->tokens[0]['authorIdentifier'] = [
+            'type' => 'Pesel',
+            'value' => '90010112345',
+        ];
+        $this->fakeApi($fake);
+
+        $this->post(route('integrations.ksef.test-connection'));
+
+        $credential->refresh();
         $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
         $this->assertFalse($credential->last_test_invoice_write);
         $this->assertStringContainsString('nie wykryto aktywnego uprawnienia InvoiceWrite', $credential->last_test_message);
-        $this->assertStringContainsString('dla bieżącego Tokena i kontekstu', $credential->last_test_message);
-        $this->assertStringContainsString('Token KSeF został wygenerowany z uprawnieniem do wystawiania faktur', $credential->last_test_message);
-        $this->assertStringContainsString('Jeżeli Token posiada InvoiceWrite', $credential->last_test_message);
-        $this->assertStringNotContainsString('NEX-OMS może nie mieć uprawnienia', $credential->last_test_message);
-        $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
-        $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
     }
 
     public function test_system_warning_changes_success_to_warning_and_is_sanitized_in_db_and_html(): void
@@ -271,5 +430,23 @@ class KsefConnectionTestTest extends TestCase
         Http::fake(fn (Request $request) => $fake($request));
 
         return $fake;
+    }
+
+    private static function ownerTokenMetadata(): array
+    {
+        return [
+            'referenceNumber' => 'TEST-REFERENCE',
+            'authorIdentifier' => [
+                'type' => 'Nip',
+                'value' => '1234567890',
+            ],
+            'contextIdentifier' => [
+                'type' => 'Nip',
+                'value' => '1234567890',
+            ],
+            'requestedPermissions' => ['InvoiceWrite', 'InvoiceRead', 'Introspection'],
+            'status' => 'Active',
+            'statusDetails' => [],
+        ];
     }
 }

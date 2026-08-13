@@ -14,6 +14,7 @@ class KsefConnectionTestService
         private readonly KsefSettingsService $settings,
         private readonly KsefTokenAuthenticationService $authentication,
         private readonly KsefHttpClient $http,
+        private readonly KsefCurrentTokenResolver $currentTokenResolver,
     ) {}
 
     public function test(): void
@@ -115,20 +116,56 @@ class KsefConnectionTestService
             fn (mixed $permission): bool => is_array($permission)
                 && ($permission['permissionScope'] ?? null) === 'InvoiceWrite',
         );
+        if (! $invoiceWrite) {
+            $resolution = $this->currentTokenResolver->resolve(
+                $settings->environment,
+                $pair->accessToken,
+            );
+            $this->addWarning($warnings, $resolution->systemWarning);
+            $secrets = $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken);
+            $systemWarning = $this->joinedWarnings($warnings, $secrets);
+
+            if (! $resolution->isResolved()) {
+                $this->record(
+                    $credential,
+                    KsefConnectionTestStatus::Warning,
+                    'Uwierzytelnienie w KSeF działa, ale nie udało się jednoznacznie potwierdzić uprawnienia InvoiceWrite.',
+                    null,
+                    $systemWarning,
+                );
+
+                return;
+            }
+
+            if (! $resolution->token->requestsPermission('InvoiceWrite')) {
+                $this->record(
+                    $credential,
+                    KsefConnectionTestStatus::Warning,
+                    'Uwierzytelnienie w KSeF działa, ale bieżący Token KSeF nie posiada uprawnienia InvoiceWrite.',
+                    false,
+                    $systemWarning,
+                );
+
+                return;
+            }
+
+            if (! $resolution->token->isStrictNipOwner($settings->context_nip)) {
+                $this->record(
+                    $credential,
+                    KsefConnectionTestStatus::Warning,
+                    'Uwierzytelnienie w KSeF działa i Token posiada InvoiceWrite, ale nie wykryto aktywnego uprawnienia InvoiceWrite w bieżącym kontekście.',
+                    false,
+                    $systemWarning,
+                );
+
+                return;
+            }
+
+            $invoiceWrite = true;
+        }
+
         $secrets = $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken);
         $systemWarning = $this->joinedWarnings($warnings, $secrets);
-
-        if (! $invoiceWrite) {
-            $this->record(
-                $credential,
-                KsefConnectionTestStatus::Warning,
-                'Uwierzytelnienie w KSeF działa, ale dla bieżącego Tokena i kontekstu nie wykryto aktywnego uprawnienia InvoiceWrite. Sprawdź, czy Token KSeF został wygenerowany z uprawnieniem do wystawiania faktur. Jeżeli Token posiada InvoiceWrite, sprawdź uprawnienia podmiotu w bieżącym kontekście KSeF.',
-                false,
-                $systemWarning,
-            );
-
-            return;
-        }
 
         if ($systemWarning !== null) {
             $this->record(

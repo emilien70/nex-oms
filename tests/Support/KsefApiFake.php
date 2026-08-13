@@ -22,6 +22,27 @@ final class KsefApiFake
 
     public array $permissions = [['permissionScope' => 'InvoiceWrite']];
 
+    public array $tokens = [[
+        'referenceNumber' => 'TEST-REFERENCE',
+        'authorIdentifier' => [
+            'type' => 'Nip',
+            'value' => '1234567890',
+        ],
+        'contextIdentifier' => [
+            'type' => 'Nip',
+            'value' => '1234567890',
+        ],
+        'requestedPermissions' => [
+            'InvoiceWrite',
+            'InvoiceRead',
+            'Introspection',
+        ],
+        'status' => 'Active',
+        'statusDetails' => [],
+    ]];
+
+    public ?string $tokenContinuationToken = null;
+
     public array $warnings = [];
 
     public array $failures = [];
@@ -31,6 +52,8 @@ final class KsefApiFake
     public int $redeemCalls = 0;
 
     public int $refreshCalls = 0;
+
+    public int $tokenQueryCalls = 0;
 
     public bool $isTokenRedeemed = false;
 
@@ -145,6 +168,17 @@ final class KsefApiFake
                 'permissions' => $this->permissions,
                 'hasMore' => false,
             ], 200, $headers);
+        }
+
+        if (str_ends_with($path, '/tokens')) {
+            $this->tokenQueryCalls++;
+            $body = ['tokens' => $this->tokens];
+
+            if ($this->tokenContinuationToken !== null) {
+                $body['continuationToken'] = $this->tokenContinuationToken;
+            }
+
+            return Http::response($body, 200, $headers);
         }
 
         return Http::response(['title' => 'Unexpected fake request'], 599);
