@@ -291,6 +291,85 @@ class KsefCertificateAuthenticationTest extends TestCase
         ];
     }
 
+    #[DataProvider('successfulCompletionSecrets')]
+    public function test_configuration_race_after_successful_completion_keeps_certificate_auth_warning_safe(
+        string $secretSource,
+        string $secret,
+    ): void {
+        $credential = $this->credential(KsefCertificateFixtureFactory::ec());
+        $fake = new KsefApiFake;
+
+        if ($secretSource === 'authentication') {
+            $fake->xadesInitResponse = [
+                'referenceNumber' => 'AUTH-REFERENCE',
+                'authenticationToken' => [
+                    'token' => $secret,
+                    'validUntil' => now()->addMinutes(10)->toIso8601String(),
+                ],
+            ];
+            $fake->warnings['/auth/AUTH-REFERENCE'] = 'warning '.$secret.' code=ABC';
+        } else {
+            $fake->redeemResponse = [
+                'accessToken' => [
+                    'token' => $secretSource === 'access' ? $secret : KsefApiFake::ACCESS_TOKEN,
+                    'validUntil' => now()->addMinutes(15)->toIso8601String(),
+                ],
+                'refreshToken' => [
+                    'token' => $secretSource === 'refresh' ? $secret : KsefApiFake::REFRESH_TOKEN,
+                    'validUntil' => now()->addDays(7)->toIso8601String(),
+                ],
+            ];
+            $fake->warnings['/auth/token/redeem'] = 'warning '.$secret.' code=ABC';
+        }
+
+        config()->set('ksef.auth_poll_interval_ms', 0);
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($fake, $credential) {
+            $response = $fake($request);
+
+            if (str_ends_with($request->url(), '/auth/token/redeem')) {
+                KsefCredential::query()
+                    ->findOrFail($credential->getKey())
+                    ->forceFill(['authentication_certificate' => 'CHANGED_CERTIFICATE'])
+                    ->save();
+            }
+
+            return $response;
+        });
+
+        try {
+            app(KsefCertificateAuthenticationService::class)->authenticate($credential, '1234567890');
+            $this->fail('Expected configuration race guard failure.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('configuration_changed', $exception->safeCode);
+            $this->assertSame('warning [ukryto] code=ABC', $exception->systemWarning);
+            $this->assertStringNotContainsString($secret, (string) $exception->systemWarning);
+        }
+
+        $this->assertSame(1, $fake->redeemCalls);
+        $credential->refresh();
+        $this->assertNull($credential->access_token);
+        $this->assertNull($credential->refresh_token);
+    }
+
+    public static function successfulCompletionSecrets(): array
+    {
+        return [
+            'authentication token' => [
+                'authentication',
+                'FAKE_RACE_AUTHENTICATION_TOKEN_SECRET',
+            ],
+            'access token' => [
+                'access',
+                'FAKE_RACE_ACCESS_TOKEN_SECRET',
+            ],
+            'refresh token' => [
+                'refresh',
+                'FAKE_RACE_REFRESH_TOKEN_SECRET',
+            ],
+        ];
+    }
+
     private function credential(array $fixture): KsefCredential
     {
         $settings = app(KsefSettingsService::class)->get();

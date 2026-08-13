@@ -146,6 +146,52 @@ class KsefTokenAuthenticationTest extends TestCase
         }
     }
 
+    public function test_configuration_race_after_successful_completion_keeps_token_auth_warning_safe(): void
+    {
+        $secret = 'FAKE_TOKEN_FLOW_ACCESS_SECRET';
+        config()->set('ksef.auth_poll_interval_ms', 0);
+        $fake = new KsefApiFake;
+        $fake->redeemResponse = [
+            'accessToken' => [
+                'token' => $secret,
+                'validUntil' => now()->addMinutes(15)->toIso8601String(),
+            ],
+            'refreshToken' => [
+                'token' => KsefApiFake::REFRESH_TOKEN,
+                'validUntil' => now()->addDays(7)->toIso8601String(),
+            ],
+        ];
+        $fake->warnings['/auth/token/redeem'] = 'warning '.$secret.' code=ABC';
+        $credential = $this->credential();
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($fake, $credential) {
+            $response = $fake($request);
+
+            if (str_ends_with($request->url(), '/auth/token/redeem')) {
+                KsefCredential::query()
+                    ->findOrFail($credential->getKey())
+                    ->forceFill(['api_token' => 'CHANGED_FAKE_API_TOKEN'])
+                    ->save();
+            }
+
+            return $response;
+        });
+
+        try {
+            app(KsefTokenAuthenticationService::class)->authenticate($credential, '1234567890');
+            $this->fail('Expected configuration race guard failure.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('configuration_changed', $exception->safeCode);
+            $this->assertSame('warning [ukryto] code=ABC', $exception->systemWarning);
+            $this->assertStringNotContainsString($secret, (string) $exception->systemWarning);
+        }
+
+        $this->assertSame(1, $fake->redeemCalls);
+        $credential->refresh();
+        $this->assertNull($credential->access_token);
+        $this->assertNull($credential->refresh_token);
+    }
+
     private function credential(): KsefCredential
     {
         $settings = app(KsefSettingsService::class)->get();

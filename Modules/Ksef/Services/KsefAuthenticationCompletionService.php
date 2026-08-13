@@ -52,13 +52,14 @@ final class KsefAuthenticationCompletionService
             ];
             $accessToken = $this->requiredString($redeemResponse->data, 'accessToken.token');
             $refreshToken = $this->requiredString($redeemResponse->data, 'refreshToken.token');
+            $warnings = $this->sanitizedWarnings($warnings, $secrets);
 
             return new KsefTokenPair(
                 $accessToken,
                 $this->requiredDate($redeemResponse->data, 'accessToken.validUntil'),
                 $refreshToken,
                 $this->requiredDate($redeemResponse->data, 'refreshToken.validUntil'),
-                $this->sanitizedWarnings($warnings, $secrets),
+                $warnings,
             );
         } catch (KsefApiException $exception) {
             $this->addWarning($warnings, $exception->systemWarning);
