@@ -1155,22 +1155,24 @@ Podstawowy model faktur ma zapewniać:
 - GTU i procedury JPK,
 - niezależny numer dokumentu.
 
-## 30.2. Czego nie wdrażamy teraz
+## 30.2. Fundament konfiguracji KSeF.1
 
-Bez osobnego etapu nie implementujemy:
+NEX-OMS posiada jedną logiczną konfigurację KSeF dla całego systemu. Użytkownik wybiera aktywne środowisko `test`, `demo` albo `production`, natomiast dane uwierzytelniające są technicznie przechowywane osobno dla każdego środowiska. Nie oznacza to wielu integracji. Token jest szyfrowany, nie wraca do HTML ani danych sesji, a puste pole podczas edycji zachowuje dotychczasową wartość.
 
-- API KSeF,
+Konfiguracja obejmuje jedną globalną politykę przyszłego przekazywania dokumentów oraz osobne wskazanie kwalifikujących się serii. Do KSeF można przypisać wyłącznie istniejące, aktywne serie Faktur VAT i Korekt. Pro forma jest wykluczona zarówno w interfejsie, jak i w walidacji backendu.
+
+KSeF.1 nie wykonuje połączeń z API i nie wpływa na wystawione dokumenty, ich finalizację, snapshoty, numerację ani PDF. Bez kolejnych etapów nadal nie implementujemy:
+
+- API KSeF i uwierzytelniania zewnętrznego,
 - XML FA(3),
 - wysyłki dokumentów,
-- numeru KSeF,
-- statusów KSeF,
+- numeru i statusów KSeF,
 - UPO,
 - certyfikatów,
-- tokenów,
 - trybów offline,
 - kodów QR KSeF,
 - tabeli `ksef_submissions`,
-- pól `ksef_*`.
+- pól `ksef_*` w dokumentach.
 
 ## 30.3. Audyt gotowości KSeF
 

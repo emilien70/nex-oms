@@ -33,11 +33,22 @@
             background: #ffffff;
             border: 1px solid #cfd6df;
             border-radius: 4px;
-            cursor: default;
+            color: inherit;
+            cursor: pointer;
             display: flex;
             height: 140px;
             justify-content: center;
             width: 140px;
+            text-decoration: none;
+            transition: border-color .15s ease, box-shadow .15s ease;
+        }
+
+        .integration-tile:hover,
+        .integration-tile:focus-visible {
+            border-color: #0d6efd;
+            box-shadow: 0 2px 8px rgba(13, 110, 253, .14);
+            color: inherit;
+            outline: none;
         }
 
         .integration-ksef-logo {
@@ -58,15 +69,14 @@
         </header>
 
         <section class="integrations-grid" aria-label="Dostępne integracje">
-            <div
+            <a
                 class="integration-tile"
                 data-integration="ksef"
-                role="img"
                 aria-label="KSeF"
-                title="Integracja KSeF będzie dostępna w późniejszym etapie"
+                href="{{ route('integrations.ksef.edit') }}"
             >
                 <span class="integration-ksef-logo" aria-hidden="true">K<span class="integration-ksef-logo-mark">S</span>eF</span>
-            </div>
+            </a>
         </section>
     </div>
 @endsection

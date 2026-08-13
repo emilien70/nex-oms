@@ -1163,11 +1163,15 @@ architektura gotowa pod KSeF teraz,
 integracja dopiero po pełnym sprawdzeniu faktur
 ```
 
-Obecnie nie tworzymy:
+Moduł `Modules/Ksef` zawiera fundament konfiguracji KSeF. Tabela `ksef_settings` jest chronionym kluczem unikalnym singletonem dla całego OMS. Aktywne środowisko ma jedną z wartości `test`, `demo` lub `production`. Tabela `ksef_credentials` przechowuje osobny, szyfrowany token dla każdego środowiska; jest to techniczny podział danych uwierzytelniających jednej integracji, a nie model wielu integracji. Dostęp do konfiguracji i zachowanie istniejącego tokenu przy pustej aktualizacji centralizuje `KsefSettingsService`.
+
+Tabela `ksef_series_settings` przechowuje kwalifikację istniejących serii do przyszłego przekazywania dokumentów. Backend dopuszcza wyłącznie aktywne serie typu Faktura VAT i Korekta oraz odrzuca Pro formę. Globalne `automatic_submission` określa przyszły tryb automatyczny lub ręczny dla włączonych serii. Zapis konfiguracji nie modyfikuje `InvoiceSeries`, dokumentów, `finalized_at`, snapshotów ani PDF.
+
+KSeF.1 nie wykonuje żadnych połączeń HTTP. Obecnie nie tworzymy:
 
 ```text
 ksef_submissions
-pól ksef_*
+pól ksef_* w dokumentach
 XML FA(3)
 UPO
 statusów KSeF
@@ -1189,7 +1193,7 @@ Architektura ma jednak zapewnić:
 - niezmienne snapshoty,
 - zdarzenia cyklu życia bez kopii poprzednich stanów.
 
-Po zakończeniu modułu faktur zostanie wykonany audyt gotowości KSeF.
+Kolejne etapy wdrożą klienta API, rzeczywiste uwierzytelnianie, mapowanie FA(3), transmisję i obsługę odpowiedzi. Fundament konfiguracji nie finalizuje dokumentów i nie zmienia istniejącej domeny cyklu życia Faktur ani Korekt.
 
 ---
 
@@ -1672,7 +1676,7 @@ Bez wyraźnej decyzji nie należy:
 - używać `float` w fakturach,
 - tworzyć publicznych URL-i do PDF,
 - instalować drugi silnik PDF obok TCPDF bez decyzji architektonicznej,
-- implementować KSeF,
+- implementować komunikację z API KSeF poza zatwierdzonym etapem,
 - implementować paragony,
 - tworzyć osobnych tabel dla pro form wyłącznie z powodu typu,
 - wykonywać `max(number) + 1`,

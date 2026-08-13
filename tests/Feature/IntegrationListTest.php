@@ -6,7 +6,7 @@ use Tests\TestCase;
 
 class IntegrationListTest extends TestCase
 {
-    public function test_integration_list_contains_non_interactive_ksef_tile(): void
+    public function test_integration_list_contains_active_ksef_tile(): void
     {
         $response = $this->get(route('integrations.index'));
 
@@ -14,7 +14,7 @@ class IntegrationListTest extends TestCase
             ->assertSeeText('Lista integracji')
             ->assertSee('data-integration="ksef"', false)
             ->assertSeeText('KSeF')
-            ->assertDontSee('href="/integrations/ksef"', false)
+            ->assertSee('href="'.route('integrations.ksef.edit').'"', false)
             ->assertSee('href="'.route('integrations.index').'"', false);
     }
 }
