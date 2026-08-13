@@ -69,6 +69,7 @@ class InvoiceFinalizationTest extends TestCase
     public function test_finalized_invoice_rejects_content_mutation_and_deletion_but_allows_first_correction(): void
     {
         $invoice = app(InvoiceFinalizationService::class)->finalize($this->issuedInvoice());
+        $series = $this->correctionSeries();
         $itemCount = $invoice->items()->count();
         $lockVersion = $invoice->lock_version;
         $buyer = $invoice->buyer_snapshot;
@@ -99,15 +100,31 @@ class InvoiceFinalizationTest extends TestCase
         $this->assertSame($buyer, $fresh->buyer_snapshot);
         $this->assertSame($itemCount, $fresh->items()->count());
 
+        $this->get(route('invoices.edit', $fresh))
+            ->assertOk()
+            ->assertSee('Dokument został zamknięty i nie może być edytowany.')
+            ->assertSee('Wystaw Korektę')
+            ->assertSee(route('invoices.corrections.create', $fresh), false);
+
         $correction = $this->issueBuyerCorrection(
             $fresh,
-            $this->correctionSeries(),
+            $series,
             'Buyer after finalization',
         );
 
         $this->assertSame($fresh->getKey(), $correction->corrected_invoice_id);
         $this->assertNull($correction->previous_correction_id);
         $this->assertNull($correction->finalized_at);
+
+        $this->get(route('invoices.edit', $fresh))
+            ->assertOk()
+            ->assertSee('Dokument został zamknięty i nie może być edytowany.')
+            ->assertSee('Bieżąca Korekta:')
+            ->assertSee($correction->number)
+            ->assertSee(route('invoices.corrections.edit', $correction), false)
+            ->assertDontSee('Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą')
+            ->assertDontSee('Wystaw kolejną Korektę')
+            ->assertDontSee(route('invoices.corrections.create', $fresh), false);
     }
 
     public function test_three_corrections_form_a_linear_chain_and_use_effective_buyer_state(): void
@@ -160,7 +177,15 @@ class InvoiceFinalizationTest extends TestCase
 
         $this->get(route('invoices.edit', $invoice))
             ->assertOk()
+            ->assertSee('Faktura posiada zamknięte Korekty i nie może być edytowana.')
+            ->assertSee('Ostatnia zamknięta Korekta:')
+            ->assertSee($second->number)
+            ->assertSee(route('invoices.corrections.edit', $second), false)
+            ->assertSee('Bieżąca Korekta:')
+            ->assertSee($third->number)
             ->assertSee(route('invoices.corrections.edit', $third), false)
+            ->assertDontSee('Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą')
+            ->assertDontSee('Wystaw kolejną Korektę')
             ->assertDontSee(route('invoices.corrections.create', $invoice), false);
     }
 
@@ -277,6 +302,10 @@ class InvoiceFinalizationTest extends TestCase
         ));
         $this->get(route('invoices.edit', $invoice))
             ->assertOk()
+            ->assertSee('Faktura posiada zamknięte Korekty i nie może być edytowana.')
+            ->assertSee('Ostatnia zamknięta Korekta:')
+            ->assertSee($first->number)
+            ->assertSee(route('invoices.corrections.edit', $first), false)
             ->assertSee('Wystaw kolejną Korektę')
             ->assertSee(route('invoices.corrections.create', $invoice), false);
 

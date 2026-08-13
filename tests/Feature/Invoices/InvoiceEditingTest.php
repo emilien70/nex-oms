@@ -231,6 +231,7 @@ class InvoiceEditingTest extends TestCase
             ->assertSee('data-invoice-edit-blocked', false)
             ->assertSee('Nie możesz edytować faktury, do której została już wystawiona faktura korygująca.')
             ->assertSee('Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą')
+            ->assertDontSee('Faktura posiada zamknięte Korekty i nie może być edytowana.')
             ->assertSee('BLK 185/2026')
             ->assertSee(route('invoices.corrections.edit', $correction), false)
             ->assertSee('invoice-edit-blocked-correction-link', false)

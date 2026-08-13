@@ -102,13 +102,26 @@
         <div class="invoice-edit-blocked-alert" role="alert">
             <i class="bi bi-info-circle invoice-edit-blocked-alert-icon" aria-hidden="true"></i>
             <div>
-                @if ($currentCorrection)
-                    Nie możesz edytować faktury, do której została już wystawiona faktura korygująca.<br>
-                    Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą
-                    <a
-                        class="invoice-edit-blocked-correction-link"
-                        href="{{ route('invoices.corrections.edit', ['correction' => $currentCorrection, ...$returnContext->parameters()]) }}"
-                    >{{ $currentCorrection->number ?: '#'.$currentCorrection->getKey() }}</a>.
+                @if ($invoice->isFinalized())
+                    Dokument został zamknięty i nie może być edytowany.
+
+                    @if ($latestFinalizedCorrection)
+                        <br>
+                        Ostatnia zamknięta Korekta:
+                        <a
+                            class="invoice-edit-blocked-correction-link"
+                            href="{{ route('invoices.corrections.edit', ['correction' => $latestFinalizedCorrection, ...$returnContext->parameters()]) }}"
+                        >{{ $latestFinalizedCorrection->number ?: 'Korekta #'.$latestFinalizedCorrection->getKey() }}</a>.
+                    @endif
+
+                    @if ($currentCorrection)
+                        <br>
+                        Bieżąca Korekta:
+                        <a
+                            class="invoice-edit-blocked-correction-link"
+                            href="{{ route('invoices.corrections.edit', ['correction' => $currentCorrection, ...$returnContext->parameters()]) }}"
+                        >{{ $currentCorrection->number ?: 'Korekta #'.$currentCorrection->getKey() }}</a>.
+                    @endif
                 @elseif ($latestFinalizedCorrection)
                     Faktura posiada zamknięte Korekty i nie może być edytowana.<br>
                     Ostatnia zamknięta Korekta:
@@ -116,8 +129,24 @@
                         class="invoice-edit-blocked-correction-link"
                         href="{{ route('invoices.corrections.edit', ['correction' => $latestFinalizedCorrection, ...$returnContext->parameters()]) }}"
                     >{{ $latestFinalizedCorrection->number ?: 'Korekta #'.$latestFinalizedCorrection->getKey() }}</a>.
+
+                    @if ($currentCorrection)
+                        <br>
+                        Bieżąca Korekta:
+                        <a
+                            class="invoice-edit-blocked-correction-link"
+                            href="{{ route('invoices.corrections.edit', ['correction' => $currentCorrection, ...$returnContext->parameters()]) }}"
+                        >{{ $currentCorrection->number ?: 'Korekta #'.$currentCorrection->getKey() }}</a>.
+                    @endif
+                @elseif ($currentCorrection)
+                    Nie możesz edytować faktury, do której została już wystawiona faktura korygująca.<br>
+                    Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą
+                    <a
+                        class="invoice-edit-blocked-correction-link"
+                        href="{{ route('invoices.corrections.edit', ['correction' => $currentCorrection, ...$returnContext->parameters()]) }}"
+                    >{{ $currentCorrection->number ?: '#'.$currentCorrection->getKey() }}</a>.
                 @else
-                    Dokument został zamknięty i nie może być edytowany.
+                    Faktura nie może być edytowana.
                 @endif
 
                 @if (! $currentCorrection)
