@@ -20,12 +20,12 @@ final class KsefCertificateFixtureFactory
         ], $keyUsage, $passphrase);
     }
 
-    public static function ec(?string $passphrase = null): array
+    public static function ec(?string $passphrase = null, ?string $subjectSerialNumber = null): array
     {
         return self::create([
             'private_key_type' => OPENSSL_KEYTYPE_EC,
             'curve_name' => 'prime256v1',
-        ], 'digitalSignature', $passphrase);
+        ], 'digitalSignature', $passphrase, $subjectSerialNumber);
     }
 
     public static function certificateDer(string $certificatePem): string
@@ -44,8 +44,12 @@ final class KsefCertificateFixtureFactory
         return $der;
     }
 
-    private static function create(array $keyOptions, string $keyUsage, ?string $passphrase): array
-    {
+    private static function create(
+        array $keyOptions,
+        string $keyUsage,
+        ?string $passphrase,
+        ?string $subjectSerialNumber = null,
+    ): array {
         $configPath = tempnam(sys_get_temp_dir(), 'nex-ksef-openssl-');
 
         if (! is_string($configPath)) {
@@ -69,10 +73,16 @@ final class KsefCertificateFixtureFactory
                 throw new RuntimeException('Could not generate test private key.');
             }
 
-            $csr = openssl_csr_new([
+            $subject = [
                 'commonName' => 'NEX-OMS KSeF Test Certificate',
                 'countryName' => 'PL',
-            ], $privateKey, $options);
+            ];
+
+            if ($subjectSerialNumber !== null) {
+                $subject['serialNumber'] = $subjectSerialNumber;
+            }
+
+            $csr = openssl_csr_new($subject, $privateKey, $options);
 
             if (! $csr instanceof OpenSSLCertificateSigningRequest) {
                 throw new RuntimeException('Could not generate test CSR.');

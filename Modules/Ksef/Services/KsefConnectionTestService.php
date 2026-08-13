@@ -12,9 +12,10 @@ class KsefConnectionTestService
 {
     public function __construct(
         private readonly KsefSettingsService $settings,
-        private readonly KsefTokenAuthenticationService $authentication,
+        private readonly KsefAuthenticationService $authentication,
         private readonly KsefHttpClient $http,
         private readonly KsefCurrentTokenResolver $currentTokenResolver,
+        private readonly KsefCertificateOwnerResolver $certificateOwnerResolver,
     ) {}
 
     public function test(): void
@@ -25,15 +26,13 @@ class KsefConnectionTestService
             ['authentication_method' => KsefAuthenticationMethod::Token],
         );
 
-        if ($credential->authentication_method === KsefAuthenticationMethod::Certificate) {
-            return;
-        }
-
-        if (! is_string($credential->api_token) || $credential->api_token === '') {
+        if (! $this->hasConfiguredAuthentication($credential)) {
             $this->record(
                 $credential,
                 KsefConnectionTestStatus::Error,
-                'Najpierw zapisz Token KSeF dla wybranego środowiska.',
+                $credential->authentication_method === KsefAuthenticationMethod::Certificate
+                    ? 'Najpierw zapisz certyfikat KSeF i klucz prywatny dla wybranego środowiska.'
+                    : 'Najpierw zapisz Token KSeF dla wybranego środowiska.',
             );
 
             return;
@@ -56,14 +55,12 @@ class KsefConnectionTestService
                 $this->clearRuntimeAuthentication($credential);
             }
 
+            $secrets = $this->knownSecrets($credential);
             $this->record(
                 $credential,
                 KsefConnectionTestStatus::Error,
-                $this->sanitize($exception->getMessage(), $this->knownSecrets($credential)),
-                systemWarning: $this->sanitizeNullable(
-                    $exception->systemWarning,
-                    $this->knownSecrets($credential),
-                ),
+                $this->sanitize($exception->getMessage(), $secrets),
+                systemWarning: $this->sanitizeNullable($exception->systemWarning, $secrets),
             );
 
             return;
@@ -88,13 +85,14 @@ class KsefConnectionTestService
             $this->addWarning($warnings, $permissionResponse->systemWarning);
         } catch (KsefApiException $exception) {
             $this->addWarning($warnings, $exception->systemWarning);
-            $secrets = $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken);
-
             $this->record(
                 $credential,
                 KsefConnectionTestStatus::Error,
                 'Uwierzytelnienie zakończyło się poprawnie, ale nie udało się sprawdzić uprawnień.',
-                systemWarning: $this->joinedWarnings($warnings, $secrets),
+                systemWarning: $this->joinedWarnings(
+                    $warnings,
+                    $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken),
+                ),
             );
 
             return;
@@ -120,56 +118,35 @@ class KsefConnectionTestService
             fn (mixed $permission): bool => is_array($permission)
                 && ($permission['permissionScope'] ?? null) === 'InvoiceWrite',
         );
+
         if (! $invoiceWrite) {
-            $resolution = $this->currentTokenResolver->resolve(
-                $settings->environment,
-                $pair->accessToken,
-            );
-            $this->addWarning($warnings, $resolution->systemWarning);
-            $secrets = $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken);
-            $systemWarning = $this->joinedWarnings($warnings, $secrets);
-
-            if (! $resolution->isResolved()) {
-                $this->record(
+            $resolved = $credential->authentication_method === KsefAuthenticationMethod::Token
+                ? $this->resolveTokenInvoiceWrite(
                     $credential,
-                    KsefConnectionTestStatus::Warning,
-                    'Uwierzytelnienie w KSeF działa, ale nie udało się jednoznacznie potwierdzić uprawnienia InvoiceWrite.',
-                    null,
-                    $systemWarning,
+                    $settings->context_nip,
+                    $pair->accessToken,
+                    $pair->refreshToken,
+                    $warnings,
+                )
+                : $this->resolveCertificateInvoiceWrite(
+                    $credential,
+                    $settings->context_nip,
+                    $pair->accessToken,
+                    $pair->refreshToken,
+                    $warnings,
                 );
 
-                return;
-            }
-
-            if (! $resolution->token->requestsPermission('InvoiceWrite')) {
-                $this->record(
-                    $credential,
-                    KsefConnectionTestStatus::Warning,
-                    'Uwierzytelnienie w KSeF działa, ale bieżący Token KSeF nie posiada uprawnienia InvoiceWrite.',
-                    false,
-                    $systemWarning,
-                );
-
-                return;
-            }
-
-            if (! $resolution->token->isStrictNipOwner($settings->context_nip)) {
-                $this->record(
-                    $credential,
-                    KsefConnectionTestStatus::Warning,
-                    'Uwierzytelnienie w KSeF działa i Token posiada InvoiceWrite, ale nie wykryto aktywnego uprawnienia InvoiceWrite w bieżącym kontekście.',
-                    false,
-                    $systemWarning,
-                );
-
+            if (! $resolved) {
                 return;
             }
 
             $invoiceWrite = true;
         }
 
-        $secrets = $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken);
-        $systemWarning = $this->joinedWarnings($warnings, $secrets);
+        $systemWarning = $this->joinedWarnings(
+            $warnings,
+            $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken),
+        );
 
         if ($systemWarning !== null) {
             $this->record(
@@ -189,6 +166,104 @@ class KsefConnectionTestService
             'Połączenie z KSeF działa poprawnie.',
             true,
         );
+    }
+
+    private function hasConfiguredAuthentication(KsefCredential $credential): bool
+    {
+        if ($credential->authentication_method === KsefAuthenticationMethod::Certificate) {
+            return is_string($credential->authentication_certificate)
+                && $credential->authentication_certificate !== ''
+                && is_string($credential->authentication_private_key)
+                && $credential->authentication_private_key !== '';
+        }
+
+        return is_string($credential->api_token) && $credential->api_token !== '';
+    }
+
+    private function resolveTokenInvoiceWrite(
+        KsefCredential $credential,
+        string $contextNip,
+        string $accessToken,
+        string $refreshToken,
+        array &$warnings,
+    ): bool {
+        $resolution = $this->currentTokenResolver->resolve($credential->environment, $accessToken);
+        $this->addWarning($warnings, $resolution->systemWarning);
+        $systemWarning = $this->joinedWarnings(
+            $warnings,
+            $this->knownSecrets($credential, $accessToken, $refreshToken),
+        );
+
+        if (! $resolution->isResolved()) {
+            $this->record(
+                $credential,
+                KsefConnectionTestStatus::Warning,
+                'Uwierzytelnienie w KSeF działa, ale nie udało się jednoznacznie potwierdzić uprawnienia InvoiceWrite.',
+                null,
+                $systemWarning,
+            );
+
+            return false;
+        }
+
+        if (! $resolution->token->requestsPermission('InvoiceWrite')) {
+            $this->record(
+                $credential,
+                KsefConnectionTestStatus::Warning,
+                'Uwierzytelnienie w KSeF działa, ale bieżący Token KSeF nie posiada uprawnienia InvoiceWrite.',
+                false,
+                $systemWarning,
+            );
+
+            return false;
+        }
+
+        if (! $resolution->token->isStrictNipOwner($contextNip)) {
+            $this->record(
+                $credential,
+                KsefConnectionTestStatus::Warning,
+                'Uwierzytelnienie w KSeF działa i Token posiada InvoiceWrite, ale nie wykryto aktywnego uprawnienia InvoiceWrite w bieżącym kontekście.',
+                false,
+                $systemWarning,
+            );
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private function resolveCertificateInvoiceWrite(
+        KsefCredential $credential,
+        string $contextNip,
+        string $accessToken,
+        string $refreshToken,
+        array &$warnings,
+    ): bool {
+        $certificate = $credential->authentication_certificate;
+        $owner = is_string($certificate)
+            ? $this->certificateOwnerResolver->isStrictNipOwner($certificate, $contextNip)
+            : null;
+        $systemWarning = $this->joinedWarnings(
+            $warnings,
+            $this->knownSecrets($credential, $accessToken, $refreshToken),
+        );
+
+        if ($owner === true) {
+            return true;
+        }
+
+        $this->record(
+            $credential,
+            KsefConnectionTestStatus::Warning,
+            $owner === false
+                ? 'Uwierzytelnienie certyfikatem KSeF działa, ale nie wykryto aktywnego uprawnienia InvoiceWrite w bieżącym kontekście.'
+                : 'Uwierzytelnienie certyfikatem KSeF działa, ale nie udało się jednoznacznie potwierdzić uprawnienia InvoiceWrite.',
+            $owner === false ? false : null,
+            $systemWarning,
+        );
+
+        return false;
     }
 
     private function record(
@@ -252,6 +327,7 @@ class KsefConnectionTestService
     ): array {
         return array_values(array_filter([
             is_string($credential->api_token) ? $credential->api_token : null,
+            is_string($credential->authentication_private_key) ? $credential->authentication_private_key : null,
             is_string($credential->access_token) ? $credential->access_token : null,
             is_string($credential->refresh_token) ? $credential->refresh_token : null,
             $accessToken,

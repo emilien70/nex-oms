@@ -49,6 +49,14 @@ final class KsefApiFake
 
     public int $statusCalls = 0;
 
+    public int $challengeCalls = 0;
+
+    public int $publicKeyCalls = 0;
+
+    public int $tokenInitCalls = 0;
+
+    public int $xadesInitCalls = 0;
+
     public int $redeemCalls = 0;
 
     public int $refreshCalls = 0;
@@ -60,6 +68,12 @@ final class KsefApiFake
     public bool $echoEncryptedTokenInWarning = false;
 
     public ?string $lastEncryptedToken = null;
+
+    public ?string $lastSignedXml = null;
+
+    public ?array $xadesInitResponse = null;
+
+    public ?array $redeemResponse = null;
 
     public readonly PrivateKey $privateKey;
 
@@ -87,6 +101,8 @@ final class KsefApiFake
         $headers = $this->warningHeaders($path);
 
         if (str_ends_with($path, '/auth/challenge')) {
+            $this->challengeCalls++;
+
             return Http::response([
                 'challenge' => 'CHALLENGE-123',
                 'timestamp' => now()->toIso8601String(),
@@ -96,6 +112,8 @@ final class KsefApiFake
         }
 
         if (str_ends_with($path, '/security/public-key-certificates')) {
+            $this->publicKeyCalls++;
+
             return Http::response([[
                 'certificate' => $this->certificate,
                 'certificateId' => 'CERTIFICATE-ID',
@@ -107,6 +125,8 @@ final class KsefApiFake
         }
 
         if (str_ends_with($path, '/auth/ksef-token')) {
+            $this->tokenInitCalls++;
+
             if ($this->echoEncryptedTokenInWarning) {
                 $encryptedToken = $request->data()['encryptedToken'] ?? null;
                 $this->lastEncryptedToken = is_string($encryptedToken) ? $encryptedToken : null;
@@ -114,6 +134,19 @@ final class KsefApiFake
             }
 
             return Http::response([
+                'referenceNumber' => 'AUTH-REFERENCE',
+                'authenticationToken' => [
+                    'token' => self::AUTHENTICATION_TOKEN,
+                    'validUntil' => now()->addMinutes(10)->toIso8601String(),
+                ],
+            ], 202, $headers);
+        }
+
+        if (str_ends_with($path, '/auth/xades-signature')) {
+            $this->xadesInitCalls++;
+            $this->lastSignedXml = $request->body();
+
+            return Http::response($this->xadesInitResponse ?? [
                 'referenceNumber' => 'AUTH-REFERENCE',
                 'authenticationToken' => [
                     'token' => self::AUTHENTICATION_TOKEN,
@@ -140,7 +173,7 @@ final class KsefApiFake
         if (str_ends_with($path, '/auth/token/redeem')) {
             $this->redeemCalls++;
 
-            return Http::response([
+            return Http::response($this->redeemResponse ?? [
                 'accessToken' => [
                     'token' => self::ACCESS_TOKEN,
                     'validUntil' => now()->addMinutes(15)->toIso8601String(),

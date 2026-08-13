@@ -72,15 +72,14 @@ class KsefCertificateSettingsTest extends TestCase
             ->assertOk()
             ->assertSeeText('Certyfikat skonfigurowany dla wybranego środowiska.')
             ->assertSee('RSA 2048', false)
-            ->assertSee('Test połączenia certyfikatem będzie dostępny w etapie KSeF.2B.2.', false)
+            ->assertSee('Test połączenia używa zapisanej konfiguracji.', false)
             ->assertDontSee('SECRET_IMPORT_PASSPHRASE')
             ->assertDontSee('-----BEGIN CERTIFICATE-----')
             ->assertDontSee('-----BEGIN PRIVATE KEY-----');
 
-        $this->assertMatchesRegularExpression(
-            '/<button(?=[^>]*data-ksef-test-button)(?=[^>]*\bdisabled\b)[^>]*>/s',
-            $response->getContent(),
-        );
+        preg_match('/<button[^>]+data-ksef-test-button[^>]*>/s', $response->getContent(), $button);
+        $this->assertArrayHasKey(0, $button);
+        $this->assertStringNotContainsString('disabled', $button[0]);
     }
 
     public function test_certificate_maps_use_string_environment_keys_and_keep_environments_separate(): void
@@ -267,7 +266,7 @@ class KsefCertificateSettingsTest extends TestCase
         $this->assertRuntimeStateCleared($credential);
     }
 
-    public function test_passphrase_is_not_flashed_and_certificate_test_never_calls_http(): void
+    public function test_passphrase_is_not_flashed_and_saved_certificate_enables_connection_test(): void
     {
         $fixture = KsefCertificateFixtureFactory::rsa(passphrase: 'PASSPHRASE_DO_NOT_FLASH');
 
@@ -291,13 +290,37 @@ class KsefCertificateSettingsTest extends TestCase
         ))->assertSessionDoesntHaveErrors();
         Http::preventStrayRequests();
 
-        $this->post(route('integrations.ksef.test-connection'))
-            ->assertRedirect(route('integrations.ksef.edit'));
-
+        $html = $this->get(route('integrations.ksef.edit'))
+            ->assertOk()
+            ->assertSeeText('Test połączenia używa zapisanej konfiguracji.')
+            ->getContent();
+        preg_match('/<button[^>]+data-ksef-test-button[^>]*>/s', $html, $button);
+        $this->assertArrayHasKey(0, $button);
+        $this->assertStringNotContainsString('disabled', $button[0]);
         Http::assertNothingSent();
-        $credential = KsefCredential::query()->where('environment', 'test')->firstOrFail();
-        $this->assertNull($credential->last_tested_at);
-        $this->assertNull($credential->last_test_status);
+    }
+
+    public function test_certificate_method_without_saved_pair_keeps_connection_test_disabled(): void
+    {
+        $settings = app(KsefSettingsService::class)->get();
+        $settings->forceFill([
+            'environment' => 'test',
+            'context_nip' => '1234567890',
+        ])->save();
+        KsefCredential::query()->create([
+            'environment' => 'test',
+            'authentication_method' => KsefAuthenticationMethod::Certificate,
+        ]);
+        Http::preventStrayRequests();
+
+        $html = $this->get(route('integrations.ksef.edit'))
+            ->assertOk()
+            ->assertSeeText('Najpierw zapisz certyfikat KSeF i klucz prywatny.')
+            ->getContent();
+        preg_match('/<button[^>]+data-ksef-test-button[^>]*>/s', $html, $button);
+        $this->assertArrayHasKey(0, $button);
+        $this->assertStringContainsString('disabled', $button[0]);
+        Http::assertNothingSent();
     }
 
     private function certificatePayload(

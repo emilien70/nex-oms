@@ -28,7 +28,9 @@ class KsefApiException extends RuntimeException
             'auth_status_415',
             'auth_status_425',
             'auth_status_450',
+            'auth_status_460',
             'auth_status_480',
+            'certificate_material_invalid',
         ], true);
     }
 }

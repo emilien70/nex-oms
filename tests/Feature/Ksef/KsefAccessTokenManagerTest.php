@@ -12,6 +12,7 @@ use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Services\KsefAccessTokenManager;
 use Modules\Ksef\Services\KsefSettingsService;
 use Tests\Support\KsefApiFake;
+use Tests\Support\KsefCertificateFixtureFactory;
 use Tests\TestCase;
 
 class KsefAccessTokenManagerTest extends TestCase
@@ -138,6 +139,70 @@ class KsefAccessTokenManagerTest extends TestCase
         $this->assertSame('RATE_LIMITED_REFRESH_TOKEN', $credential->refresh_token);
     }
 
+    public function test_certificate_method_without_runtime_uses_fresh_xades_authentication(): void
+    {
+        config()->set('ksef.auth_poll_interval_ms', 0);
+        $fake = new KsefApiFake;
+        Http::preventStrayRequests();
+        Http::fake(fn (Request $request) => $fake($request));
+        $credential = $this->certificateCredential();
+
+        $token = app(KsefAccessTokenManager::class)->getValidAccessToken(KsefEnvironment::Test);
+
+        $this->assertSame(KsefApiFake::ACCESS_TOKEN, $token);
+        $this->assertSame(1, $fake->xadesInitCalls);
+        $this->assertSame(0, $fake->tokenInitCalls);
+        $this->assertSame(0, $fake->publicKeyCalls);
+        $this->assertSame(1, $fake->redeemCalls);
+        $credential->refresh();
+        $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
+    }
+
+    public function test_certificate_method_uses_valid_refresh_without_xades(): void
+    {
+        $fake = new KsefApiFake;
+        Http::preventStrayRequests();
+        Http::fake(fn (Request $request) => $fake($request));
+        $credential = $this->certificateCredential();
+        $credential->forceFill([
+            'access_token' => 'EXPIRED_ACCESS_TOKEN',
+            'access_token_valid_until' => now()->subMinute(),
+            'refresh_token' => 'VALID_CERT_REFRESH_TOKEN',
+            'refresh_token_valid_until' => now()->addDay(),
+        ])->save();
+
+        $token = app(KsefAccessTokenManager::class)->getValidAccessToken(KsefEnvironment::Test);
+
+        $this->assertSame('NEW_'.KsefApiFake::ACCESS_TOKEN, $token);
+        $this->assertSame(1, $fake->refreshCalls);
+        $this->assertSame(0, $fake->challengeCalls);
+        $this->assertSame(0, $fake->xadesInitCalls);
+    }
+
+    public function test_certificate_refresh_authorization_failure_falls_back_to_xades_not_token_auth(): void
+    {
+        config()->set('ksef.auth_poll_interval_ms', 0);
+        $fake = new KsefApiFake;
+        $fake->failures['/auth/token/refresh'] = ['status' => 401];
+        Http::preventStrayRequests();
+        Http::fake(fn (Request $request) => $fake($request));
+        $credential = $this->certificateCredential();
+        $credential->forceFill([
+            'access_token' => 'EXPIRED_ACCESS_TOKEN',
+            'access_token_valid_until' => now()->subMinute(),
+            'refresh_token' => 'REJECTED_CERT_REFRESH_TOKEN',
+            'refresh_token_valid_until' => now()->addDay(),
+        ])->save();
+
+        $token = app(KsefAccessTokenManager::class)->getValidAccessToken(KsefEnvironment::Test);
+
+        $this->assertSame(KsefApiFake::ACCESS_TOKEN, $token);
+        $this->assertSame(1, $fake->xadesInitCalls);
+        $this->assertSame(0, $fake->tokenInitCalls);
+        $this->assertSame(0, $fake->publicKeyCalls);
+        $this->assertSame(1, $fake->redeemCalls);
+    }
+
     private function credential(): KsefCredential
     {
         $settings = app(KsefSettingsService::class)->get();
@@ -150,6 +215,23 @@ class KsefAccessTokenManagerTest extends TestCase
             'environment' => KsefEnvironment::Test,
             'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => KsefApiFake::API_TOKEN,
+        ]);
+    }
+
+    private function certificateCredential(): KsefCredential
+    {
+        $settings = app(KsefSettingsService::class)->get();
+        $settings->forceFill([
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => '1234567890',
+        ])->save();
+        $fixture = KsefCertificateFixtureFactory::ec();
+
+        return KsefCredential::query()->create([
+            'environment' => KsefEnvironment::Test,
+            'authentication_method' => KsefAuthenticationMethod::Certificate,
+            'authentication_certificate' => $fixture['certificate'],
+            'authentication_private_key' => $fixture['private_key'],
         ]);
     }
 }

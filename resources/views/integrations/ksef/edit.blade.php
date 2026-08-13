@@ -11,6 +11,10 @@
         $authenticationMethodByEnvironment[$selectedEnvironment] ?? 'token',
     );
     $persistedTokenConfigured = $tokenConfiguredByEnvironment[$persistedEnvironment] ?? false;
+    $persistedCertificateConfigured = $certificateConfiguredByEnvironment[$persistedEnvironment] ?? false;
+    $persistedAuthenticationConfigured = $persistedAuthenticationMethod === 'certificate'
+        ? $persistedCertificateConfigured
+        : $persistedTokenConfigured;
     $environmentNotices = collect($environmentOptions)
         ->mapWithKeys(fn ($environment) => [$environment->value => $environment->notice()])
         ->all();
@@ -515,15 +519,15 @@
                                         type="submit"
                                         form="ksef-test-connection-form"
                                         data-ksef-test-button
-                                        @disabled($persistedAuthenticationMethod !== 'token' || ! $persistedTokenConfigured)
+                                        @disabled(! $persistedAuthenticationConfigured)
                                     >
                                         Przetestuj połączenie
                                     </button>
                                     <div class="ksef-help" data-ksef-test-help>
-                                        {{ $persistedAuthenticationMethod === 'certificate'
-                                            ? 'Test połączenia certyfikatem będzie dostępny w etapie KSeF.2B.2.'
-                                            : ($persistedTokenConfigured
-                                                ? 'Test połączenia używa zapisanej konfiguracji. Zapisz zmiany przed testem połączenia.'
+                                        {{ $persistedAuthenticationConfigured
+                                            ? 'Test połączenia używa zapisanej konfiguracji. Zapisz zmiany przed testem połączenia.'
+                                            : ($persistedAuthenticationMethod === 'certificate'
+                                                ? 'Najpierw zapisz certyfikat KSeF i klucz prywatny.'
                                                 : 'Najpierw zapisz Token KSeF.') }}
                                     </div>
                                 </div>
@@ -706,17 +710,20 @@
                     || privateKeyInput.files.length > 0
                     || privateKeyPassphraseInput.value !== '';
                 const persistedTokenConfigured = configuredTokens[persistedEnvironment] === true;
+                const persistedCertificateConfigured = configuredCertificates[persistedEnvironment] === true;
+                const persistedAuthenticationConfigured = persistedAuthenticationMethod === 'certificate'
+                    ? persistedCertificateConfigured
+                    : persistedTokenConfigured;
 
                 testButton.disabled = hasUnsavedAuthenticationChanges
-                    || persistedAuthenticationMethod !== 'token'
-                    || !persistedTokenConfigured;
+                    || !persistedAuthenticationConfigured;
 
                 if (hasUnsavedAuthenticationChanges) {
                     testHelp.textContent = 'Zapisz zmiany przed testem połączenia.';
-                } else if (persistedAuthenticationMethod === 'certificate') {
-                    testHelp.textContent = 'Test połączenia certyfikatem będzie dostępny w etapie KSeF.2B.2.';
-                } else if (!persistedTokenConfigured) {
-                    testHelp.textContent = 'Najpierw zapisz Token KSeF.';
+                } else if (!persistedAuthenticationConfigured) {
+                    testHelp.textContent = persistedAuthenticationMethod === 'certificate'
+                        ? 'Najpierw zapisz certyfikat KSeF i klucz prywatny.'
+                        : 'Najpierw zapisz Token KSeF.';
                 } else {
                     testHelp.textContent = 'Test połączenia używa zapisanej konfiguracji.';
                 }

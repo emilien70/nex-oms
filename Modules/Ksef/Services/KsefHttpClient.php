@@ -18,7 +18,7 @@ class KsefHttpClient
         ?string $bearerToken = null,
         array $query = [],
     ): KsefApiResponse {
-        return $this->send($environment, 'GET', $path, null, $bearerToken, $query);
+        return $this->send($environment, 'GET', $path, null, null, $bearerToken, $query);
     }
 
     public function post(
@@ -28,7 +28,17 @@ class KsefHttpClient
         ?string $bearerToken = null,
         array $query = [],
     ): KsefApiResponse {
-        return $this->send($environment, 'POST', $path, $payload, $bearerToken, $query);
+        return $this->send($environment, 'POST', $path, $payload, null, $bearerToken, $query);
+    }
+
+    public function postXml(
+        KsefEnvironment $environment,
+        string $path,
+        string $xml,
+        ?string $bearerToken = null,
+        array $query = [],
+    ): KsefApiResponse {
+        return $this->send($environment, 'POST', $path, null, $xml, $bearerToken, $query);
     }
 
     public function baseUrl(KsefEnvironment $environment): string
@@ -50,6 +60,7 @@ class KsefHttpClient
         string $method,
         string $path,
         ?array $payload,
+        ?string $rawBody,
         ?string $bearerToken,
         array $query,
     ): KsefApiResponse {
@@ -65,7 +76,9 @@ class KsefHttpClient
             $options['query'] = $query;
         }
 
-        if ($payload !== null) {
+        if ($rawBody !== null) {
+            $request = $request->withBody($rawBody, 'application/xml');
+        } elseif ($payload !== null) {
             $options['json'] = $payload;
         }
 
@@ -78,14 +91,16 @@ class KsefHttpClient
             );
         }
 
-        return $this->parseResponse($response, $this->requestSecrets($payload, $bearerToken));
+        return $this->parseResponse(
+            $response,
+            $this->requestSecrets($payload, $bearerToken, $rawBody),
+        );
     }
 
     private function request(KsefEnvironment $environment): PendingRequest
     {
         return Http::baseUrl($this->baseUrl($environment))
             ->acceptJson()
-            ->asJson()
             ->withHeaders(['X-Error-Format' => 'problem-details'])
             ->connectTimeout((int) config('ksef.connect_timeout_seconds', 5))
             ->timeout((int) config('ksef.request_timeout_seconds', 15));
@@ -177,16 +192,33 @@ class KsefHttpClient
         return (int) $header;
     }
 
-    private function requestSecrets(?array $payload, ?string $bearerToken): array
-    {
+    private function requestSecrets(
+        ?array $payload,
+        ?string $bearerToken,
+        ?string $rawBody = null,
+    ): array {
         $secrets = array_filter([
             $bearerToken,
             $payload['encryptedToken'] ?? null,
+            $rawBody,
+            $this->xmlSignatureValue($rawBody),
         ], fn (mixed $secret): bool => is_string($secret) && $secret !== '');
 
         usort($secrets, fn (string $left, string $right): int => strlen($right) <=> strlen($left));
 
         return array_values(array_unique($secrets));
+    }
+
+    private function xmlSignatureValue(?string $xml): ?string
+    {
+        if ($xml === null
+            || preg_match('/<(?:(?:[A-Za-z_][\w.-]*):)?SignatureValue\b[^>]*>([^<]+)<\//', $xml, $matches) !== 1) {
+            return null;
+        }
+
+        $value = trim($matches[1]);
+
+        return $value === '' ? null : $value;
     }
 
     private function systemWarning(Response $response, array $requestSecrets): ?string

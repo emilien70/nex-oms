@@ -3,29 +3,33 @@
 namespace Modules\Ksef\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\ValueObjects\KsefTokenPair;
 
-class KsefTokenAuthenticationService
+final class KsefCertificateAuthenticationService
 {
     public function __construct(
         private readonly KsefHttpClient $http,
-        private readonly KsefPublicKeyResolver $publicKeys,
-        private readonly KsefTokenEncryptor $encryptor,
+        private readonly KsefCertificateMaterialService $materials,
+        private readonly KsefAuthTokenRequestBuilder $requestBuilder,
+        private readonly KsefXadesSigner $signer,
         private readonly KsefAuthenticationCompletionService $completion,
     ) {}
 
     public function authenticate(KsefCredential $credential, string $contextNip): KsefTokenPair
     {
-        $apiToken = $credential->api_token;
+        $certificate = $credential->authentication_certificate;
+        $privateKey = $credential->authentication_private_key;
 
-        if (! is_string($apiToken) || $apiToken === '') {
+        if (! is_string($certificate) || $certificate === ''
+            || ! is_string($privateKey) || $privateKey === '') {
             throw new KsefApiException(
-                'Najpierw zapisz Token KSeF dla wybranego środowiska.',
-                'api_token_missing',
+                'Najpierw zapisz certyfikat KSeF i klucz prywatny dla wybranego środowiska.',
+                'certificate_material_missing',
             );
         }
 
@@ -36,6 +40,15 @@ class KsefTokenAuthenticationService
             );
         }
 
+        try {
+            $material = $this->materials->inspect($certificate, $privateKey);
+        } catch (ValidationException) {
+            throw new KsefApiException(
+                'Zapisany certyfikat KSeF jest nieprawidłowy lub utracił ważność.',
+                'certificate_material_invalid',
+            );
+        }
+
         $warnings = [];
 
         try {
@@ -43,31 +56,25 @@ class KsefTokenAuthenticationService
             $challengeResponse = $this->http->post($environment, '/auth/challenge');
             $this->addWarning($warnings, $challengeResponse->systemWarning);
             $challenge = $this->requiredString($challengeResponse->data, 'challenge');
-            $timestampMs = $this->requiredTimestampMs($challengeResponse->data);
-
-            $certificatesResponse = $this->http->get($environment, '/security/public-key-certificates');
-            $this->addWarning($warnings, $certificatesResponse->systemWarning);
-            $certificate = $this->publicKeys->resolve($certificatesResponse->data);
-            $encryptedToken = $this->encryptor->encrypt($apiToken, $timestampMs, $certificate->certificate);
-
-            $initResponse = $this->http->post($environment, '/auth/ksef-token', [
-                'challenge' => $challenge,
-                'contextIdentifier' => [
-                    'type' => 'Nip',
-                    'value' => $contextNip,
-                ],
-                'encryptedToken' => $encryptedToken,
-                'publicKeyId' => $certificate->publicKeyId,
-            ]);
+            $unsignedXml = $this->requestBuilder->build($challenge, $contextNip);
+            $signedXml = $this->signer->sign(
+                $unsignedXml,
+                $material->certificatePem,
+                $material->privateKeyPem,
+            );
+            $initResponse = $this->http->postXml(
+                $environment,
+                '/auth/xades-signature',
+                $signedXml,
+            );
             $this->addWarning($warnings, $initResponse->systemWarning);
             $pair = $this->completion->complete(
                 $environment,
-                KsefAuthenticationMethod::Token,
+                KsefAuthenticationMethod::Certificate,
                 $initResponse->data,
                 $warnings,
-                [$apiToken, $encryptedToken],
             );
-            $this->persist($credential, $contextNip, $apiToken, $pair);
+            $this->persist($credential, $contextNip, $certificate, $privateKey, $pair);
 
             return $pair;
         } catch (KsefApiException $exception) {
@@ -79,7 +86,7 @@ class KsefTokenAuthenticationService
                 $exception->httpStatus,
                 $exception->reasonCode,
                 $exception->retryAfterSeconds,
-                $this->joinedWarnings($warnings, [$apiToken]),
+                $warnings === [] ? null : implode(' | ', array_unique($warnings)),
             );
         }
     }
@@ -87,10 +94,20 @@ class KsefTokenAuthenticationService
     private function persist(
         KsefCredential $credential,
         string $contextNip,
-        string $apiToken,
+        string $certificate,
+        string $privateKey,
         KsefTokenPair $pair,
     ): void {
-        DB::transaction(function () use ($credential, $contextNip, $apiToken, $pair): void {
+        $certificateHash = hash('sha256', $certificate);
+        $privateKeyHash = hash('sha256', $privateKey);
+
+        DB::transaction(function () use (
+            $credential,
+            $contextNip,
+            $certificateHash,
+            $privateKeyHash,
+            $pair,
+        ): void {
             $settings = KsefSetting::query()
                 ->where('singleton_key', KsefSetting::SINGLETON_KEY)
                 ->lockForUpdate()
@@ -99,11 +116,15 @@ class KsefTokenAuthenticationService
                 ->whereKey($credential->getKey())
                 ->lockForUpdate()
                 ->firstOrFail();
+            $managedCertificate = $managedCredential->authentication_certificate;
+            $managedPrivateKey = $managedCredential->authentication_private_key;
 
             if ($settings->context_nip !== $contextNip
-                || $managedCredential->authentication_method !== KsefAuthenticationMethod::Token
-                || ! is_string($managedCredential->api_token)
-                || ! hash_equals($apiToken, $managedCredential->api_token)) {
+                || $managedCredential->authentication_method !== KsefAuthenticationMethod::Certificate
+                || ! is_string($managedCertificate)
+                || ! is_string($managedPrivateKey)
+                || ! hash_equals($certificateHash, hash('sha256', $managedCertificate))
+                || ! hash_equals($privateKeyHash, hash('sha256', $managedPrivateKey))) {
                 throw new KsefApiException(
                     'Konfiguracja KSeF zmieniła się podczas uwierzytelniania. Rozpocznij test ponownie.',
                     'configuration_changed',
@@ -133,43 +154,10 @@ class KsefTokenAuthenticationService
         return $value;
     }
 
-    private function requiredTimestampMs(array $data): int
-    {
-        $value = $data['timestampMs'] ?? null;
-
-        if (is_string($value) && preg_match('/^\d+$/', $value) === 1) {
-            $value = (int) $value;
-        }
-
-        if (! is_int($value) || $value <= 0) {
-            throw new KsefApiException(
-                'KSeF zwrócił nieprawidłowy znacznik czasu uwierzytelnienia.',
-                'challenge_timestamp_invalid',
-            );
-        }
-
-        return $value;
-    }
-
     private function addWarning(array &$warnings, ?string $warning): void
     {
         if ($warning !== null && ! in_array($warning, $warnings, true)) {
             $warnings[] = $warning;
         }
-    }
-
-    private function joinedWarnings(array $warnings, array $secrets): ?string
-    {
-        $secrets = array_values(array_filter(
-            $secrets,
-            fn (mixed $secret): bool => is_string($secret) && $secret !== '',
-        ));
-        $safeWarnings = collect($warnings)
-            ->filter(fn (mixed $warning): bool => is_string($warning) && trim($warning) !== '')
-            ->map(fn (string $warning): string => trim(str_replace($secrets, '[ukryto]', $warning)))
-            ->unique()
-            ->values();
-
-        return $safeWarnings->isEmpty() ? null : $safeWarnings->implode(' | ');
     }
 }

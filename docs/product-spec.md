@@ -1195,7 +1195,9 @@ Druga metoda uwierzytelnienia korzysta z certyfikatu Authentication importowaneg
 
 Import wykonuje lokalne parsowanie X.509 i klucza, kryptograficzne dopasowanie pary, kontrolę okresu ważności, `Digital Signature` oraz parametrów RSA 2048 lub EC P-256. Certyfikat identyfikuje uwierzytelniającego, ale sam nie przenosi uprawnień ani nie jest lokalnie wiązany z NIP-em kontekstu. UI pokazuje wyłącznie bezpieczne metadane: ważność, typ klucza i fingerprint SHA-256. Zmiana metody albo materiału czyści runtime uwierzytelnienia i wynik testu danego środowiska, natomiast zmiana NIP-u zachowuje credentiale i czyści runtime wszystkich środowisk.
 
-KSeF.2B.1 nie generuje CSR, nie pobiera certyfikatu, nie implementuje XAdES ani `/auth/xades-signature` i nie wykonuje testu połączenia certyfikatem. Przycisk testu dla tej metody pozostaje wyłączony do KSeF.2B.2. Certyfikaty Offline, FA(3), sesje i wysyłka dokumentów pozostają poza zakresem.
+KSeF.2B.2 uruchamia test połączenia zapisanym certyfikatem Authentication. NEX buduje `AuthTokenRequest` 2.1 z `certificateSubject`, podpisuje go jako enveloped XAdES-BES algorytmem ECDSA-SHA256 dla EC P-256 albo RSA-SHA256 dla RSA 2048 i wysyła do `/auth/xades-signature`. Obie metody uwierzytelnienia korzystają ze wspólnego, ograniczonego pollingu, jednokrotnego redeem oraz tych samych szyfrowanych access i refresh tokenów. Materiał certyfikatu jest ponownie walidowany przed każdym świeżym uwierzytelnieniem, a klucz prywatny nigdy nie opuszcza aplikacji.
+
+Test certyfikatem nadal diagnozuje `InvoiceWrite` przez `personal/grants`. Jawne uprawnienie ma pierwszeństwo; przy jego braku zgodność NIP-u właściciela może zostać potwierdzona wyłącznie na podstawie jednoznacznego identyfikatora w certyfikacie. NEX nie odpytuje `GET /tokens` w trybie certyfikatu i nie zgaduje powiązań PESEL-NIP. KSeF.2B.2 nie generuje CSR, nie pobiera ani nie rejestruje certyfikatu, nie obsługuje certyfikatów Offline, nie tworzy FA(3), nie otwiera sesji i nie wysyła dokumentów.
 
 ## 30.5. Audyt gotowości KSeF
 

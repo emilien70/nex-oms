@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Ksef;
 
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Exceptions\KsefApiException;
@@ -114,6 +115,38 @@ class KsefHttpClientTest extends TestCase
             $this->assertStringNotContainsString($bearerToken, $exception->systemWarning);
         }
 
+        Http::assertSentCount(1);
+    }
+
+    public function test_post_xml_uses_xml_content_type_parses_json_and_redacts_signature_value(): void
+    {
+        $signature = 'FAKE_XML_SIGNATURE_SHOULD_NEVER_LEAK';
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>'
+            .'<AuthTokenRequest><ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
+            .'<ds:SignatureValue>'.$signature.'</ds:SignatureValue>'
+            .'</ds:Signature></AuthTokenRequest>';
+        Http::preventStrayRequests();
+        Http::fake(['*' => Http::response([
+            'referenceNumber' => 'AUTH-REFERENCE',
+            'authenticationToken' => ['token' => 'AUTH-TOKEN'],
+        ], 202, [
+            'X-System-Warning' => 'signature='.$signature.' code=ABC',
+        ])]);
+
+        $response = app(KsefHttpClient::class)->postXml(
+            KsefEnvironment::Test,
+            '/auth/xades-signature',
+            $xml,
+        );
+
+        $this->assertSame('AUTH-REFERENCE', $response->data['referenceNumber']);
+        $this->assertSame('signature=[ukryto] code=ABC', $response->systemWarning);
+        Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+            && str_ends_with($request->url(), '/auth/xades-signature')
+            && $request->hasHeader('Content-Type', 'application/xml')
+            && $request->hasHeader('Accept', 'application/json')
+            && $request->hasHeader('X-Error-Format', 'problem-details')
+            && $request->body() === $xml);
         Http::assertSentCount(1);
     }
 }

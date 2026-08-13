@@ -13,7 +13,7 @@ class KsefAccessTokenManager
 {
     public function __construct(
         private readonly KsefHttpClient $http,
-        private readonly KsefTokenAuthenticationService $authentication,
+        private readonly KsefAuthenticationService $authentication,
         private readonly KsefSettingsService $settings,
     ) {}
 
