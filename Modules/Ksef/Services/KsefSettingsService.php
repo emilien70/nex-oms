@@ -13,9 +13,14 @@ use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\ValueObjects\KsefCertificateMaterial;
 
 class KsefSettingsService
 {
+    public function __construct(
+        private readonly KsefCertificateMaterialService $certificateMaterialService,
+    ) {}
+
     private const RUNTIME_AUTH_AND_TEST_STATE = [
         'access_token' => null,
         'access_token_valid_until' => null,
@@ -52,9 +57,9 @@ class KsefSettingsService
         );
     }
 
-    public function update(array $data): KsefSetting
+    public function update(array $data, ?KsefCertificateMaterial $certificateMaterial = null): KsefSetting
     {
-        return DB::transaction(function () use ($data): KsefSetting {
+        return DB::transaction(function () use ($data, $certificateMaterial): KsefSetting {
             $this->get();
 
             $settings = KsefSetting::query()
@@ -74,13 +79,25 @@ class KsefSettingsService
             $credential = KsefCredential::query()->firstOrNew([
                 'environment' => $environment->value,
             ]);
-            $credential->authentication_method = KsefAuthenticationMethod::Token;
+            $authenticationMethod = KsefAuthenticationMethod::from($data['authentication_method']);
+            $authenticationMethodChanged = $credential->exists
+                && $credential->authentication_method !== $authenticationMethod;
+            $credential->authentication_method = $authenticationMethod;
+            $runtimeMustBeInvalidated = $authenticationMethodChanged;
 
             if (filled($data['api_token'] ?? null)) {
-                $credential->forceFill(array_merge(
-                    self::RUNTIME_AUTH_AND_TEST_STATE,
-                    ['api_token' => $data['api_token']],
-                ));
+                $credential->api_token = $data['api_token'];
+                $runtimeMustBeInvalidated = true;
+            }
+
+            if ($certificateMaterial !== null) {
+                $credential->authentication_certificate = $certificateMaterial->certificatePem;
+                $credential->authentication_private_key = $certificateMaterial->privateKeyPem;
+                $runtimeMustBeInvalidated = true;
+            }
+
+            if ($runtimeMustBeInvalidated) {
+                $credential->forceFill(self::RUNTIME_AUTH_AND_TEST_STATE);
             }
 
             $credential->save();
@@ -100,6 +117,60 @@ class KsefSettingsService
         return collect(KsefEnvironment::cases())
             ->mapWithKeys(fn (KsefEnvironment $environment): array => [
                 $environment->value => in_array($environment->value, $configured, true),
+            ])
+            ->all();
+    }
+
+    public function certificateConfiguredByEnvironment(): array
+    {
+        $configured = KsefCredential::query()
+            ->whereNotNull('authentication_certificate')
+            ->whereNotNull('authentication_private_key')
+            ->pluck('environment')
+            ->map(fn (KsefEnvironment $environment): string => $environment->value)
+            ->all();
+
+        return collect(KsefEnvironment::cases())
+            ->mapWithKeys(fn (KsefEnvironment $environment): array => [
+                $environment->value => in_array($environment->value, $configured, true),
+            ])
+            ->all();
+    }
+
+    public function authenticationMethodByEnvironment(): array
+    {
+        $methods = KsefCredential::query()
+            ->get(['environment', 'authentication_method'])
+            ->mapWithKeys(fn (KsefCredential $credential): array => [
+                $credential->environment->value => $credential->authentication_method->value,
+            ]);
+
+        return collect(KsefEnvironment::cases())
+            ->mapWithKeys(fn (KsefEnvironment $environment): array => [
+                $environment->value => $methods->get(
+                    $environment->value,
+                    KsefAuthenticationMethod::Token->value,
+                ),
+            ])
+            ->all();
+    }
+
+    public function certificateMetadataByEnvironment(): array
+    {
+        $metadata = KsefCredential::query()
+            ->whereNotNull('authentication_certificate')
+            ->get(['environment', 'authentication_certificate'])
+            ->mapWithKeys(function (KsefCredential $credential): array {
+                $certificate = $credential->authentication_certificate;
+
+                return [$credential->environment->value => is_string($certificate)
+                    ? $this->certificateMaterialService->metadata($certificate)
+                    : null];
+            });
+
+        return collect(KsefEnvironment::cases())
+            ->mapWithKeys(fn (KsefEnvironment $environment): array => [
+                $environment->value => $metadata->get($environment->value),
             ])
             ->all();
     }

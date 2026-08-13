@@ -5,12 +5,20 @@
 @php
     $selectedEnvironment = old('environment', $settings->environment->value);
     $persistedEnvironment = $settings->environment->value;
+    $persistedAuthenticationMethod = $authenticationMethodByEnvironment[$persistedEnvironment] ?? 'token';
+    $selectedAuthenticationMethod = old(
+        'authentication_method',
+        $authenticationMethodByEnvironment[$selectedEnvironment] ?? 'token',
+    );
     $persistedTokenConfigured = $tokenConfiguredByEnvironment[$persistedEnvironment] ?? false;
     $environmentNotices = collect($environmentOptions)
         ->mapWithKeys(fn ($environment) => [$environment->value => $environment->notice()])
         ->all();
     $environmentLabels = collect($environmentOptions)
         ->mapWithKeys(fn ($environment) => [$environment->value => $environment->label()])
+        ->all();
+    $authenticationMethodLabels = collect($authenticationMethods)
+        ->mapWithKeys(fn ($method) => [$method->value => $method->label()])
         ->all();
     $booleanOptions = [
         '0' => 'Nie',
@@ -354,7 +362,7 @@
                         @csrf
                     </form>
 
-                    <form class="ksef-form" method="POST" action="{{ route('integrations.ksef.update') }}" data-ksef-connection-form>
+                    <form class="ksef-form" method="POST" action="{{ route('integrations.ksef.update') }}" enctype="multipart/form-data" data-ksef-connection-form>
                         @csrf
                         @method('PUT')
 
@@ -386,14 +394,14 @@
                                 <div class="ksef-control">
                                     <select class="form-select @error('authentication_method') is-invalid @enderror" id="ksef-authentication-method" name="authentication_method" required>
                                         @foreach ($authenticationMethods as $method)
-                                            <option value="{{ $method->value }}" @selected(old('authentication_method', 'token') === $method->value)>{{ $method->label() }}</option>
+                                            <option value="{{ $method->value }}" @selected($selectedAuthenticationMethod === $method->value)>{{ $method->label() }}</option>
                                         @endforeach
                                     </select>
                                     @error('authentication_method')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                 </div>
                             </div>
 
-                            <div class="ksef-field">
+                            <div class="ksef-field" data-ksef-token-section @if ($selectedAuthenticationMethod !== 'token') hidden @endif>
                                 <label for="ksef-api-token">Token KSeF</label>
                                 <div class="ksef-control">
                                     <input
@@ -415,6 +423,65 @@
                                     @error('api_token')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                     @error('api_token_environment')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
                                     <div class="ksef-token-status" data-ksef-token-status aria-live="polite"></div>
+                                </div>
+                            </div>
+
+                            <div class="ksef-field" data-ksef-certificate-section @if ($selectedAuthenticationMethod !== 'certificate') hidden @endif>
+                                <label for="ksef-authentication-certificate">Certyfikat</label>
+                                <div class="ksef-control">
+                                    <input
+                                        class="form-control @error('authentication_certificate') is-invalid @enderror"
+                                        id="ksef-authentication-certificate"
+                                        name="authentication_certificate"
+                                        type="file"
+                                        accept=".pem,.crt,.cer"
+                                        data-ksef-certificate-file
+                                    >
+                                    @error('authentication_certificate')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-field" data-ksef-certificate-section @if ($selectedAuthenticationMethod !== 'certificate') hidden @endif>
+                                <label for="ksef-authentication-private-key">Klucz prywatny</label>
+                                <div class="ksef-control">
+                                    <input
+                                        class="form-control @error('authentication_private_key') is-invalid @enderror"
+                                        id="ksef-authentication-private-key"
+                                        name="authentication_private_key"
+                                        type="file"
+                                        accept=".pem,.key"
+                                        data-ksef-private-key-file
+                                    >
+                                    @error('authentication_private_key')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-field" data-ksef-certificate-section @if ($selectedAuthenticationMethod !== 'certificate') hidden @endif>
+                                <label for="ksef-authentication-private-key-passphrase">Hasło klucza prywatnego</label>
+                                <div class="ksef-control">
+                                    <input
+                                        class="form-control @error('authentication_private_key_passphrase') is-invalid @enderror"
+                                        id="ksef-authentication-private-key-passphrase"
+                                        name="authentication_private_key_passphrase"
+                                        type="password"
+                                        maxlength="1024"
+                                        autocomplete="new-password"
+                                        data-ksef-private-key-passphrase
+                                    >
+                                    @error('authentication_private_key_passphrase')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-field" data-ksef-certificate-section @if ($selectedAuthenticationMethod !== 'certificate') hidden @endif>
+                                <span></span>
+                                <div class="ksef-control">
+                                    <div class="ksef-token-status" data-ksef-certificate-status aria-live="polite"></div>
+                                    <div class="ksef-help" data-ksef-certificate-metadata hidden>
+                                        <div><strong>Ważny od:</strong> <span data-ksef-certificate-valid-from></span></div>
+                                        <div><strong>Ważny do:</strong> <span data-ksef-certificate-valid-until></span></div>
+                                        <div><strong>Klucz:</strong> <span data-ksef-certificate-key></span></div>
+                                        <div><strong>Fingerprint SHA-256:</strong> <span data-ksef-certificate-fingerprint></span></div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -448,14 +515,16 @@
                                         type="submit"
                                         form="ksef-test-connection-form"
                                         data-ksef-test-button
-                                        @disabled(! $persistedTokenConfigured)
+                                        @disabled($persistedAuthenticationMethod !== 'token' || ! $persistedTokenConfigured)
                                     >
                                         Przetestuj połączenie
                                     </button>
                                     <div class="ksef-help" data-ksef-test-help>
-                                        {{ $persistedTokenConfigured
-                                            ? 'Test połączenia używa zapisanej konfiguracji. Zapisz zmiany przed testem połączenia.'
-                                            : 'Najpierw zapisz Token KSeF.' }}
+                                        {{ $persistedAuthenticationMethod === 'certificate'
+                                            ? 'Test połączenia certyfikatem będzie dostępny w etapie KSeF.2B.2.'
+                                            : ($persistedTokenConfigured
+                                                ? 'Test połączenia używa zapisanej konfiguracji. Zapisz zmiany przed testem połączenia.'
+                                                : 'Najpierw zapisz Token KSeF.') }}
                                     </div>
                                 </div>
                             </div>
@@ -474,7 +543,7 @@
                                     </div>
                                     <div class="ksef-connection-status-line">
                                         <strong>Uwierzytelnienie:</strong>
-                                        Token KSeF
+                                        <span data-ksef-status-authentication-method></span>
                                     </div>
                                     <div class="ksef-connection-status-line" data-ksef-invoice-write-row hidden>
                                         <strong>InvoiceWrite:</strong>
@@ -547,6 +616,17 @@
             const tokenInput = document.querySelector('[data-ksef-api-token]');
             const tokenEnvironmentInput = document.querySelector('[data-ksef-token-environment]');
             const tokenStatus = document.querySelector('[data-ksef-token-status]');
+            const tokenSections = document.querySelectorAll('[data-ksef-token-section]');
+            const certificateSections = document.querySelectorAll('[data-ksef-certificate-section]');
+            const certificateInput = document.querySelector('[data-ksef-certificate-file]');
+            const privateKeyInput = document.querySelector('[data-ksef-private-key-file]');
+            const privateKeyPassphraseInput = document.querySelector('[data-ksef-private-key-passphrase]');
+            const certificateStatus = document.querySelector('[data-ksef-certificate-status]');
+            const certificateMetadataPanel = document.querySelector('[data-ksef-certificate-metadata]');
+            const certificateValidFrom = document.querySelector('[data-ksef-certificate-valid-from]');
+            const certificateValidUntil = document.querySelector('[data-ksef-certificate-valid-until]');
+            const certificateKey = document.querySelector('[data-ksef-certificate-key]');
+            const certificateFingerprint = document.querySelector('[data-ksef-certificate-fingerprint]');
             const contextNipInput = document.querySelector('#ksef-context-nip');
             const authenticationMethodSelect = document.querySelector('#ksef-authentication-method');
             const testButton = document.querySelector('[data-ksef-test-button]');
@@ -555,6 +635,7 @@
             const testMessage = document.querySelector('[data-ksef-test-message]');
             const statusEnvironment = document.querySelector('[data-ksef-status-environment]');
             const statusNip = document.querySelector('[data-ksef-status-nip]');
+            const statusAuthenticationMethod = document.querySelector('[data-ksef-status-authentication-method]');
             const invoiceWriteRow = document.querySelector('[data-ksef-invoice-write-row]');
             const invoiceWrite = document.querySelector('[data-ksef-invoice-write]');
             const testedAtRow = document.querySelector('[data-ksef-tested-at-row]');
@@ -563,8 +644,11 @@
             const systemWarning = document.querySelector('[data-ksef-system-warning]');
 
             if (!environmentSelect || !notice || !tokenInput || !tokenEnvironmentInput || !tokenStatus
+                || !certificateInput || !privateKeyInput || !privateKeyPassphraseInput
+                || !certificateStatus || !certificateMetadataPanel || !certificateValidFrom
+                || !certificateValidUntil || !certificateKey || !certificateFingerprint
                 || !contextNipInput || !authenticationMethodSelect || !testButton || !testHelp
-                || !connectionStatus || !testMessage || !statusEnvironment || !statusNip
+                || !connectionStatus || !testMessage || !statusEnvironment || !statusNip || !statusAuthenticationMethod
                 || !invoiceWriteRow || !invoiceWrite
                 || !testedAtRow || !testedAt || !systemWarningRow || !systemWarning) {
                 return;
@@ -572,11 +656,15 @@
 
             const notices = @json($environmentNotices);
             const environmentLabels = @json($environmentLabels);
+            const authenticationMethodLabels = @json($authenticationMethodLabels);
             const configuredTokens = @json($tokenConfiguredByEnvironment);
+            const configuredCertificates = @json($certificateConfiguredByEnvironment);
+            const certificateMetadata = @json($certificateMetadataByEnvironment);
+            const authenticationMethods = @json($authenticationMethodByEnvironment);
             const connectionStatuses = @json($connectionStatusByEnvironment);
             const persistedEnvironment = @json($persistedEnvironment);
             const persistedContextNip = @json((string) $settings->context_nip);
-            const persistedAuthenticationMethod = @json('token');
+            const persistedAuthenticationMethod = @json($persistedAuthenticationMethod);
 
             const refreshConnectionStatus = () => {
                 const status = connectionStatuses[environmentSelect.value] || {};
@@ -584,6 +672,7 @@
                 testMessage.textContent = status.message || 'Połączenie nie było jeszcze testowane.';
                 statusEnvironment.textContent = environmentLabels[environmentSelect.value] || '';
                 statusNip.textContent = persistedContextNip || 'Nie skonfigurowano';
+                statusAuthenticationMethod.textContent = authenticationMethodLabels[authenticationMethods[environmentSelect.value]] || '';
 
                 invoiceWriteRow.hidden = !status.status;
                 invoiceWrite.textContent = status.invoice_write === true
@@ -597,17 +686,35 @@
                 systemWarning.textContent = status.system_warning || '';
             };
 
+            const refreshAuthenticationFields = () => {
+                const certificateSelected = authenticationMethodSelect.value === 'certificate';
+
+                tokenSections.forEach((section) => {
+                    section.hidden = certificateSelected;
+                });
+                certificateSections.forEach((section) => {
+                    section.hidden = !certificateSelected;
+                });
+            };
+
             const refreshTestAvailability = () => {
                 const hasUnsavedAuthenticationChanges = environmentSelect.value !== persistedEnvironment
                     || contextNipInput.value !== persistedContextNip
                     || authenticationMethodSelect.value !== persistedAuthenticationMethod
-                    || tokenInput.value !== '';
+                    || tokenInput.value !== ''
+                    || certificateInput.files.length > 0
+                    || privateKeyInput.files.length > 0
+                    || privateKeyPassphraseInput.value !== '';
                 const persistedTokenConfigured = configuredTokens[persistedEnvironment] === true;
 
-                testButton.disabled = hasUnsavedAuthenticationChanges || !persistedTokenConfigured;
+                testButton.disabled = hasUnsavedAuthenticationChanges
+                    || persistedAuthenticationMethod !== 'token'
+                    || !persistedTokenConfigured;
 
                 if (hasUnsavedAuthenticationChanges) {
                     testHelp.textContent = 'Zapisz zmiany przed testem połączenia.';
+                } else if (persistedAuthenticationMethod === 'certificate') {
+                    testHelp.textContent = 'Test połączenia certyfikatem będzie dostępny w etapie KSeF.2B.2.';
                 } else if (!persistedTokenConfigured) {
                     testHelp.textContent = 'Najpierw zapisz Token KSeF.';
                 } else {
@@ -621,20 +728,41 @@
                 tokenStatus.textContent = configuredTokens[environment]
                     ? 'Token skonfigurowany dla wybranego środowiska.'
                     : 'Token nie został jeszcze skonfigurowany dla wybranego środowiska.';
+                certificateStatus.textContent = configuredCertificates[environment]
+                    ? 'Certyfikat skonfigurowany dla wybranego środowiska.'
+                    : 'Certyfikat nie został jeszcze skonfigurowany dla wybranego środowiska.';
+
+                const metadata = certificateMetadata[environment] || null;
+                certificateMetadataPanel.hidden = !metadata;
+                certificateValidFrom.textContent = metadata?.valid_from || '';
+                certificateValidUntil.textContent = metadata?.valid_until || '';
+                certificateKey.textContent = metadata?.key_label || '';
+                certificateFingerprint.textContent = metadata?.fingerprint_sha256 || '';
+                refreshAuthenticationFields();
                 refreshConnectionStatus();
                 refreshTestAvailability();
             };
 
             const changeEnvironment = () => {
                 tokenInput.value = '';
+                certificateInput.value = '';
+                privateKeyInput.value = '';
+                privateKeyPassphraseInput.value = '';
                 tokenEnvironmentInput.value = environmentSelect.value;
+                authenticationMethodSelect.value = authenticationMethods[environmentSelect.value] || 'token';
                 refreshEnvironmentDetails();
             };
 
             environmentSelect.addEventListener('change', changeEnvironment);
             contextNipInput.addEventListener('input', refreshTestAvailability);
-            authenticationMethodSelect.addEventListener('change', refreshTestAvailability);
+            authenticationMethodSelect.addEventListener('change', () => {
+                refreshAuthenticationFields();
+                refreshTestAvailability();
+            });
             tokenInput.addEventListener('input', refreshTestAvailability);
+            certificateInput.addEventListener('change', refreshTestAvailability);
+            privateKeyInput.addEventListener('change', refreshTestAvailability);
+            privateKeyPassphraseInput.addEventListener('input', refreshTestAvailability);
             tokenEnvironmentInput.value = environmentSelect.value;
             refreshEnvironmentDetails();
         })();

@@ -14,5 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->dontFlash('api_token');
+        $exceptions->dontFlash([
+            'api_token',
+            'authentication_private_key_passphrase',
+        ]);
     })->create();

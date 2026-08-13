@@ -25,6 +25,10 @@ class KsefConnectionTestService
             ['authentication_method' => KsefAuthenticationMethod::Token],
         );
 
+        if ($credential->authentication_method === KsefAuthenticationMethod::Certificate) {
+            return;
+        }
+
         if (! is_string($credential->api_token) || $credential->api_token === '') {
             $this->record(
                 $credential,

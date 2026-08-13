@@ -10,6 +10,7 @@ use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Http\Requests\UpdateKsefSettingsRequest;
+use Modules\Ksef\Services\KsefCertificateMaterialService;
 use Modules\Ksef\Services\KsefSettingsService;
 
 class KsefSettingsController extends Controller
@@ -22,6 +23,9 @@ class KsefSettingsController extends Controller
             'authenticationMethods' => KsefAuthenticationMethod::cases(),
             'zeroVatClassifications' => KsefZeroVatClassification::cases(),
             'tokenConfiguredByEnvironment' => $settingsService->tokenConfiguredByEnvironment(),
+            'certificateConfiguredByEnvironment' => $settingsService->certificateConfiguredByEnvironment(),
+            'certificateMetadataByEnvironment' => $settingsService->certificateMetadataByEnvironment(),
+            'authenticationMethodByEnvironment' => $settingsService->authenticationMethodByEnvironment(),
             'connectionStatusByEnvironment' => $settingsService->connectionStatusByEnvironment(),
             'series' => $settingsService->seriesForConfiguration(),
             'activeTab' => $request->query('tab') === 'series' ? 'series' : 'connection',
@@ -31,8 +35,28 @@ class KsefSettingsController extends Controller
     public function update(
         UpdateKsefSettingsRequest $request,
         KsefSettingsService $settingsService,
+        KsefCertificateMaterialService $certificateMaterialService,
     ): RedirectResponse {
-        $settingsService->update($request->validated());
+        $data = $request->validated();
+        $certificateMaterial = null;
+        $certificateFile = $request->file('authentication_certificate');
+        $privateKeyFile = $request->file('authentication_private_key');
+
+        if ($certificateFile !== null && $privateKeyFile !== null) {
+            $certificateMaterial = $certificateMaterialService->inspect(
+                $certificateFile->get(),
+                $privateKeyFile->get(),
+                $data['authentication_private_key_passphrase'] ?? null,
+            );
+        }
+
+        unset(
+            $data['authentication_certificate'],
+            $data['authentication_private_key'],
+            $data['authentication_private_key_passphrase'],
+        );
+
+        $settingsService->update($data, $certificateMaterial);
 
         return redirect()->route('integrations.ksef.edit');
     }

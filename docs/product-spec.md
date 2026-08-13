@@ -1173,7 +1173,7 @@ Konfiguracja KSeF nie wpływa na wystawione dokumenty, ich finalizację, snapsho
 - wysyłki dokumentów,
 - numeru i statusów KSeF,
 - UPO,
-- certyfikatów,
+- pozyskiwania i odnawiania certyfikatów KSeF,
 - trybów offline,
 - kodów QR KSeF,
 - tabeli `ksef_submissions`,
@@ -1189,7 +1189,15 @@ Brak `InvoiceWrite` jest ostrzeżeniem diagnostycznym, a nie błędem samego uwi
 
 Kontrakt techniczny opiera się na oficjalnych źródłach MF: [OpenAPI KSeF](https://github.com/CIRFMF/ksef-api/blob/main/open-api.json), [uwierzytelnianie](https://github.com/CIRFMF/ksef-docs/blob/main/uwierzytelnianie.md) i [historia zmian API](https://github.com/CIRFMF/ksef-api/blob/main/api-changelog.md).
 
-## 30.4. Audyt gotowości KSeF
+## 30.4. Import certyfikatu Authentication KSeF.2B.1
+
+Druga metoda uwierzytelnienia korzysta z certyfikatu Authentication importowanego wraz z odpowiadającym mu kluczem prywatnym osobno dla środowisk TEST, DEMO i PRODUCTION. Certyfikat oraz znormalizowany, niechroniony dodatkowym hasłem PEM klucza są szyfrowane przez Laravel w bazie; hasło pliku jest używane wyłącznie podczas importu i nie jest utrwalane. Zapis Tokena KSeF i materiału certyfikatu jest niezależny, a przełączenie aktywnej metody nie usuwa drugiego credentiala.
+
+Import wykonuje lokalne parsowanie X.509 i klucza, kryptograficzne dopasowanie pary, kontrolę okresu ważności, `Digital Signature` oraz parametrów RSA 2048 lub EC P-256. Certyfikat identyfikuje uwierzytelniającego, ale sam nie przenosi uprawnień ani nie jest lokalnie wiązany z NIP-em kontekstu. UI pokazuje wyłącznie bezpieczne metadane: ważność, typ klucza i fingerprint SHA-256. Zmiana metody albo materiału czyści runtime uwierzytelnienia i wynik testu danego środowiska, natomiast zmiana NIP-u zachowuje credentiale i czyści runtime wszystkich środowisk.
+
+KSeF.2B.1 nie generuje CSR, nie pobiera certyfikatu, nie implementuje XAdES ani `/auth/xades-signature` i nie wykonuje testu połączenia certyfikatem. Przycisk testu dla tej metody pozostaje wyłączony do KSeF.2B.2. Certyfikaty Offline, FA(3), sesje i wysyłka dokumentów pozostają poza zakresem.
+
+## 30.5. Audyt gotowości KSeF
 
 Po zakończeniu modułu faktur zostanie wykonany osobny audyt obejmujący:
 

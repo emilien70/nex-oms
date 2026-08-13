@@ -13,6 +13,8 @@ class KsefCredential extends Model
         'environment',
         'authentication_method',
         'api_token',
+        'authentication_certificate',
+        'authentication_private_key',
         'access_token',
         'access_token_valid_until',
         'refresh_token',
@@ -26,6 +28,8 @@ class KsefCredential extends Model
 
     protected $hidden = [
         'api_token',
+        'authentication_certificate',
+        'authentication_private_key',
         'access_token',
         'refresh_token',
     ];
@@ -34,6 +38,8 @@ class KsefCredential extends Model
         'environment' => KsefEnvironment::class,
         'authentication_method' => KsefAuthenticationMethod::class,
         'api_token' => 'encrypted',
+        'authentication_certificate' => 'encrypted',
+        'authentication_private_key' => 'encrypted',
         'access_token' => 'encrypted',
         'access_token_valid_until' => 'immutable_datetime',
         'refresh_token' => 'encrypted',
