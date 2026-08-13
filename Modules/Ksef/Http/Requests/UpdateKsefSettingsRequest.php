@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefZeroVatClassification;
 
 class UpdateKsefSettingsRequest extends FormRequest
 {
@@ -24,6 +25,7 @@ class UpdateKsefSettingsRequest extends FormRequest
             'authentication_method' => ['required', Rule::enum(KsefAuthenticationMethod::class)],
             'api_token' => ['nullable', 'string', 'max:4096'],
             'api_token_environment' => ['nullable', 'string'],
+            'is_active' => ['required', 'boolean'],
             'automatic_submission' => ['required', 'boolean'],
             'send_without_buyer_nip' => ['required', 'boolean'],
             'include_recipient_data' => ['required', 'boolean'],
@@ -32,7 +34,7 @@ class UpdateKsefSettingsRequest extends FormRequest
             'include_order_reference' => ['required', 'boolean'],
             'include_bank_account' => ['required', 'boolean'],
             'include_gtu' => ['required', 'boolean'],
-            'include_sale_date' => ['required', 'boolean'],
+            'zero_vat_classification' => ['required', Rule::enum(KsefZeroVatClassification::class)],
         ];
     }
 
@@ -67,6 +69,7 @@ class UpdateKsefSettingsRequest extends FormRequest
             'context_nip.regex' => 'NIP musi zawierać dokładnie 10 cyfr.',
             'environment.enum' => 'Wybierz prawidłowe środowisko KSeF.',
             'authentication_method.enum' => 'Wybierz prawidłową metodę uwierzytelnienia.',
+            'zero_vat_classification.enum' => 'Wybierz prawidłową klasyfikację stawki VAT 0%.',
         ];
     }
 

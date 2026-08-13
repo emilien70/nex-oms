@@ -1165,7 +1165,11 @@ integracja dopiero po pełnym sprawdzeniu faktur
 
 Moduł `Modules/Ksef` zawiera fundament konfiguracji KSeF. Tabela `ksef_settings` jest chronionym kluczem unikalnym singletonem dla całego OMS. Aktywne środowisko ma jedną z wartości `test`, `demo` lub `production`. Tabela `ksef_credentials` przechowuje osobny, szyfrowany token dla każdego środowiska; jest to techniczny podział danych uwierzytelniających jednej integracji, a nie model wielu integracji. Dostęp do konfiguracji i zachowanie istniejącego tokenu przy pustej aktualizacji centralizuje `KsefSettingsService`.
 
-Tabela `ksef_series_settings` przechowuje kwalifikację istniejących serii do przyszłego przekazywania dokumentów. Backend dopuszcza wyłącznie aktywne serie typu Faktura VAT i Korekta oraz odrzuca Pro formę. Globalne `automatic_submission` określa przyszły tryb automatyczny lub ręczny dla włączonych serii. Zapis konfiguracji nie modyfikuje `InvoiceSeries`, dokumentów, `finalized_at`, snapshotów ani PDF.
+`ksef_settings.is_active` jest domyślnie wyłączonym globalnym kill-switchem przyszłego workflow dokumentowego. Nie blokuje konfiguracji ani przyszłego testu credentiali. Tabela `ksef_series_settings` przechowuje kwalifikację istniejących serii do przyszłego przekazywania dokumentów. Backend dopuszcza wyłącznie aktywne serie typu Faktura VAT i Korekta oraz odrzuca Pro formę. Globalne `automatic_submission` określa przyszły tryb automatyczny lub ręczny dla włączonych serii.
+
+Enum `KsefZeroVatClassification` mapuje ustawienie `zero_vat_classification` na `wdt`, `export` albo `domestic`, z domyślnym `wdt`. To przyszły fallback FA(3) wyłącznie dla numerycznego VAT `0.00` bez jawnego `InvoiceItem.vat_code`; jawny kod ma pierwszeństwo. Planowane wartości FA(3) to `0 WDT`, `0 EX` i `0 KR`, przy czym konfiguracja nie stanowi potwierdzenia spełnienia warunków podatkowych WDT. Usunięto transportowe `include_sale_date`: przyszły mapper pobierze datę sprzedaży bezpośrednio z dokumentu.
+
+Zapis konfiguracji nie modyfikuje `InvoiceSeries`, dokumentów, pozycji, `vat_rate`, `vat_code`, `finalized_at`, snapshotów ani PDF.
 
 KSeF.1 nie wykonuje żadnych połączeń HTTP. Obecnie nie tworzymy:
 

@@ -9,6 +9,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
@@ -19,6 +20,7 @@ class KsefSettingsService
         'name',
         'environment',
         'context_nip',
+        'is_active',
         'automatic_submission',
         'send_without_buyer_nip',
         'include_recipient_data',
@@ -27,7 +29,7 @@ class KsefSettingsService
         'include_order_reference',
         'include_bank_account',
         'include_gtu',
-        'include_sale_date',
+        'zero_vat_classification',
     ];
 
     public function get(): KsefSetting
@@ -175,6 +177,7 @@ class KsefSettingsService
             'name' => 'KSeF',
             'environment' => KsefEnvironment::Test,
             'context_nip' => null,
+            'is_active' => false,
             'automatic_submission' => false,
             'send_without_buyer_nip' => false,
             'include_recipient_data' => false,
@@ -183,7 +186,7 @@ class KsefSettingsService
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
-            'include_sale_date' => true,
+            'zero_vat_classification' => KsefZeroVatClassification::Wdt,
         ];
     }
 

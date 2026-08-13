@@ -229,6 +229,7 @@ class KsefCredentialSecurityTest extends TestCase
             'context_nip' => '1234567890',
             'authentication_method' => 'token',
             'api_token' => '',
+            'is_active' => false,
             'automatic_submission' => false,
             'send_without_buyer_nip' => false,
             'include_recipient_data' => false,
@@ -237,7 +238,7 @@ class KsefCredentialSecurityTest extends TestCase
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
-            'include_sale_date' => true,
+            'zero_vat_classification' => 'wdt',
         ], $overrides);
 
         if (! array_key_exists('api_token_environment', $overrides)) {

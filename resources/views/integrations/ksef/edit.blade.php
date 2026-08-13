@@ -20,7 +20,6 @@
         'include_order_reference' => 'Przekazuj numer zamówienia',
         'include_bank_account' => 'Przekazuj rachunek bankowy',
         'include_gtu' => 'Przekazuj oznaczenia GTU',
-        'include_sale_date' => 'Przekazuj datę sprzedaży',
     ];
 @endphp
 
@@ -324,6 +323,18 @@
                             <h2 class="ksef-section-title" id="ksef-connection-heading">Połączenie z KSeF</h2>
 
                             <div class="ksef-field">
+                                <label for="ksef-is-active">Integracja KSeF aktywna</label>
+                                <div class="ksef-control">
+                                    <select class="form-select @error('is_active') is-invalid @enderror" id="ksef-is-active" name="is_active" required>
+                                        @foreach ($booleanOptions as $value => $optionLabel)
+                                            <option value="{{ $value }}" @selected((string) old('is_active', $settings->is_active ? '1' : '0') === (string) $value)>{{ $optionLabel }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('is_active')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-field">
                                 <label for="ksef-name">Nazwa integracji</label>
                                 <div class="ksef-control">
                                     <input class="form-control @error('name') is-invalid @enderror" id="ksef-name" name="name" type="text" maxlength="120" value="{{ old('name', $settings->name) }}" required>
@@ -398,6 +409,13 @@
                                     </button>
                                 </div>
                             </div>
+
+                            <div class="ksef-field">
+                                <span></span>
+                                <div class="ksef-environment-notice" role="note">
+                                    KSeF będzie obsługiwany bezpośrednio przez NEX-OMS. Nie konfiguruj równoległego automatycznego przekazywania tych samych Faktur do KSeF w innym systemie księgowym lub ERP.
+                                </div>
+                            </div>
                         </section>
 
                         <section class="ksef-section" aria-labelledby="ksef-submission-heading">
@@ -415,6 +433,20 @@
                                         @error($field)<div class="invalid-feedback">{{ $message }}</div>@enderror
                                     </div>
                                 </div>
+
+                                @if ($field === 'include_additional_information')
+                                    <div class="ksef-field">
+                                        <label for="ksef-zero-vat-classification">Traktuj stawkę VAT 0% jako</label>
+                                        <div class="ksef-control">
+                                            <select class="form-select @error('zero_vat_classification') is-invalid @enderror" id="ksef-zero-vat-classification" name="zero_vat_classification" required>
+                                                @foreach ($zeroVatClassifications as $classification)
+                                                    <option value="{{ $classification->value }}" @selected(old('zero_vat_classification', $settings->zero_vat_classification->value) === $classification->value)>{{ $classification->label() }}</option>
+                                                @endforeach
+                                            </select>
+                                            @error('zero_vat_classification')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                        </div>
+                                    </div>
+                                @endif
                             @endforeach
                         </section>
 

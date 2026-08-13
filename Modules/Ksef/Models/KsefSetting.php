@@ -4,6 +4,7 @@ namespace Modules\Ksef\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefZeroVatClassification;
 
 class KsefSetting extends Model
 {
@@ -14,6 +15,7 @@ class KsefSetting extends Model
         'name',
         'environment',
         'context_nip',
+        'is_active',
         'automatic_submission',
         'send_without_buyer_nip',
         'include_recipient_data',
@@ -22,11 +24,12 @@ class KsefSetting extends Model
         'include_order_reference',
         'include_bank_account',
         'include_gtu',
-        'include_sale_date',
+        'zero_vat_classification',
     ];
 
     protected $casts = [
         'environment' => KsefEnvironment::class,
+        'is_active' => 'boolean',
         'automatic_submission' => 'boolean',
         'send_without_buyer_nip' => 'boolean',
         'include_recipient_data' => 'boolean',
@@ -35,6 +38,6 @@ class KsefSetting extends Model
         'include_order_reference' => 'boolean',
         'include_bank_account' => 'boolean',
         'include_gtu' => 'boolean',
-        'include_sale_date' => 'boolean',
+        'zero_vat_classification' => KsefZeroVatClassification::class,
     ];
 }

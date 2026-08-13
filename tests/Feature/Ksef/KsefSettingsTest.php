@@ -4,11 +4,13 @@ namespace Tests\Feature\Ksef;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Models\KsefSetting;
 use Tests\TestCase;
 
@@ -34,12 +36,23 @@ class KsefSettingsTest extends TestCase
             ->assertSeeText('Środowisko testowe')
             ->assertSeeText('Środowisko przedprodukcyjne')
             ->assertSeeText('Środowisko produkcyjne')
+            ->assertSeeText('Integracja KSeF aktywna')
+            ->assertSeeText('Traktuj stawkę VAT 0% jako')
+            ->assertSeeText('WDT')
+            ->assertSeeText('Eksport towarów')
+            ->assertSeeText('Sprzedaż krajowa 0%')
+            ->assertSeeText('NEX-OMS')
+            ->assertSeeText('równoległego automatycznego przekazywania')
+            ->assertDontSeeText('Przekazuj datę sprzedaży')
             ->assertSee('name="_token"', false)
             ->assertSee('name="_method" value="PUT"', false)
             ->assertSeeText('Przetestuj połączenie')
             ->assertViewHas('environmentOptions', fn (array $options): bool => collect($options)
                 ->pluck('value')
-                ->all() === ['test', 'demo', 'production']);
+                ->all() === ['test', 'demo', 'production'])
+            ->assertViewHas('zeroVatClassifications', fn (array $options): bool => collect($options)
+                ->pluck('value')
+                ->all() === ['wdt', 'export', 'domestic']);
 
         $this->assertMatchesRegularExpression(
             '/<button(?=[^>]*data-ksef-tab="export")(?=[^>]*\bdisabled\b)[^>]*>/s',
@@ -55,12 +68,19 @@ class KsefSettingsTest extends TestCase
             'singleton_key' => KsefSetting::SINGLETON_KEY,
             'name' => 'KSeF',
             'environment' => 'test',
+            'is_active' => false,
             'automatic_submission' => false,
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
-            'include_sale_date' => true,
+            'zero_vat_classification' => 'wdt',
         ]);
+
+        $settings = KsefSetting::query()->firstOrFail();
+        $this->assertFalse($settings->is_active);
+        $this->assertSame(KsefZeroVatClassification::Wdt, $settings->zero_vat_classification);
+        $this->assertTrue(Schema::hasColumns('ksef_settings', ['is_active', 'zero_vat_classification']));
+        $this->assertFalse(Schema::hasColumn('ksef_settings', 'include_sale_date'));
     }
 
     public function test_repeated_saves_update_one_singleton_and_persist_each_environment(): void
@@ -124,6 +144,7 @@ class KsefSettingsTest extends TestCase
     public function test_all_basic_export_settings_are_persisted(): void
     {
         $this->put(route('integrations.ksef.update'), $this->payload([
+            'is_active' => true,
             'automatic_submission' => true,
             'send_without_buyer_nip' => true,
             'include_recipient_data' => true,
@@ -132,10 +153,11 @@ class KsefSettingsTest extends TestCase
             'include_order_reference' => false,
             'include_bank_account' => false,
             'include_gtu' => false,
-            'include_sale_date' => false,
+            'zero_vat_classification' => 'export',
         ]))->assertSessionDoesntHaveErrors();
 
         $this->assertDatabaseHas('ksef_settings', [
+            'is_active' => true,
             'automatic_submission' => true,
             'send_without_buyer_nip' => true,
             'include_recipient_data' => true,
@@ -144,8 +166,74 @@ class KsefSettingsTest extends TestCase
             'include_order_reference' => false,
             'include_bank_account' => false,
             'include_gtu' => false,
-            'include_sale_date' => false,
+            'zero_vat_classification' => 'export',
         ]);
+    }
+
+    public function test_integration_active_switch_persists_without_creating_another_singleton(): void
+    {
+        Http::preventStrayRequests();
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'is_active' => true,
+        ]))->assertSessionDoesntHaveErrors();
+
+        $this->assertTrue(KsefSetting::query()->firstOrFail()->is_active);
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'is_active' => false,
+        ]))->assertSessionDoesntHaveErrors();
+
+        $this->assertFalse(KsefSetting::query()->firstOrFail()->is_active);
+        $this->assertSame(1, KsefSetting::query()->count());
+    }
+
+    public function test_each_zero_vat_classification_is_persisted(): void
+    {
+        Http::preventStrayRequests();
+
+        foreach (KsefZeroVatClassification::cases() as $classification) {
+            $this->put(route('integrations.ksef.update'), $this->payload([
+                'zero_vat_classification' => $classification->value,
+            ]))->assertSessionDoesntHaveErrors();
+
+            $this->assertSame(
+                $classification,
+                KsefSetting::query()->firstOrFail()->zero_vat_classification,
+            );
+        }
+    }
+
+    public function test_invalid_zero_vat_classification_is_rejected_without_partial_update(): void
+    {
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'name' => 'Konfiguracja bazowa',
+        ]))->assertSessionDoesntHaveErrors();
+
+        foreach (['WDT', 'ex', 'export_goods', 'domestic_zero', 'abc'] as $classification) {
+            $before = KsefSetting::query()->firstOrFail()->getAttributes();
+
+            $this->from(route('integrations.ksef.edit'))
+                ->put(route('integrations.ksef.update'), $this->payload([
+                    'name' => 'Nie zapisuj '.$classification,
+                    'zero_vat_classification' => $classification,
+                ]))
+                ->assertRedirect(route('integrations.ksef.edit'))
+                ->assertSessionHasErrors('zero_vat_classification');
+
+            $this->assertSame($before, KsefSetting::query()->firstOrFail()->getAttributes());
+        }
+    }
+
+    public function test_removed_include_sale_date_is_ignored_by_a_crafted_request(): void
+    {
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'name' => 'Bez starego ustawienia',
+            'include_sale_date' => false,
+        ]))->assertSessionDoesntHaveErrors();
+
+        $this->assertDatabaseHas('ksef_settings', ['name' => 'Bez starego ustawienia']);
+        $this->assertFalse(Schema::hasColumn('ksef_settings', 'include_sale_date'));
     }
 
     public function test_saving_configuration_has_no_invoice_side_effects(): void
@@ -160,20 +248,44 @@ class KsefSettingsTest extends TestCase
             'number' => 'SAFE/1/2026',
             'lock_version' => 7,
             'buyer_snapshot' => ['name' => 'Nabywca historyczny'],
-            'finalized_at' => now(),
+            'tax_summary_snapshot' => [
+                '0' => ['net' => '100.00', 'vat' => '0.00', 'gross' => '100.00'],
+            ],
+            'total_net' => '100.00',
+            'total_vat' => '0.00',
+            'total_gross' => '100.00',
+            'paid_amount' => '0.00',
+            'amount_due' => '100.00',
         ]);
-        $before = $invoice->only([
-            'finalized_at',
-            'lock_version',
-            'buyer_snapshot',
-            'status',
+        $invoice->forceFill(['finalized_at' => now()])->saveQuietly();
+        $item = $invoice->items()->create([
+            'line_type' => 'product',
+            'position' => 1,
+            'name' => 'Produkt VAT 0%',
+            'quantity' => '1.0000',
+            'unit_price_net' => '100.0000',
+            'unit_price_gross' => '100.0000',
+            'total_net' => '100.00',
+            'total_vat' => '0.00',
+            'total_gross' => '100.00',
+            'vat_rate' => '0.00',
+            'vat_code' => null,
+            'product_snapshot' => ['name' => 'Produkt VAT 0%'],
         ]);
+        $before = $invoice->refresh()->getAttributes();
+        $itemBefore = $item->refresh()->getAttributes();
 
         Http::preventStrayRequests();
-        $this->put(route('integrations.ksef.update'), $this->payload())
-            ->assertSessionDoesntHaveErrors();
+        foreach (KsefZeroVatClassification::cases() as $classification) {
+            $this->put(route('integrations.ksef.update'), $this->payload([
+                'zero_vat_classification' => $classification->value,
+            ]))->assertSessionDoesntHaveErrors();
+        }
 
-        $this->assertSame($before, $invoice->refresh()->only(array_keys($before)));
+        $this->assertSame($before, $invoice->refresh()->getAttributes());
+        $this->assertSame($itemBefore, $item->refresh()->getAttributes());
+        $this->assertSame('0.00', $item->vat_rate);
+        $this->assertNull($item->vat_code);
     }
 
     public function test_configuration_routes_do_not_expose_multi_integration_crud(): void
@@ -191,6 +303,7 @@ class KsefSettingsTest extends TestCase
             'context_nip' => '1234567890',
             'authentication_method' => 'token',
             'api_token' => '',
+            'is_active' => false,
             'automatic_submission' => false,
             'send_without_buyer_nip' => false,
             'include_recipient_data' => false,
@@ -199,7 +312,7 @@ class KsefSettingsTest extends TestCase
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
-            'include_sale_date' => true,
+            'zero_vat_classification' => 'wdt',
         ], $overrides);
     }
 }

@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Http\Requests\UpdateKsefSettingsRequest;
 use Modules\Ksef\Services\KsefSettingsService;
 
@@ -19,6 +20,7 @@ class KsefSettingsController extends Controller
             'settings' => $settingsService->get(),
             'environmentOptions' => KsefEnvironment::cases(),
             'authenticationMethods' => KsefAuthenticationMethod::cases(),
+            'zeroVatClassifications' => KsefZeroVatClassification::cases(),
             'tokenConfiguredByEnvironment' => $settingsService->tokenConfiguredByEnvironment(),
             'series' => $settingsService->seriesForConfiguration(),
             'activeTab' => $request->query('tab') === 'series' ? 'series' : 'connection',

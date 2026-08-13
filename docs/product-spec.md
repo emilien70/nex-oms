@@ -1161,6 +1161,12 @@ NEX-OMS posiada jedną logiczną konfigurację KSeF dla całego systemu. Użytko
 
 Konfiguracja obejmuje jedną globalną politykę przyszłego przekazywania dokumentów oraz osobne wskazanie kwalifikujących się serii. Do KSeF można przypisać wyłącznie istniejące, aktywne serie Faktur VAT i Korekt. Pro forma jest wykluczona zarówno w interfejsie, jak i w walidacji backendu.
 
+Pole `is_active` jest globalnym przełącznikiem przyszłego workflow dokumentowego KSeF i domyślnie ma wartość `false`. Wyłączona integracja ma blokować przyszłe ręczne i automatyczne przekazywanie dokumentów, ale nie będzie warunkiem testowania credentiali ani połączenia.
+
+Pole `zero_vat_classification` ma wartości `wdt`, `export` albo `domestic` i domyślnie `wdt`. Jest wyłącznie fallbackiem przyszłego buildera FA(3) dla pozycji z numeryczną stawką VAT `0.00`, które nie mają jawnego `InvoiceItem.vat_code`; jawna klasyfikacja pozycji ma pierwszeństwo. Planowane mapowanie wynosi odpowiednio `0 WDT`, `0 EX` i `0 KR`. Wybór `wdt` nie potwierdza spełnienia prawnych warunków WDT.
+
+Ustawienie `include_sale_date` zostało usunięte. Data sprzedaży jest cechą dokumentu i w przyszłym FA(3) będzie mapowana z Faktury, a nie sterowana przełącznikiem transportowym.
+
 KSeF.1 nie wykonuje połączeń z API i nie wpływa na wystawione dokumenty, ich finalizację, snapshoty, numerację ani PDF. Bez kolejnych etapów nadal nie implementujemy:
 
 - API KSeF i uwierzytelniania zewnętrznego,
