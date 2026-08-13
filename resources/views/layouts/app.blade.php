@@ -1206,14 +1206,14 @@
                     </div>
                 </div>
                 <div class="sidebar-nav-item has-nav-flyout {{ request()->is('integrations*') ? 'is-open' : '' }}">
-                    <a class="nav-link {{ request()->is('integrations*') ? 'active' : '' }}" href="{{ route('integrations.couriers.index') }}" aria-label="Integracje" title="Integracje" aria-expanded="{{ request()->is('integrations*') ? 'true' : 'false' }}">
+                    <a class="nav-link {{ request()->is('integrations*') ? 'active' : '' }}" href="{{ route('integrations.index') }}" aria-label="Integracje" title="Integracje" aria-expanded="{{ request()->is('integrations*') ? 'true' : 'false' }}">
                         <span class="nav-initial nav-integrations-icon" aria-hidden="true"><i class="bi bi-plug"></i></span>
                         <span class="nav-text">Integracje</span>
                         <span class="nav-chevron" aria-hidden="true"></span>
                     </a>
                     <div class="nav-flyout">
                         <div class="nav-flyout-title">Integracje</div>
-                        <a class="nav-flyout-link" href="#">Lista integracji</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('integrations.index') ? 'active' : '' }}" href="{{ route('integrations.index') }}">Lista integracji</a>
                         <a class="nav-flyout-link {{ request()->routeIs('integrations.couriers.index') ? 'active' : '' }}" href="{{ route('integrations.couriers.index') }}">Kurierzy</a>
                     </div>
                 </div>

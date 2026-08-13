@@ -5,6 +5,7 @@ use App\Http\Controllers\Integrations\AllegroShippingParcelTemplateController;
 use App\Http\Controllers\Integrations\CourierIntegrationController;
 use App\Http\Controllers\Integrations\DpdParcelTemplateController;
 use App\Http\Controllers\Integrations\InPostCourierParcelTemplateController;
+use App\Http\Controllers\Integrations\IntegrationController;
 use App\Http\Controllers\OrderMetaController;
 use App\Http\Controllers\OrderProductController;
 use App\Http\Controllers\OrderScanController;
@@ -56,6 +57,7 @@ Route::get('/', function () {
 
 Route::get('/api/gus/company-by-nip', [GusCompanyController::class, 'show'])->name('gus.company-by-nip');
 
+Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
 Route::get('/integrations/couriers', [CourierIntegrationController::class, 'index'])->name('integrations.couriers.index');
 Route::get('/integrations/couriers/inpost-lockers', [CourierIntegrationController::class, 'editInPostLockers'])->name('integrations.couriers.inpost-lockers.edit');
 Route::put('/integrations/couriers/inpost-lockers', [CourierIntegrationController::class, 'updateInPostLockers'])->name('integrations.couriers.inpost-lockers.update');
