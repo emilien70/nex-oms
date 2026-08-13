@@ -10,8 +10,12 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Ksef\Enums\KsefAuthenticationMethod;
+use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
+use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefSettingsService;
 use Tests\TestCase;
 
 class KsefSettingsTest extends TestCase
@@ -92,6 +96,79 @@ class KsefSettingsTest extends TestCase
             'last_test_invoice_write',
             'last_system_warning',
         ]));
+    }
+
+    public function test_token_configuration_map_normalizes_cast_environments_to_string_keys(): void
+    {
+        KsefCredential::query()->create([
+            'environment' => KsefEnvironment::Test,
+            'authentication_method' => KsefAuthenticationMethod::Token,
+            'api_token' => 'TEST_API_TOKEN_DO_NOT_EXPOSE',
+        ]);
+        KsefCredential::query()->create([
+            'environment' => KsefEnvironment::Demo,
+            'authentication_method' => KsefAuthenticationMethod::Token,
+            'api_token' => null,
+        ]);
+
+        $this->assertSame([
+            'test' => true,
+            'demo' => false,
+            'production' => false,
+        ], app(KsefSettingsService::class)->tokenConfiguredByEnvironment());
+    }
+
+    public function test_token_configuration_map_recognizes_tokens_for_all_environments(): void
+    {
+        foreach (KsefEnvironment::cases() as $environment) {
+            KsefCredential::query()->create([
+                'environment' => $environment,
+                'authentication_method' => KsefAuthenticationMethod::Token,
+                'api_token' => strtoupper($environment->value).'_API_TOKEN_DO_NOT_EXPOSE',
+            ]);
+        }
+
+        $this->assertSame([
+            'test' => true,
+            'demo' => true,
+            'production' => true,
+        ], app(KsefSettingsService::class)->tokenConfiguredByEnvironment());
+    }
+
+    public function test_persisted_token_enables_connection_test_for_selected_environment(): void
+    {
+        $token = 'TEST_API_TOKEN_DO_NOT_EXPOSE';
+        $settings = app(KsefSettingsService::class)->get();
+        $settings->forceFill([
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => '1234567890',
+        ])->save();
+        KsefCredential::query()->create([
+            'environment' => KsefEnvironment::Test,
+            'authentication_method' => KsefAuthenticationMethod::Token,
+            'api_token' => $token,
+        ]);
+
+        $response = $this->get(route('integrations.ksef.edit'))
+            ->assertOk()
+            ->assertDontSee($token)
+            ->assertViewHas('tokenConfiguredByEnvironment', [
+                'test' => true,
+                'demo' => false,
+                'production' => false,
+            ]);
+
+        $html = $response->getContent();
+        preg_match('/<button(?=[^>]*data-ksef-test-button)[^>]*>/s', $html, $buttonMatch);
+        preg_match('/<div class="ksef-help" data-ksef-test-help>\s*(.*?)\s*<\/div>/s', $html, $helpMatch);
+
+        $this->assertArrayHasKey(0, $buttonMatch);
+        $this->assertStringNotContainsString('disabled', $buttonMatch[0]);
+        $this->assertArrayHasKey(1, $helpMatch);
+
+        $helpText = trim(html_entity_decode(strip_tags($helpMatch[1])));
+        $this->assertStringContainsString("Test po\u{0142}\u{0105}czenia u\u{017C}ywa zapisanej konfiguracji.", $helpText);
+        $this->assertStringNotContainsString('Najpierw zapisz Token KSeF.', $helpText);
     }
 
     public function test_repeated_saves_update_one_singleton_and_persist_each_environment(): void

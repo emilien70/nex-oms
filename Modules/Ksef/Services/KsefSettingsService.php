@@ -94,6 +94,7 @@ class KsefSettingsService
         $configured = KsefCredential::query()
             ->whereNotNull('api_token')
             ->pluck('environment')
+            ->map(fn (KsefEnvironment $environment): string => $environment->value)
             ->all();
 
         return collect(KsefEnvironment::cases())
