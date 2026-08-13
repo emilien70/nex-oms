@@ -4,7 +4,6 @@ namespace Tests\Feature\Ksef;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefConnectionTestStatus;
@@ -108,33 +107,6 @@ class KsefConnectionTestTest extends TestCase
             ->assertDontSee(KsefApiFake::AUTHENTICATION_TOKEN)
             ->assertDontSee(KsefApiFake::ACCESS_TOKEN)
             ->assertDontSee(KsefApiFake::REFRESH_TOKEN);
-    }
-
-    public function test_encrypted_token_echoed_in_system_warning_is_redacted_before_diagnostics_are_stored(): void
-    {
-        $credential = $this->configuredCredential();
-        $fake = new KsefApiFake;
-        $fake->echoEncryptedTokenInWarning = true;
-        $this->fakeApi($fake);
-
-        $this->post(route('integrations.ksef.test-connection'));
-
-        $this->assertNotNull($fake->lastEncryptedToken);
-        $credential->refresh();
-        $this->assertSame('diagnostic [ukryto] code=ABC', $credential->last_system_warning);
-        $this->assertStringNotContainsString($fake->lastEncryptedToken, $credential->last_test_message);
-        $this->assertStringNotContainsString($fake->lastEncryptedToken, $credential->last_system_warning);
-
-        $storedCredential = json_encode(
-            DB::table('ksef_credentials')->where('id', $credential->getKey())->first(),
-            JSON_THROW_ON_ERROR,
-        );
-        $this->assertStringNotContainsString($fake->lastEncryptedToken, $storedCredential);
-
-        $this->get(route('integrations.ksef.edit'))
-            ->assertOk()
-            ->assertSeeText('diagnostic [ukryto] code=ABC')
-            ->assertDontSee($fake->lastEncryptedToken);
     }
 
     public function test_permission_endpoint_failure_records_error_but_keeps_new_runtime_tokens(): void

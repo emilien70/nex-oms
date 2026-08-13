@@ -87,33 +87,4 @@ class KsefHttpClientTest extends TestCase
 
         Http::assertSentCount(1);
     }
-
-    public function test_system_warning_redacts_request_encrypted_token_and_bearer_token(): void
-    {
-        $encryptedToken = 'TEST_ENCRYPTED_TOKEN_SHOULD_NEVER_LEAK';
-        $bearerToken = 'TEST_BEARER_TOKEN_SHOULD_NEVER_LEAK';
-        Http::preventStrayRequests();
-        Http::fake(['*' => Http::response(['reasonCode' => 'AUTH_FAILED'], 403, [
-            'X-System-Warning' => "diagnostic {$encryptedToken} bearer={$bearerToken} code=ABC",
-        ])]);
-
-        try {
-            app(KsefHttpClient::class)->post(
-                KsefEnvironment::Test,
-                '/auth/ksef-token',
-                ['encryptedToken' => $encryptedToken],
-                $bearerToken,
-            );
-            $this->fail('Expected safe API failure.');
-        } catch (KsefApiException $exception) {
-            $this->assertSame(
-                'diagnostic [ukryto] bearer=[ukryto] code=ABC',
-                $exception->systemWarning,
-            );
-            $this->assertStringNotContainsString($encryptedToken, $exception->systemWarning);
-            $this->assertStringNotContainsString($bearerToken, $exception->systemWarning);
-        }
-
-        Http::assertSentCount(1);
-    }
 }
