@@ -442,7 +442,7 @@ class InvoiceCorrectionTest extends TestCase
 
         $this->get(route('invoices.corrections.edit', $correction))
             ->assertOk()
-            ->assertSeeText('Edycja korekty')
+            ->assertSeeText('Edycja korekty - '.$number)
             ->assertSee(route('invoices.corrections.update', $correction), false)
             ->assertSee(route('invoices.pdf', $correction), false)
             ->assertSee('data-correction-edit-actions', false)

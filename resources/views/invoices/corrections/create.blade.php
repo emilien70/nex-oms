@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', ($correction ? 'Edycja korekty' : 'Tworzenie korekty').' - NEX-OMS')
+@section('title', ($correction ? 'Edycja korekty '.$correction->number : 'Tworzenie korekty').' - NEX-OMS')
 
 @section('content')
     @php
@@ -85,7 +85,7 @@
     <main class="correction-page">
         <header class="correction-page-header">
             <div>
-                <h1>{{ $isEditing ? 'Edycja korekty' : 'Tworzenie korekty' }}</h1>
+                <h1>{{ $isEditing ? 'Edycja korekty - '.$correction->number : 'Tworzenie korekty' }}</h1>
                 <div>dla zamówienia <a href="{{ route('orders.show', $order) }}">{{ $sourceInvoice->order_reference_snapshot }}</a></div>
             </div>
             @if ($isEditing)
