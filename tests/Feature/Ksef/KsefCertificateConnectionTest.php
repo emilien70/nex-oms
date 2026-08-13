@@ -142,6 +142,34 @@ class KsefCertificateConnectionTest extends TestCase
             ->assertDontSee(KsefApiFake::REFRESH_TOKEN);
     }
 
+    public function test_malformed_init_never_persists_or_renders_partial_authentication_token(): void
+    {
+        $secret = 'FAKE_PARTIAL_AUTHENTICATION_TOKEN_SECRET';
+        $credential = $this->credential(KsefCertificateFixtureFactory::ec());
+        $fake = new KsefApiFake;
+        $fake->xadesInitResponse = [
+            'authenticationToken' => ['token' => $secret],
+        ];
+        $fake->warnings['/auth/xades-signature'] = 'warning '.$secret.' code=ABC';
+        $this->fakeApi($fake);
+
+        $this->post(route('integrations.ksef.test-connection'));
+
+        $credential->refresh();
+        $this->assertSame(KsefConnectionTestStatus::Error, $credential->last_test_status);
+        $this->assertSame('warning [ukryto] code=ABC', $credential->last_system_warning);
+        $this->assertStringNotContainsString($secret, (string) $credential->last_test_message);
+        $this->assertStringNotContainsString($secret, (string) $credential->last_system_warning);
+        $this->assertNull($credential->access_token);
+        $this->assertNull($credential->refresh_token);
+        $this->assertSame(0, $fake->statusCalls);
+        $this->assertSame(0, $fake->redeemCalls);
+        $this->get(route('integrations.ksef.edit'))
+            ->assertOk()
+            ->assertDontSee($secret)
+            ->assertSee('[ukryto]', false);
+    }
+
     private function credential(array $fixture, bool $isActive = true): KsefCredential
     {
         $settings = app(KsefSettingsService::class)->get();

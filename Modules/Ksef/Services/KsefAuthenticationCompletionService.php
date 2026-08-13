@@ -19,14 +19,17 @@ final class KsefAuthenticationCompletionService
         KsefEnvironment $environment,
         KsefAuthenticationMethod $method,
         array $initData,
-        array $warnings = [],
+        array &$warnings,
         array $knownSecrets = [],
     ): KsefTokenPair {
-        $referenceNumber = $this->requiredString($initData, 'referenceNumber');
-        $authenticationToken = $this->requiredString($initData, 'authenticationToken.token');
-        $secrets = [...$knownSecrets, $authenticationToken];
+        $secrets = [
+            ...$knownSecrets,
+            $this->optionalSecret($initData, 'authenticationToken.token'),
+        ];
 
         try {
+            $referenceNumber = $this->requiredString($initData, 'referenceNumber');
+            $authenticationToken = $this->requiredString($initData, 'authenticationToken.token');
             $this->waitForAuthentication(
                 $environment,
                 $method,
@@ -42,9 +45,13 @@ final class KsefAuthenticationCompletionService
                 bearerToken: $authenticationToken,
             );
             $this->addWarning($warnings, $redeemResponse->systemWarning);
+            $secrets = [
+                ...$secrets,
+                $this->optionalSecret($redeemResponse->data, 'accessToken.token'),
+                $this->optionalSecret($redeemResponse->data, 'refreshToken.token'),
+            ];
             $accessToken = $this->requiredString($redeemResponse->data, 'accessToken.token');
             $refreshToken = $this->requiredString($redeemResponse->data, 'refreshToken.token');
-            $secrets = [...$secrets, $accessToken, $refreshToken];
 
             return new KsefTokenPair(
                 $accessToken,
@@ -55,6 +62,8 @@ final class KsefAuthenticationCompletionService
             );
         } catch (KsefApiException $exception) {
             $this->addWarning($warnings, $exception->systemWarning);
+            $systemWarning = $this->joinedWarnings($warnings, $secrets);
+            $warnings = $systemWarning === null ? [] : [$systemWarning];
 
             throw new KsefApiException(
                 $exception->getMessage(),
@@ -62,7 +71,7 @@ final class KsefAuthenticationCompletionService
                 $exception->httpStatus,
                 $exception->reasonCode,
                 $exception->retryAfterSeconds,
-                $this->joinedWarnings($warnings, $secrets),
+                $systemWarning,
             );
         }
     }
@@ -162,6 +171,13 @@ final class KsefAuthenticationCompletionService
         }
 
         return $value;
+    }
+
+    private function optionalSecret(array $data, string $path): ?string
+    {
+        $value = data_get($data, $path);
+
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function requiredDate(array $data, string $path): CarbonImmutable

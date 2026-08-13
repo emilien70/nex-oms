@@ -110,15 +110,21 @@ class KsefCertificateAuthenticationTest extends TestCase
 
     public function test_malformed_init_response_does_not_poll_or_redeem(): void
     {
+        $secret = 'FAKE_PARTIAL_AUTHENTICATION_TOKEN_SECRET';
         $credential = $this->credential(KsefCertificateFixtureFactory::ec());
         $fake = $this->fakeApi();
-        $fake->xadesInitResponse = ['referenceNumber' => 'AUTH-REFERENCE'];
+        $fake->xadesInitResponse = [
+            'authenticationToken' => ['token' => $secret],
+        ];
+        $fake->warnings['/auth/xades-signature'] = 'warning '.$secret.' code=ABC';
 
         try {
             app(KsefCertificateAuthenticationService::class)->authenticate($credential, '1234567890');
             $this->fail('Expected malformed init response.');
         } catch (KsefApiException $exception) {
             $this->assertSame('auth_response_incomplete', $exception->safeCode);
+            $this->assertSame('warning [ukryto] code=ABC', $exception->systemWarning);
+            $this->assertStringNotContainsString($secret, (string) $exception->systemWarning);
         }
 
         $this->assertSame(0, $fake->statusCalls);
@@ -163,28 +169,56 @@ class KsefCertificateAuthenticationTest extends TestCase
         $this->assertNull($credential->refresh_token);
     }
 
-    public function test_incomplete_redeem_response_does_not_persist_partial_runtime_tokens(): void
-    {
+    #[DataProvider('malformedRedeemResponses')]
+    public function test_malformed_redeem_redacts_present_secrets_without_partial_runtime(
+        string $case,
+        string $secret,
+        string $expectedCode,
+    ): void {
         $credential = $this->credential(KsefCertificateFixtureFactory::ec());
         $fake = $this->fakeApi();
-        $fake->redeemResponse = [
-            'accessToken' => [
-                'token' => KsefApiFake::ACCESS_TOKEN,
-                'validUntil' => now()->addMinutes(15)->toIso8601String(),
-            ],
-        ];
+        $fake->redeemResponse = $this->malformedRedeemResponse($case, $secret);
+        $fake->warnings['/auth/token/redeem'] = 'warning '.$secret.' code=ABC';
 
         try {
             app(KsefCertificateAuthenticationService::class)->authenticate($credential, '1234567890');
             $this->fail('Expected incomplete redeem response.');
         } catch (KsefApiException $exception) {
-            $this->assertSame('auth_response_incomplete', $exception->safeCode);
+            $this->assertSame($expectedCode, $exception->safeCode);
+            $this->assertSame('warning [ukryto] code=ABC', $exception->systemWarning);
+            $this->assertStringNotContainsString($secret, (string) $exception->systemWarning);
         }
 
         $this->assertSame(1, $fake->redeemCalls);
         $credential->refresh();
         $this->assertNull($credential->access_token);
         $this->assertNull($credential->refresh_token);
+    }
+
+    public static function malformedRedeemResponses(): array
+    {
+        return [
+            'access token present, refresh token missing' => [
+                'missing_refresh',
+                'FAKE_PARTIAL_ACCESS_TOKEN_SECRET',
+                'auth_response_incomplete',
+            ],
+            'refresh token present, access token missing' => [
+                'missing_access',
+                'FAKE_PARTIAL_REFRESH_TOKEN_SECRET',
+                'auth_response_incomplete',
+            ],
+            'access token present, access validity malformed' => [
+                'invalid_access_validity',
+                'FAKE_ACCESS_TOKEN_VALIDITY_SECRET',
+                'token_validity_invalid',
+            ],
+            'refresh token present, refresh validity malformed' => [
+                'invalid_refresh_validity',
+                'FAKE_REFRESH_TOKEN_VALIDITY_SECRET',
+                'token_validity_invalid',
+            ],
+        ];
     }
 
     public function test_invalid_stored_certificate_material_fails_before_http(): void
@@ -281,5 +315,28 @@ class KsefCertificateAuthenticationTest extends TestCase
         Http::fake(fn (Request $request) => $fake($request));
 
         return $fake;
+    }
+
+    private function malformedRedeemResponse(string $case, string $secret): array
+    {
+        $validUntil = now()->addMinutes(15)->toIso8601String();
+
+        return match ($case) {
+            'missing_refresh' => [
+                'accessToken' => ['token' => $secret, 'validUntil' => $validUntil],
+            ],
+            'missing_access' => [
+                'accessToken' => ['validUntil' => $validUntil],
+                'refreshToken' => ['token' => $secret, 'validUntil' => $validUntil],
+            ],
+            'invalid_access_validity' => [
+                'accessToken' => ['token' => $secret, 'validUntil' => 'NOT-A-DATE'],
+                'refreshToken' => ['token' => KsefApiFake::REFRESH_TOKEN, 'validUntil' => $validUntil],
+            ],
+            'invalid_refresh_validity' => [
+                'accessToken' => ['token' => KsefApiFake::ACCESS_TOKEN, 'validUntil' => $validUntil],
+                'refreshToken' => ['token' => $secret, 'validUntil' => 'NOT-A-DATE'],
+            ],
+        };
     }
 }
