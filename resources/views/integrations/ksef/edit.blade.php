@@ -354,8 +354,16 @@
                                         maxlength="4096"
                                         autocomplete="new-password"
                                         placeholder="Wartość ukryta — wprowadź nową, aby zmienić"
+                                        data-ksef-api-token
+                                    >
+                                    <input
+                                        name="api_token_environment"
+                                        type="hidden"
+                                        value="{{ $selectedEnvironment }}"
+                                        data-ksef-token-environment
                                     >
                                     @error('api_token')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                    @error('api_token_environment')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
                                     <div class="ksef-token-status" data-ksef-token-status aria-live="polite"></div>
                                 </div>
                             </div>
@@ -423,9 +431,11 @@
         (() => {
             const environmentSelect = document.querySelector('[data-ksef-environment]');
             const notice = document.querySelector('[data-ksef-environment-notice]');
+            const tokenInput = document.querySelector('[data-ksef-api-token]');
+            const tokenEnvironmentInput = document.querySelector('[data-ksef-token-environment]');
             const tokenStatus = document.querySelector('[data-ksef-token-status]');
 
-            if (!environmentSelect || !notice || !tokenStatus) {
+            if (!environmentSelect || !notice || !tokenInput || !tokenEnvironmentInput || !tokenStatus) {
                 return;
             }
 
@@ -440,7 +450,14 @@
                     : 'Token nie został jeszcze skonfigurowany dla wybranego środowiska.';
             };
 
-            environmentSelect.addEventListener('change', refreshEnvironmentDetails);
+            const changeEnvironment = () => {
+                tokenInput.value = '';
+                tokenEnvironmentInput.value = environmentSelect.value;
+                refreshEnvironmentDetails();
+            };
+
+            environmentSelect.addEventListener('change', changeEnvironment);
+            tokenEnvironmentInput.value = environmentSelect.value;
             refreshEnvironmentDetails();
         })();
     </script>

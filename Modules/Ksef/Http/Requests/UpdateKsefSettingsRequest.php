@@ -4,6 +4,7 @@ namespace Modules\Ksef\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 
@@ -22,6 +23,7 @@ class UpdateKsefSettingsRequest extends FormRequest
             'context_nip' => ['required', 'regex:/^\d{10}$/'],
             'authentication_method' => ['required', Rule::enum(KsefAuthenticationMethod::class)],
             'api_token' => ['nullable', 'string', 'max:4096'],
+            'api_token_environment' => ['nullable', 'string'],
             'automatic_submission' => ['required', 'boolean'],
             'send_without_buyer_nip' => ['required', 'boolean'],
             'include_recipient_data' => ['required', 'boolean'],
@@ -31,6 +33,30 @@ class UpdateKsefSettingsRequest extends FormRequest
             'include_bank_account' => ['required', 'boolean'],
             'include_gtu' => ['required', 'boolean'],
             'include_sale_date' => ['required', 'boolean'],
+        ];
+    }
+
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                if (! filled($this->input('api_token'))) {
+                    return;
+                }
+
+                $environment = $this->input('environment');
+                $tokenEnvironment = $this->input('api_token_environment');
+
+                if (! is_string($environment)
+                    || ! is_string($tokenEnvironment)
+                    || KsefEnvironment::tryFrom($tokenEnvironment) === null
+                    || $tokenEnvironment !== $environment) {
+                    $validator->errors()->add(
+                        'api_token_environment',
+                        'Token KSeF nie odpowiada wybranemu środowisku. Wprowadź token ponownie.',
+                    );
+                }
+            },
         ];
     }
 
