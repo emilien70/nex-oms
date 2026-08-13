@@ -78,7 +78,7 @@ class KsefHttpClient
             );
         }
 
-        return $this->parseResponse($response, $bearerToken);
+        return $this->parseResponse($response, $this->requestSecrets($payload, $bearerToken));
     }
 
     private function request(KsefEnvironment $environment): PendingRequest
@@ -91,9 +91,9 @@ class KsefHttpClient
             ->timeout((int) config('ksef.request_timeout_seconds', 15));
     }
 
-    private function parseResponse(Response $response, ?string $bearerToken): KsefApiResponse
+    private function parseResponse(Response $response, array $requestSecrets): KsefApiResponse
     {
-        $systemWarning = $this->systemWarning($response, $bearerToken);
+        $systemWarning = $this->systemWarning($response, $requestSecrets);
         $data = $response->json();
 
         if ($response->successful()) {
@@ -177,12 +177,24 @@ class KsefHttpClient
         return (int) $header;
     }
 
-    private function systemWarning(Response $response, ?string $bearerToken): ?string
+    private function requestSecrets(?array $payload, ?string $bearerToken): array
+    {
+        $secrets = array_filter([
+            $bearerToken,
+            $payload['encryptedToken'] ?? null,
+        ], fn (mixed $secret): bool => is_string($secret) && $secret !== '');
+
+        usort($secrets, fn (string $left, string $right): int => strlen($right) <=> strlen($left));
+
+        return array_values(array_unique($secrets));
+    }
+
+    private function systemWarning(Response $response, array $requestSecrets): ?string
     {
         $warning = trim((string) $response->header('X-System-Warning'));
 
-        if (filled($bearerToken)) {
-            $warning = str_replace($bearerToken, '[ukryto]', $warning);
+        if ($requestSecrets !== []) {
+            $warning = str_replace($requestSecrets, '[ukryto]', $warning);
         }
 
         return $warning === '' ? null : mb_substr($warning, 0, 2000);

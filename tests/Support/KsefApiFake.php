@@ -34,6 +34,10 @@ final class KsefApiFake
 
     public bool $isTokenRedeemed = false;
 
+    public bool $echoEncryptedTokenInWarning = false;
+
+    public ?string $lastEncryptedToken = null;
+
     public readonly PrivateKey $privateKey;
 
     public readonly string $certificate;
@@ -80,6 +84,12 @@ final class KsefApiFake
         }
 
         if (str_ends_with($path, '/auth/ksef-token')) {
+            if ($this->echoEncryptedTokenInWarning) {
+                $encryptedToken = $request->data()['encryptedToken'] ?? null;
+                $this->lastEncryptedToken = is_string($encryptedToken) ? $encryptedToken : null;
+                $headers['X-System-Warning'] = 'diagnostic '.$this->lastEncryptedToken.' code=ABC';
+            }
+
             return Http::response([
                 'referenceNumber' => 'AUTH-REFERENCE',
                 'authenticationToken' => [
