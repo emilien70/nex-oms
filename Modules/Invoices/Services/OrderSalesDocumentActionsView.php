@@ -16,6 +16,7 @@ class OrderSalesDocumentActionsView
      *     issuedInvoice: ?Invoice,
      *     issuedProforma: ?Invoice,
      *     issuedCorrection: ?Invoice,
+     *     finalizedCorrections: Collection<int, Invoice>,
      *     proformaLocked: bool,
      *     invoiceSeries: Collection<int, InvoiceSeries>,
      *     proformaSeries: Collection<int, InvoiceSeries>
@@ -31,8 +32,13 @@ class OrderSalesDocumentActionsView
                 InvoiceDocumentType::Proforma,
                 InvoiceDocumentType::Correction,
             ])
+            ->orderBy('issued_at')
+            ->orderBy('id')
             ->get()
-            ->keyBy(fn (Invoice $invoice): string => $invoice->document_type->value);
+            ->groupBy(fn (Invoice $invoice): string => $invoice->document_type->value);
+        $corrections = $documents->get(InvoiceDocumentType::Correction->value, collect());
+        $issuedInvoice = $documents->get(InvoiceDocumentType::Invoice->value, collect())->first();
+        $issuedProforma = $documents->get(InvoiceDocumentType::Proforma->value, collect())->first();
 
         $series = InvoiceSeries::query()
             ->where('is_active', true)
@@ -47,12 +53,20 @@ class OrderSalesDocumentActionsView
             ->groupBy(fn (InvoiceSeries $item): string => $item->document_type->value);
 
         return [
-            'issuedInvoice' => $documents->get(InvoiceDocumentType::Invoice->value),
-            'issuedProforma' => $documents->get(InvoiceDocumentType::Proforma->value),
-            'issuedCorrection' => $documents->get(InvoiceDocumentType::Correction->value),
-            'proformaLocked' => (bool) $documents
-                ->get(InvoiceDocumentType::Proforma->value)
-                ?->isProformaSuperseded(),
+            'issuedInvoice' => $issuedInvoice,
+            'issuedProforma' => $issuedProforma,
+            'issuedCorrection' => $corrections->first(
+                static fn (Invoice $correction): bool => ! $correction->isFinalized(),
+            ),
+            'finalizedCorrections' => $corrections
+                ->filter(static fn (Invoice $correction): bool => $correction->isFinalized())
+                ->sortByDesc(fn (Invoice $correction): string => sprintf(
+                    '%020d:%020d',
+                    $correction->issued_at?->getTimestamp() ?? 0,
+                    $correction->getKey(),
+                ))
+                ->values(),
+            'proformaLocked' => (bool) $issuedProforma?->isProformaSuperseded(),
             'invoiceSeries' => $series->get(InvoiceDocumentType::Invoice->value, collect()),
             'proformaSeries' => $series->get(InvoiceDocumentType::Proforma->value, collect()),
         ];

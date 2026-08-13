@@ -22,6 +22,7 @@ class InvoiceDeletionService
 {
     public function __construct(
         private readonly InvoiceDeletionPolicy $policy,
+        private readonly CorrectionSourceStateService $sourceState,
         private readonly InvoiceNumberingService $numbering,
         private readonly InvoicePdfStorage $pdfStorage,
     ) {}
@@ -41,6 +42,12 @@ class InvoiceDeletionService
                 $managedInvoice = Invoice::query()
                     ->lockForUpdate()
                     ->findOrFail($invoice->getKey());
+                if ($managedInvoice->isCorrection() && $managedInvoice->corrected_invoice_id !== null) {
+                    $managedInvoice->setRelation(
+                        'correctedInvoice',
+                        Invoice::query()->lockForUpdate()->find($managedInvoice->corrected_invoice_id),
+                    );
+                }
                 $slot = OrderDocumentSlot::query()
                     ->where('order_id', $managedOrder->getKey())
                     ->where('document_type', $managedInvoice->document_type)
@@ -160,8 +167,25 @@ class InvoiceDeletionService
                     ->get()
                     ->keyBy('id');
 
+                $rootInvoices = $documentType === InvoiceDocumentType::Correction
+                    ? Invoice::query()
+                        ->whereIntegerInRaw(
+                            'id',
+                            $invoices->pluck('corrected_invoice_id')->filter()->unique()->values()->all(),
+                        )
+                        ->orderBy('id')
+                        ->lockForUpdate()
+                        ->get()
+                        ->keyBy('id')
+                    : collect();
+
                 if ($documentType === InvoiceDocumentType::Correction) {
-                    $invoices->load('correctedInvoice');
+                    $invoices->each(function (Invoice $invoice) use ($rootInvoices): void {
+                        $invoice->setRelation(
+                            'correctedInvoice',
+                            $rootInvoices->get($invoice->corrected_invoice_id),
+                        );
+                    });
                 }
 
                 $slots = OrderDocumentSlot::query()
@@ -324,12 +348,39 @@ class InvoiceDeletionService
         ?OrderDocumentSlot $slot,
         Collection $corrections,
     ): ?OrderDocumentSlot {
-        if ($slot !== null || ! $invoice->isCorrection() || $invoice->corrected_invoice_id === null) {
+        if (! $invoice->isCorrection()) {
             return $slot;
         }
 
-        if ($corrections->count() !== 1 || ! $corrections->first()->is($invoice)) {
-            return null;
+        $source = $invoice->relationLoaded('correctedInvoice')
+            ? $invoice->correctedInvoice
+            : null;
+
+        if (! $source instanceof Invoice) {
+            return $slot;
+        }
+
+        try {
+            $chain = $this->sourceState->resolveChain($source, $corrections, $slot);
+        } catch (InvoiceDomainException $exception) {
+            if (! in_array($exception->errorCode(), [
+                'correction_chain_inconsistent',
+                'correction_document_slot_inconsistent',
+            ], true)) {
+                throw $exception;
+            }
+
+            throw new InvoiceDomainException(
+                'correction_delete_inconsistent_document',
+                'Nie można usunąć Korekty, ponieważ jej dane lub powiązania są niespójne.',
+                previous: $exception,
+            );
+        }
+
+        if (! $chain->legacyCurrentWithoutSlot
+            || $chain->currentCorrection === null
+            || ! $chain->currentCorrection->is($invoice)) {
+            return $chain->slot;
         }
 
         return OrderDocumentSlot::query()->create([

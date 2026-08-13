@@ -10,8 +10,14 @@ use Modules\Invoices\Models\OrderDocumentSlot;
 
 class InvoiceEditabilityPolicy
 {
+    public function __construct(
+        private readonly InvoiceMutationPolicy $mutationPolicy,
+    ) {}
+
     public function assertEditable(Invoice $invoice): void
     {
+        $this->mutationPolicy->assertContentMutable($invoice);
+
         if ($invoice->document_type !== InvoiceDocumentType::Invoice
             || $invoice->status !== InvoiceDocumentStatus::Issued) {
             throw new InvoiceDomainException(

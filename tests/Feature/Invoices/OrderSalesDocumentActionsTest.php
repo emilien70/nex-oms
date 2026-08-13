@@ -6,8 +6,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
+use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionService;
+use Modules\Invoices\Services\CorrectionSourceStateService;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Invoices\Services\ProformaService;
@@ -126,6 +129,7 @@ class OrderSalesDocumentActionsTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $invoice,
             $correctionSeries,
+            $invoice->getKey(),
             $invoice->lock_version,
             [
                 'correction_series_id' => $correctionSeries->getKey(),
@@ -160,5 +164,60 @@ class OrderSalesDocumentActionsTest extends TestCase
         $this->assertStringContainsString('data-bs-target="#deleteCorrectionFromOrderModal"', $html);
         $this->assertStringContainsString(route('invoices.destroy', $correction), $html);
         $this->assertSame(2, substr_count($html, 'data-sales-document-number'));
+    }
+
+    public function test_finalized_correction_history_and_current_correction_are_presented_separately(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Correction);
+        $first = $this->issueBuyerCorrection($invoice, $series, 'Pierwszy nabywca');
+        app(InvoiceFinalizationService::class)->finalize($first);
+        $second = $this->issueBuyerCorrection($invoice, $series, 'Drugi nabywca');
+
+        $html = app(OrderSalesDocumentActionsView::class)->render($order);
+
+        $this->assertStringContainsString($first->number, $html);
+        $this->assertStringContainsString($second->number, $html);
+        $this->assertStringContainsString('Otwórz zamkniętą Korektę', $html);
+        $this->assertStringContainsString('Edytuj Korekt', $html);
+        $this->assertSame(1, substr_count($html, 'data-bs-target="#deleteCorrectionFromOrderModal"'));
+        $this->assertStringNotContainsString('data-bs-target="#deleteCorrectionFromOrderModal-'.$first->getKey().'"', $html);
+    }
+
+    private function issueBuyerCorrection(Invoice $invoice, InvoiceSeries $series, string $buyerName): Invoice
+    {
+        $effective = app(CorrectionSourceStateService::class)->chain($invoice)
+            ->effectiveSourceDocument;
+
+        return app(CorrectionService::class)->issue(
+            $invoice,
+            $series,
+            $effective->getKey(),
+            $effective->lock_version,
+            [
+                'correction_series_id' => $series->getKey(),
+                'reason' => CorrectionReason::BuyerDataUpdate->value,
+                'other_reason' => null,
+                'issue_date' => '2026-08-05',
+                'sale_date' => '2026-07-20',
+                'payment_method' => 'Przelew',
+                'issuer_name' => 'Tester korekty',
+                'additional_information' => null,
+                'change_items' => false,
+                'change_buyer' => true,
+                'items' => [],
+                'buyer' => array_merge($effective->buyer_snapshot, [
+                    'name' => $buyerName,
+                    'company_name' => null,
+                ]),
+            ],
+            $this->documentContext('2026-08-05 10:00:00'),
+        );
     }
 }

@@ -11,6 +11,8 @@ use Modules\Invoices\Http\Requests\UpdateInvoiceBuyerRequest;
 use Modules\Invoices\Http\Requests\UpdateInvoiceDetailsRequest;
 use Modules\Invoices\Http\Requests\UpdateInvoiceRecipientRequest;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\CorrectionSeriesResolver;
+use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\InvoiceEditabilityPolicy;
 use Modules\Invoices\Services\InvoiceEditAjaxResponder;
 use Modules\Invoices\Services\InvoiceEditCurrencyConversionService;
@@ -27,6 +29,8 @@ class InvoiceEditController extends Controller
         InvoiceEditabilityPolicy $policy,
         InvoiceEditCurrencyConversionService $currency,
         InvoiceEditViewModelFactory $viewModels,
+        CorrectionSourceStateService $sourceState,
+        CorrectionSeriesResolver $correctionSeries,
     ): View {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
@@ -34,12 +38,17 @@ class InvoiceEditController extends Controller
             $policy->assertEditable($invoice);
             $currency->assertSnapshotUsableForAnyEdit($invoice);
         } catch (InvoiceDomainException $exception) {
-            if ($exception->errorCode() === 'invoice_edit_blocked_by_correction') {
-                $correction = Invoice::query()->findOrFail($exception->metadata()['correction_id']);
+            if (in_array($exception->errorCode(), [
+                'invoice_edit_blocked_by_correction',
+                'invoice_finalized',
+            ], true)) {
+                $chain = $sourceState->chain($invoice);
 
                 return view('invoices.edit-blocked-by-correction', [
                     'invoice' => $invoice,
-                    'correction' => $correction,
+                    'currentCorrection' => $chain->currentCorrection,
+                    'latestFinalizedCorrection' => $chain->finalizedTail,
+                    'correctionSeries' => $correctionSeries->active(),
                     'returnContext' => $returnContext,
                 ]);
             }

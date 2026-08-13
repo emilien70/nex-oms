@@ -540,6 +540,7 @@ class InvoiceCorrectionTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $source,
             $series,
+            $source->getKey(),
             $source->lock_version,
             $this->payload($series, ['change_items' => true, 'items' => $items]),
             $this->documentContext('2026-08-05 10:00:00'),
@@ -585,6 +586,7 @@ class InvoiceCorrectionTest extends TestCase
             app(CorrectionService::class)->issue(
                 $source,
                 $this->systemCorrectionSeries(),
+                $source->getKey(),
                 $source->lock_version,
                 $this->payload($this->systemCorrectionSeries(), [
                     'change_items' => true,
@@ -612,6 +614,7 @@ class InvoiceCorrectionTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $source,
             $this->systemCorrectionSeries(),
+            $source->getKey(),
             $source->lock_version,
             $this->payload($this->systemCorrectionSeries(), [
                 'change_items' => true,
@@ -649,6 +652,7 @@ class InvoiceCorrectionTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $source,
             $this->systemCorrectionSeries(),
+            $source->getKey(),
             $source->lock_version,
             $this->payload($this->systemCorrectionSeries(), [
                 'change_items' => true,
@@ -675,6 +679,7 @@ class InvoiceCorrectionTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $source,
             $this->systemCorrectionSeries(),
+            $source->getKey(),
             $source->lock_version,
             $this->payload($this->systemCorrectionSeries(), ['change_items' => true, 'items' => $items]),
             $this->documentContext('2026-08-05 10:00:00'),
@@ -719,6 +724,7 @@ class InvoiceCorrectionTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $source,
             $this->systemCorrectionSeries(),
+            $source->getKey(),
             $source->lock_version,
             $this->payload($this->systemCorrectionSeries(), ['change_items' => true, 'items' => $items]),
             $this->documentContext('2026-08-05 10:00:00'),
@@ -817,6 +823,7 @@ class InvoiceCorrectionTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $source,
             $series,
+            $source->getKey(),
             $source->lock_version,
             $this->payload($series, ['change_items' => true, 'items' => $items]),
             $this->documentContext('2026-08-05 10:00:00'),
@@ -1374,11 +1381,11 @@ class InvoiceCorrectionTest extends TestCase
             'buyer' => array_merge($invoice->buyer_snapshot, ['name' => 'Pierwsza zmiana']),
         ]);
 
-        $first = $service->issue($invoice, $series, $invoice->lock_version, $data, $this->documentContext('2026-08-05 10:00:00'));
+        $first = $service->issue($invoice, $series, $invoice->getKey(), $invoice->lock_version, $data, $this->documentContext('2026-08-05 10:00:00'));
         $data['buyer']['name'] = 'Druga zmiana';
 
         try {
-            $service->issue($invoice, $series, $invoice->lock_version + 1, $data, $this->documentContext('2026-08-05 10:01:00'));
+            $service->issue($invoice, $series, $invoice->getKey(), $invoice->lock_version + 1, $data, $this->documentContext('2026-08-05 10:01:00'));
             $this->fail('Druga Korekta nie powinna zostać utworzona.');
         } catch (InvoiceDomainException $exception) {
             $this->assertSame('correction_already_exists', $exception->errorCode());
@@ -1582,6 +1589,7 @@ class InvoiceCorrectionTest extends TestCase
         return app(CorrectionService::class)->issue(
             $invoice,
             $series,
+            $invoice->getKey(),
             $invoice->lock_version,
             $this->payload($series, [
                 'change_buyer' => true,
@@ -1655,6 +1663,10 @@ class InvoiceCorrectionTest extends TestCase
     private function payload(InvoiceSeries $series, array $overrides = []): array
     {
         return array_replace_recursive([
+            'expected_source_document_id' => Invoice::query()
+                ->where('document_type', InvoiceDocumentType::Invoice)
+                ->latest('id')
+                ->value('id') ?? 1,
             'expected_source_lock_version' => 1,
             'correction_series_id' => $series->getKey(),
             'reason' => CorrectionReason::InvoiceError->value,

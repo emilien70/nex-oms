@@ -11,6 +11,10 @@ use Modules\Invoices\ValueObjects\InvoiceDeletionFacts;
 
 class InvoiceDeletionPolicy
 {
+    public function __construct(
+        private readonly InvoiceMutationPolicy $mutationPolicy,
+    ) {}
+
     public function assertHasOrderReference(Invoice $invoice): void
     {
         if ($invoice->order_id === null) {
@@ -34,6 +38,8 @@ class InvoiceDeletionPolicy
                 'Usunąć można wyłącznie wystawioną Fakturę VAT, aktywną Pro formę albo Korektę.',
             );
         }
+
+        $this->mutationPolicy->assertContentMutable($invoice);
 
         if ($invoice->lock_version !== $expectedLockVersion) {
             if ($invoice->isCorrection()) {
@@ -78,7 +84,7 @@ class InvoiceDeletionPolicy
         }
 
         if ($invoice->isCorrection()) {
-            $this->assertCorrectionRelations($invoice, $facts?->hasOtherCorrection);
+            $this->assertCorrectionRelations($invoice);
         }
 
         if ($slot === null
@@ -105,7 +111,7 @@ class InvoiceDeletionPolicy
         );
     }
 
-    private function assertCorrectionRelations(Invoice $invoice, ?bool $hasOtherCorrection): void
+    private function assertCorrectionRelations(Invoice $invoice): void
     {
         $source = $invoice->relationLoaded('correctedInvoice')
             ? $invoice->correctedInvoice
@@ -118,14 +124,5 @@ class InvoiceDeletionPolicy
             throw $this->inconsistent($invoice);
         }
 
-        $hasOtherCorrection ??= Invoice::query()
-            ->where('order_id', $invoice->order_id)
-            ->where('document_type', InvoiceDocumentType::Correction)
-            ->whereKeyNot($invoice->getKey())
-            ->exists();
-
-        if ($invoice->previous_correction_id !== null || $hasOtherCorrection) {
-            throw $this->inconsistent($invoice);
-        }
     }
 }

@@ -471,11 +471,16 @@
                                 $buyer = $invoice->buyer_snapshot ?? [];
                                 $buyerName = $buyer['company_name'] ?? $buyer['name'] ?? $invoice->buyer_name_snapshot ?? '—';
                                 $orderNumber = $invoice->order_id ?? $invoice->order_reference_snapshot;
-                                $deleteBlockedMessage = $isProformaList
-                                    && ($invoice->proforma_superseded_at !== null || $invoice->superseded_by_invoice_id !== null)
-                                        ? 'Do Pro Forma została już wystawiona Faktura VAT.'
-                                        : null;
-                                $currentCorrection = $isInvoiceList ? $invoice->corrections->first() : null;
+                                $deleteBlockedMessage = match (true) {
+                                    $invoice->isFinalized() => $invoice->isCorrection()
+                                        ? 'Korekta została zamknięta i nie może zostać usunięta.'
+                                        : 'Dokument został zamknięty i nie może zostać usunięty.',
+                                    $isProformaList && ($invoice->proforma_superseded_at !== null || $invoice->superseded_by_invoice_id !== null) => 'Do Pro Forma została już wystawiona Faktura VAT.',
+                                    default => null,
+                                };
+                                $currentCorrection = $isInvoiceList
+                                    ? $invoice->corrections->first(fn ($correction) => ! $correction->isFinalized())
+                                    : null;
                                 $documentEditRouteParameters = match (true) {
                                     $isCorrectionList => ['correction' => $invoice, ...$returnContext->parameters()],
                                     $isInvoiceList => ['invoice' => $invoice, ...$returnContext->parameters()],

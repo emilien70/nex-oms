@@ -281,6 +281,7 @@ class CorrectionSeriesSourceResolutionTest extends TestCase
         return app(CorrectionService::class)->issue(
             $source,
             $series,
+            $source->getKey(),
             $source->lock_version,
             $this->payload($source, $series, $overrides),
             $this->documentContext('2026-08-05 10:00:00'),
@@ -291,6 +292,7 @@ class CorrectionSeriesSourceResolutionTest extends TestCase
     private function payload(Invoice $source, InvoiceSeries $series, array $overrides = []): array
     {
         return array_replace_recursive([
+            'expected_source_document_id' => $source->getKey(),
             'expected_source_lock_version' => $source->lock_version,
             'correction_series_id' => $series->getKey(),
             'reason' => CorrectionReason::InvoiceError->value,

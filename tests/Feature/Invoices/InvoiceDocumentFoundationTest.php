@@ -42,6 +42,7 @@ class InvoiceDocumentFoundationTest extends TestCase
             'sale_date',
             'payment_due_date',
             'issued_at',
+            'finalized_at',
             'lock_version',
             'source_snapshot_hash',
             'last_refreshed_at',
@@ -165,6 +166,9 @@ class InvoiceDocumentFoundationTest extends TestCase
         $this->assertNull($invoice->sequence_number);
         $this->assertNull($invoice->numbering_period_key);
         $this->assertSame(1, $invoice->lock_version);
+        $this->assertNull($invoice->finalized_at);
+        $this->assertFalse($invoice->isFinalized());
+        $this->assertNotContains('finalized_at', $invoice->getFillable());
         $this->assertNull($invoice->source_snapshot_hash);
         $this->assertSame('PLN', $invoice->currency);
         $this->assertSame('0.00', $invoice->total_gross);

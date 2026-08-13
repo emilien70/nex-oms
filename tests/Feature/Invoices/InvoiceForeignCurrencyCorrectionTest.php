@@ -15,6 +15,7 @@ use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\InvoiceCurrencyConversionService;
 use Modules\Invoices\Services\InvoiceEditService;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\Services\InvoicePdfRenderer;
@@ -193,6 +194,7 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         $correction = app(CorrectionService::class)->issue(
             $source->fresh('items'),
             $this->correctionSeries(),
+            $source->getKey(),
             $source->lock_version,
             $this->payload([
                 'change_buyer' => true,
@@ -241,6 +243,7 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
             app(CorrectionService::class)->issue(
                 $source,
                 $this->correctionSeries(),
+                $source->getKey(),
                 $staleVersion,
                 $this->payload([
                     'change_items' => true,
@@ -400,6 +403,32 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         $this->assertSame([], $correction->tax_metadata_snapshot);
     }
 
+    public function test_second_foreign_correction_uses_effective_after_state_and_root_historical_rate(): void
+    {
+        Http::preventStrayRequests();
+        $source = $this->foreignSource([['gross' => '100.00', 'vat_rate' => '0.00']]);
+        $firstItems = $this->submittedItems($source);
+        $firstItems[0]['unit_price_gross'] = '75.00';
+        $first = $this->issueItemCorrection($source, $firstItems, '2026-08-05');
+        app(InvoiceFinalizationService::class)->finalize($first);
+
+        $secondItems = $this->submittedItems($source);
+        $secondItems[0]['unit_price_gross'] = '50.00';
+        $second = $this->issueItemCorrection($source, $secondItems, '2026-08-06');
+        $product = $second->items->sole();
+
+        $this->assertSame($first->getKey(), $second->previous_correction_id);
+        $this->assertSame($source->getKey(), $second->corrected_invoice_id);
+        $this->assertSame('75.0000', (string) data_get($product->correction_before_snapshot, 'unit_price_gross'));
+        $this->assertSame('50.0000', (string) data_get($product->correction_after_snapshot, 'unit_price_gross'));
+        $this->assertSame('-25.0000', (string) data_get($product->correction_difference_snapshot, 'unit_price_gross'));
+        $this->assertSame('-25.00', $second->total_gross);
+        $this->assertSame('-108.55', $second->tax_metadata_snapshot['converted_tax_summary']['total_gross']);
+        $this->assertSame('4.342000', $second->tax_metadata_snapshot['currency_conversion']['rate']);
+        $this->assertSame('137/A/NBP/2026', $second->tax_metadata_snapshot['currency_conversion']['table_number']);
+        Http::assertNothingSent();
+    }
+
     /** @param array<int, array{gross: string, vat_rate: string}> $items */
     private function sourceInvoice(array $items): Invoice
     {
@@ -473,10 +502,13 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
     /** @param array<int, array<string, mixed>> $items */
     private function issueItemCorrection(Invoice $source, array $items, string $issueDate = '2026-08-05'): Invoice
     {
+        $state = app(CorrectionSourceStateService::class)->chain($source);
+
         return app(CorrectionService::class)->issue(
             $source,
             $this->correctionSeries(),
-            $source->lock_version,
+            $state->effectiveSourceDocument->getKey(),
+            $state->effectiveSourceDocument->lock_version,
             $this->payload([
                 'issue_date' => $issueDate,
                 'change_items' => true,

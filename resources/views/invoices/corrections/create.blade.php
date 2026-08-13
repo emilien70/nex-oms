@@ -78,6 +78,7 @@
         .correction-current-data dt { font-weight:500; }
         .correction-current-data dd { margin:0; }
         .correction-page-actions { display:flex; gap:10px; justify-content:flex-end; }
+        .correction-readonly-fields { border:0; margin:0; min-width:0; padding:0; }
         [hidden] { display:none !important; }
         @media(max-width:991.98px){.correction-page{margin:-1rem;padding:12px}.correction-page-header{align-items:flex-start;flex-direction:column;gap:12px}.correction-document-actions{max-width:100%;overflow-x:auto}.correction-fields{margin-left:0;max-width:none}.correction-field,.correction-option{grid-template-columns:1fr;gap:4px}.correction-field>label,.correction-option-label{text-align:left}.correction-field-with-help>label{justify-content:flex-start}.correction-buyer-grid{grid-template-columns:1fr}.correction-buyer-field{grid-template-columns:1fr;gap:4px}.correction-buyer-field label{text-align:left}.correction-item-editor-grid{grid-template-columns:1fr 1fr}.correction-page h1{font-size:22px}}
     </style>
@@ -104,13 +105,21 @@
                     </div>
                     <button class="btn" type="button" disabled title="Wgrywanie dokumentów nie jest jeszcze dostępne." aria-label="Wgrywanie dokumentów nie jest jeszcze dostępne"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
                     <button class="btn" type="button" disabled title="Integracja KSeF nie jest jeszcze dostępna." aria-label="Integracja KSeF nie jest jeszcze dostępna"><i class="bi bi-eraser-fill me-1"></i>Przekaż do KSeF</button>
-                    <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#correctionDeleteModal" title="Usuń Korektę" aria-label="Usuń Korektę"><i class="bi bi-trash me-1"></i>Usuń</button>
+                    @if (! $isReadOnly)
+                        <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#correctionDeleteModal" title="Usuń Korektę" aria-label="Usuń Korektę"><i class="bi bi-trash me-1"></i>Usuń</button>
+                    @endif
                     <a class="btn" data-correction-back-button href="{{ $backUrl }}"><i class="bi bi-reply me-1"></i>Powrót</a>
                 </div>
             @else
                 <a class="btn btn-outline-secondary rounded-pill" data-correction-back-button href="{{ $backUrl }}"><i class="bi bi-reply me-1"></i>Powrót</a>
             @endif
         </header>
+
+        @if ($isEditing && $isReadOnly)
+            <div class="alert alert-info" role="alert" data-finalized-correction-notice>
+                Korekta została zamknięta i nie może być edytowana.
+            </div>
+        @endif
 
         @if ($errors->any())
             <div class="alert alert-danger">
@@ -121,7 +130,7 @@
             </div>
         @endif
 
-        @if ($isEditing)
+        @if ($isEditing && ! $isReadOnly)
             @include('invoices.partials.delete-modal', [
                 'invoice' => $correction,
                 'modalId' => 'correctionDeleteModal',
@@ -140,9 +149,11 @@
                 @method('PATCH')
                 <input type="hidden" name="expected_lock_version" value="{{ $correction->lock_version }}">
             @else
-                <input type="hidden" name="expected_source_lock_version" value="{{ old('expected_source_lock_version', $sourceInvoice->lock_version) }}">
+                <input type="hidden" name="expected_source_document_id" value="{{ old('expected_source_document_id', $effectiveSource->id) }}">
+                <input type="hidden" name="expected_source_lock_version" value="{{ old('expected_source_lock_version', $effectiveSource->lock_version) }}">
             @endif
 
+            <fieldset class="correction-readonly-fields" @disabled($isEditing && $isReadOnly)>
             <section class="correction-card">
                 <h2 class="correction-card-title">Faktura korygująca</h2>
                 <div class="correction-fields">
@@ -278,9 +289,12 @@
                     </div>
                 </div>
             </section>
+            </fieldset>
 
             <div class="correction-page-actions">
-                <button class="btn btn-primary rounded-pill px-4" type="submit">{{ $isEditing ? 'Zapisz' : 'Stwórz korektę' }}</button>
+                @if (! $isEditing || ! $isReadOnly)
+                    <button class="btn btn-primary rounded-pill px-4" type="submit">{{ $isEditing ? 'Zapisz' : 'Stwórz korektę' }}</button>
+                @endif
                 <a class="btn btn-outline-secondary rounded-pill px-4" href="{{ $backUrl }}">Anuluj</a>
             </div>
         </form>

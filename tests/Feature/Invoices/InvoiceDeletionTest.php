@@ -14,6 +14,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceNumberCounter;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Models\OrderDocumentSlot;
+use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\InvoiceDeletionPolicy;
 use Modules\Invoices\Services\InvoiceDeletionService;
 use Modules\Invoices\Services\InvoiceIssuingService;
@@ -815,7 +816,7 @@ class InvoiceDeletionTest extends TestCase
             ->where('invoice_series_id', $invoiceSeries->getKey())
             ->firstOrFail();
         $eventsBefore = $order->events()->count();
-        $service = new class(app(InvoiceDeletionPolicy::class), app(InvoiceNumberingService::class), app(InvoicePdfStorage::class)) extends InvoiceDeletionService
+        $service = new class(app(InvoiceDeletionPolicy::class), app(CorrectionSourceStateService::class), app(InvoiceNumberingService::class), app(InvoicePdfStorage::class)) extends InvoiceDeletionService
         {
             protected function afterNumberReleased(Invoice $invoice): void
             {

@@ -51,6 +51,7 @@ class CorrectionDraftRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'expected_source_document_id' => ['required', 'integer', 'min:1'],
             'expected_source_lock_version' => ['required', 'integer', 'min:1'],
             'correction_series_id' => ['required', 'integer', 'exists:invoice_series,id'],
             'reason' => ['required', Rule::enum(CorrectionReason::class)],
@@ -125,6 +126,9 @@ class CorrectionDraftRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'expected_source_document_id.required' => 'Brakuje technicznego identyfikatora korygowanego źródła.',
+            'expected_source_document_id.integer' => 'Techniczny identyfikator korygowanego źródła jest nieprawidłowy.',
+            'expected_source_document_id.min' => 'Techniczny identyfikator korygowanego źródła jest nieprawidłowy.',
             'expected_source_lock_version.required' => 'Brakuje technicznej wersji blokady korygowanej Faktury.',
             'expected_source_lock_version.integer' => 'Techniczna wersja blokady korygowanej Faktury jest nieprawidłowa.',
             'expected_source_lock_version.min' => 'Techniczna wersja blokady korygowanej Faktury jest nieprawidłowa.',

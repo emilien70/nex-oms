@@ -66,6 +66,7 @@ class Invoice extends Model
         'sale_date' => 'date',
         'payment_due_date' => 'date',
         'issued_at' => 'datetime',
+        'finalized_at' => 'datetime',
         'last_refreshed_at' => 'datetime',
         'proforma_superseded_at' => 'datetime',
         'lock_version' => 'integer',
@@ -168,5 +169,10 @@ class Invoice extends Model
     public function isProformaSuperseded(): bool
     {
         return $this->isProforma() && $this->proforma_superseded_at !== null;
+    }
+
+    public function isFinalized(): bool
+    {
+        return $this->finalized_at !== null;
     }
 }

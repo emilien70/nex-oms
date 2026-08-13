@@ -2,6 +2,8 @@
     $issuedInvoice = $salesDocumentActions['issuedInvoice'];
     $issuedProforma = $salesDocumentActions['issuedProforma'];
     $issuedCorrection = $salesDocumentActions['issuedCorrection'];
+    $finalizedCorrections = $salesDocumentActions['finalizedCorrections'];
+    $hasCorrections = $issuedCorrection !== null || $finalizedCorrections->isNotEmpty();
     $proformaLocked = $salesDocumentActions['proformaLocked'];
     $invoiceSeries = $salesDocumentActions['invoiceSeries'];
     $proformaSeries = $salesDocumentActions['proformaSeries'];
@@ -24,20 +26,24 @@
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.edit', ['invoice' => $issuedInvoice, 'return_to' => 'order']) }}" title="Edytuj Fakturę VAT" aria-label="Edytuj Fakturę VAT">
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                 </a>
-                <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" data-bs-toggle="modal" data-bs-target="#deleteInvoiceFromOrderModal" title="Usuń Fakturę VAT" aria-label="Usuń Fakturę VAT">
-                    <i class="bi bi-x-lg" aria-hidden="true"></i>
-                </button>
+                @unless ($issuedInvoice->isFinalized() || $hasCorrections)
+                    <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" data-bs-toggle="modal" data-bs-target="#deleteInvoiceFromOrderModal" title="Usuń Fakturę VAT" aria-label="Usuń Fakturę VAT">
+                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    </button>
+                @endunless
             </div>
             <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-attachment" type="button" title="Wgrywanie dokumentu nie jest jeszcze dostępne" aria-label="Wgrywanie dokumentu nie jest jeszcze dostępne" disabled>
                 <i class="bi bi-paperclip" aria-hidden="true"></i>
             </button>
         </div>
-        @include('invoices.partials.delete-modal', [
-            'invoice' => $issuedInvoice,
-            'modalId' => 'deleteInvoiceFromOrderModal',
-            'ajax' => true,
-            'returnTo' => 'order',
-        ])
+        @unless ($issuedInvoice->isFinalized() || $hasCorrections)
+            @include('invoices.partials.delete-modal', [
+                'invoice' => $issuedInvoice,
+                'modalId' => 'deleteInvoiceFromOrderModal',
+                'ajax' => true,
+                'returnTo' => 'order',
+            ])
+        @endunless
     @else
         @if ($invoiceSeries->count() === 1)
             <form method="POST" action="{{ route('orders.invoice.store', $order) }}" class="management-document-action management-invoice-button" data-sales-document-form>
@@ -112,8 +118,28 @@
         @endif
     @endif
 
-    @if ($issuedCorrection)
+    @if ($issuedCorrection || $finalizedCorrections->isNotEmpty())
         <div class="management-invoice-label management-correction-label">Korekta:</div>
+    @endif
+
+    @foreach ($finalizedCorrections as $finalizedCorrection)
+        <div class="management-issued-invoice-actions management-issued-correction-actions">
+            <div class="btn-group management-issued-invoice-group" role="group" aria-label="Akcje zamkniętej Korekty {{ $finalizedCorrection->number }}">
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-number" href="{{ route('invoices.pdf', $finalizedCorrection) }}" target="_blank" rel="noopener" title="Otwórz zamkniętą Korektę" data-sales-document-number>
+                    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                    <span>{{ $finalizedCorrection->number }}</span>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print" href="{{ route('invoices.pdf', $finalizedCorrection) }}" target="_blank" rel="noopener" title="Drukuj Korektę" aria-label="Drukuj Korektę">
+                    <i class="bi bi-printer" aria-hidden="true"></i>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.corrections.edit', ['correction' => $finalizedCorrection, 'return_to' => 'order']) }}" title="Otwórz zamkniętą Korektę" aria-label="Otwórz zamkniętą Korektę">
+                    <i class="bi bi-eye" aria-hidden="true"></i>
+                </a>
+            </div>
+        </div>
+    @endforeach
+
+    @if ($issuedCorrection)
         <div class="management-issued-invoice-actions management-issued-correction-actions">
             <div class="btn-group management-issued-invoice-group" role="group" aria-label="Akcje Korekty {{ $issuedCorrection->number }}">
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-number" href="{{ route('invoices.pdf', $issuedCorrection) }}" target="_blank" rel="noopener" title="Otw&oacute;rz Korekt&#281;" data-sales-document-number>

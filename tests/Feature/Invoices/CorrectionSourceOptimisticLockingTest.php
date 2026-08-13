@@ -27,6 +27,7 @@ class CorrectionSourceOptimisticLockingTest extends TestCase
 
         $this->get(route('invoices.corrections.create', $source))
             ->assertOk()
+            ->assertSee('name="expected_source_document_id" value="'.$source->getKey().'"', false)
             ->assertSee('name="expected_source_lock_version" value="1"', false);
 
         $correction = $this->issueBuyerCorrection($source, $source->lock_version);
@@ -132,6 +133,7 @@ class CorrectionSourceOptimisticLockingTest extends TestCase
             app(CorrectionService::class)->issue(
                 $source,
                 $series,
+                $source->getKey(),
                 $staleVersion,
                 $this->itemCorrectionPayload($source, $staleItems),
                 $this->documentContext('2026-08-05 10:00:00'),
@@ -157,6 +159,7 @@ class CorrectionSourceOptimisticLockingTest extends TestCase
             app(CorrectionService::class)->issue(
                 $source,
                 $this->correctionSeries(),
+                $source->getKey(),
                 $source->lock_version + 1,
                 $this->buyerCorrectionPayload($source),
                 $this->documentContext('2026-08-05 10:00:00'),
@@ -193,6 +196,7 @@ class CorrectionSourceOptimisticLockingTest extends TestCase
         return app(CorrectionService::class)->issue(
             $source,
             $this->correctionSeries(),
+            $source->getKey(),
             $expectedSourceLockVersion,
             $this->buyerCorrectionPayload($source),
             $this->documentContext('2026-08-05 10:00:00'),
@@ -203,6 +207,7 @@ class CorrectionSourceOptimisticLockingTest extends TestCase
     private function buyerCorrectionPayload(Invoice $source, array $overrides = []): array
     {
         return array_replace_recursive([
+            'expected_source_document_id' => $source->getKey(),
             'expected_source_lock_version' => $source->lock_version,
             'correction_series_id' => $this->correctionSeries()->getKey(),
             'reason' => CorrectionReason::BuyerDataUpdate->value,

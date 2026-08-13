@@ -15,6 +15,7 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Models\OrderDocumentSlot;
+use Modules\Invoices\ValueObjects\CorrectionChainState;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
 
 class CorrectionService
@@ -34,6 +35,7 @@ class CorrectionService
         private readonly CorrectionStateComparator $stateComparator,
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
         private readonly InvoiceFinancialValueValidator $financial,
+        private readonly InvoiceMutationPolicy $mutationPolicy,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -41,11 +43,21 @@ class CorrectionService
     {
         return DB::transaction(function () use ($correction, $data): Invoice {
             Order::query()->lockForUpdate()->findOrFail($correction->order_id);
-            $managed = Invoice::query()->lockForUpdate()->findOrFail($correction->getKey());
-            $this->assertEditableCorrection($managed, $data);
-
-            $source = Invoice::query()->lockForUpdate()->findOrFail($managed->corrected_invoice_id);
+            $source = Invoice::query()->lockForUpdate()->findOrFail($correction->corrected_invoice_id);
             $this->sourceState->assertSourceInvoice($source);
+            $chain = $this->sourceState->chain($source, true);
+            $managed = $chain->corrections->first(
+                static fn (Invoice $candidate): bool => $candidate->getKey() === $correction->getKey(),
+            );
+
+            if (! $managed instanceof Invoice) {
+                throw new InvoiceDomainException(
+                    'correction_edit_inconsistent',
+                    'Nie można edytować Korekty, ponieważ jej slot lub powiązania są niespójne.',
+                );
+            }
+
+            $this->assertEditableCorrection($managed, $data, $chain);
 
             $buyerBefore = data_get($managed->order_snapshot, 'correction.buyer_before');
             if (! is_array($buyerBefore)) {
@@ -142,6 +154,7 @@ class CorrectionService
     public function issue(
         Invoice $sourceInvoice,
         InvoiceSeries $series,
+        int $expectedSourceDocumentId,
         int $expectedSourceLockVersion,
         array $data,
         InvoiceOperationContext $context,
@@ -149,15 +162,14 @@ class CorrectionService
         $this->sourceState->assertSourceInvoice($sourceInvoice);
         $this->assertSeries($series);
 
-        return DB::transaction(function () use ($sourceInvoice, $series, $expectedSourceLockVersion, $data, $context): Invoice {
+        return DB::transaction(function () use ($sourceInvoice, $series, $expectedSourceDocumentId, $expectedSourceLockVersion, $data, $context): Invoice {
             $managedOrder = Order::query()->lockForUpdate()->findOrFail($sourceInvoice->order_id);
             $source = Invoice::query()->lockForUpdate()->findOrFail($sourceInvoice->getKey());
-            $managedSeries = InvoiceSeries::query()->lockForUpdate()->findOrFail($series->getKey());
             $this->sourceState->assertSourceInvoice($source);
-            $this->assertSeries($managedSeries);
             $source->setRelation('order', $managedOrder);
+            $chain = $this->sourceState->chain($source, true);
 
-            $currentCorrection = $this->sourceState->currentCorrection($source, true);
+            $currentCorrection = $chain->currentCorrection;
             if ($currentCorrection !== null) {
                 throw new InvoiceDomainException(
                     'correction_already_exists',
@@ -166,16 +178,19 @@ class CorrectionService
                 );
             }
 
-            if ($source->lock_version !== $expectedSourceLockVersion) {
+            $effective = $chain->effectiveSourceDocument;
+            if ($effective->getKey() !== $expectedSourceDocumentId
+                || $effective->lock_version !== $expectedSourceLockVersion) {
                 throw new InvoiceDomainException(
                     'correction_source_changed',
                     'Korygowana Faktura została w międzyczasie zmieniona. Odśwież formularz Korekty i ponownie sprawdź dane.',
                 );
             }
 
-            $effective = $source;
-            $effectiveItems = $this->sourceState->effectiveItems($source, true);
-            $buyerBefore = $this->sourceState->effectiveBuyer($source, true);
+            $managedSeries = InvoiceSeries::query()->lockForUpdate()->findOrFail($series->getKey());
+            $this->assertSeries($managedSeries);
+            $effectiveItems = $this->sourceState->effectiveItems($source, true, $chain);
+            $buyerBefore = $this->sourceState->effectiveBuyer($source, true, $chain);
             $buyerAfter = $data['change_buyer']
                 ? $this->buyerAfter($buyerBefore, (array) ($data['buyer'] ?? []))
                 : $buyerBefore;
@@ -206,7 +221,7 @@ class CorrectionService
                 $managedSeries,
                 $issueDate->toDateString(),
             );
-            $orderSnapshot = $this->orderSnapshot($source, $buyerBefore);
+            $orderSnapshot = $this->orderSnapshot($source, $chain->finalizedTail, $buyerBefore);
             $settings = $this->seriesSettingsSnapshot($source, $managedSeries);
             $buyerName = $this->partyName($buyerAfter);
             $slot = $this->lockCorrectionSlot($managedOrder, $source);
@@ -222,7 +237,7 @@ class CorrectionService
                 'issued_at' => null,
                 'lock_version' => 1,
                 'corrected_invoice_id' => $source->getKey(),
-                'previous_correction_id' => null,
+                'previous_correction_id' => $chain->finalizedTail?->getKey(),
                 'correction_reason' => $reason,
                 'correction_totals_snapshot' => [
                     'source_invoice' => [
@@ -338,8 +353,13 @@ class CorrectionService
     }
 
     /** @param array<string, mixed> $data */
-    private function assertEditableCorrection(Invoice $correction, array $data): void
-    {
+    private function assertEditableCorrection(
+        Invoice $correction,
+        array $data,
+        CorrectionChainState $chain,
+    ): void {
+        $this->mutationPolicy->assertContentMutable($correction);
+
         if ($correction->document_type !== InvoiceDocumentType::Correction
             || $correction->status !== InvoiceDocumentStatus::Issued
             || $correction->number === null) {
@@ -349,8 +369,7 @@ class CorrectionService
             );
         }
 
-        $source = $correction->correctedInvoice()->first();
-        if ($source === null || ! $this->sourceState->currentCorrection($source, true)?->is($correction)) {
+        if ($chain->currentCorrection === null || ! $chain->currentCorrection->is($correction)) {
             throw new InvoiceDomainException(
                 'correction_edit_inconsistent',
                 'Nie można edytować Korekty, ponieważ jej slot lub powiązania są niespójne.',
@@ -789,8 +808,11 @@ class CorrectionService
     }
 
     /** @return array<string, mixed> */
-    private function orderSnapshot(Invoice $source, array $buyerBefore): array
-    {
+    private function orderSnapshot(
+        Invoice $source,
+        ?Invoice $previousCorrection,
+        array $buyerBefore,
+    ): array {
         $snapshot = is_array($source->order_snapshot) ? $source->order_snapshot : [];
         $snapshot['corrected_invoice'] = [
             'invoice_id' => $source->getKey(),
@@ -798,8 +820,8 @@ class CorrectionService
             'issue_date' => $source->issue_date?->toDateString(),
         ];
         $snapshot['correction'] = [
-            'previous_correction_id' => null,
-            'previous_correction_number' => null,
+            'previous_correction_id' => $previousCorrection?->getKey(),
+            'previous_correction_number' => $previousCorrection?->number,
             'buyer_before' => $buyerBefore,
         ];
 

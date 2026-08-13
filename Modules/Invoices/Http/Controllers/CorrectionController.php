@@ -62,6 +62,7 @@ class CorrectionController extends Controller
             $correction = $service->issue(
                 $invoice,
                 $series,
+                $request->integer('expected_source_document_id'),
                 $request->integer('expected_source_lock_version'),
                 $request->validated(),
                 $contexts->manual($request),

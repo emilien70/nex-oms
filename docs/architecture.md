@@ -1096,7 +1096,7 @@ corrected_invoice_id
 previous_correction_id nullable
 ```
 
-`corrected_invoice_id` zawsze wskazuje pierwotną Fakturę. Pole `previous_correction_id` pozostaje w schemacie dla zgodności historycznej, ale aktualna reguła domenowa wymaga wartości `null`, ponieważ jedno zamówienie może posiadać tylko jedną Korektę.
+`corrected_invoice_id` zawsze wskazuje pierwotną Fakturę. Pole `previous_correction_id` jest aktywnym ogniwem liniowego łańcucha odrębnych Korekt: pierwsza Korekta ma wartość `null`, a kolejna wskazuje poprzednią zamkniętą Korektę tej samej Faktury i zamówienia.
 
 Korekta przechowuje:
 
@@ -1110,7 +1110,9 @@ Korekta przechowuje:
 
 Nie należy nadpisywać dokumentu źródłowego.
 
-Faktura posiadająca Korektę nie jest zwyczajnie edytowalna. Jeden slot typu `correction` wskazuje jedyną Korektę danego zamówienia. Ponowna operacja tworzenia otwiera edycję tego dokumentu, a zapis nadpisuje jego bieżące snapshoty i pozycje bez zmiany numeru.
+Faktura posiadająca jakąkolwiek Korektę nie jest zwyczajnie edytowalna ani usuwalna. Slot typu `correction` wskazuje wyłącznie bieżącą, niezfinalizowaną Korektę danego zamówienia. Ponowna operacja tworzenia otwiera edycję tego dokumentu, a zapis nadpisuje jego snapshoty i pozycje bez zmiany numeru. Finalizacja usuwa slot; zamknięta Korekta pozostaje niezmiennym dokumentem, a następna Korekta może powstać jako kolejne ogniwo.
+
+Pole `invoices.finalized_at` jest nullable i pozostaje puste dla istniejących dokumentów. `InvoiceFinalizationService` ustawia je idempotentnie wyłącznie na wystawionej Fakturze VAT albo Korekcie, pod blokadami i w transakcji; Pro forma jest odrzucana. Pole nie oznacza statusu KSeF. Zamknięcie nie zmienia treści, `lock_version`, numeracji, cache PDF ani zdarzeń. Centralny `InvoiceMutationPolicy` blokuje edycję i usuwanie zamkniętych dokumentów, natomiast finalizacja bieżącej Korekty dodatkowo usuwa jej slot w tej samej transakcji.
 
 ---
 
@@ -1553,7 +1555,7 @@ Zaimplementowane elementy:
 
 Tabela `invoices` obsługuje `invoice`, `proforma` i `correction`. `order_id` jest nullable z `nullOnDelete`, `invoice_series_id` jest wymagane i chronione przed usunięciem serii, a pozycje dokumentu są usuwane kaskadowo wyłącznie wraz z dokumentem. `order_items` używa `nullOnDelete`, więc usunięcie pozycji zamówienia nie niszczy snapshotu dokumentu.
 
-`previous_correction_id` posiada przenośny unikalny indeks i pozostaje w schemacie dla zgodności historycznej. Bieżący serwis Korekt wymaga, aby pole miało wartość `null`, a regułę jednej Korekty na zamówienie chroni transakcyjnie przez `order_document_slots`.
+`previous_correction_id` posiada przenośny unikalny indeks i chroni pojedyncze następne ogniwo liniowego łańcucha. Centralny `CorrectionSourceStateService` pobiera Korekty zbiorczo, weryfikuje root, zamówienie, status, typ, połączenia oraz brak rozgałęzień/cykli. Regułę najwyżej jednej bieżącej, niezfinalizowanej Korekty chronią transakcyjnie blokada zamówienia, walidacja łańcucha i `order_document_slots`.
 
 `invoice_items.product_id` jest nullable i nie posiada FK, ponieważ tabela `products` nie istnieje. Nie ma relacji `product()` w modelu. Powiązanie historyczne z `OrderItem` jest opcjonalne, a dane pozycji pozostają snapshotem.
 
@@ -1579,7 +1581,7 @@ Parametry tożsamości numeracji to `document_type`, `number_format`, `reset_per
 
 Walidacja konfiguracji jest wykonywana poza warstwą formularza. Reset `monthly` wymaga `%M` i jednego z tokenów roku `%Y`/`%y`. Reset `yearly` od stycznia wymaga tokenu roku, a przy początku roku fiskalnego innym niż styczeń także `%M`. Reset `none` nie wymaga tokenu okresu. Nieprawidłowa seria jest odrzucana kontrolowanym błędem przed podglądem, zmianą licznika lub nadaniem numeru.
 
-Wewnętrzne luki nie są ponownie używane. Serwis usuwania może transakcyjnie cofnąć wolny koniec licznika, ale nie zejdzie poniżej `protected_floor_sequence_number`. Nie ma OSS ani kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru. Zmiana `issue_date` nie przenosi ponumerowanego dokumentu do innego okresu. Pierwsza logiczna Pro forma zużywa jeden numer, jej odświeżenie zachowuje numer, a jedyna Korekta zamówienia otrzymuje jeden numer i zachowuje go podczas edycji. KSeF pozostaje planowany w wariantach `send` i `exclude`.
+Wewnętrzne luki nie są ponownie używane. Serwis usuwania może transakcyjnie cofnąć wolny koniec licznika, ale nie zejdzie poniżej `protected_floor_sequence_number`. Nie ma OSS ani kontroli kompletności zamówienia; brak NIP-u nie blokuje samego nadania numeru. Zmiana `issue_date` nie przenosi ponumerowanego dokumentu do innego okresu. Pierwsza logiczna Pro forma zużywa jeden numer i jej odświeżenie zachowuje numer. Każda odrębna Korekta otrzymuje własny numer, zachowuje go podczas edycji, a finalizacja nie zmienia licznika ani nie zwalnia numeru.
 
 ## Etap 2C — centralne operacje Faktury VAT i Pro formy
 
@@ -1629,9 +1631,9 @@ Warstwa HTTP zwraca tylko wymagane fragmenty Blade i aktualne `lock_version`, kt
 
 `CorrectionController` jest cienką warstwą HTTP. `CorrectionSeriesResolver` wybiera wyłącznie aktywną serię typu `correction`: najpierw serię wskazaną jawnie przez użytkownika, a bez wyboru serię przypisaną do serii Faktury źródłowej albo aktywną systemową serię Korekt. `CorrectionDraftRequest` normalizuje i waliduje powód, daty, dane Nabywcy oraz proponowany stan pozycji.
 
-`CorrectionSourceStateService` odczytuje stan źródłowy z Faktury VAT i weryfikuje, czy slot Korekty oraz liczba rekordów dla zamówienia są spójne. `CorrectionService` blokuje zamówienie, dokument źródłowy, serię i slot Korekty, buduje snapshoty przed, po i różnicy oraz przy pierwszym wystawieniu nadaje numer, wiąże slot i zapisuje zdarzenie `correction_issued`. Jeżeli Korekta już istnieje, ponowna ścieżka tworzenia kieruje do jej edycji. Rzeczywista edycja nadpisuje snapshoty i pozycje tego samego rekordu, zwiększa `lock_version`, zachowuje tożsamość numeracji i unieważnia prywatny cache PDF po zatwierdzeniu transakcji. Identyczny stan kanoniczny kończy się bez zapisu; comparator uwzględnia pełne snapshoty dokumentu i pozycji, normalizuje reprezentację wartości oraz pozwala jednorazowo ukanonicznić starszy zapis. Faktura źródłowa pozostaje niezmienna.
+`CorrectionSourceStateService` centralnie rozwiązuje liniowy łańcuch Korekt i skuteczny stan źródłowy: pierwotną Fakturę przy pierwszej Korekcie albo ostatnią zamkniętą Korektę przy kolejnej. Pobiera rekordy zbiorczo i w pamięci odrzuca rozgałęzienia, cykle, obcy root lub zamówienie, więcej niż jedną bieżącą Korektę oraz slot niewskazujący bieżącego ogona. `CorrectionService` blokuje zamówienie, root Fakturę, łańcuch, slot i serię, weryfikuje identyfikator oraz `lock_version` skutecznego źródła, buduje snapshoty przed, po i różnicy oraz nadaje każdej nowej Korekcie własny numer. Jeżeli istnieje bieżąca niezfinalizowana Korekta, ponowna ścieżka tworzenia kieruje do jej edycji. Rzeczywista edycja nadpisuje snapshoty i pozycje tego samego bieżącego rekordu, zwiększa `lock_version`, zachowuje tożsamość numeracji i unieważnia prywatny cache PDF po zatwierdzeniu transakcji. Identyczny stan kanoniczny kończy się bez zapisu; comparator uwzględnia pełne snapshoty dokumentu i pozycji, normalizuje reprezentację wartości oraz pozwala jednorazowo ukanonicznić starszy zapis. Root Faktura i zamknięte Korekty pozostają niezmienne.
 
-Pozycje są liczone serwerowo przez istniejące kalkulatory dziesiętne. `InvoiceTaxIdentityNormalizer` tworzy wspólną kanoniczną tożsamość podatku dla Faktur i Korekt: kod po `trim` i `uppercase` ma pierwszeństwo przed stawką, a stawka bez kodu jest normalizowana do skali 2. Kalkulatory grupują podatek po stabilnych kluczach `code:<KOD>` albo `rate:<STAWKA>`, dzięki czemu przejścia stawka-kod i kod-kod pozostają widoczne jako oddzielne grupy różnic. Korekta wskazuje Fakturę przez `corrected_invoice_id`, a `previous_correction_id` pozostaje `null`. Brak rzeczywistej zmiany, druga Korekta, niespójny slot, niekompletny stan źródłowy lub niewłaściwa seria kończą się kontrolowanym błędem i pełnym rollbackiem, bez zużycia numeru.
+Pozycje są liczone serwerowo przez istniejące kalkulatory dziesiętne. `InvoiceTaxIdentityNormalizer` tworzy wspólną kanoniczną tożsamość podatku dla Faktur i Korekt: kod po `trim` i `uppercase` ma pierwszeństwo przed stawką, a stawka bez kodu jest normalizowana do skali 2. Kalkulatory grupują podatek po stabilnych kluczach `code:<KOD>` albo `rate:<STAWKA>`, dzięki czemu przejścia stawka-kod i kod-kod pozostają widoczne jako oddzielne grupy różnic. Każda Korekta wskazuje root Fakturę przez `corrected_invoice_id`, a `previous_correction_id` łączy ją z poprzednią zamkniętą Korektą. Brak rzeczywistej zmiany, bieżąca Korekta, niespójny łańcuch/slot, niekompletny stan źródłowy lub niewłaściwa seria kończą się kontrolowanym błędem i pełnym rollbackiem, bez zużycia numeru.
 
 Formularz używa standardowego żądania POST. Przy jednej aktywnej serii link prowadzi bezpośrednio do formularza, a przy wielu seriach wspólny modal Bootstrap służy wyłącznie do wyboru serii. Edycja pozycji, zerowanie zaznaczonych pozycji oraz kopiowanie aktualnych danych zamówienia działają lokalnie w formularzu; zapis następuje dopiero przy wystawieniu Korekty. Istniejący prywatny renderer TCPDF obsługuje gotowy dokument na podstawie snapshotów.
 

@@ -67,6 +67,13 @@
             text-decoration: underline;
         }
 
+        .invoice-edit-blocked-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
         @media (max-width: 991.98px) {
             .invoice-edit-blocked-page {
                 margin: -1rem;
@@ -82,21 +89,59 @@
     <main class="invoice-edit-blocked-page" data-invoice-edit-blocked>
         <div class="invoice-edit-blocked-header">
             <h1 class="invoice-edit-blocked-title">Faktura VAT {{ $invoice->number }}</h1>
-            <a class="btn btn-outline-secondary" href="{{ $backUrl }}" data-invoice-back-button>
-                <i class="bi bi-reply me-1" aria-hidden="true"></i>{{ $backToInvoiceList ? 'Powrót' : 'Powrót do zamówienia' }}
-            </a>
+            <div class="btn-group" role="group" aria-label="Akcje Faktury VAT">
+                <a class="btn btn-outline-secondary" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener">
+                    <i class="bi bi-printer me-1" aria-hidden="true"></i>Drukuj
+                </a>
+                <a class="btn btn-outline-secondary" href="{{ $backUrl }}" data-invoice-back-button>
+                    <i class="bi bi-reply me-1" aria-hidden="true"></i>{{ $backToInvoiceList ? 'Powrót' : 'Powrót do zamówienia' }}
+                </a>
+            </div>
         </div>
 
         <div class="invoice-edit-blocked-alert" role="alert">
             <i class="bi bi-info-circle invoice-edit-blocked-alert-icon" aria-hidden="true"></i>
             <div>
-                Nie możesz edytować faktury, do której została już wystawiona faktura korygująca.<br>
-                Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą
-                <a
-                    class="invoice-edit-blocked-correction-link"
-                    href="{{ route('invoices.corrections.edit', ['correction' => $correction, ...$returnContext->parameters()]) }}"
-                >{{ $correction->number ?: 'Korekta #'.$correction->getKey() }}</a>.
+                @if ($currentCorrection)
+                    Nie możesz edytować faktury, do której została już wystawiona faktura korygująca.<br>
+                    Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą
+                    <a
+                        class="invoice-edit-blocked-correction-link"
+                        href="{{ route('invoices.corrections.edit', ['correction' => $currentCorrection, ...$returnContext->parameters()]) }}"
+                    >{{ $currentCorrection->number ?: '#'.$currentCorrection->getKey() }}</a>.
+                @elseif ($latestFinalizedCorrection)
+                    Faktura posiada zamknięte Korekty i nie może być edytowana.<br>
+                    Ostatnia zamknięta Korekta:
+                    <a
+                        class="invoice-edit-blocked-correction-link"
+                        href="{{ route('invoices.corrections.edit', ['correction' => $latestFinalizedCorrection, ...$returnContext->parameters()]) }}"
+                    >{{ $latestFinalizedCorrection->number ?: 'Korekta #'.$latestFinalizedCorrection->getKey() }}</a>.
+                @else
+                    Dokument został zamknięty i nie może być edytowany.
+                @endif
+
+                @if (! $currentCorrection)
+                    <div class="invoice-edit-blocked-actions">
+                        @if ($correctionSeries->count() === 1)
+                            <a class="btn btn-primary" href="{{ route('invoices.corrections.create', ['invoice' => $invoice, 'series_id' => $correctionSeries->first()->id, ...$returnContext->parameters()]) }}">
+                                Wystaw {{ $latestFinalizedCorrection ? 'kolejną ' : '' }}Korektę
+                            </a>
+                        @elseif ($correctionSeries->count() > 1)
+                            <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#blockedInvoiceCorrectionSeriesModal" data-correction-url="{{ route('invoices.corrections.create', $invoice) }}">
+                                Wystaw {{ $latestFinalizedCorrection ? 'kolejną ' : '' }}Korektę
+                            </button>
+                        @else
+                            <button class="btn btn-primary" type="button" disabled title="Brak aktywnej serii numeracji dla Korekt">Wystaw Korektę</button>
+                        @endif
+                    </div>
+                @endif
             </div>
         </div>
+
+        @include('invoices.partials.correction-series-modal', [
+            'correctionSeries' => $correctionSeries,
+            'modalId' => 'blockedInvoiceCorrectionSeriesModal',
+            'returnContext' => $returnContext,
+        ])
     </main>
 @endsection

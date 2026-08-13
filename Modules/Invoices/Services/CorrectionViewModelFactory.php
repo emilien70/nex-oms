@@ -33,8 +33,9 @@ class CorrectionViewModelFactory
         $sourceInvoice->loadMissing(['order.items', 'series.defaultCorrectionSeries']);
 
         $series = $this->seriesResolver->resolve($sourceInvoice, $seriesId);
-        $buyer = $this->sourceState->effectiveBuyer($sourceInvoice);
-        $items = $this->sourceState->effectiveItems($sourceInvoice)
+        $chain = $this->sourceState->chain($sourceInvoice);
+        $buyer = $this->sourceState->effectiveBuyer($sourceInvoice, false, $chain);
+        $items = $this->sourceState->effectiveItems($sourceInvoice, false, $chain)
             ->map(fn (array $item): array => $this->formItem($item))
             ->values();
 
@@ -43,6 +44,7 @@ class CorrectionViewModelFactory
 
         return [
             'sourceInvoice' => $sourceInvoice,
+            'effectiveSource' => $chain->effectiveSourceDocument,
             'order' => $sourceInvoice->order,
             'correctionSeries' => $this->seriesResolver->active(),
             'selectedSeries' => $series,
@@ -57,6 +59,7 @@ class CorrectionViewModelFactory
             'defaultChangeItems' => false,
             'defaultChangeBuyer' => false,
             'correction' => null,
+            'isReadOnly' => false,
         ];
     }
 
@@ -76,8 +79,12 @@ class CorrectionViewModelFactory
         }
 
         $this->sourceState->assertSourceInvoice($sourceInvoice);
-        $currentCorrection = $this->sourceState->currentCorrection($sourceInvoice);
-        if ($currentCorrection === null || ! $currentCorrection->is($correction)) {
+        $chain = $this->sourceState->chain($sourceInvoice);
+        $isValidChainDocument = $correction->isFinalized()
+            ? $chain->contains($correction)
+            : $chain->currentCorrection?->is($correction);
+
+        if (! $isValidChainDocument) {
             throw new InvoiceDomainException(
                 'correction_edit_inconsistent',
                 'Nie można edytować Korekty, ponieważ jej slot lub powiązania są niespójne.',
@@ -103,6 +110,7 @@ class CorrectionViewModelFactory
 
         return [
             'sourceInvoice' => $sourceInvoice,
+            'effectiveSource' => $sourceInvoice,
             'order' => $correction->order,
             'correctionSeries' => $series->newCollection([$series]),
             'selectedSeries' => $series,
@@ -117,6 +125,7 @@ class CorrectionViewModelFactory
             'defaultChangeItems' => $this->itemsChanged($correction),
             'defaultChangeBuyer' => $this->comparableBuyer($buyerBefore) !== $this->comparableBuyer($correction->buyer_snapshot),
             'correction' => $correction,
+            'isReadOnly' => $correction->isFinalized(),
         ];
     }
 
