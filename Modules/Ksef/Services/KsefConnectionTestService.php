@@ -122,7 +122,7 @@ class KsefConnectionTestService
             $this->record(
                 $credential,
                 KsefConnectionTestStatus::Warning,
-                'Uwierzytelnienie w KSeF działa, ale nie wykryto aktywnego uprawnienia InvoiceWrite. NEX-OMS może nie mieć uprawnienia do wystawiania Faktur w tym kontekście.',
+                'Uwierzytelnienie w KSeF działa, ale dla bieżącego Tokena i kontekstu nie wykryto aktywnego uprawnienia InvoiceWrite. Sprawdź, czy Token KSeF został wygenerowany z uprawnieniem do wystawiania faktur. Jeżeli Token posiada InvoiceWrite, sprawdź uprawnienia podmiotu w bieżącym kontekście KSeF.',
                 false,
                 $systemWarning,
             );

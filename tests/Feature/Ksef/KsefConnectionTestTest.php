@@ -81,7 +81,10 @@ class KsefConnectionTestTest extends TestCase
         $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
         $this->assertFalse($credential->last_test_invoice_write);
         $this->assertStringContainsString('nie wykryto aktywnego uprawnienia InvoiceWrite', $credential->last_test_message);
-        $this->assertStringContainsString('NEX-OMS może nie mieć uprawnienia', $credential->last_test_message);
+        $this->assertStringContainsString('dla bieżącego Tokena i kontekstu', $credential->last_test_message);
+        $this->assertStringContainsString('Token KSeF został wygenerowany z uprawnieniem do wystawiania faktur', $credential->last_test_message);
+        $this->assertStringContainsString('Jeżeli Token posiada InvoiceWrite', $credential->last_test_message);
+        $this->assertStringNotContainsString('NEX-OMS może nie mieć uprawnienia', $credential->last_test_message);
         $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
         $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
     }
