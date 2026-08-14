@@ -59,8 +59,6 @@ class KsefFa3EligibilityValidator
             $seller['street'] ?? null,
             $seller['building_number'] ?? null,
             $seller['apartment_number'] ?? null,
-            $seller['postal_code'] ?? null,
-            $seller['city'] ?? null,
         ], static fn (mixed $value): bool => is_string($value) && trim($value) !== '')));
 
         if ($name === '' || $country !== 'PL' || $nip === null || $addressLine === '') {

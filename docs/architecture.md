@@ -1189,6 +1189,8 @@ KSeF.3B.1 dodaje warstwę semantycznego przygotowania FA(3), nadal bez XML. `Kse
 
 `KsefFa3EligibilityValidator` oddziela poprawność Faktury NEX od gotowości FA(3). Preflight opiera się wyłącznie na snapshotach dokumentu i jego pozycjach, a tryb autorytatywny dodatkowo wymaga `finalized_at`. `KsefFa3FinalizationGate` uruchamia preflight tylko dla Faktury VAT, gdy `ksef_settings.is_active=true` i odpowiadająca seria ma `ksef_series_settings.is_enabled=true`; ustawienie `automatic_submission` nie wpływa na tę bramkę. Pro formy i Korekty zachowują dotychczasowy lifecycle. Pole `default_split_payment` jest domyślną deklaracją MPP dla nowych Faktur, nie wpływa na runtime uwierzytelnienia i nie jest automatycznie wyliczane z kwoty, płatności ani GTU.
 
+KSeF.3B.2 rozdziela generowanie rdzenia FA(3) na mapper snapshotów, immutable DTO, builder `DOMDocument`, walidator lokalnego oficjalnego XSD oraz orkiestrujący generator. Zasoby `FA (3) 1-0E` i ich importy są przechowywane bez modyfikacji wraz z manifestem źródła i hashami SHA-256; walidacja działa z `LIBXML_NONET` i zamkniętą mapą oficjalnych URL-i do plików lokalnych. Mapper nie odczytuje aktualnego zamówienia, serii ani ustawień treściowych KSeF, nie odświeża snapshotów i nie przelicza kwot pozycji. Dla waluty obcej konsumuje wyłącznie zapisane kwoty VAT w PLN. Wynik XML pozostaje przejściowym obiektem w pamięci, bez persistence, sesji i transmisji KSeF.
+
 KSeF.2A nie tworzy:
 
 ```text

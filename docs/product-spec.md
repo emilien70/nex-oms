@@ -1207,7 +1207,15 @@ Nowa Faktura VAT zapisuje wersjonowaną semantykę KSeF bez generowania XML. `ta
 
 Eligibility FA(3) jest oddzielone od poprawności Faktury NEX. Tryb preflight sprawdza zapisane snapshoty sprzedawcy, nabywcy i podatków, a tryb autorytatywny dodatkowo wymaga zamkniętego dokumentu. Finalizacja Faktury uruchamia preflight tylko wtedy, gdy integracja KSeF i jej seria są aktywne; nie dotyczy to Pro form ani Korekt. Historyczne dokumenty bez snapshotu nie są automatycznie uzupełniane. KSeF.3B.1 nie tworzy XML FA(3), nie otwiera sesji i nie wysyła dokumentów.
 
-## 30.6. Audyt gotowości KSeF
+## 30.6. Generator dokumentu FA(3) KSeF.3B.2
+
+NEX-OMS może wygenerować dla wystawionej Faktury VAT deterministyczny XML `FA (3) 1-0E`. Generator przyjmuje jawny czas utworzenia, wykonuje istniejące sprawdzenie eligibility, mapuje wyłącznie zapisane pozycje i snapshoty Faktury, buduje dokument przez DOM oraz waliduje go offline względem lokalnej, niezmienionej kopii oficjalnego XSD MF wraz z zależnościami. Tryb preflight dopuszcza niezfinalizowaną wystawioną Fakturę, natomiast tryb autorytatywny wymaga `finalized_at`; tryb nie zmienia treści XML.
+
+Podsumowanie VAT powstaje z zapisanych rozstrzygnięć `ksef_tax.line_treatments`, w tym osobnych pól dla `0 KR`, `0 WDT` i `0 EX`. Dla waluty obcej kwoty podatku w PLN pochodzą wyłącznie z historycznego `converted_tax_summary`; generator nie pobiera nowego kursu. MPP, tożsamość nabywcy, REGON i BDO również pochodzą ze snapshotów dokumentu, bez fallbacku do bieżącego zamówienia, serii albo ustawień treściowych KSeF.
+
+Wygenerowany XML nie jest zapisywany w bazie ani w plikach. KSeF.3B.2 nie otwiera sesji, nie wysyła Faktur, nie pobiera UPO i nie dodaje numeru KSeF, QR, trybu offline, płatności, GTU, odbiorcy, Korekt ani Pro form do XML.
+
+## 30.7. Audyt gotowości KSeF
 
 Po zakończeniu modułu faktur zostanie wykonany osobny audyt obejmujący:
 
