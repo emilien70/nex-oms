@@ -40,6 +40,7 @@ class KsefFa3OptionalBlocksTest extends TestCase
                 'external_id' => 'ORDER-3C-100',
                 'billing_email' => 'buyer@example.test',
                 'billing_phone' => '+48 500 000 000',
+                'payment_status' => 'paid',
                 'paid_amount' => '100.00',
                 'paid_at' => '2026-07-21 23:30:00',
                 'notes' => "Numer seryjny & <A>\nDruga linia",
@@ -147,6 +148,7 @@ class KsefFa3OptionalBlocksTest extends TestCase
         $invoice = $this->issueInvoice(order: [
             'payment_method' => '  PayNOW specjalny  ',
             'cash_on_delivery' => true,
+            'payment_status' => 'unpaid',
             'paid_amount' => '50.00',
             'paid_at' => '2026-07-21 11:00:00',
         ]);
@@ -168,6 +170,76 @@ class KsefFa3OptionalBlocksTest extends TestCase
 
         $this->assertSame(0, $xpath->query('//fa:Platnosc/fa:Zaplacono|//fa:Platnosc/fa:DataZaplaty')->length);
         $this->assertSame(0, $xpath->query('//fa:Platnosc')->length);
+    }
+
+    public function test_unpaid_zero_amount_does_not_emit_paid_marker_from_paid_at_or_zero_amount_due_alone(): void
+    {
+        $this->configureOptions(['include_bank_account' => false]);
+        $invoice = $this->issueInvoice(
+            order: [
+                'payment_status' => 'unpaid',
+                'paid_amount' => '0.00',
+                'paid_at' => '2026-07-21 11:00:00',
+            ],
+            series: ['payment_method_source' => InvoicePaymentMethodSource::None],
+        );
+        $snapshot = $invoice->payment_snapshot;
+        $snapshot['amount_due'] = '0.00';
+        $invoice->forceFill(['payment_snapshot' => $snapshot])->saveQuietly();
+
+        $xpath = $this->xpath($this->generate($invoice->fresh())->xml);
+
+        $this->assertSame(0, $xpath->query('//fa:Platnosc/fa:Zaplacono|//fa:Platnosc/fa:DataZaplaty')->length);
+        $this->assertSame(0, $xpath->query('//fa:Platnosc')->length);
+    }
+
+    public function test_contradictory_payment_status_and_amount_are_rejected_without_exposing_snapshot_data(): void
+    {
+        foreach ([
+            ['paid', '50.00', '2026-07-21 11:00:00'],
+            ['paid', '0.00', '2026-07-21 11:00:00'],
+            ['unpaid', '100.00', '2026-07-21 11:00:00'],
+            ['unpaid', '100.00', null],
+            ['refunded', '100.00', '2026-07-21 11:00:00'],
+        ] as [$status, $paidAmount, $paidAt]) {
+            $invoice = $this->issueInvoice(order: [
+                'payment_status' => $status,
+                'paid_amount' => $paidAmount,
+                'paid_at' => $paidAt,
+                'billing_tax_id' => '5260250995',
+            ]);
+
+            $exception = $this->expectDomainError(
+                'ksef_fa3_payment_snapshot_invalid',
+                fn () => $this->generate($invoice),
+            );
+
+            $this->assertStringNotContainsString('5260250995', $exception->getMessage());
+            $this->assertStringNotContainsString($paidAmount, $exception->getMessage());
+        }
+    }
+
+    public function test_missing_or_unknown_payment_status_is_rejected(): void
+    {
+        foreach ([null, 'processing'] as $status) {
+            $invoice = $this->issueInvoice(order: [
+                'payment_status' => 'unpaid',
+                'paid_amount' => '0.00',
+                'paid_at' => null,
+            ]);
+            $snapshot = $invoice->payment_snapshot;
+            if ($status === null) {
+                unset($snapshot['payment_status']);
+            } else {
+                $snapshot['payment_status'] = $status;
+            }
+            $invoice->forceFill(['payment_snapshot' => $snapshot])->saveQuietly();
+
+            $this->expectDomainError(
+                'ksef_fa3_payment_snapshot_invalid',
+                fn () => $this->generate($invoice->fresh()),
+            );
+        }
     }
 
     public function test_inconsistent_due_date_is_rejected_as_payment_snapshot_error(): void

@@ -51,7 +51,7 @@ trait CreatesInvoiceStage2CDocuments
             'paid_amount' => '50.00',
             'delivery_cost_gross' => '23.00',
             'shipping_method' => 'Kurier testowy',
-            'payment_status' => 'paid',
+            'payment_status' => 'unpaid',
             'payment_method' => 'Przelew',
             'purchased_at' => '2026-07-20 10:00:00',
             'paid_at' => '2026-07-21 11:00:00',

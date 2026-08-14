@@ -42,6 +42,12 @@ class KsefFa3OptionalBlocksResolver
         'mobilna' => '7',
     ];
 
+    private const PAYMENT_STATUSES = [
+        'unpaid',
+        'paid',
+        'refunded',
+    ];
+
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly CountryCatalog $countries,
@@ -233,27 +239,46 @@ class KsefFa3OptionalBlocksResolver
             throw $this->paymentError();
         }
 
-        $paidDate = null;
+        $paymentStatus = $this->snapshotString(
+            $snapshot['payment_status'] ?? null,
+            'ksef_fa3_payment_snapshot_invalid',
+        );
+        if (! in_array($paymentStatus, self::PAYMENT_STATUSES, true)) {
+            throw $this->paymentError();
+        }
+
         $paidAmount = $snapshot['paid_amount'] ?? null;
-        if ($paidAmount !== null) {
-            if (! is_string($paidAmount) && ! is_int($paidAmount)) {
+        if (! is_string($paidAmount) && ! is_int($paidAmount)) {
+            throw $this->paymentError();
+        }
+        try {
+            $paidAmount = $this->decimal->normalize($paidAmount, 2);
+            $amountComparison = $this->decimal->compare($paidAmount, (string) $invoice->total_gross);
+            $zeroComparison = $this->decimal->compare($paidAmount, '0.00');
+        } catch (InvoiceDomainException $exception) {
+            throw $this->paymentError($exception);
+        }
+        if ($zeroComparison < 0 || $amountComparison > 0) {
+            throw $this->paymentError();
+        }
+
+        $paidAt = $this->snapshotString(
+            $snapshot['paid_at'] ?? null,
+            'ksef_fa3_payment_snapshot_invalid',
+        );
+        $paidDateCandidate = $paidAt !== null
+            ? $this->calendarDate($paidAt, 'ksef_fa3_payment_snapshot_invalid')
+            : null;
+
+        $paidDate = null;
+        if ($paymentStatus === 'paid') {
+            if ($amountComparison !== 0) {
                 throw $this->paymentError();
             }
-            try {
-                $paidAmount = $this->decimal->normalize($paidAmount, 2);
-            } catch (InvoiceDomainException $exception) {
-                throw $this->paymentError($exception);
-            }
 
-            if ($this->decimal->compare($paidAmount, (string) $invoice->total_gross) === 0) {
-                $paidAt = $this->snapshotString(
-                    $snapshot['paid_at'] ?? null,
-                    'ksef_fa3_payment_snapshot_invalid',
-                );
-                if ($paidAt !== null) {
-                    $paidDate = $this->calendarDate($paidAt, 'ksef_fa3_payment_snapshot_invalid');
-                }
-            }
+            $paidDate = $paidDateCandidate;
+        } elseif ($amountComparison === 0 && $zeroComparison > 0) {
+            throw $this->paymentError();
         }
 
         $method = $this->snapshotString(
