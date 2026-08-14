@@ -11,6 +11,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceItem;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Ksef\Services\KsefFa3SemanticSnapshotService;
+use Modules\Ksef\Services\KsefPaymentMethodMappingService;
 
 class InvoiceEditService
 {
@@ -25,6 +26,7 @@ class InvoiceEditService
         private readonly InvoiceNumberFormatter $numbers,
         private readonly CountryCatalog $countries,
         private readonly KsefFa3SemanticSnapshotService $ksefSemanticSnapshot,
+        private readonly KsefPaymentMethodMappingService $ksefPaymentMappings,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -87,7 +89,15 @@ class InvoiceEditService
                 'issuer_name' => $this->nullable($data['issuer_name'] ?? null),
             ];
             $payment = $managed->payment_snapshot ?? [];
-            $payment['effective_payment_method'] = $this->nullable($data['payment_method'] ?? null);
+            $paymentMethod = $this->nullable($data['payment_method'] ?? null);
+            $paymentMethodChanged = $paymentMethod !== $this->nullable($payment['effective_payment_method'] ?? null);
+            $payment['effective_payment_method'] = $paymentMethod;
+            if ($paymentMethodChanged && $managed->isInvoice()) {
+                $payment['ksef_payment'] = $this->ksefPaymentMappings->resolve(
+                    $paymentMethod,
+                    ($payment['cash_on_delivery'] ?? false) === true,
+                );
+            }
             $payment['payment_identifier'] = $this->nullable($data['payment_identifier'] ?? null);
             $payment['payment_due_date'] = $this->nullable($data['payment_due_date'] ?? null);
             $paid = $this->decimals->normalize((string) $data['paid_amount'], 2);

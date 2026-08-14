@@ -4,6 +4,7 @@ namespace Modules\Ksef\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefPaymentType;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 
 class KsefSetting extends Model
@@ -26,6 +27,7 @@ class KsefSetting extends Model
         'include_gtu',
         'zero_vat_classification',
         'default_split_payment',
+        'default_payment_type',
     ];
 
     protected $casts = [
@@ -41,5 +43,6 @@ class KsefSetting extends Model
         'include_gtu' => 'boolean',
         'zero_vat_classification' => KsefZeroVatClassification::class,
         'default_split_payment' => 'boolean',
+        'default_payment_type' => KsefPaymentType::class,
     ];
 }

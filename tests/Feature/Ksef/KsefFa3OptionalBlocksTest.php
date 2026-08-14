@@ -75,7 +75,8 @@ class KsefFa3OptionalBlocksTest extends TestCase
         $this->assertSame('1', $this->value($xpath, '//fa:Platnosc/fa:Zaplacono'));
         $this->assertSame('2026-07-21', $this->value($xpath, '//fa:Platnosc/fa:DataZaplaty'));
         $this->assertSame('2026-08-11', $this->value($xpath, '//fa:Platnosc/fa:TerminPlatnosci/fa:Termin'));
-        $this->assertSame('6', $this->value($xpath, '//fa:Platnosc/fa:FormaPlatnosci'));
+        $this->assertSame('1', $this->value($xpath, '//fa:Platnosc/fa:PlatnoscInna'));
+        $this->assertSame('Przelew', $this->value($xpath, '//fa:Platnosc/fa:OpisPlatnosci'));
         $this->assertSame('PL61109010140000071219812874', $this->value($xpath, '//fa:Platnosc/fa:RachunekBankowy/fa:NrRB'));
         $this->assertSame('WBKPPLPP', $this->value($xpath, '//fa:Platnosc/fa:RachunekBankowy/fa:SWIFT'));
         $this->assertSame('Bank Testowy', $this->value($xpath, '//fa:Platnosc/fa:RachunekBankowy/fa:NazwaBanku'));
@@ -104,7 +105,8 @@ class KsefFa3OptionalBlocksTest extends TestCase
         $xpath = $this->xpath($this->generate($invoice->fresh())->xml);
 
         $this->assertSame(0, $xpath->query('//fa:Podmiot3|//fa:DaneKontaktowe|//fa:GTU|//fa:DodatkowyOpis|//fa:WarunkiTransakcji|//fa:RachunekBankowy')->length);
-        $this->assertSame('6', $this->value($xpath, '//fa:Platnosc/fa:FormaPlatnosci'));
+        $this->assertSame('1', $this->value($xpath, '//fa:Platnosc/fa:PlatnoscInna'));
+        $this->assertSame('Przelew', $this->value($xpath, '//fa:Platnosc/fa:OpisPlatnosci'));
     }
 
     public function test_legacy_invoice_without_document_snapshot_remains_core_only_and_is_not_backfilled(): void
@@ -142,7 +144,7 @@ class KsefFa3OptionalBlocksTest extends TestCase
         );
     }
 
-    public function test_payment_mapping_is_conservative_for_unknown_cod_and_partial_payment(): void
+    public function test_payment_mapping_is_conservative_for_unmapped_cod_and_partial_payment(): void
     {
         $this->configureOptions(['include_bank_account' => false]);
         $invoice = $this->issueInvoice(order: [
@@ -155,7 +157,7 @@ class KsefFa3OptionalBlocksTest extends TestCase
         $xpath = $this->xpath($this->generate($invoice)->xml);
 
         $this->assertSame('1', $this->value($xpath, '//fa:Platnosc/fa:PlatnoscInna'));
-        $this->assertSame('PayNOW specjalny', $this->value($xpath, '//fa:Platnosc/fa:OpisPlatnosci'));
+        $this->assertSame('Płatność przy odbiorze', $this->value($xpath, '//fa:Platnosc/fa:OpisPlatnosci'));
         $this->assertSame(0, $xpath->query('//fa:Platnosc/fa:FormaPlatnosci|//fa:Platnosc/fa:Zaplacono|//fa:Platnosc/fa:ZnacznikZaplatyCzesciowej|//fa:Platnosc/fa:ZaplataCzesciowa')->length);
     }
 

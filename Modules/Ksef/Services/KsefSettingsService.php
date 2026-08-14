@@ -10,6 +10,7 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefPaymentType;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefSeriesSetting;
@@ -327,6 +328,7 @@ class KsefSettingsService
             'include_gtu' => true,
             'zero_vat_classification' => KsefZeroVatClassification::Wdt,
             'default_split_payment' => false,
+            'default_payment_type' => KsefPaymentType::Original,
         ];
     }
 

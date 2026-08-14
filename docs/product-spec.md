@@ -1221,6 +1221,10 @@ Nowa Faktura VAT utrwala w `tax_metadata_snapshot.ksef_document` wersji 1 sześ�
 
 Opcjonalna treść pochodzi wyłącznie z historycznych snapshotów Faktury i jej pozycji. Płatność może zawierać potwierdzoną pełną zapłatę z datą, termin, jednoznaczną albo opisaną inną formę i włączony rachunek sprzedawcy. Brak historii pojedynczych wpłat oznacza, że NEX nie tworzy danych zapłat częściowych. Odbiorca dostawy jest prezentowany jako inna rola `Podmiot3`, bez kopiowania NIP-u nabywcy. GTU jest wysyłane tylko wtedy, gdy pozycja ma najwyżej jeden unikalny poprawny kod; konfiguracja KSeF nie ogranicza ogólnego modelu `InvoiceItem.gtu_codes`.
 
+Zakładka „Typy płatności” mapuje znormalizowane wartości `orders.payment_method` oraz osobny klucz płatności przy odbiorze na semantyczne typy FA(3). Globalny fallback domyślnie zachowuje oryginalny opis, a indywidualne mapowanie może wybrać `Gotówka`, `Karta`, `Bon`, `Czek`, `Kredyt`, `Przelew` albo `Mobilna`. Brak źródłowej formy płatności nie uruchamia fallbacku, a płatność przy odbiorze nie jest automatycznie uznawana za gotówkę.
+
+Nowa Faktura VAT utrwala rozwiązanie w `payment_snapshot.ksef_payment` wersji 1. Typ `original` tworzy `PlatnoscInna` z zamrożonym opisem, a pozostałe typy zapisują odpowiadający kod `FormaPlatnosci` 1–7. Późniejsza zmiana konfiguracji nie reinterpretuje dokumentu; wyłącznie jawna edycja metody płatności niezfinalizowanej Faktury rozwiązuje snapshot ponownie. Historyczne Faktury bez tego klucza nie są uzupełniane z bieżącej tabeli mapowań. Konfiguracja formy płatności pozostaje niezależna od `payment_status`, `Zaplacono`, daty zapłaty i danych zapłat częściowych.
+
 Informacje dodatkowe są normalizowane liniowo i dzielone bez utraty znaków na elementy zgodne z limitem XSD. Numer zamówienia pochodzi wyłącznie z utrwalonego zewnętrznego identyfikatora, nigdy z wewnętrznego ID bazy. Wszystkie bloki przechodzą lokalną walidację oficjalnym FA(3) XSD. Etap nadal nie otwiera sesji, nie wysyła Faktur, nie pobiera UPO i nie obejmuje Korekt ani Pro form.
 
 ## 30.8. Audyt gotowości KSeF

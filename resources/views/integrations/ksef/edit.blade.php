@@ -38,6 +38,9 @@
         'include_bank_account' => 'Przekazuj rachunek bankowy',
         'include_gtu' => 'Przekazuj oznaczenia GTU',
     ];
+    $oldPaymentMappings = collect(old('mappings', []))
+        ->filter(fn ($mapping) => is_array($mapping) && is_string($mapping['source_key'] ?? null))
+        ->mapWithKeys(fn ($mapping) => [$mapping['source_key'] => $mapping['target_type'] ?? null]);
 @endphp
 
 @section('content')
@@ -254,6 +257,24 @@
             text-align: center;
         }
 
+        .ksef-payment-intro {
+            color: #596273;
+            font-size: 13px;
+            line-height: 1.55;
+            margin: 0 0 14px;
+            max-width: 720px;
+        }
+
+        .ksef-payment-list {
+            border-top: 1px solid #e2e8f0;
+            margin-top: 14px;
+            padding-top: 8px;
+        }
+
+        .ksef-payment-label {
+            overflow-wrap: anywhere;
+        }
+
         @media (max-width: 720px) {
             .ksef-page {
                 margin: -1rem;
@@ -298,13 +319,11 @@
                     href="{{ route('integrations.ksef.edit', ['tab' => 'series']) }}"
                     data-ksef-tab="series"
                 >Serie numeracji</a>
-                <button
-                    class="ksef-tab"
-                    type="button"
-                    disabled
-                    title="Funkcja będzie dostępna w kolejnym etapie."
+                <a
+                    class="ksef-tab {{ $activeTab === 'payment-types' ? 'is-active' : '' }}"
+                    href="{{ route('integrations.ksef.edit', ['tab' => 'payment-types']) }}"
                     data-ksef-tab="payment-types"
-                >Typy płatności</button>
+                >Typy płatności</a>
             </nav>
 
             <div class="ksef-content">
@@ -355,6 +374,58 @@
                                     </table>
                                 </div>
                             @endif
+                        </section>
+
+                        <div class="ksef-form-actions">
+                            <button class="btn btn-primary" type="submit">Zapisz</button>
+                        </div>
+                    </form>
+                @elseif ($activeTab === 'payment-types')
+                    <form class="ksef-form" method="POST" action="{{ route('integrations.ksef.payment-types.update') }}" data-ksef-payment-types-form>
+                        @csrf
+                        @method('PUT')
+
+                        <section class="ksef-section" aria-labelledby="ksef-payment-types-heading">
+                            <h2 class="ksef-section-title" id="ksef-payment-types-heading">Typy płatności</h2>
+                            <p class="ksef-payment-intro">
+                                Mapuj formy płatności używane w zamówieniach NEX na formy płatności FA(3).
+                                Rozwiązane mapowanie zostanie utrwalone na Fakturze VAT podczas jej wystawienia.
+                            </p>
+
+                            <div class="ksef-field">
+                                <label for="ksef-default-payment-type">Domyślny typ płatności dla nieustawionych poniżej</label>
+                                <div class="ksef-control">
+                                    <select class="form-select @error('default_payment_type') is-invalid @enderror" id="ksef-default-payment-type" name="default_payment_type" required>
+                                        @foreach ($paymentTypes as $paymentType)
+                                            <option value="{{ $paymentType->value }}" @selected(old('default_payment_type', $settings->default_payment_type->value) === $paymentType->value)>{{ $paymentType->label() }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('default_payment_type')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-payment-list">
+                                @foreach ($paymentMethods as $index => $paymentMethod)
+                                    @php
+                                        $selectedPaymentType = $oldPaymentMappings->has($paymentMethod['source_key'])
+                                            ? $oldPaymentMappings->get($paymentMethod['source_key'])
+                                            : $paymentMethod['target_type'];
+                                    @endphp
+                                    <div class="ksef-field" data-ksef-payment-source="{{ $paymentMethod['source_key'] }}">
+                                        <label class="ksef-payment-label" for="ksef-payment-type-{{ $index }}">{{ $paymentMethod['source_label'] }}</label>
+                                        <div class="ksef-control">
+                                            <input type="hidden" name="mappings[{{ $index }}][source_key]" value="{{ $paymentMethod['source_key'] }}">
+                                            <select class="form-select @error("mappings.{$index}.target_type") is-invalid @enderror" id="ksef-payment-type-{{ $index }}" name="mappings[{{ $index }}][target_type]">
+                                                <option value="" @selected($selectedPaymentType === null)>--- użyj domyślnego ---</option>
+                                                @foreach ($paymentTypes as $paymentType)
+                                                    <option value="{{ $paymentType->value }}" @selected($selectedPaymentType === $paymentType->value)>{{ $paymentType->label() }}</option>
+                                                @endforeach
+                                            </select>
+                                            @error("mappings.{$index}.target_type")<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
                         </section>
 
                         <div class="ksef-form-actions">

@@ -12,6 +12,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefPaymentType;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefSetting;
@@ -65,7 +66,7 @@ class KsefSettingsTest extends TestCase
             $response->getContent(),
         );
         $this->assertMatchesRegularExpression(
-            '/<button(?=[^>]*data-ksef-tab="payment-types")(?=[^>]*\bdisabled\b)[^>]*>/s',
+            '/<a(?=[^>]*data-ksef-tab="payment-types")(?=[^>]*href="[^"]*tab=payment-types)[^>]*>/s',
             $response->getContent(),
         );
 
@@ -81,13 +82,15 @@ class KsefSettingsTest extends TestCase
             'include_gtu' => true,
             'zero_vat_classification' => 'wdt',
             'default_split_payment' => false,
+            'default_payment_type' => 'original',
         ]);
 
         $settings = KsefSetting::query()->firstOrFail();
         $this->assertFalse($settings->is_active);
         $this->assertSame(KsefZeroVatClassification::Wdt, $settings->zero_vat_classification);
         $this->assertFalse($settings->default_split_payment);
-        $this->assertTrue(Schema::hasColumns('ksef_settings', ['is_active', 'zero_vat_classification', 'default_split_payment']));
+        $this->assertSame(KsefPaymentType::Original, $settings->default_payment_type);
+        $this->assertTrue(Schema::hasColumns('ksef_settings', ['is_active', 'zero_vat_classification', 'default_split_payment', 'default_payment_type']));
         $this->assertFalse(Schema::hasColumn('ksef_settings', 'include_sale_date'));
         $this->assertTrue(Schema::hasColumns('ksef_credentials', [
             'access_token',

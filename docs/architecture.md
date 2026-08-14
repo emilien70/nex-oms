@@ -1193,6 +1193,10 @@ KSeF.3B.2 rozdziela generowanie rdzenia FA(3) na mapper snapshotów, immutable D
 
 KSeF.3C dodaje obok `ksef_tax` wersjonowany `ksef_document`, który zamraża sześć flag zawartości opcjonalnej podczas pierwszego wystawienia Faktury. `KsefFa3OptionalBlocksResolver` wspólnie dla eligibility i mapowania interpretuje wyłącznie `payment_snapshot`, snapshoty stron i zamówienia, `additional_information_text` oraz zapisane `InvoiceItem.gtu_codes`. Brak `ksef_document` oznacza historyczny tryb core-only; generator niczego nie backfilluje. Resolver waliduje dane warunkowo względem zamrożonych flag, a builder zachowuje kolejność `xsd:sequence` dla kontaktów, `Podmiot3`, opisów, GTU, płatności i warunków transakcji. Nie korzysta przy tym z bieżącego `Order`, `InvoiceSeries`, `Product` ani flag `include_*`.
 
+`KsefPaymentMethodMappingService` centralizuje case-insensitive i whitespace-insensitive klucze źródłowe, dynamiczne odkrywanie aktywnych `orders.payment_method`, specjalny klucz `**cash_on_delivery**`, zapis override oraz rozstrzygnięcie globalnego `default_payment_type`. Konfiguracja przechowuje semantyczny `KsefPaymentType`, nie kody liczbowe; `original` oznacza opis `PlatnoscInna`, a siedem bezpośrednich typów mapuje się centralnie na `FormaPlatnosci` 1–7. Brak źródła nie tworzy formy płatności.
+
+Przy wystawieniu Faktury wynik jest zamrażany jako `payment_snapshot.ksef_payment` wersji 1. Generator dla tej wersji czyta wyłącznie zapisany typ, kod albo opis i kontroluje ich wzajemną spójność oraz limit XSD 256 znaków. Bieżąca konfiguracja i zamówienie nie są odczytywane podczas generowania; jawna zmiana metody płatności niezfinalizowanej Faktury rozwiązuje snapshot ponownie, a pozostałe edycje zachowują go bez zmian. Starsze dokumenty bez `ksef_payment` zachowują dotychczasową ścieżkę zgodności bez zapisu do bazy. Ta warstwa nie zmienia interpretacji `payment_status`, kwot zapłaty ani znaczników `Zaplacono`.
+
 KSeF.2A nie tworzy:
 
 ```text

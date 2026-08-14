@@ -12,6 +12,7 @@ class KsefFa3SemanticSnapshotService
         private readonly KsefSettingsService $settings,
         private readonly KsefFa3TaxTreatmentResolver $taxTreatments,
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
+        private readonly KsefPaymentMethodMappingService $paymentMappings,
     ) {}
 
     public function initialize(Invoice $invoice): void
@@ -43,6 +44,7 @@ class KsefFa3SemanticSnapshotService
 
         $settings = $this->settings->get();
         $metadata = $invoice->tax_metadata_snapshot ?? [];
+        $payment = $invoice->payment_snapshot ?? [];
         $existingByItem = collect($existing['line_treatments'] ?? [])
             ->filter(fn (mixed $treatment): bool => is_array($treatment) && is_numeric($treatment['invoice_item_id'] ?? null))
             ->keyBy(fn (array $treatment): int => (int) $treatment['invoice_item_id']);
@@ -95,6 +97,14 @@ class KsefFa3SemanticSnapshotService
                 ],
             ];
         }
+        if ($initialize) {
+            $payment['ksef_payment'] = $this->paymentMappings->resolve(
+                is_string($payment['effective_payment_method'] ?? null)
+                    ? $payment['effective_payment_method']
+                    : null,
+                ($payment['cash_on_delivery'] ?? false) === true,
+            );
+        }
         $buyer = $invoice->buyer_snapshot ?? [];
         if ($initialize
             || (data_get($buyer, 'tax_identity.version') === 1
@@ -103,10 +113,12 @@ class KsefFa3SemanticSnapshotService
         }
 
         if ($metadata !== ($invoice->tax_metadata_snapshot ?? [])
-            || $buyer !== ($invoice->buyer_snapshot ?? [])) {
+            || $buyer !== ($invoice->buyer_snapshot ?? [])
+            || $payment !== ($invoice->payment_snapshot ?? [])) {
             $invoice->forceFill([
                 'tax_metadata_snapshot' => $metadata,
                 'buyer_snapshot' => $buyer,
+                'payment_snapshot' => $payment,
             ])->save();
         }
     }

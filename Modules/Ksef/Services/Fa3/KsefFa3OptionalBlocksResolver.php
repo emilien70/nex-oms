@@ -9,6 +9,7 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceItem;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
+use Modules\Ksef\Enums\KsefPaymentType;
 
 class KsefFa3OptionalBlocksResolver
 {
@@ -26,7 +27,7 @@ class KsefFa3OptionalBlocksResolver
         'GTU_08', 'GTU_09', 'GTU_10', 'GTU_11', 'GTU_12', 'GTU_13',
     ];
 
-    private const PAYMENT_METHODS = [
+    private const LEGACY_PAYMENT_METHODS = [
         'cash' => '1',
         'gotowka' => '1',
         'gotówka' => '1',
@@ -281,27 +282,11 @@ class KsefFa3OptionalBlocksResolver
             throw $this->paymentError();
         }
 
-        $method = $this->snapshotString(
-            $snapshot['effective_payment_method'] ?? null,
-            'ksef_fa3_payment_method_invalid',
-        );
-        $methodCode = null;
-        $methodDescription = null;
-        if ($method !== null) {
-            $methodCode = self::PAYMENT_METHODS[mb_strtolower($method, 'UTF-8')] ?? null;
-            if ($methodCode === null) {
-                if ($this->length($method) > 256) {
-                    throw $this->error(
-                        'ksef_fa3_payment_method_invalid',
-                        'Forma płatności nie mieści się w kontrakcie FA(3).',
-                    );
-                }
-                $methodDescription = $method;
-            }
-        }
+        [$methodCode, $methodDescription] = $this->paymentMethod($snapshot);
 
         $bank = $includeBankAccount ? $this->bankAccount($invoice->seller_snapshot ?? []) : null;
-        if ($paidDate === null && $snapshotDueDate === null && $method === null && $bank === null) {
+        if ($paidDate === null && $snapshotDueDate === null && $methodCode === null
+            && $methodDescription === null && $bank === null) {
             return null;
         }
 
@@ -312,6 +297,103 @@ class KsefFa3OptionalBlocksResolver
             'method_description' => $methodDescription,
             'bank_account' => $bank,
         ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * @param  array<string, mixed>  $paymentSnapshot
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function paymentMethod(array $paymentSnapshot): array
+    {
+        if (! array_key_exists('ksef_payment', $paymentSnapshot)) {
+            return $this->legacyPaymentMethod($paymentSnapshot);
+        }
+
+        $mapping = $paymentSnapshot['ksef_payment'];
+        if (! is_array($mapping) || ($mapping['version'] ?? null) !== 1) {
+            throw $this->paymentMappingError();
+        }
+
+        $sourceKey = $this->mappingString($mapping['source_key'] ?? null);
+        $sourceLabel = $this->mappingString($mapping['source_label'] ?? null);
+        $typeValue = $mapping['type'] ?? null;
+
+        if ($typeValue === null) {
+            if ($sourceKey !== null || $sourceLabel !== null
+                || $this->mappingString($mapping['fa3_code'] ?? null) !== null
+                || $this->mappingString($mapping['description'] ?? null) !== null) {
+                throw $this->paymentMappingError();
+            }
+
+            return [null, null];
+        }
+
+        if (! is_string($typeValue) || $sourceKey === null || $sourceLabel === null) {
+            throw $this->paymentMappingError();
+        }
+
+        $type = KsefPaymentType::tryFrom($typeValue);
+        if ($type === null) {
+            throw $this->paymentMappingError();
+        }
+
+        $code = $this->mappingString($mapping['fa3_code'] ?? null);
+        $description = $this->mappingString($mapping['description'] ?? null);
+
+        if ($type === KsefPaymentType::Original) {
+            if ($code !== null || $description === null || $description !== $sourceLabel
+                || $this->length($description) > 256) {
+                throw $this->paymentMappingError();
+            }
+
+            return [null, $description];
+        }
+
+        if ($description !== null || $code !== $type->fa3Code()) {
+            throw $this->paymentMappingError();
+        }
+
+        return [$code, null];
+    }
+
+    /**
+     * @param  array<string, mixed>  $paymentSnapshot
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function legacyPaymentMethod(array $paymentSnapshot): array
+    {
+        $method = $this->snapshotString(
+            $paymentSnapshot['effective_payment_method'] ?? null,
+            'ksef_fa3_payment_method_invalid',
+        );
+        if ($method === null) {
+            return [null, null];
+        }
+
+        $code = self::LEGACY_PAYMENT_METHODS[mb_strtolower($method, 'UTF-8')] ?? null;
+        if ($code !== null) {
+            return [$code, null];
+        }
+        if ($this->length($method) > 256) {
+            throw $this->error(
+                'ksef_fa3_payment_method_invalid',
+                'Forma płatności nie mieści się w kontrakcie FA(3).',
+            );
+        }
+
+        return [null, $method];
+    }
+
+    private function mappingString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (! is_string($value) || trim($value) === '') {
+            throw $this->paymentMappingError();
+        }
+
+        return trim($value);
     }
 
     /** @param array<string, mixed> $seller
@@ -583,6 +665,14 @@ class KsefFa3OptionalBlocksResolver
             'ksef_fa3_payment_snapshot_invalid',
             'Snapshot płatności Faktury jest niekompletny lub niespójny.',
             $previous,
+        );
+    }
+
+    private function paymentMappingError(): InvoiceDomainException
+    {
+        return $this->error(
+            'ksef_fa3_payment_mapping_invalid',
+            'Snapshot formy płatności Faktury jest niekompletny lub niespójny.',
         );
     }
 
