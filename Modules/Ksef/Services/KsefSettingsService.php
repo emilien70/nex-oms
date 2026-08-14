@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -56,6 +57,22 @@ class KsefSettingsService
             ['singleton_key' => KsefSetting::SINGLETON_KEY],
             $this->defaults(),
         );
+    }
+
+    public function getExisting(): KsefSetting
+    {
+        $settings = KsefSetting::query()
+            ->where('singleton_key', KsefSetting::SINGLETON_KEY)
+            ->first();
+
+        if ($settings === null) {
+            throw new InvoiceDomainException(
+                'ksef_configuration_missing',
+                'Konfiguracja KSeF nie istnieje.',
+            );
+        }
+
+        return $settings;
     }
 
     public function update(array $data, ?KsefCertificateMaterial $certificateMaterial = null): KsefSetting

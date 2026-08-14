@@ -51,6 +51,9 @@ class KsefFa3XmlBuilder
     private function seller(DOMDocument $document, DOMElement $root, array $seller): void
     {
         $subject = $this->element($document, $root, 'Podmiot1');
+        if (is_string($seller['taxpayer_prefix'] ?? null)) {
+            $this->element($document, $subject, 'PrefiksPodatnika', $seller['taxpayer_prefix']);
+        }
         $identity = $this->element($document, $subject, 'DaneIdentyfikacyjne');
         $this->element($document, $identity, 'NIP', (string) $seller['nip']);
         $this->element($document, $identity, 'Nazwa', (string) $seller['name']);

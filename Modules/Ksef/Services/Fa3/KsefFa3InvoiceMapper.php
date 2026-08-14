@@ -41,12 +41,15 @@ class KsefFa3InvoiceMapper
 
         [$lines, $taxBuckets] = $this->mapLinesAndSummary($invoice, $items, $treatments);
         $annotations = is_array($ksefTax['annotations'] ?? null) ? $ksefTax['annotations'] : [];
+        $hasWdt = $treatments->contains(
+            static fn (array $treatment): bool => ($treatment['treatment'] ?? null) === 'wdt',
+        );
 
         return new KsefFa3DocumentData(
             generatedAt: DateTimeImmutable::createFromInterface($generatedAt)
                 ->setTimezone(new DateTimeZone('UTC'))
                 ->format('Y-m-d\TH:i:s\Z'),
-            seller: $this->seller($invoice->seller_snapshot ?? []),
+            seller: $this->seller($invoice->seller_snapshot ?? [], $hasWdt),
             buyer: $this->buyer($invoice->buyer_snapshot ?? []),
             invoice: [
                 'currency' => strtoupper(trim((string) $invoice->currency)),
@@ -247,9 +250,10 @@ class KsefFa3InvoiceMapper
     /** @param array<string, mixed> $snapshot
      * @return array<string, mixed>
      */
-    private function seller(array $snapshot): array
+    private function seller(array $snapshot, bool $hasWdt): array
     {
         return [
+            'taxpayer_prefix' => $hasWdt ? 'PL' : null,
             'nip' => $this->buyerIdentity->normalizePolishNip($snapshot['tax_id'] ?? null) ?? '',
             'name' => trim((string) ($snapshot['name'] ?? '')),
             'address' => $this->address($snapshot),

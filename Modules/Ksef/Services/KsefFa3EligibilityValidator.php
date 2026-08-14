@@ -2,6 +2,7 @@
 
 namespace Modules\Ksef\Services;
 
+use App\Support\CountryCatalog;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
@@ -13,6 +14,7 @@ class KsefFa3EligibilityValidator
     public function __construct(
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
         private readonly KsefFa3TaxTreatmentResolver $taxTreatments,
+        private readonly CountryCatalog $countries,
     ) {}
 
     public function assertEligible(
@@ -91,6 +93,19 @@ class KsefFa3EligibilityValidator
             );
         }
 
+        $companyName = $this->optionalString($buyer['company_name'] ?? null);
+        $name = $companyName ?? $this->optionalString($buyer['name'] ?? null);
+        $country = $this->countries->normalize(
+            is_string($buyer['country_code'] ?? null) ? $buyer['country_code'] : null,
+        );
+
+        if ($name === null || ! $this->countries->exists($country) || $this->addressLine($buyer) === '') {
+            throw $this->error(
+                'ksef_fa3_buyer_incomplete',
+                'Snapshot nabywcy nie zawiera nazwy i adresu wymaganych dla zwykłej Faktury FA(3).',
+            );
+        }
+
         if (($identity['status'] ?? null) !== 'resolved') {
             throw $this->error(
                 'ksef_fa3_buyer_identity_unresolved',
@@ -122,6 +137,28 @@ class KsefFa3EligibilityValidator
         }
 
         return $identity;
+    }
+
+    /** @param array<string, mixed> $buyer */
+    private function addressLine(array $buyer): string
+    {
+        $street = $this->optionalString($buyer['street'] ?? null);
+        $building = $this->optionalString($buyer['building_number'] ?? null);
+        $apartment = $this->optionalString($buyer['apartment_number'] ?? null);
+        $number = $building;
+        if ($apartment !== null) {
+            $number = $number !== null ? $number.'/'.$apartment : $apartment;
+        }
+
+        return trim(implode(' ', array_filter(
+            [$street, $number],
+            static fn (?string $value): bool => $value !== null,
+        )));
+    }
+
+    private function optionalString(mixed $value): ?string
+    {
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 
     /** @return array<int, array<string, mixed>> */

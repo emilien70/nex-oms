@@ -16,6 +16,8 @@ use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
+use Modules\Ksef\Models\KsefCredential;
+use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\Services\Fa3\KsefFa3XmlBuilder;
 use Modules\Ksef\Services\KsefSettingsService;
@@ -57,6 +59,10 @@ class KsefFa3DocumentGeneratorTest extends TestCase
             ],
         );
         $before = $invoice->fresh()->getAttributes();
+        $itemsBefore = $invoice->items()->orderBy('position')->orderBy('id')->get()
+            ->map(fn ($item): array => $item->getAttributes())->all();
+        $settingsBefore = KsefSetting::query()->firstOrFail()->getAttributes();
+        $credentialsBefore = KsefCredential::query()->count();
         $generatedAt = CarbonImmutable::parse('2026-08-14 10:11:12', 'Europe/Warsaw');
 
         $first = $this->generate($invoice, $generatedAt);
@@ -71,6 +77,7 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertSame('1-0E', $this->value($xpath, '/fa:Faktura/fa:Naglowek/fa:KodFormularza/@wersjaSchemy'));
         $this->assertSame('3', $this->value($xpath, '/fa:Faktura/fa:Naglowek/fa:WariantFormularza'));
         $this->assertSame('NEX-OMS', $this->value($xpath, '/fa:Faktura/fa:Naglowek/fa:SystemInfo'));
+        $this->assertSame(0, $xpath->query('/fa:Faktura/fa:Podmiot1/fa:PrefiksPodatnika')->length);
         $this->assertSame('9876543210', $this->value($xpath, '/fa:Faktura/fa:Podmiot1/fa:DaneIdentyfikacyjne/fa:NIP'));
         $this->assertSame('NEX & Partnerzy <Śląsk>', $this->value($xpath, '/fa:Faktura/fa:Podmiot1/fa:DaneIdentyfikacyjne/fa:Nazwa'));
         $this->assertSame('PL', $this->value($xpath, '/fa:Faktura/fa:Podmiot1/fa:Adres/fa:KodKraju'));
@@ -78,6 +85,8 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertSame('40-001 Katowice', $this->value($xpath, '/fa:Faktura/fa:Podmiot1/fa:Adres/fa:AdresL2'));
         $this->assertSame('5260250995', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:NIP'));
         $this->assertSame('Kupujący & Synowie <PL>', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:Nazwa'));
+        $this->assertSame('PL', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:Adres/fa:KodKraju'));
+        $this->assertSame('Fakturowa 10/2', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:Adres/fa:AdresL1'));
         $this->assertSame('2', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:JST'));
         $this->assertSame('2', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:GV'));
         $this->assertSame('PLN', $this->value($xpath, '/fa:Faktura/fa:Fa/fa:KodWaluty'));
@@ -102,6 +111,13 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertStringStartsNotWith("\xEF\xBB\xBF", $first->xml);
         $this->assertStringNotContainsString("\r\n", $first->xml);
         $this->assertSame($before, $invoice->fresh()->getAttributes());
+        $this->assertSame(
+            $itemsBefore,
+            $invoice->items()->orderBy('position')->orderBy('id')->get()
+                ->map(fn ($item): array => $item->getAttributes())->all(),
+        );
+        $this->assertSame($settingsBefore, KsefSetting::query()->firstOrFail()->getAttributes());
+        $this->assertSame($credentialsBefore, KsefCredential::query()->count());
         Http::assertNothingSent();
     }
 
@@ -152,6 +168,44 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertSame(['0 KR', '0 WDT', '0 EX'], $this->values($xpath, '//fa:FaWiersz/fa:P_12'));
     }
 
+    public function test_frozen_wdt_emits_taxpayer_prefix_before_seller_identity(): void
+    {
+        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Wdt])->save();
+        $invoice = $this->issueInvoice(
+            ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            [$this->grossItem('WDT', '100.00', '0.00')],
+        );
+        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Export])->save();
+
+        $xpath = $this->xpath($this->generate($invoice)->xml);
+
+        $this->assertSame('PL', $this->value($xpath, '/fa:Faktura/fa:Podmiot1/fa:PrefiksPodatnika'));
+        $this->assertSame(
+            'PrefiksPodatnika',
+            $xpath->query('/fa:Faktura/fa:Podmiot1/*')->item(0)?->localName,
+        );
+        $this->assertSame('DE', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:KodUE'));
+        $this->assertSame('123456789', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:NrVatUE'));
+        $this->assertSame('0 WDT', $this->value($xpath, '//fa:FaWiersz/fa:P_12'));
+        $this->assertSame('100.00', $this->value($xpath, '//fa:Fa/fa:P_13_6_2'));
+        $this->assertSame(0, $xpath->query('//fa:Fa/fa:P_13_6_3')->length);
+    }
+
+    public function test_export_without_wdt_does_not_emit_taxpayer_prefix(): void
+    {
+        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Export])->save();
+        $invoice = $this->issueInvoice(
+            ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            [$this->grossItem('Eksport', '100.00', '0.00')],
+        );
+
+        $xpath = $this->xpath($this->generate($invoice)->xml);
+
+        $this->assertSame(0, $xpath->query('/fa:Faktura/fa:Podmiot1/fa:PrefiksPodatnika')->length);
+        $this->assertSame('0 EX', $this->value($xpath, '//fa:FaWiersz/fa:P_12'));
+        $this->assertSame('100.00', $this->value($xpath, '//fa:Fa/fa:P_13_6_3'));
+    }
+
     public function test_frozen_mpp_and_buyer_identity_variants_are_mapped_without_current_setting_drift(): void
     {
         $settings = $this->settings();
@@ -171,7 +225,41 @@ class KsefFa3DocumentGeneratorTest extends TestCase
 
         $settings->forceFill(['send_without_buyer_nip' => true])->save();
         $noId = $this->issueInvoice(['billing_tax_id' => null]);
-        $this->assertSame('1', $this->value($this->xpath($this->generate($noId)->xml), '//fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:BrakID'));
+        $noIdXpath = $this->xpath($this->generate($noId)->xml);
+        $this->assertSame('1', $this->value($noIdXpath, '//fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:BrakID'));
+        $this->assertSame('Kowalski Handel', $this->value($noIdXpath, '//fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:Nazwa'));
+        $this->assertSame('PL', $this->value($noIdXpath, '//fa:Podmiot2/fa:Adres/fa:KodKraju'));
+        $this->assertSame('Fakturowa 10/2', $this->value($noIdXpath, '//fa:Podmiot2/fa:Adres/fa:AdresL1'));
+    }
+
+    public function test_ordinary_buyer_requires_name_country_and_address_before_xml_building(): void
+    {
+        foreach ([
+            'name' => ['name' => null, 'company_name' => null],
+            'address' => ['street' => null, 'building_number' => null, 'apartment_number' => null],
+            'country' => ['country_code' => null],
+        ] as $changes) {
+            $invoice = $this->issueInvoice();
+            $snapshot = array_replace($invoice->buyer_snapshot, $changes);
+            $invoice->forceFill(['buyer_snapshot' => $snapshot])->saveQuietly();
+
+            $this->expectDomainError(
+                'ksef_fa3_buyer_incomplete',
+                fn () => $this->generate($invoice->refresh()),
+            );
+        }
+    }
+
+    public function test_missing_settings_fail_without_creating_configuration(): void
+    {
+        $invoice = $this->issueInvoice();
+        $before = $invoice->fresh()->getAttributes();
+        KsefSetting::query()->delete();
+
+        $this->expectDomainError('ksef_configuration_missing', fn () => $this->generate($invoice));
+
+        $this->assertSame(0, KsefSetting::query()->count());
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
     }
 
     public function test_foreign_invoice_uses_persisted_pln_vat_and_performs_no_http_during_generation(): void

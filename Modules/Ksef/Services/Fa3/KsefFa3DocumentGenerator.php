@@ -24,7 +24,7 @@ class KsefFa3DocumentGenerator
         DateTimeInterface $generatedAt,
         KsefFa3EligibilityMode $mode,
     ): KsefFa3GeneratedDocument {
-        $this->eligibility->assertEligible($invoice, $this->settings->get(), $mode);
+        $this->eligibility->assertEligible($invoice, $this->settings->getExisting(), $mode);
         $data = $this->mapper->map($invoice, $generatedAt);
         $xml = $this->builder->build($data);
         $this->schemaValidator->validate($xml);
