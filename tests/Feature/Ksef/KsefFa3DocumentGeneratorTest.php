@@ -107,7 +107,8 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertSame('1', $this->value($xpath, '//fa:Adnotacje/fa:NoweSrodkiTransportu/fa:P_22N'));
         $this->assertSame('2', $this->value($xpath, '//fa:Adnotacje/fa:P_23'));
         $this->assertSame('1', $this->value($xpath, '//fa:Adnotacje/fa:PMarzy/fa:P_PMarzyN'));
-        $this->assertSame(0, $xpath->query('//fa:Platnosc|//fa:Podmiot3|//fa:GTU')->length);
+        $this->assertSame(0, $xpath->query('//fa:Podmiot3|//fa:GTU')->length);
+        $this->assertSame('6', $this->value($xpath, '//fa:Platnosc/fa:FormaPlatnosci'));
         $this->assertStringStartsNotWith("\xEF\xBB\xBF", $first->xml);
         $this->assertStringNotContainsString("\r\n", $first->xml);
         $this->assertSame($before, $invoice->fresh()->getAttributes());

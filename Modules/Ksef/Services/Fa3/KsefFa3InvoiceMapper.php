@@ -29,17 +29,24 @@ class KsefFa3InvoiceMapper
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
+        private readonly KsefFa3OptionalBlocksResolver $optionalBlocks,
     ) {}
 
     public function map(Invoice $invoice, DateTimeInterface $generatedAt): KsefFa3DocumentData
     {
         $items = $invoice->items()->orderBy('position')->orderBy('id')->get();
+        $optional = $this->optionalBlocks->resolve($invoice);
         $ksefTax = data_get($invoice->tax_metadata_snapshot, 'ksef_tax');
         $treatments = collect(is_array($ksefTax) ? ($ksefTax['line_treatments'] ?? []) : [])
             ->filter(static fn (mixed $value): bool => is_array($value))
             ->keyBy(static fn (array $value): int => (int) ($value['invoice_item_id'] ?? 0));
 
-        [$lines, $taxBuckets] = $this->mapLinesAndSummary($invoice, $items, $treatments);
+        [$lines, $taxBuckets] = $this->mapLinesAndSummary(
+            $invoice,
+            $items,
+            $treatments,
+            $optional['gtu_by_item_id'],
+        );
         $annotations = is_array($ksefTax['annotations'] ?? null) ? $ksefTax['annotations'] : [];
         $hasWdt = $treatments->contains(
             static fn (array $treatment): bool => ($treatment['treatment'] ?? null) === 'wdt',
@@ -50,7 +57,10 @@ class KsefFa3InvoiceMapper
                 ->setTimezone(new DateTimeZone('UTC'))
                 ->format('Y-m-d\TH:i:s\Z'),
             seller: $this->seller($invoice->seller_snapshot ?? [], $hasWdt),
-            buyer: $this->buyer($invoice->buyer_snapshot ?? []),
+            buyer: array_filter([
+                ...$this->buyer($invoice->buyer_snapshot ?? []),
+                'contacts' => $optional['buyer_contacts'],
+            ], static fn (mixed $value): bool => $value !== null),
             invoice: [
                 'currency' => strtoupper(trim((string) $invoice->currency)),
                 'issue_date' => $invoice->issue_date?->format('Y-m-d') ?? '',
@@ -74,16 +84,25 @@ class KsefFa3InvoiceMapper
                 'regon' => $this->optionalString(data_get($invoice->seller_snapshot, 'regon')),
                 'bdo' => $this->optionalString(data_get($invoice->seller_snapshot, 'bdo')),
             ], static fn (?string $value): bool => $value !== null),
+            recipient: $optional['recipient'],
+            additionalDescriptions: $optional['additional_descriptions'],
+            payment: $optional['payment'],
+            transactionTerms: $optional['transaction_terms'],
         );
     }
 
     /**
      * @param  Collection<int, InvoiceItem>  $items
      * @param  Collection<int, array<string, mixed>>  $treatments
-     * @return array{0: array<int, array<string, int|string>>, 1: array<string, array<string, string>|null>}
+     * @param  array<int, string>  $gtuByItemId
+     * @return array{0: array<int, array<string, int|string|null>>, 1: array<string, array<string, string>|null>}
      */
-    private function mapLinesAndSummary(Invoice $invoice, Collection $items, Collection $treatments): array
-    {
+    private function mapLinesAndSummary(
+        Invoice $invoice,
+        Collection $items,
+        Collection $treatments,
+        array $gtuByItemId,
+    ): array {
         $lines = [];
         $buckets = array_fill_keys(self::BUCKETS, null);
         $totalNet = '0.00';
@@ -117,6 +136,7 @@ class KsefFa3InvoiceMapper
                 'unit_price_net' => $this->decimalValue($item->unit_price_net, 4),
                 'total_net' => $net,
                 'fa3_rate' => (string) ($treatment['fa3_rate'] ?? ''),
+                'gtu' => $gtuByItemId[(int) $item->getKey()] ?? null,
             ];
         }
 

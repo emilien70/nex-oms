@@ -22,6 +22,9 @@ class KsefFa3XmlBuilder
         $this->header($document, $root, $data);
         $this->seller($document, $root, $data->seller);
         $this->buyer($document, $root, $data->buyer);
+        if ($data->recipient !== null) {
+            $this->recipient($document, $root, $data->recipient);
+        }
         $this->invoice($document, $root, $data);
         $this->footer($document, $root, $data->registrations);
 
@@ -82,8 +85,23 @@ class KsefFa3XmlBuilder
         if (is_array($buyer['address'] ?? null)) {
             $this->address($document, $subject, $buyer['address']);
         }
+        if (is_array($buyer['contacts'] ?? null)) {
+            $this->contacts($document, $subject, $buyer['contacts']);
+        }
         $this->element($document, $subject, 'JST', ($buyer['jst'] ?? false) ? '1' : '2');
         $this->element($document, $subject, 'GV', ($buyer['vat_group'] ?? false) ? '1' : '2');
+    }
+
+    /** @param array<string, mixed> $recipient */
+    private function recipient(DOMDocument $document, DOMElement $root, array $recipient): void
+    {
+        $subject = $this->element($document, $root, 'Podmiot3');
+        $identity = $this->element($document, $subject, 'DaneIdentyfikacyjne');
+        $this->element($document, $identity, 'BrakID', '1');
+        $this->element($document, $identity, 'Nazwa', (string) $recipient['name']);
+        $this->address($document, $subject, $recipient['address']);
+        $this->element($document, $subject, 'RolaInna', '1');
+        $this->element($document, $subject, 'OpisRoli', (string) $recipient['role_description']);
     }
 
     /** @param array<string, mixed> $buyer */
@@ -109,6 +127,12 @@ class KsefFa3XmlBuilder
         $this->annotations($document, $invoice, $data->annotations);
         $this->element($document, $invoice, 'RodzajFaktury', 'VAT');
 
+        foreach ($data->additionalDescriptions as $description) {
+            $node = $this->element($document, $invoice, 'DodatkowyOpis');
+            $this->element($document, $node, 'Klucz', $description['key']);
+            $this->element($document, $node, 'Wartosc', $description['value']);
+        }
+
         foreach ($data->lines as $line) {
             $row = $this->element($document, $invoice, 'FaWiersz');
             $this->element($document, $row, 'NrWierszaFa', (string) $line['position']);
@@ -118,7 +142,58 @@ class KsefFa3XmlBuilder
             $this->element($document, $row, 'P_9A', (string) $line['unit_price_net']);
             $this->element($document, $row, 'P_11', (string) $line['total_net']);
             $this->element($document, $row, 'P_12', (string) $line['fa3_rate']);
+            if (is_string($line['gtu'] ?? null)) {
+                $this->element($document, $row, 'GTU', $line['gtu']);
+            }
         }
+
+        if ($data->payment !== null) {
+            $this->payment($document, $invoice, $data->payment);
+        }
+        if ($data->transactionTerms !== null) {
+            $this->transactionTerms($document, $invoice, $data->transactionTerms);
+        }
+    }
+
+    /** @param array<string, mixed> $payment */
+    private function payment(DOMDocument $document, DOMElement $invoice, array $payment): void
+    {
+        $node = $this->element($document, $invoice, 'Platnosc');
+        if (isset($payment['paid_date'])) {
+            $this->element($document, $node, 'Zaplacono', '1');
+            $this->element($document, $node, 'DataZaplaty', $payment['paid_date']);
+        }
+        if (isset($payment['due_date'])) {
+            $due = $this->element($document, $node, 'TerminPlatnosci');
+            $this->element($document, $due, 'Termin', $payment['due_date']);
+        }
+        if (isset($payment['method_code'])) {
+            $this->element($document, $node, 'FormaPlatnosci', $payment['method_code']);
+        } elseif (isset($payment['method_description'])) {
+            $this->element($document, $node, 'PlatnoscInna', '1');
+            $this->element($document, $node, 'OpisPlatnosci', $payment['method_description']);
+        }
+        if (is_array($payment['bank_account'] ?? null)) {
+            $bank = $this->element($document, $node, 'RachunekBankowy');
+            $this->element($document, $bank, 'NrRB', $payment['bank_account']['number']);
+            if (isset($payment['bank_account']['swift'])) {
+                $this->element($document, $bank, 'SWIFT', $payment['bank_account']['swift']);
+            }
+            if (isset($payment['bank_account']['name'])) {
+                $this->element($document, $bank, 'NazwaBanku', $payment['bank_account']['name']);
+            }
+        }
+    }
+
+    /** @param array<string, string> $terms */
+    private function transactionTerms(DOMDocument $document, DOMElement $invoice, array $terms): void
+    {
+        $node = $this->element($document, $invoice, 'WarunkiTransakcji');
+        $order = $this->element($document, $node, 'Zamowienia');
+        if (isset($terms['date'])) {
+            $this->element($document, $order, 'DataZamowienia', $terms['date']);
+        }
+        $this->element($document, $order, 'NrZamowienia', $terms['number']);
     }
 
     /** @param array<string, array<string, string>|null> $buckets */
@@ -194,6 +269,18 @@ class KsefFa3XmlBuilder
         $this->element($document, $node, 'AdresL1', $address['line_1']);
         if (isset($address['line_2'])) {
             $this->element($document, $node, 'AdresL2', $address['line_2']);
+        }
+    }
+
+    /** @param array<string, string> $contacts */
+    private function contacts(DOMDocument $document, DOMElement $subject, array $contacts): void
+    {
+        $node = $this->element($document, $subject, 'DaneKontaktowe');
+        if (isset($contacts['email'])) {
+            $this->element($document, $node, 'Email', $contacts['email']);
+        }
+        if (isset($contacts['phone'])) {
+            $this->element($document, $node, 'Telefon', $contacts['phone']);
         }
     }
 

@@ -1213,9 +1213,17 @@ NEX-OMS może wygenerować dla wystawionej Faktury VAT deterministyczny XML `FA 
 
 Podsumowanie VAT powstaje z zapisanych rozstrzygnięć `ksef_tax.line_treatments`, w tym osobnych pól dla `0 KR`, `0 WDT` i `0 EX`. Dla waluty obcej kwoty podatku w PLN pochodzą wyłącznie z historycznego `converted_tax_summary`; generator nie pobiera nowego kursu. MPP, tożsamość nabywcy, REGON i BDO również pochodzą ze snapshotów dokumentu, bez fallbacku do bieżącego zamówienia, serii albo ustawień treściowych KSeF.
 
-Wygenerowany XML nie jest zapisywany w bazie ani w plikach. KSeF.3B.2 nie otwiera sesji, nie wysyła Faktur, nie pobiera UPO i nie dodaje numeru KSeF, QR, trybu offline, płatności, GTU, odbiorcy, Korekt ani Pro form do XML.
+Wygenerowany XML nie jest zapisywany w bazie ani w plikach. KSeF.3B.2 nie otwiera sesji, nie wysyła Faktur, nie pobiera UPO i nie dodaje numeru KSeF, QR ani trybu offline.
 
-## 30.7. Audyt gotowości KSeF
+## 30.7. Opcjonalne bloki dokumentu FA(3) KSeF.3C
+
+Nowa Faktura VAT utrwala w `tax_metadata_snapshot.ksef_document` wersji 1 sześć decyzji dotyczących zawartości XML: odbiorcę, kontakt nabywcy, informacje dodatkowe, numer zamówienia, rachunek bankowy i GTU. Zmiana bieżącej konfiguracji nie zmienia tych decyzji na istniejącym dokumencie. Faktury utworzone przed 3C, bez tego snapshotu, zachowują tryb core-only i nie są uzupełniane z aktualnych ustawień.
+
+Opcjonalna treść pochodzi wyłącznie z historycznych snapshotów Faktury i jej pozycji. Płatność może zawierać potwierdzoną pełną zapłatę z datą, termin, jednoznaczną albo opisaną inną formę i włączony rachunek sprzedawcy. Brak historii pojedynczych wpłat oznacza, że NEX nie tworzy danych zapłat częściowych. Odbiorca dostawy jest prezentowany jako inna rola `Podmiot3`, bez kopiowania NIP-u nabywcy. GTU jest wysyłane tylko wtedy, gdy pozycja ma najwyżej jeden unikalny poprawny kod; konfiguracja KSeF nie ogranicza ogólnego modelu `InvoiceItem.gtu_codes`.
+
+Informacje dodatkowe są normalizowane liniowo i dzielone bez utraty znaków na elementy zgodne z limitem XSD. Numer zamówienia pochodzi wyłącznie z utrwalonego zewnętrznego identyfikatora, nigdy z wewnętrznego ID bazy. Wszystkie bloki przechodzą lokalną walidację oficjalnym FA(3) XSD. Etap nadal nie otwiera sesji, nie wysyła Faktur, nie pobiera UPO i nie obejmuje Korekt ani Pro form.
+
+## 30.8. Audyt gotowości KSeF
 
 Po zakończeniu modułu faktur zostanie wykonany osobny audyt obejmujący:
 

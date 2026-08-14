@@ -8,6 +8,7 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\Fa3\KsefFa3OptionalBlocksResolver;
 
 class KsefFa3EligibilityValidator
 {
@@ -15,6 +16,7 @@ class KsefFa3EligibilityValidator
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
         private readonly KsefFa3TaxTreatmentResolver $taxTreatments,
         private readonly CountryCatalog $countries,
+        private readonly KsefFa3OptionalBlocksResolver $optionalBlocks,
     ) {}
 
     public function assertEligible(
@@ -49,6 +51,8 @@ class KsefFa3EligibilityValidator
                 'Pozycja WDT wymaga jednoznacznego numeru VAT UE nabywcy spoza Polski.',
             );
         }
+
+        $this->optionalBlocks->resolve($invoice);
     }
 
     /** @param array<string, mixed> $seller */

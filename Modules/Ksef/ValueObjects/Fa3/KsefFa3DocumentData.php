@@ -12,6 +12,10 @@ final readonly class KsefFa3DocumentData
      * @param  array<string, bool>  $annotations
      * @param  array<int, array<string, int|string>>  $lines
      * @param  array<string, string>  $registrations
+     * @param  array<string, mixed>|null  $recipient
+     * @param  array<int, array{key: string, value: string}>  $additionalDescriptions
+     * @param  array<string, mixed>|null  $payment
+     * @param  array<string, string>|null  $transactionTerms
      */
     public function __construct(
         public string $generatedAt,
@@ -22,5 +26,9 @@ final readonly class KsefFa3DocumentData
         public array $annotations,
         public array $lines,
         public array $registrations,
+        public ?array $recipient,
+        public array $additionalDescriptions,
+        public ?array $payment,
+        public ?array $transactionTerms,
     ) {}
 }

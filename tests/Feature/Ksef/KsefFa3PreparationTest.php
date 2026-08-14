@@ -63,10 +63,56 @@ class KsefFa3PreparationTest extends TestCase
             'jst' => false,
             'vat_group' => false,
         ], $invoice->buyer_snapshot['subject_flags']);
+        $this->assertSame([
+            'version' => 1,
+            'options' => [
+                'include_recipient_data' => false,
+                'include_buyer_contact_data' => false,
+                'include_additional_information' => false,
+                'include_order_reference' => true,
+                'include_bank_account' => true,
+                'include_gtu' => true,
+            ],
+        ], $invoice->tax_metadata_snapshot['ksef_document']);
 
         $before = $invoice->fresh()->getAttributes();
         app(KsefFa3SemanticSnapshotService::class)->refresh($invoice);
         $this->assertSame($before, $invoice->fresh()->getAttributes());
+    }
+
+    public function test_document_options_are_frozen_across_settings_changes_and_invoice_edits(): void
+    {
+        Http::preventStrayRequests();
+        $this->settings()->forceFill([
+            'include_recipient_data' => true,
+            'include_buyer_contact_data' => true,
+            'include_additional_information' => true,
+            'include_order_reference' => false,
+            'include_bank_account' => false,
+            'include_gtu' => false,
+        ])->save();
+        $invoice = $this->issueInvoice(['billing_tax_id' => '5260250995']);
+        $frozen = $invoice->tax_metadata_snapshot['ksef_document'];
+
+        $this->settings()->forceFill([
+            'include_recipient_data' => false,
+            'include_buyer_contact_data' => false,
+            'include_additional_information' => false,
+            'include_order_reference' => true,
+            'include_bank_account' => true,
+            'include_gtu' => true,
+        ])->save();
+        $item = $invoice->items->first();
+        $invoice = app(InvoiceEditService::class)->updateItem(
+            $invoice,
+            $item,
+            $this->itemPayload($invoice, $item, ['name' => 'Zmieniona pozycja']),
+        );
+
+        $this->assertSame($frozen, $invoice->tax_metadata_snapshot['ksef_document']);
+        $newInvoice = $this->issueInvoice(['billing_tax_id' => '5260250995']);
+        $this->assertNotSame($frozen, $newInvoice->tax_metadata_snapshot['ksef_document']);
+        $this->assertTrue($newInvoice->tax_metadata_snapshot['ksef_document']['options']['include_gtu']);
     }
 
     public function test_zero_vat_and_split_payment_are_frozen_while_new_or_retaxed_lines_use_current_settings(): void

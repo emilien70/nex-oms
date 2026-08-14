@@ -82,6 +82,19 @@ class KsefFa3SemanticSnapshotService
             ],
             'line_treatments' => $lineTreatments,
         ];
+        if ($initialize && ! array_key_exists('ksef_document', $metadata)) {
+            $metadata['ksef_document'] = [
+                'version' => 1,
+                'options' => [
+                    'include_recipient_data' => (bool) $settings->include_recipient_data,
+                    'include_buyer_contact_data' => (bool) $settings->include_buyer_contact_data,
+                    'include_additional_information' => (bool) $settings->include_additional_information,
+                    'include_order_reference' => (bool) $settings->include_order_reference,
+                    'include_bank_account' => (bool) $settings->include_bank_account,
+                    'include_gtu' => (bool) $settings->include_gtu,
+                ],
+            ];
+        }
         $buyer = $invoice->buyer_snapshot ?? [];
         if ($initialize
             || (data_get($buyer, 'tax_identity.version') === 1
