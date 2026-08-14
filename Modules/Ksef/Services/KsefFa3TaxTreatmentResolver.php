@@ -8,6 +8,20 @@ use Modules\Ksef\Enums\KsefZeroVatClassification;
 
 class KsefFa3TaxTreatmentResolver
 {
+    private const STANDARD_RATES = [
+        '23.00' => '23',
+        '22.00' => '22',
+        '8.00' => '8',
+        '7.00' => '7',
+        '5.00' => '5',
+    ];
+
+    private const ZERO_RATES = [
+        'domestic_zero' => '0 KR',
+        'wdt' => '0 WDT',
+        'export' => '0 EX',
+    ];
+
     public function __construct(
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
     ) {}
@@ -23,7 +37,7 @@ class KsefFa3TaxTreatmentResolver
         $identity = $this->taxIdentity->normalize($item->vat_rate, $item->vat_code);
         $identityKey = $this->taxIdentity->key($identity);
 
-        if ($this->matchesExistingIdentity($existing, $identityKey)) {
+        if ($this->hasSameTaxIdentity($existing, $identityKey)) {
             return array_replace($existing, [
                 'invoice_item_id' => $item->getKey(),
                 'position' => $item->position,
@@ -36,8 +50,52 @@ class KsefFa3TaxTreatmentResolver
             'tax_identity' => $identityKey,
         ];
 
+        $zeroTreatment = match ($zeroClassification) {
+            KsefZeroVatClassification::Wdt => 'wdt',
+            KsefZeroVatClassification::Export => 'export',
+            KsefZeroVatClassification::Domestic => 'domestic_zero',
+        };
+
+        return $base + $this->canonicalSemantics($identity, $zeroTreatment);
+    }
+
+    /** @param array<string, mixed> $treatment */
+    public function isCanonical(InvoiceItem $item, array $treatment): bool
+    {
+        $identity = $this->taxIdentity->normalize($item->vat_rate, $item->vat_code);
+        $identityKey = $this->taxIdentity->key($identity);
+        $zeroTreatment = is_string($treatment['treatment'] ?? null)
+            ? $treatment['treatment']
+            : null;
+        $semantics = $this->canonicalSemantics($identity, $zeroTreatment);
+        $expected = [
+            'invoice_item_id' => $item->getKey(),
+            'position' => $item->position,
+            'tax_identity' => $identityKey,
+        ] + $semantics;
+
+        ksort($expected);
+        ksort($treatment);
+
+        return $treatment === $expected;
+    }
+
+    /** @param array<string, mixed>|null $existing */
+    private function hasSameTaxIdentity(?array $existing, ?string $identityKey): bool
+    {
+        return $existing !== null
+            && is_string($identityKey)
+            && ($existing['tax_identity'] ?? null) === $identityKey;
+    }
+
+    /**
+     * @param  array{vat_rate: ?string, vat_code: ?string}  $identity
+     * @return array<string, mixed>
+     */
+    private function canonicalSemantics(array $identity, ?string $zeroTreatment): array
+    {
         if ($identity['vat_code'] !== null) {
-            return $base + [
+            return [
                 'status' => 'unsupported',
                 'reason' => 'unsupported_vat_code',
                 'vat_code' => $identity['vat_code'],
@@ -45,49 +103,26 @@ class KsefFa3TaxTreatmentResolver
         }
 
         $rate = $identity['vat_rate'];
-        $standard = [
-            '23.00' => '23',
-            '22.00' => '22',
-            '8.00' => '8',
-            '7.00' => '7',
-            '5.00' => '5',
-        ];
-
-        if (isset($standard[$rate])) {
-            return $base + [
+        if (isset(self::STANDARD_RATES[$rate])) {
+            return [
                 'status' => 'resolved',
                 'treatment' => 'standard',
-                'fa3_rate' => $standard[$rate],
+                'fa3_rate' => self::STANDARD_RATES[$rate],
             ];
         }
 
-        if ($rate === '0.00') {
-            [$treatment, $fa3Rate] = match ($zeroClassification) {
-                KsefZeroVatClassification::Wdt => ['wdt', '0 WDT'],
-                KsefZeroVatClassification::Export => ['export', '0 EX'],
-                KsefZeroVatClassification::Domestic => ['domestic_zero', '0 KR'],
-            };
-
-            return $base + [
+        if ($rate === '0.00' && isset(self::ZERO_RATES[$zeroTreatment])) {
+            return [
                 'status' => 'resolved',
-                'treatment' => $treatment,
-                'fa3_rate' => $fa3Rate,
+                'treatment' => $zeroTreatment,
+                'fa3_rate' => self::ZERO_RATES[$zeroTreatment],
             ];
         }
 
-        return $base + [
+        return [
             'status' => 'unsupported',
             'reason' => 'unsupported_percentage',
             'vat_rate' => $rate,
         ];
-    }
-
-    /** @param array<string, mixed>|null $existing */
-    private function matchesExistingIdentity(?array $existing, ?string $identityKey): bool
-    {
-        return $existing !== null
-            && is_string($identityKey)
-            && ($existing['tax_identity'] ?? null) === $identityKey
-            && in_array($existing['status'] ?? null, ['resolved', 'unsupported'], true);
     }
 }

@@ -18,6 +18,7 @@ use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\KsefFa3EligibilityValidator;
 use Modules\Ksef\Services\KsefFa3SemanticSnapshotService;
 use Modules\Ksef\Services\KsefSettingsService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -207,6 +208,189 @@ class KsefFa3PreparationTest extends TestCase
             $this->assertSame($fa3Rate, $treatment['fa3_rate']);
             $this->eligibility($invoice, KsefFa3EligibilityMode::Preflight);
         }
+    }
+
+    #[DataProvider('tamperedStandardTreatments')]
+    public function test_tampered_standard_treatment_is_rejected(array $changes, array $removedKeys = []): void
+    {
+        Http::preventStrayRequests();
+        $invoice = $this->issueInvoice(
+            ['billing_tax_id' => '5260250995'],
+            ['vat_rate' => '23.00'],
+            ['include_shipping' => false],
+        );
+        $invoice = $this->tamperFirstTreatment($invoice, $changes, $removedKeys);
+
+        $this->expectDomainError(
+            'ksef_fa3_tax_snapshot_invalid',
+            fn () => $this->eligibility($invoice, KsefFa3EligibilityMode::Preflight),
+        );
+    }
+
+    public static function tamperedStandardTreatments(): array
+    {
+        return [
+            'wrong fa3 rate' => [['fa3_rate' => '5']],
+            'wrong treatment' => [['treatment' => 'wdt']],
+            'missing fa3 rate' => [[], ['fa3_rate']],
+        ];
+    }
+
+    #[DataProvider('tamperedZeroTreatments')]
+    public function test_tampered_zero_treatment_is_rejected(
+        KsefZeroVatClassification $classification,
+        array $changes,
+    ): void {
+        Http::preventStrayRequests();
+        $this->settings()->forceFill(['zero_vat_classification' => $classification])->save();
+        $invoice = $this->issueInvoice(
+            ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            ['vat_rate' => '0.00'],
+            ['include_shipping' => false],
+        );
+        $invoice = $this->tamperFirstTreatment($invoice, $changes);
+
+        $this->expectDomainError(
+            'ksef_fa3_tax_snapshot_invalid',
+            fn () => $this->eligibility($invoice, KsefFa3EligibilityMode::Preflight),
+        );
+    }
+
+    public static function tamperedZeroTreatments(): array
+    {
+        return [
+            'wdt paired with export rate' => [KsefZeroVatClassification::Wdt, ['fa3_rate' => '0 EX']],
+            'export paired with wdt rate' => [KsefZeroVatClassification::Export, ['fa3_rate' => '0 WDT']],
+            'domestic zero marked standard' => [KsefZeroVatClassification::Domestic, ['treatment' => 'standard']],
+        ];
+    }
+
+    public function test_each_zero_treatment_is_canonical_and_historical_wdt_is_not_reinterpreted(): void
+    {
+        Http::preventStrayRequests();
+        foreach ([
+            [KsefZeroVatClassification::Domestic, 'domestic_zero', '0 KR', ['billing_tax_id' => '5260250995']],
+            [KsefZeroVatClassification::Wdt, 'wdt', '0 WDT', ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789']],
+            [KsefZeroVatClassification::Export, 'export', '0 EX', ['billing_tax_id' => '5260250995']],
+        ] as [$classification, $treatment, $fa3Rate, $buyer]) {
+            $this->settings()->forceFill(['zero_vat_classification' => $classification])->save();
+            $invoice = $this->issueInvoice($buyer, ['vat_rate' => '0.00'], ['include_shipping' => false]);
+            $snapshot = $invoice->tax_metadata_snapshot['ksef_tax']['line_treatments'][0];
+
+            $this->assertSame($treatment, $snapshot['treatment']);
+            $this->assertSame($fa3Rate, $snapshot['fa3_rate']);
+            $this->eligibility($invoice, KsefFa3EligibilityMode::Preflight);
+        }
+
+        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Wdt])->save();
+        $wdtInvoice = $this->issueInvoice(
+            ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            ['vat_rate' => '0.00'],
+            ['include_shipping' => false],
+        );
+        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Export])->save();
+        $item = $wdtInvoice->items->first();
+        $wdtInvoice = app(InvoiceEditService::class)->updateItem(
+            $wdtInvoice,
+            $item,
+            $this->itemPayload($wdtInvoice, $item, ['name' => 'Nazwa bez zmiany VAT']),
+        );
+
+        $this->assertSame('wdt', $this->treatmentFor($wdtInvoice, $item->getKey())['treatment']);
+        $this->assertSame('0 WDT', $this->treatmentFor($wdtInvoice, $item->getKey())['fa3_rate']);
+        $this->eligibility($wdtInvoice, KsefFa3EligibilityMode::Preflight);
+    }
+
+    public function test_corrupted_existing_zero_treatment_is_not_silently_repaired_by_current_setting(): void
+    {
+        Http::preventStrayRequests();
+        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Wdt])->save();
+        $invoice = $this->issueInvoice(
+            ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            ['vat_rate' => '0.00'],
+            ['include_shipping' => false],
+        );
+        $invoice = $this->tamperFirstTreatment($invoice, ['fa3_rate' => '0 EX']);
+        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Export])->save();
+        $item = $invoice->items->first();
+
+        $invoice = app(InvoiceEditService::class)->updateItem(
+            $invoice,
+            $item,
+            $this->itemPayload($invoice, $item, ['name' => 'Uszkodzony snapshot zachowany']),
+        );
+
+        $this->assertSame('wdt', $this->treatmentFor($invoice, $item->getKey())['treatment']);
+        $this->assertSame('0 EX', $this->treatmentFor($invoice, $item->getKey())['fa3_rate']);
+        $this->expectDomainError(
+            'ksef_fa3_tax_snapshot_invalid',
+            fn () => $this->eligibility($invoice, KsefFa3EligibilityMode::Preflight),
+        );
+    }
+
+    public function test_corrupted_unsupported_percentage_and_vat_codes_are_invalid_snapshots(): void
+    {
+        Http::preventStrayRequests();
+        $percentage = $this->issueInvoice(
+            ['billing_tax_id' => '5260250995'],
+            ['vat_rate' => '6.00'],
+            ['include_shipping' => false],
+        );
+        $percentage = $this->tamperFirstTreatment($percentage, [
+            'status' => 'resolved',
+            'treatment' => 'standard',
+            'fa3_rate' => '5',
+        ], ['reason', 'vat_rate']);
+        $this->expectDomainError(
+            'ksef_fa3_tax_snapshot_invalid',
+            fn () => $this->eligibility($percentage, KsefFa3EligibilityMode::Preflight),
+        );
+
+        foreach (['ZW', 'NP', 'OO', 'UNKNOWN_CODE'] as $code) {
+            $invoice = $this->issueInvoice(
+                ['billing_tax_id' => '5260250995'],
+                ['vat_rate' => '23.00'],
+                ['include_shipping' => false],
+            );
+            $item = $invoice->items->first();
+            $invoice = app(InvoiceEditService::class)->updateItem(
+                $invoice,
+                $item,
+                $this->itemPayload($invoice, $item, ['vat_code' => $code]),
+            );
+            $invoice = $this->tamperFirstTreatment($invoice, [
+                'status' => 'resolved',
+                'treatment' => 'standard',
+                'fa3_rate' => '23',
+            ], ['reason', 'vat_code']);
+            $this->expectDomainError(
+                'ksef_fa3_tax_snapshot_invalid',
+                fn () => $this->eligibility($invoice, KsefFa3EligibilityMode::Preflight),
+            );
+        }
+    }
+
+    public function test_empty_invoice_is_rejected_and_corrupted_snapshot_blocks_enabled_finalization(): void
+    {
+        Http::preventStrayRequests();
+        $empty = $this->issueInvoice(['billing_tax_id' => '5260250995'], series: ['include_shipping' => false]);
+        $empty->items()->delete();
+        $metadata = $empty->tax_metadata_snapshot;
+        $metadata['ksef_tax']['line_treatments'] = [];
+        $empty->forceFill(['tax_metadata_snapshot' => $metadata])->saveQuietly();
+        $this->expectDomainError(
+            'ksef_fa3_items_missing',
+            fn () => $this->eligibility($empty->fresh(), KsefFa3EligibilityMode::Preflight),
+        );
+
+        $corrupted = $this->issueInvoice(['billing_tax_id' => '5260250995']);
+        $corrupted = $this->tamperFirstTreatment($corrupted, ['fa3_rate' => '5']);
+        $this->enableKsefFor($corrupted);
+        $this->expectDomainError(
+            'ksef_fa3_tax_snapshot_invalid',
+            fn () => app(InvoiceFinalizationService::class)->finalize($corrupted),
+        );
+        $this->assertNull($corrupted->fresh()->finalized_at);
     }
 
     public function test_zw_np_oo_and_unknown_vat_codes_are_all_rejected_only_by_fa3_eligibility(): void
@@ -556,6 +740,19 @@ class KsefFa3PreparationTest extends TestCase
     {
         return collect($invoice->fresh()->tax_metadata_snapshot['ksef_tax']['line_treatments'])
             ->firstWhere('invoice_item_id', $itemId);
+    }
+
+    private function tamperFirstTreatment(Invoice $invoice, array $changes, array $removedKeys = []): Invoice
+    {
+        $metadata = $invoice->tax_metadata_snapshot;
+        $treatment = array_replace($metadata['ksef_tax']['line_treatments'][0], $changes);
+        foreach ($removedKeys as $key) {
+            unset($treatment[$key]);
+        }
+        $metadata['ksef_tax']['line_treatments'][0] = $treatment;
+        $invoice->forceFill(['tax_metadata_snapshot' => $metadata])->saveQuietly();
+
+        return $invoice->refresh()->load('items');
     }
 
     /** @return array<string, mixed> */

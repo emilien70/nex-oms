@@ -5,7 +5,6 @@ namespace Modules\Ksef\Services;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
-use Modules\Invoices\Services\InvoiceTaxIdentityNormalizer;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Models\KsefSetting;
 
@@ -13,7 +12,7 @@ class KsefFa3EligibilityValidator
 {
     public function __construct(
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
-        private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
+        private readonly KsefFa3TaxTreatmentResolver $taxTreatments,
     ) {}
 
     public function assertEligible(
@@ -159,6 +158,13 @@ class KsefFa3EligibilityValidator
             ->keyBy(fn (array $treatment): int => (int) ($treatment['invoice_item_id'] ?? 0));
         $items = $invoice->items()->orderBy('position')->orderBy('id')->get();
 
+        if ($items->isEmpty()) {
+            throw $this->error(
+                'ksef_fa3_items_missing',
+                'Faktura nie zawiera pozycji wymaganych do przygotowania FA(3).',
+            );
+        }
+
         if ($treatments->count() !== $items->count()) {
             throw $this->error(
                 'ksef_fa3_tax_snapshot_invalid',
@@ -169,10 +175,7 @@ class KsefFa3EligibilityValidator
         foreach ($items as $item) {
             $treatment = $treatments->get($item->getKey());
             if (! is_array($treatment)
-                || (int) ($treatment['position'] ?? 0) !== $item->position
-                || ($treatment['tax_identity'] ?? null) !== $this->taxIdentity->key(
-                    $this->taxIdentity->normalize($item->vat_rate, $item->vat_code),
-                )) {
+                || ! $this->taxTreatments->isCanonical($item, $treatment)) {
                 throw $this->error(
                     'ksef_fa3_tax_snapshot_invalid',
                     'Snapshot semantyki podatkowej KSeF nie odpowiada pozycjom Faktury.',
