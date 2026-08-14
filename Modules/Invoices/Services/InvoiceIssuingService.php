@@ -17,6 +17,7 @@ use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\ValueObjects\InvoiceCurrencyConversionContext;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
 use Modules\Invoices\ValueObjects\NbpExchangeRate;
+use Modules\Ksef\Services\KsefFa3SemanticSnapshotService;
 
 class InvoiceIssuingService
 {
@@ -26,6 +27,7 @@ class InvoiceIssuingService
         private readonly InvoiceDocumentPreparationService $preparation,
         private readonly InvoiceNumberingService $numbering,
         private readonly InvoiceCurrencyConversionService $currencyConversion,
+        private readonly KsefFa3SemanticSnapshotService $ksefSemanticSnapshot,
     ) {}
 
     public function issue(Order $order, InvoiceSeries $series, InvoiceOperationContext $context): Invoice
@@ -113,6 +115,7 @@ class InvoiceIssuingService
             $invoice->save();
 
             $invoice->items()->createMany($prepared->itemAttributes);
+            $this->ksefSemanticSnapshot->initialize($invoice);
             $invoice = $this->assignNumber($invoice, $prepared->invoiceAttributes['issue_date']);
             $this->afterNumberAssigned($invoice);
             $invoice->status = InvoiceDocumentStatus::Issued;

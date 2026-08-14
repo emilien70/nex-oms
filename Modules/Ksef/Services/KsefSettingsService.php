@@ -47,6 +47,7 @@ class KsefSettingsService
         'include_bank_account',
         'include_gtu',
         'zero_vat_classification',
+        'default_split_payment',
     ];
 
     public function get(): KsefSetting
@@ -308,6 +309,7 @@ class KsefSettingsService
             'include_bank_account' => true,
             'include_gtu' => true,
             'zero_vat_classification' => KsefZeroVatClassification::Wdt,
+            'default_split_payment' => false,
         ];
     }
 

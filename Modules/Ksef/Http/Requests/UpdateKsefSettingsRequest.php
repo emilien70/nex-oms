@@ -38,6 +38,7 @@ class UpdateKsefSettingsRequest extends FormRequest
             'include_bank_account' => ['required', 'boolean'],
             'include_gtu' => ['required', 'boolean'],
             'zero_vat_classification' => ['required', Rule::enum(KsefZeroVatClassification::class)],
+            'default_split_payment' => ['required', 'boolean'],
         ];
     }
 

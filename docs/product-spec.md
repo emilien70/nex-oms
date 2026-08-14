@@ -1199,7 +1199,15 @@ KSeF.2B.2 uruchamia test połączenia zapisanym certyfikatem Authentication. NEX
 
 Test certyfikatem nadal diagnozuje `InvoiceWrite` przez `personal/grants`. Jawne uprawnienie ma pierwszeństwo; przy jego braku zgodność NIP-u właściciela może zostać potwierdzona wyłącznie na podstawie jednoznacznego identyfikatora w certyfikacie. NEX nie odpytuje `GET /tokens` w trybie certyfikatu i nie zgaduje powiązań PESEL-NIP. KSeF.2B.2 nie generuje CSR, nie pobiera ani nie rejestruje certyfikatu, nie obsługuje certyfikatów Offline, nie tworzy FA(3), nie otwiera sesji i nie wysyła dokumentów.
 
-## 30.5. Audyt gotowości KSeF
+## 30.5. Semantyczne przygotowanie FA(3) KSeF.3B.1
+
+Nowa Faktura VAT zapisuje wersjonowaną semantykę KSeF bez generowania XML. `tax_metadata_snapshot.ksef_tax` utrwala zwykły profil dokumentu, obowiązkowe adnotacje, deklarację MPP oraz jednoznaczne traktowanie każdej zapisanej pozycji. Obsługiwane są stawki `23`, `22`, `8`, `7`, `5` oraz rozstrzygnięte `0 KR`, `0 WDT` i `0 EX`; pozostałe stawki i kody VAT nie blokują wystawienia Faktury NEX, ale powodują kontrolowaną odmowę eligibility FA(3). `zero_vat_classification` jest używane tylko przy pierwszym rozstrzygnięciu nowej lub podatkowo zmienionej pozycji, a zapisany wynik nie jest reinterpretowany po zmianie konfiguracji.
+
+`buyer_snapshot` utrwala wersjonowaną tożsamość `pl_nip`, jednoznaczne `eu_vat` albo `none` oraz zwykłe flagi podmiotu (`JST=false`, `GV=false`). Nie jest wykonywana walidacja VIES ani odczyt bieżącego zamówienia. Ustawienie `default_split_payment`, domyślnie `false`, jest wyłącznie deklarowanym domyślnym MPP dla nowych Faktur i po zapisaniu pozostaje częścią snapshotu dokumentu.
+
+Eligibility FA(3) jest oddzielone od poprawności Faktury NEX. Tryb preflight sprawdza zapisane snapshoty sprzedawcy, nabywcy i podatków, a tryb autorytatywny dodatkowo wymaga zamkniętego dokumentu. Finalizacja Faktury uruchamia preflight tylko wtedy, gdy integracja KSeF i jej seria są aktywne; nie dotyczy to Pro form ani Korekt. Historyczne dokumenty bez snapshotu nie są automatycznie uzupełniane. KSeF.3B.1 nie tworzy XML FA(3), nie otwiera sesji i nie wysyła dokumentów.
+
+## 30.6. Audyt gotowości KSeF
 
 Po zakończeniu modułu faktur zostanie wykonany osobny audyt obejmujący:
 

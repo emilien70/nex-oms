@@ -10,6 +10,7 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceItem;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Ksef\Services\KsefFa3SemanticSnapshotService;
 
 class InvoiceEditService
 {
@@ -23,15 +24,24 @@ class InvoiceEditService
         private readonly InvoiceNumberingPeriodResolver $periods,
         private readonly InvoiceNumberFormatter $numbers,
         private readonly CountryCatalog $countries,
+        private readonly KsefFa3SemanticSnapshotService $ksefSemanticSnapshot,
     ) {}
 
     /** @param array<string, mixed> $data */
     public function updateBuyer(Invoice $invoice, array $data): Invoice
     {
         return $this->mutate($invoice, (int) $data['expected_lock_version'], function (Invoice $managed) use ($data): bool {
-            $snapshot = $this->addressSnapshot($data);
-            $changed = $this->snapshotsDiffer($snapshot, $managed->buyer_snapshot ?? []);
+            $businessSnapshot = $this->addressSnapshot($data);
+            $changed = $this->snapshotsDiffer(
+                $businessSnapshot,
+                $this->buyerBusinessSnapshot($managed->buyer_snapshot ?? []),
+            );
             if ($changed) {
+                $current = $managed->buyer_snapshot ?? [];
+                $snapshot = data_get($current, 'tax_identity.version') === 1
+                    && data_get($current, 'subject_flags.version') === 1
+                        ? $this->ksefSemanticSnapshot->withBuyerSemantics($businessSnapshot)
+                        : $businessSnapshot;
                 $managed->buyer_snapshot = $snapshot;
                 $managed->buyer_name_snapshot = $snapshot['company_name'] ?: $snapshot['name'];
                 $managed->buyer_tax_id_snapshot = $snapshot['tax_id'];
@@ -227,6 +237,7 @@ class InvoiceEditService
         $payment['amount_due'] = $totals['amount_due'];
         $totals['payment_snapshot'] = $payment;
         $invoice->fill($totals)->save();
+        $this->ksefSemanticSnapshot->refresh($invoice);
     }
 
     private function assertNumberingDates(Invoice $invoice, string $issueDate): void
@@ -358,6 +369,16 @@ class InvoiceEditService
         ksort($right);
 
         return $left !== $right;
+    }
+
+    /** @param array<string, mixed> $snapshot
+     * @return array<string, mixed>
+     */
+    private function buyerBusinessSnapshot(array $snapshot): array
+    {
+        unset($snapshot['tax_identity'], $snapshot['subject_flags']);
+
+        return $snapshot;
     }
 
     private function nullable(mixed $value): ?string

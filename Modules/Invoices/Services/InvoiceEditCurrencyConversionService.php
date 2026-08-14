@@ -40,7 +40,7 @@ class InvoiceEditCurrencyConversionService
     public function forMoneyChange(Invoice $invoice, array $taxSummary): array
     {
         if ($this->isPln($invoice)) {
-            return [];
+            return $this->withoutCurrencyMetadata($invoice->tax_metadata_snapshot ?? []);
         }
 
         if (($invoice->tax_metadata_snapshot ?? []) === []) {
@@ -134,7 +134,7 @@ class InvoiceEditCurrencyConversionService
     public function applyPreparedDateChange(Invoice $invoice, array $taxSummary, array $prepared): array
     {
         if ($this->isPln($invoice)) {
-            return [];
+            return $this->withoutCurrencyMetadata($invoice->tax_metadata_snapshot ?? []);
         }
 
         $metadata = $invoice->tax_metadata_snapshot ?? [];
@@ -152,16 +152,26 @@ class InvoiceEditCurrencyConversionService
             );
         }
 
-        return $this->conversion->metadataForHistoricalRate(
+        return array_replace($metadata, $this->conversion->metadataForHistoricalRate(
             $taxSummary,
             $rate,
             (string) $prepared['rate_rule'],
-        );
+        ));
     }
 
     private function isPln(Invoice $invoice): bool
     {
         return strtoupper(trim((string) $invoice->currency)) === CurrencyCatalog::SYSTEM_CURRENCY;
+    }
+
+    /** @param array<string, mixed> $metadata
+     * @return array<string, mixed>
+     */
+    private function withoutCurrencyMetadata(array $metadata): array
+    {
+        unset($metadata['currency_conversion'], $metadata['converted_tax_summary']);
+
+        return $metadata;
     }
 
     private function invalidSnapshot(?\Throwable $previous = null): InvoiceDomainException

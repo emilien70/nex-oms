@@ -45,6 +45,8 @@ class KsefSettingsTest extends TestCase
             ->assertSeeText('WDT')
             ->assertSeeText('Eksport towarów')
             ->assertSeeText('Sprzedaż krajowa 0%')
+            ->assertSeeText('MPP – Mechanizm podzielonej płatności')
+            ->assertSeeText('Domyślna wartość dla nowych Faktur VAT')
             ->assertSeeText('NEX-OMS')
             ->assertSeeText('równoległego automatycznego przekazywania')
             ->assertDontSeeText('Przekazuj datę sprzedaży')
@@ -78,12 +80,14 @@ class KsefSettingsTest extends TestCase
             'include_bank_account' => true,
             'include_gtu' => true,
             'zero_vat_classification' => 'wdt',
+            'default_split_payment' => false,
         ]);
 
         $settings = KsefSetting::query()->firstOrFail();
         $this->assertFalse($settings->is_active);
         $this->assertSame(KsefZeroVatClassification::Wdt, $settings->zero_vat_classification);
-        $this->assertTrue(Schema::hasColumns('ksef_settings', ['is_active', 'zero_vat_classification']));
+        $this->assertFalse($settings->default_split_payment);
+        $this->assertTrue(Schema::hasColumns('ksef_settings', ['is_active', 'zero_vat_classification', 'default_split_payment']));
         $this->assertFalse(Schema::hasColumn('ksef_settings', 'include_sale_date'));
         $this->assertTrue(Schema::hasColumns('ksef_credentials', [
             'access_token',
@@ -242,6 +246,7 @@ class KsefSettingsTest extends TestCase
             'include_bank_account' => false,
             'include_gtu' => false,
             'zero_vat_classification' => 'export',
+            'default_split_payment' => true,
         ]))->assertSessionDoesntHaveErrors();
 
         $this->assertDatabaseHas('ksef_settings', [
@@ -255,6 +260,7 @@ class KsefSettingsTest extends TestCase
             'include_bank_account' => false,
             'include_gtu' => false,
             'zero_vat_classification' => 'export',
+            'default_split_payment' => true,
         ]);
     }
 
@@ -290,6 +296,21 @@ class KsefSettingsTest extends TestCase
                 KsefSetting::query()->firstOrFail()->zero_vat_classification,
             );
         }
+    }
+
+    public function test_default_split_payment_is_persisted_as_a_boolean(): void
+    {
+        Http::preventStrayRequests();
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'default_split_payment' => true,
+        ]))->assertSessionDoesntHaveErrors();
+        $this->assertTrue(KsefSetting::query()->firstOrFail()->default_split_payment);
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'default_split_payment' => false,
+        ]))->assertSessionDoesntHaveErrors();
+        $this->assertFalse(KsefSetting::query()->firstOrFail()->default_split_payment);
     }
 
     public function test_invalid_zero_vat_classification_is_rejected_without_partial_update(): void
@@ -401,6 +422,7 @@ class KsefSettingsTest extends TestCase
             'include_bank_account' => true,
             'include_gtu' => true,
             'zero_vat_classification' => 'wdt',
+            'default_split_payment' => false,
         ], $overrides);
     }
 }

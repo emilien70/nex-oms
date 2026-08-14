@@ -776,6 +776,7 @@ class InvoiceEditingTest extends TestCase
         ]))->assertOk();
         $this->assertSame(1, Http::recorded()->count());
         $this->assertSame('4.2000', $invoice->fresh()->tax_metadata_snapshot['currency_conversion']['rate']);
+        $ksefTaxAfterMoneyEdit = $invoice->fresh()->tax_metadata_snapshot['ksef_tax'];
 
         $this->patchJson(route('invoices.details.update', $invoice), $this->detailsPayload($invoice->fresh(), [
             'issue_date' => '2026-08-01',
@@ -787,6 +788,7 @@ class InvoiceEditingTest extends TestCase
         ]))->assertOk();
         $this->assertSame(2, Http::recorded()->count());
         $this->assertSame('4.5000', $invoice->fresh()->tax_metadata_snapshot['currency_conversion']['rate']);
+        $this->assertSame($ksefTaxAfterMoneyEdit, $invoice->fresh()->tax_metadata_snapshot['ksef_tax']);
     }
 
     public function test_legacy_foreign_invoice_without_rate_allows_text_but_blocks_money_and_invalid_snapshot_blocks_every_edit(): void

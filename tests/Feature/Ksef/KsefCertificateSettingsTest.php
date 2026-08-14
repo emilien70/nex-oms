@@ -360,6 +360,7 @@ class KsefCertificateSettingsTest extends TestCase
             'include_bank_account' => true,
             'include_gtu' => true,
             'zero_vat_classification' => 'wdt',
+            'default_split_payment' => false,
         ], $overrides);
 
         if (! array_key_exists('api_token_environment', $overrides)) {

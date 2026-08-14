@@ -38,7 +38,7 @@ class InvoiceCurrencyIssuingTest extends TestCase
         Http::preventStrayRequests();
     }
 
-    public function test_pln_invoice_does_not_call_nbp_and_keeps_empty_tax_metadata(): void
+    public function test_pln_invoice_does_not_call_nbp_and_keeps_currency_metadata_absent(): void
     {
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
@@ -49,7 +49,9 @@ class InvoiceCurrencyIssuingTest extends TestCase
             $this->documentContext(),
         );
 
-        $this->assertSame([], $invoice->tax_metadata_snapshot);
+        $this->assertArrayHasKey('ksef_tax', $invoice->tax_metadata_snapshot);
+        $this->assertArrayNotHasKey('currency_conversion', $invoice->tax_metadata_snapshot);
+        $this->assertArrayNotHasKey('converted_tax_summary', $invoice->tax_metadata_snapshot);
         Http::assertNothingSent();
     }
 

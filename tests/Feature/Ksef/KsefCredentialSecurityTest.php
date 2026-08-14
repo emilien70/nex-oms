@@ -275,16 +275,24 @@ class KsefCredentialSecurityTest extends TestCase
             'api_token' => 'TEST_TOKEN',
         ]))->assertSessionDoesntHaveErrors();
         $credential = KsefCredential::query()->where('environment', 'test')->firstOrFail();
+        $credential->forceFill([
+            'authentication_certificate' => 'FAKE_CERTIFICATE_MATERIAL',
+            'authentication_private_key' => 'FAKE_PRIVATE_KEY_MATERIAL',
+        ])->save();
         $this->fillRuntimeState($credential, 'UNCHANGED');
 
         $this->put(route('integrations.ksef.update'), $this->payload([
             'automatic_submission' => true,
             'zero_vat_classification' => 'export',
+            'default_split_payment' => true,
             'api_token' => '',
         ]))->assertSessionDoesntHaveErrors();
 
         $credential->refresh();
         $this->assertSame('TEST_TOKEN', $credential->api_token);
+        $this->assertSame('FAKE_CERTIFICATE_MATERIAL', $credential->authentication_certificate);
+        $this->assertSame('FAKE_PRIVATE_KEY_MATERIAL', $credential->authentication_private_key);
+        $this->assertTrue(KsefSetting::query()->firstOrFail()->default_split_payment);
         $this->assertSame('UNCHANGED_ACCESS', $credential->access_token);
         $this->assertSame('UNCHANGED_REFRESH', $credential->refresh_token);
         $this->assertSame(KsefConnectionTestStatus::Success, $credential->last_test_status);
@@ -355,6 +363,7 @@ class KsefCredentialSecurityTest extends TestCase
             'include_bank_account' => true,
             'include_gtu' => true,
             'zero_vat_classification' => 'wdt',
+            'default_split_payment' => false,
         ], $overrides);
 
         if (! array_key_exists('api_token_environment', $overrides)) {

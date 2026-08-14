@@ -600,6 +600,19 @@
                                             @error('zero_vat_classification')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         </div>
                                     </div>
+
+                                    <div class="ksef-field">
+                                        <label for="ksef-default-split-payment">MPP – Mechanizm podzielonej płatności</label>
+                                        <div class="ksef-control">
+                                            <select class="form-select @error('default_split_payment') is-invalid @enderror" id="ksef-default-split-payment" name="default_split_payment" required>
+                                                @foreach ($booleanOptions as $value => $optionLabel)
+                                                    <option value="{{ $value }}" @selected((string) old('default_split_payment', $settings->default_split_payment ? '1' : '0') === (string) $value)>{{ $optionLabel }}</option>
+                                                @endforeach
+                                            </select>
+                                            @error('default_split_payment')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                            <div class="ksef-help">Domyślna wartość dla nowych Faktur VAT, zapisywana w snapshotcie dokumentu.</div>
+                                        </div>
+                                    </div>
                                 @endif
                             @endforeach
                         </section>

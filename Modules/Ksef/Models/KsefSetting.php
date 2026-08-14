@@ -25,6 +25,7 @@ class KsefSetting extends Model
         'include_bank_account',
         'include_gtu',
         'zero_vat_classification',
+        'default_split_payment',
     ];
 
     protected $casts = [
@@ -39,5 +40,6 @@ class KsefSetting extends Model
         'include_bank_account' => 'boolean',
         'include_gtu' => 'boolean',
         'zero_vat_classification' => KsefZeroVatClassification::class,
+        'default_split_payment' => 'boolean',
     ];
 }
