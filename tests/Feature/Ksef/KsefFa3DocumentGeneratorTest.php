@@ -143,6 +143,76 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertSame(5, $xpath->query('//fa:Fa/fa:FaWiersz')->length);
     }
 
+    public function test_p6_is_emitted_only_when_sale_date_differs_from_issue_date(): void
+    {
+        $sameDate = $this->issueInvoice();
+        $sameDate->forceFill(['sale_date' => $sameDate->issue_date])->saveQuietly();
+        $sameDateXpath = $this->xpath($this->generate($sameDate->fresh())->xml);
+        $this->assertSame($sameDate->issue_date->format('Y-m-d'), $this->value($sameDateXpath, '//fa:Fa/fa:P_1'));
+        $this->assertSame(0, $sameDateXpath->query('//fa:Fa/fa:P_6')->length);
+
+        $differentDate = $this->issueInvoice();
+        $differentDateXpath = $this->xpath($this->generate($differentDate)->xml);
+        $this->assertSame(
+            $differentDate->sale_date->format('Y-m-d'),
+            $this->value($differentDateXpath, '//fa:Fa/fa:P_6'),
+        );
+
+        $withoutDate = $this->issueInvoice();
+        $withoutDate->forceFill(['sale_date' => null])->saveQuietly();
+        $withoutDateXpath = $this->xpath($this->generate($withoutDate->fresh())->xml);
+        $this->assertSame(0, $withoutDateXpath->query('//fa:Fa/fa:P_6')->length);
+        $this->assertStringNotContainsString('<P_6', $this->generate($withoutDate->fresh())->xml);
+    }
+
+    public function test_line_net_vat_and_gross_identity_is_checked_independently_of_document_sums(): void
+    {
+        $invoice = $this->issueInvoice(items: [
+            $this->grossItem('Pierwsza', '123.00', '23.00'),
+            $this->grossItem('Druga', '123.00', '23.00'),
+        ]);
+        $items = $invoice->items()->orderBy('position')->get();
+        $items[0]->forceFill([
+            'total_net' => '100.00',
+            'total_vat' => '23.00',
+            'total_gross' => '124.00',
+        ])->saveQuietly();
+        $items[1]->forceFill([
+            'total_net' => '50.00',
+            'total_vat' => '10.00',
+            'total_gross' => '59.00',
+        ])->saveQuietly();
+        $invoice->forceFill([
+            'total_net' => '150.00',
+            'total_vat' => '33.00',
+            'total_gross' => '183.00',
+        ])->saveQuietly();
+
+        $exception = $this->expectDomainError(
+            'ksef_fa3_financial_snapshot_invalid',
+            fn () => $this->generate($invoice->fresh()),
+        );
+
+        $this->assertStringNotContainsString('124.00', $exception->getMessage());
+    }
+
+    public function test_document_net_vat_and_gross_identity_is_checked_before_xml_generation(): void
+    {
+        $invoice = $this->issueInvoice();
+        $invoice->forceFill([
+            'total_net' => '100.00',
+            'total_vat' => '23.00',
+            'total_gross' => '124.00',
+        ])->saveQuietly();
+
+        $exception = $this->expectDomainError(
+            'ksef_fa3_financial_snapshot_invalid',
+            fn () => $this->generate($invoice->fresh()),
+        );
+
+        $this->assertStringNotContainsString('124.00', $exception->getMessage());
+    }
+
     public function test_mixed_zero_rate_treatments_use_separate_frozen_buckets(): void
     {
         $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Domestic])->save();

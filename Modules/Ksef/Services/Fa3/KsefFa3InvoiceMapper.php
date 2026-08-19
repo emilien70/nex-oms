@@ -51,6 +51,11 @@ class KsefFa3InvoiceMapper
         $hasWdt = $treatments->contains(
             static fn (array $treatment): bool => ($treatment['treatment'] ?? null) === 'wdt',
         );
+        $issueDate = $invoice->issue_date?->format('Y-m-d') ?? '';
+        $saleDate = $invoice->sale_date?->format('Y-m-d');
+        if ($saleDate === $issueDate) {
+            $saleDate = null;
+        }
 
         return new KsefFa3DocumentData(
             generatedAt: DateTimeImmutable::createFromInterface($generatedAt)
@@ -63,10 +68,10 @@ class KsefFa3InvoiceMapper
             ], static fn (mixed $value): bool => $value !== null),
             invoice: [
                 'currency' => strtoupper(trim((string) $invoice->currency)),
-                'issue_date' => $invoice->issue_date?->format('Y-m-d') ?? '',
+                'issue_date' => $issueDate,
                 'place_of_issue' => $this->optionalString(data_get($invoice->issuer_snapshot, 'place_of_issue')),
                 'number' => trim((string) $invoice->number),
-                'sale_date' => $invoice->sale_date?->format('Y-m-d') ?? '',
+                'sale_date' => $saleDate,
                 'total_gross' => $this->money($invoice->total_gross),
             ],
             taxBuckets: $taxBuckets,
@@ -109,6 +114,16 @@ class KsefFa3InvoiceMapper
         $totalVat = '0.00';
         $totalGross = '0.00';
         $sourceTaxIdentities = [];
+        $invoiceTotalNet = $this->money($invoice->total_net);
+        $invoiceTotalVat = $this->money($invoice->total_vat);
+        $invoiceTotalGross = $this->money($invoice->total_gross);
+
+        if ($this->decimal->compare(
+            $this->decimal->add($invoiceTotalNet, $invoiceTotalVat),
+            $invoiceTotalGross,
+        ) !== 0) {
+            throw $this->financialError();
+        }
 
         foreach ($items as $item) {
             $treatment = $treatments->get($item->getKey());
@@ -120,6 +135,9 @@ class KsefFa3InvoiceMapper
             $net = $this->money($item->total_net);
             $vat = $this->money($item->total_vat);
             $gross = $this->money($item->total_gross);
+            if ($this->decimal->compare($this->decimal->add($net, $vat), $gross) !== 0) {
+                throw $this->financialError();
+            }
             $sourceTaxIdentities[] = (string) ($treatment['tax_identity'] ?? '');
             $buckets[$bucketKey] ??= ['net' => '0.00', 'vat' => '0.00'];
             $buckets[$bucketKey]['net'] = $this->decimal->add($buckets[$bucketKey]['net'], $net);
@@ -140,9 +158,9 @@ class KsefFa3InvoiceMapper
             ];
         }
 
-        if ($this->decimal->compare($totalNet, (string) $invoice->total_net) !== 0
-            || $this->decimal->compare($totalVat, (string) $invoice->total_vat) !== 0
-            || $this->decimal->compare($totalGross, (string) $invoice->total_gross) !== 0) {
+        if ($this->decimal->compare($totalNet, $invoiceTotalNet) !== 0
+            || $this->decimal->compare($totalVat, $invoiceTotalVat) !== 0
+            || $this->decimal->compare($totalGross, $invoiceTotalGross) !== 0) {
             throw $this->financialError();
         }
 

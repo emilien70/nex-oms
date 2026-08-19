@@ -39,8 +39,12 @@
         'include_gtu' => 'Przekazuj oznaczenia GTU',
     ];
     $oldPaymentMappings = collect(old('mappings', []))
-        ->filter(fn ($mapping) => is_array($mapping) && is_string($mapping['source_key'] ?? null))
-        ->mapWithKeys(fn ($mapping) => [$mapping['source_key'] => $mapping['target_type'] ?? null]);
+        ->filter(fn ($mapping) => is_array($mapping)
+            && is_string($mapping['source_kind'] ?? null)
+            && is_string($mapping['source_key'] ?? null))
+        ->mapWithKeys(fn ($mapping) => [
+            $mapping['source_kind'].'|'.$mapping['source_key'] => $mapping['target_type'] ?? null,
+        ]);
 @endphp
 
 @section('content')
@@ -407,13 +411,15 @@
                             <div class="ksef-payment-list">
                                 @foreach ($paymentMethods as $index => $paymentMethod)
                                     @php
-                                        $selectedPaymentType = $oldPaymentMappings->has($paymentMethod['source_key'])
-                                            ? $oldPaymentMappings->get($paymentMethod['source_key'])
+                                        $paymentSourceIdentity = $paymentMethod['source_kind'].'|'.$paymentMethod['source_key'];
+                                        $selectedPaymentType = $oldPaymentMappings->has($paymentSourceIdentity)
+                                            ? $oldPaymentMappings->get($paymentSourceIdentity)
                                             : $paymentMethod['target_type'];
                                     @endphp
-                                    <div class="ksef-field" data-ksef-payment-source="{{ $paymentMethod['source_key'] }}">
+                                    <div class="ksef-field" data-ksef-payment-source-kind="{{ $paymentMethod['source_kind'] }}" data-ksef-payment-source="{{ $paymentMethod['source_key'] }}">
                                         <label class="ksef-payment-label" for="ksef-payment-type-{{ $index }}">{{ $paymentMethod['source_label'] }}</label>
                                         <div class="ksef-control">
+                                            <input type="hidden" name="mappings[{{ $index }}][source_kind]" value="{{ $paymentMethod['source_kind'] }}">
                                             <input type="hidden" name="mappings[{{ $index }}][source_key]" value="{{ $paymentMethod['source_key'] }}">
                                             <select class="form-select @error("mappings.{$index}.target_type") is-invalid @enderror" id="ksef-payment-type-{{ $index }}" name="mappings[{{ $index }}][target_type]">
                                                 <option value="" @selected($selectedPaymentType === null)>--- użyj domyślnego ---</option>

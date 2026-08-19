@@ -14,6 +14,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
+use Modules\Ksef\Enums\KsefPaymentSourceKind;
 use Modules\Ksef\Enums\KsefPaymentType;
 use Modules\Ksef\Models\KsefPaymentMethodMapping;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
@@ -111,6 +112,7 @@ class KsefPaymentMethodSnapshotTest extends TestCase
         $this->assertSame(0, $xpath->query('//fa:Platnosc/fa:FormaPlatnosci')->length);
 
         KsefPaymentMethodMapping::query()->create([
+            'source_kind' => KsefPaymentSourceKind::CashOnDelivery,
             'source_key' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
             'source_label' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_LABEL,
             'target_type' => KsefPaymentType::Cash,
@@ -122,6 +124,37 @@ class KsefPaymentMethodSnapshotTest extends TestCase
 
         $this->assertSame('1', $this->paymentCode($cash));
         $this->assertSame(0, $this->xpath($this->generate($cash)->xml)->query('//fa:Platnosc/fa:PlatnoscInna')->length);
+    }
+
+    public function test_cod_and_literal_order_method_resolve_to_distinct_frozen_fa3_codes(): void
+    {
+        KsefPaymentMethodMapping::query()->create([
+            'source_kind' => KsefPaymentSourceKind::CashOnDelivery,
+            'source_key' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+            'source_label' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_LABEL,
+            'target_type' => KsefPaymentType::Cash,
+        ]);
+        KsefPaymentMethodMapping::query()->create([
+            'source_kind' => KsefPaymentSourceKind::PaymentMethod,
+            'source_key' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+            'source_label' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+            'target_type' => KsefPaymentType::Mobile,
+        ]);
+
+        $cod = $this->issueInvoice([
+            'payment_method' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+            'cash_on_delivery' => true,
+        ]);
+        $ordinary = $this->issueInvoice([
+            'payment_method' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+            'cash_on_delivery' => false,
+        ]);
+
+        $this->assertSame(1, data_get($cod->payment_snapshot, 'ksef_payment.version'));
+        $this->assertSame(1, data_get($ordinary->payment_snapshot, 'ksef_payment.version'));
+        $this->assertSame('1', $this->paymentCode($cod));
+        $this->assertSame('7', $this->paymentCode($ordinary));
+        Http::assertNothingSent();
     }
 
     public function test_original_override_beats_direct_default_and_preserves_display_description(): void
@@ -265,6 +298,7 @@ class KsefPaymentMethodSnapshotTest extends TestCase
         $source = app(KsefPaymentMethodMappingService::class)->normalizeSource($label);
 
         return KsefPaymentMethodMapping::query()->create([
+            'source_kind' => KsefPaymentSourceKind::PaymentMethod,
             'source_key' => $source['source_key'],
             'source_label' => $source['source_label'],
             'target_type' => $type,

@@ -4,11 +4,13 @@ namespace Tests\Feature\Ksef;
 
 use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefConnectionTestStatus;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefPaymentSourceKind;
 use Modules\Ksef\Enums\KsefPaymentType;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefPaymentMethodMapping;
@@ -33,11 +35,16 @@ class KsefPaymentMethodSettingsTest extends TestCase
         $this->assertTrue(Schema::hasColumn('ksef_settings', 'default_payment_type'));
         $this->assertTrue(Schema::hasTable('ksef_payment_method_mappings'));
         $this->assertTrue(Schema::hasColumns('ksef_payment_method_mappings', [
+            'source_kind',
             'source_key',
             'source_label',
             'target_type',
         ]));
         $this->assertSame(KsefPaymentType::Original, $settings->default_payment_type);
+        $this->assertSame(
+            ['payment_method', 'cash_on_delivery'],
+            array_map(static fn (KsefPaymentSourceKind $kind): string => $kind->value, KsefPaymentSourceKind::cases()),
+        );
         $this->assertSame([
             'original' => ['Oryginalny opis z zamówienia', null],
             'cash' => ['Gotówka', '1'],
@@ -50,6 +57,43 @@ class KsefPaymentMethodSettingsTest extends TestCase
         ], collect(KsefPaymentType::cases())->mapWithKeys(fn (KsefPaymentType $type): array => [
             $type->value => [$type->label(), $type->fa3Code()],
         ])->all());
+    }
+
+    public function test_namespace_migration_preserves_existing_ordinary_and_cod_mappings(): void
+    {
+        $migration = require database_path(
+            'migrations/2026_08_13_060200_namespace_ksef_payment_method_mappings.php',
+        );
+        $migration->down();
+        DB::table('ksef_payment_method_mappings')->insert([
+            [
+                'source_key' => 'legacy provider',
+                'source_label' => 'Legacy Provider',
+                'target_type' => 'card',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'source_key' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+                'source_label' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_LABEL,
+                'target_type' => 'cash',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        $migration->up();
+
+        $this->assertDatabaseHas('ksef_payment_method_mappings', [
+            'source_kind' => KsefPaymentSourceKind::PaymentMethod->value,
+            'source_key' => 'legacy provider',
+            'target_type' => 'card',
+        ]);
+        $this->assertDatabaseHas('ksef_payment_method_mappings', [
+            'source_kind' => KsefPaymentSourceKind::CashOnDelivery->value,
+            'source_key' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+            'target_type' => 'cash',
+        ]);
     }
 
     public function test_payment_types_tab_discovers_normalized_active_order_methods_and_keeps_persisted_rows(): void
@@ -83,6 +127,7 @@ class KsefPaymentMethodSettingsTest extends TestCase
             ->assertSee('name="_token"', false);
 
         $rows = $response->viewData('paymentMethods')->all();
+        $this->assertSame(KsefPaymentSourceKind::CashOnDelivery->value, $rows[0]['source_kind']);
         $this->assertSame(KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY, $rows[0]['source_key']);
         $this->assertSame(1, collect($rows)->where('source_key', 'przelew')->count());
         $this->assertSame(1, collect($rows)->where('source_key', 'przelew na konto')->count());
@@ -117,21 +162,24 @@ class KsefPaymentMethodSettingsTest extends TestCase
             'default_payment_type' => 'transfer',
             'mappings' => [
                 [
+                    'source_kind' => KsefPaymentSourceKind::CashOnDelivery->value,
                     'source_key' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
                     'target_type' => 'cash',
                 ],
-                ['source_key' => 'payu', 'target_type' => 'original'],
+                $this->mappingPayload('payu', 'original'),
             ],
         ])->assertRedirect(route('integrations.ksef.edit', ['tab' => 'payment-types']))
             ->assertSessionHas('success', 'Zapisano mapowanie typów płatności.');
 
         $this->assertSame(KsefPaymentType::Transfer, $settings->fresh()->default_payment_type);
         $this->assertDatabaseHas('ksef_payment_method_mappings', [
+            'source_kind' => KsefPaymentSourceKind::CashOnDelivery->value,
             'source_key' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
             'source_label' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_LABEL,
             'target_type' => 'cash',
         ]);
         $this->assertDatabaseHas('ksef_payment_method_mappings', [
+            'source_kind' => KsefPaymentSourceKind::PaymentMethod->value,
             'source_key' => 'payu',
             'source_label' => 'PayU',
             'target_type' => 'original',
@@ -154,7 +202,7 @@ class KsefPaymentMethodSettingsTest extends TestCase
         $this->put(route('integrations.ksef.payment-types.update'), [
             'default_payment_type' => 'card',
             'mappings' => [
-                ['source_key' => 'allegro finance', 'target_type' => null],
+                $this->mappingPayload('allegro finance', null),
             ],
         ])->assertSessionDoesntHaveErrors();
 
@@ -165,8 +213,8 @@ class KsefPaymentMethodSettingsTest extends TestCase
             ->put(route('integrations.ksef.payment-types.update'), [
                 'default_payment_type' => 'mobile',
                 'mappings' => [
-                    ['source_key' => 'allegro finance', 'target_type' => 'cash'],
-                    ['source_key' => 'browser invented source', 'target_type' => 'credit'],
+                    $this->mappingPayload('allegro finance', 'cash'),
+                    $this->mappingPayload('browser invented source', 'credit'),
                 ],
             ])
             ->assertRedirect(route('integrations.ksef.edit', ['tab' => 'payment-types']))
@@ -186,7 +234,7 @@ class KsefPaymentMethodSettingsTest extends TestCase
             ->put(route('integrations.ksef.payment-types.update'), [
                 'default_payment_type' => 'wire',
                 'mappings' => [
-                    ['source_key' => 'payu', 'target_type' => 'card'],
+                    $this->mappingPayload('payu', 'card'),
                 ],
             ])
             ->assertRedirect(route('integrations.ksef.edit', ['tab' => 'payment-types']))
@@ -199,7 +247,7 @@ class KsefPaymentMethodSettingsTest extends TestCase
             ->put(route('integrations.ksef.payment-types.update'), [
                 'default_payment_type' => 'transfer',
                 'mappings' => [
-                    ['source_key' => 'payu', 'target_type' => 'wire'],
+                    $this->mappingPayload('payu', 'wire'),
                 ],
             ])
             ->assertRedirect(route('integrations.ksef.edit', ['tab' => 'payment-types']))
@@ -237,6 +285,7 @@ class KsefPaymentMethodSettingsTest extends TestCase
         ], $service->resolve(" \t ", false));
 
         KsefPaymentMethodMapping::query()->create([
+            'source_kind' => KsefPaymentSourceKind::CashOnDelivery,
             'source_key' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
             'source_label' => KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_LABEL,
             'target_type' => KsefPaymentType::Cash,
@@ -251,6 +300,71 @@ class KsefPaymentMethodSettingsTest extends TestCase
         $this->assertSame('7', $service->resolve(' BLIK_CODE ', false)['fa3_code']);
     }
 
+    public function test_cod_and_identically_named_order_method_have_disjoint_configuration_identity(): void
+    {
+        $this->order(KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY);
+
+        $response = $this->get(route('integrations.ksef.edit', ['tab' => 'payment-types']))
+            ->assertOk()
+            ->assertSeeText(KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_LABEL)
+            ->assertSeeText(KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY)
+            ->assertSee('value="cash_on_delivery"', false)
+            ->assertSee('value="payment_method"', false);
+
+        $rows = collect($response->viewData('paymentMethods'))
+            ->where('source_key', KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY)
+            ->values();
+        $this->assertSame([
+            KsefPaymentSourceKind::CashOnDelivery->value,
+            KsefPaymentSourceKind::PaymentMethod->value,
+        ], $rows->pluck('source_kind')->all());
+
+        $this->put(route('integrations.ksef.payment-types.update'), [
+            'default_payment_type' => 'original',
+            'mappings' => [
+                $this->mappingPayload(
+                    KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+                    'cash',
+                    KsefPaymentSourceKind::CashOnDelivery,
+                ),
+                $this->mappingPayload(
+                    KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY,
+                    'mobile',
+                ),
+            ],
+        ])->assertSessionDoesntHaveErrors();
+
+        $service = app(KsefPaymentMethodMappingService::class);
+        $this->assertSame('1', $service->resolve('ignored', true)['fa3_code']);
+        $this->assertSame(
+            '7',
+            $service->resolve(KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY, false)['fa3_code'],
+        );
+        $this->assertSame(2, KsefPaymentMethodMapping::query()
+            ->where('source_key', KsefPaymentMethodMappingService::CASH_ON_DELIVERY_SOURCE_KEY)
+            ->count());
+    }
+
+    public function test_invalid_source_kind_is_rejected_without_partial_update(): void
+    {
+        $this->order('PayU');
+        $settings = app(KsefSettingsService::class)->get();
+
+        $this->from(route('integrations.ksef.edit', ['tab' => 'payment-types']))
+            ->put(route('integrations.ksef.payment-types.update'), [
+                'default_payment_type' => 'cash',
+                'mappings' => [[
+                    'source_kind' => 'browser_invented_kind',
+                    'source_key' => 'payu',
+                    'target_type' => 'card',
+                ]],
+            ])
+            ->assertSessionHasErrors('mappings.0.source_kind');
+
+        $this->assertSame(KsefPaymentType::Original, $settings->fresh()->default_payment_type);
+        $this->assertDatabaseMissing('ksef_payment_method_mappings', ['source_key' => 'payu']);
+    }
+
     private function order(?string $paymentMethod): Order
     {
         return Order::query()->create([
@@ -258,5 +372,18 @@ class KsefPaymentMethodSettingsTest extends TestCase
             'status' => Order::STATUS_NEW,
             'payment_method' => $paymentMethod,
         ]);
+    }
+
+    /** @return array{source_kind: string, source_key: string, target_type: ?string} */
+    private function mappingPayload(
+        string $sourceKey,
+        ?string $targetType,
+        KsefPaymentSourceKind $sourceKind = KsefPaymentSourceKind::PaymentMethod,
+    ): array {
+        return [
+            'source_kind' => $sourceKind->value,
+            'source_key' => $sourceKey,
+            'target_type' => $targetType,
+        ];
     }
 }

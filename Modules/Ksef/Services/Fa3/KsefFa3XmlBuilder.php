@@ -121,7 +121,9 @@ class KsefFa3XmlBuilder
             $this->element($document, $invoice, 'P_1M', $data->invoice['place_of_issue']);
         }
         $this->element($document, $invoice, 'P_2', (string) $data->invoice['number']);
-        $this->element($document, $invoice, 'P_6', (string) $data->invoice['sale_date']);
+        if (is_string($data->invoice['sale_date']) && $data->invoice['sale_date'] !== '') {
+            $this->element($document, $invoice, 'P_6', $data->invoice['sale_date']);
+        }
         $this->taxSummary($document, $invoice, $data->taxBuckets);
         $this->element($document, $invoice, 'P_15', (string) $data->invoice['total_gross']);
         $this->annotations($document, $invoice, $data->annotations);

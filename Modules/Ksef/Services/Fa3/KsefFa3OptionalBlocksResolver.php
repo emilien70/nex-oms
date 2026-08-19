@@ -236,7 +236,7 @@ class KsefFa3OptionalBlocksResolver
             throw $this->paymentError();
         }
         $invoiceDueDate = $invoice->payment_due_date?->format('Y-m-d');
-        if ($snapshotDueDate !== null && $invoiceDueDate !== null && $snapshotDueDate !== $invoiceDueDate) {
+        if ($snapshotDueDate !== $invoiceDueDate) {
             throw $this->paymentError();
         }
 

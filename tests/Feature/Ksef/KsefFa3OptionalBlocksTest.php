@@ -258,6 +258,40 @@ class KsefFa3OptionalBlocksTest extends TestCase
         );
     }
 
+    public function test_due_date_uses_exact_nullable_snapshot_equality(): void
+    {
+        $withoutDueDate = $this->issueInvoice();
+        $withoutDueDateXpath = $this->xpath($this->generate($withoutDueDate)->xml);
+        $this->assertSame(0, $withoutDueDateXpath->query('//fa:TerminPlatnosci')->length);
+
+        $withDueDate = $this->issueInvoice(series: [
+            'payment_due_mode' => InvoicePaymentDueMode::DaysFromIssue,
+            'payment_due_days' => 14,
+        ]);
+        $withDueDateXpath = $this->xpath($this->generate($withDueDate)->xml);
+        $this->assertSame(
+            $withDueDate->payment_due_date->format('Y-m-d'),
+            $this->value($withDueDateXpath, '//fa:TerminPlatnosci/fa:Termin'),
+        );
+
+        $snapshotOnly = $this->issueInvoice(series: [
+            'payment_due_mode' => InvoicePaymentDueMode::DaysFromIssue,
+            'payment_due_days' => 14,
+        ]);
+        $snapshotOnly->forceFill(['payment_due_date' => null])->saveQuietly();
+        $this->expectDomainError(
+            'ksef_fa3_payment_snapshot_invalid',
+            fn () => $this->generate($snapshotOnly->fresh()),
+        );
+
+        $invoiceOnly = $this->issueInvoice();
+        $invoiceOnly->forceFill(['payment_due_date' => '2026-09-01'])->saveQuietly();
+        $this->expectDomainError(
+            'ksef_fa3_payment_snapshot_invalid',
+            fn () => $this->generate($invoiceOnly->fresh()),
+        );
+    }
+
     public function test_bank_and_contact_validation_only_apply_when_the_frozen_options_are_enabled(): void
     {
         $this->configureOptions([
