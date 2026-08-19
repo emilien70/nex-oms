@@ -30,9 +30,57 @@ class KsefAccessTokenManagerTest extends TestCase
             'refresh_token_valid_until' => now()->addDay(),
         ])->save();
 
-        $token = app(KsefAccessTokenManager::class)->getValidAccessToken(KsefEnvironment::Test);
+        $token = app(KsefAccessTokenManager::class)->getValidAccessToken(
+            KsefEnvironment::Test,
+            '1234567890',
+        );
 
         $this->assertSame('VALID_ACCESS_TOKEN', $token);
+        Http::assertNothingSent();
+    }
+
+    public function test_expected_context_mismatch_blocks_valid_cached_token_without_http(): void
+    {
+        Http::preventStrayRequests();
+        $credential = $this->credential();
+        $credential->forceFill([
+            'access_token' => 'VALID_ACCESS_TOKEN',
+            'access_token_valid_until' => now()->addMinutes(10),
+            'refresh_token' => 'VALID_REFRESH_TOKEN',
+            'refresh_token_valid_until' => now()->addDay(),
+        ])->save();
+        app(KsefSettingsService::class)->get()->forceFill(['context_nip' => '0987654321'])->save();
+
+        $this->expectContextChanged();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_expected_context_mismatch_blocks_refresh_without_http(): void
+    {
+        Http::preventStrayRequests();
+        $credential = $this->credential();
+        $credential->forceFill([
+            'access_token' => 'EXPIRED_ACCESS_TOKEN',
+            'access_token_valid_until' => now()->subMinute(),
+            'refresh_token' => 'VALID_REFRESH_TOKEN',
+            'refresh_token_valid_until' => now()->addDay(),
+        ])->save();
+        app(KsefSettingsService::class)->get()->forceFill(['context_nip' => '0987654321'])->save();
+
+        $this->expectContextChanged();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_expected_context_mismatch_blocks_full_authentication_without_http(): void
+    {
+        Http::preventStrayRequests();
+        $this->credential();
+        app(KsefSettingsService::class)->get()->forceFill(['context_nip' => '0987654321'])->save();
+
+        $this->expectContextChanged();
+
         Http::assertNothingSent();
     }
 
@@ -233,5 +281,20 @@ class KsefAccessTokenManagerTest extends TestCase
             'authentication_certificate' => $fixture['certificate'],
             'authentication_private_key' => $fixture['private_key'],
         ]);
+    }
+
+    private function expectContextChanged(): void
+    {
+        try {
+            app(KsefAccessTokenManager::class)->getValidAccessToken(
+                KsefEnvironment::Test,
+                '1234567890',
+            );
+            $this->fail('Expected frozen KSeF context mismatch.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('ksef_submission_context_changed', $exception->safeCode);
+            $this->assertStringNotContainsString('1234567890', $exception->getMessage());
+            $this->assertStringNotContainsString('0987654321', $exception->getMessage());
+        }
     }
 }

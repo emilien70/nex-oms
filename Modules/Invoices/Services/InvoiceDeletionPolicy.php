@@ -40,16 +40,7 @@ class InvoiceDeletionPolicy
         }
 
         if ($invoice->isInvoice()
-            && ($facts?->hasBlockingKsefSubmission ?? $invoice->ksefSubmissions()
-                ->whereIn('status', [
-                    'session_opened',
-                    'submitted',
-                    'processing',
-                    'accepted',
-                    'rejected',
-                    'uncertain',
-                ])
-                ->exists())) {
+            && ($facts?->hasKsefSubmission ?? $invoice->ksefSubmissions()->exists())) {
             throw new InvoiceDomainException(
                 'invoice_delete_blocked_by_ksef_submission',
                 'Nie można usunąć Faktury, ponieważ posiada historię przekazania do KSeF.',

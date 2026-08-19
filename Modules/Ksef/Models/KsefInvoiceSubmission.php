@@ -13,6 +13,8 @@ class KsefInvoiceSubmission extends Model
     protected $fillable = [
         'invoice_id',
         'environment',
+        'context_nip',
+        'seller_nip',
         'attempt_number',
         'status',
         'schema_id',

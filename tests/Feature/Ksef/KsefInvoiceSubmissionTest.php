@@ -51,6 +51,8 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertTrue(Schema::hasColumns('ksef_invoice_submissions', [
             'invoice_id',
             'environment',
+            'context_nip',
+            'seller_nip',
             'attempt_number',
             'status',
             'payload_xml',
@@ -63,6 +65,8 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertFalse(Schema::hasColumn('ksef_invoice_submissions', 'cipher_iv'));
         $this->assertFalse(Schema::hasColumn('ksef_invoice_submissions', 'encrypted_invoice_content'));
         $this->assertSame(KsefEnvironment::Test, $submission->environment);
+        $this->assertSame('9876543210', $submission->context_nip);
+        $this->assertSame('9876543210', $submission->seller_nip);
         $this->assertSame(KsefInvoiceSubmissionStatus::Preparing, $submission->status);
         $this->assertSame(1, $submission->attempt_number);
         $this->assertSame('FA (3) 1-0E', $submission->schema_id);
@@ -79,7 +83,10 @@ class KsefInvoiceSubmissionTest extends TestCase
         $generatedAt = $submission->generated_at->toISOString();
         $invoice->order->forceFill(['notes' => 'CHANGED AFTER PREPARE'])->save();
         $invoice->series->forceFill(['name' => 'Changed after prepare'])->save();
-        app(KsefSettingsService::class)->get()->forceFill(['include_gtu' => false])->save();
+        app(KsefSettingsService::class)->get()->forceFill([
+            'include_gtu' => false,
+            'context_nip' => '1234567890',
+        ])->save();
         KsefPaymentMethodMapping::query()->create([
             'source_kind' => 'payment_method',
             'source_key' => 'changed-after-prepare',
@@ -91,6 +98,22 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertSame($xml, $submission->payload_xml);
         $this->assertSame($generatedAt, $submission->generated_at->toISOString());
         $this->assertSame(base64_encode(hash('sha256', $xml, true)), $submission->invoice_hash);
+        $this->assertSame('9876543210', $submission->context_nip);
+        $this->assertSame('9876543210', $submission->seller_nip);
+        Http::assertNothingSent();
+    }
+
+    public function test_prepare_freezes_context_and_seller_as_separate_identities(): void
+    {
+        $invoice = $this->eligibleInvoice(
+            contextNip: '5260250995',
+            sellerNip: '9876543210',
+        );
+
+        $submission = app(KsefInvoiceSubmissionService::class)->prepare($invoice);
+
+        $this->assertSame('5260250995', $submission->context_nip);
+        $this->assertSame('9876543210', $submission->seller_nip);
         Http::assertNothingSent();
     }
 
@@ -145,6 +168,22 @@ class KsefInvoiceSubmissionTest extends TestCase
             'ksef_submission_series_disabled',
             fn () => app(KsefInvoiceSubmissionService::class)->prepare($invoice),
         );
+        Http::assertNothingSent();
+    }
+
+    public function test_prepare_requires_valid_frozen_context_without_creating_submission(): void
+    {
+        $invoice = $this->eligibleInvoice();
+
+        foreach ([null, '', '123456789'] as $contextNip) {
+            app(KsefSettingsService::class)->get()->forceFill(['context_nip' => $contextNip])->save();
+            $this->expectKsefError(
+                'ksef_submission_context_missing',
+                fn () => app(KsefInvoiceSubmissionService::class)->prepare($invoice),
+            );
+        }
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
     }
 
@@ -220,13 +259,13 @@ class KsefInvoiceSubmissionTest extends TestCase
             'acquisitionDate' => '2026-08-19T10:00:01Z',
             'permanentStorageDate' => '2026-08-19T10:00:02Z',
             'ordinalNumber' => 1,
-            'ksefNumber' => '5265877635-20250826-0100001AF629-AF',
+            'ksefNumber' => $this->validKsefNumber($submission->seller_nip),
             'status' => ['code' => 200, 'description' => 'Sukces'],
         ];
         $submission = $service->refreshStatus($submission);
 
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
-        $this->assertSame('5265877635-20250826-0100001AF629-AF', $submission->ksef_number);
+        $this->assertSame($this->validKsefNumber('9876543210'), $submission->ksef_number);
         $this->assertSame('2026-08-19T10:00:01.000000Z', $submission->acquisition_date->toISOString());
         $this->assertSame($xml, $submission->payload_xml);
         $this->assertSame(2, $fake->statusCalls);
@@ -269,6 +308,155 @@ class KsefInvoiceSubmissionTest extends TestCase
             'success without KSeF number' => [200, null, KsefInvoiceSubmissionStatus::Uncertain],
             'unknown status' => [299, null, KsefInvoiceSubmissionStatus::Uncertain],
         ];
+    }
+
+    #[DataProvider('statusIdentityFailureCases')]
+    public function test_status_identity_failure_is_uncertain_before_status_mapping(
+        bool $includeReference,
+        bool $includeHash,
+        bool $wrongReference,
+        bool $wrongHash,
+        int $statusCode,
+        string $expectedError,
+    ): void {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->submit($service->prepare($invoice));
+        $response = [
+            'invoicingDate' => '2026-08-19T10:00:00Z',
+            'ordinalNumber' => 1,
+            'ksefNumber' => $this->validKsefNumber($submission->seller_nip),
+            'status' => ['code' => $statusCode, 'description' => 'Synthetic status'],
+        ];
+        if ($includeReference) {
+            $response['referenceNumber'] = $wrongReference
+                ? 'WRONG-INVOICE-REFERENCE'
+                : $submission->invoice_reference_number;
+        } else {
+            $response['referenceNumber'] = null;
+        }
+        if ($includeHash) {
+            $response['invoiceHash'] = $wrongHash
+                ? 'WRONG-INVOICE-HASH'
+                : $submission->invoice_hash;
+        } else {
+            $response['invoiceHash'] = null;
+        }
+        $fake->statusResponse = $response;
+
+        $submission = $service->refreshStatus($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Uncertain, $submission->status);
+        $this->assertSame($expectedError, $submission->safe_error_code);
+        $this->assertNull($submission->ksef_number);
+        $this->assertStringNotContainsString('WRONG-', (string) $submission->safe_error_message);
+    }
+
+    public static function statusIdentityFailureCases(): array
+    {
+        return [
+            'wrong reference on success' => [true, true, true, false, 200, 'ksef_invoice_status_identity_mismatch'],
+            'wrong hash on success' => [true, true, false, true, 200, 'ksef_invoice_status_identity_mismatch'],
+            'missing reference' => [false, true, false, false, 200, 'ksef_invoice_status_identity_missing'],
+            'missing hash' => [true, false, false, false, 200, 'ksef_invoice_status_identity_missing'],
+            'wrong identity on rejection' => [true, true, true, true, 415, 'ksef_invoice_status_identity_mismatch'],
+            'wrong hash while processing' => [true, true, false, true, 150, 'ksef_invoice_status_identity_mismatch'],
+        ];
+    }
+
+    public function test_structurally_valid_ksef_number_for_another_seller_is_uncertain(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->submit($service->prepare($invoice));
+        $fake->statusResponse = [
+            'referenceNumber' => $submission->invoice_reference_number,
+            'invoiceHash' => $submission->invoice_hash,
+            'invoicingDate' => '2026-08-19T10:00:00Z',
+            'ordinalNumber' => 1,
+            'ksefNumber' => $this->validKsefNumber('5265877635'),
+            'status' => ['code' => 200, 'description' => 'Sukces'],
+        ];
+
+        $submission = $service->refreshStatus($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Uncertain, $submission->status);
+        $this->assertSame('ksef_invoice_status_seller_mismatch', $submission->safe_error_code);
+        $this->assertNull($submission->ksef_number);
+        $this->assertStringNotContainsString('5265877635', (string) $submission->safe_error_message);
+    }
+
+    public function test_submit_blocks_context_drift_before_cached_token_or_session_http(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        app(KsefSettingsService::class)->get()->forceFill(['context_nip' => '1234567890'])->save();
+
+        $this->expectKsefError(
+            'ksef_submission_context_changed',
+            fn () => $service->submit($submission),
+        );
+
+        $submission->refresh();
+        $this->assertSame(KsefInvoiceSubmissionStatus::TechnicalFailed, $submission->status);
+        $this->assertSame('9876543210', $submission->context_nip);
+        $this->assertSame(0, $fake->publicKeyCalls);
+        $this->assertSame(0, $fake->openCalls);
+        $this->assertSame(0, $fake->sendCalls);
+    }
+
+    public function test_status_refresh_blocks_context_drift_without_changing_transport_state(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->submit($service->prepare($invoice));
+        app(KsefSettingsService::class)->get()->forceFill(['context_nip' => '1234567890'])->save();
+
+        $this->expectKsefError(
+            'ksef_submission_context_changed',
+            fn () => $service->refreshStatus($submission),
+        );
+
+        $submission->refresh();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame('ksef_submission_context_changed', $submission->safe_error_code);
+        $this->assertSame(0, $fake->statusCalls);
+    }
+
+    public function test_legacy_submission_without_context_never_uses_live_settings_as_fallback(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $preparing = $service->prepare($invoice);
+        $preparing->forceFill(['context_nip' => null])->save();
+
+        $this->expectKsefError(
+            'ksef_submission_context_missing',
+            fn () => $service->submit($preparing),
+        );
+        $this->assertSame(KsefInvoiceSubmissionStatus::TechnicalFailed, $preparing->fresh()->status);
+        $this->assertSame(0, $fake->publicKeyCalls);
+
+        $secondInvoice = $this->eligibleInvoice();
+        $submitted = $service->submit($service->prepare($secondInvoice));
+        $submitted->forceFill(['context_nip' => null])->save();
+        $this->expectKsefError(
+            'ksef_submission_context_missing',
+            fn () => $service->refreshStatus($submitted),
+        );
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submitted->fresh()->status);
+        $this->assertSame(0, $fake->statusCalls);
     }
 
     #[DataProvider('uncertainSendFailures')]
@@ -380,11 +568,13 @@ class KsefInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_submission_beyond_local_prepare_blocks_controlled_invoice_deletion(): void
-    {
+    #[DataProvider('deletionBlockingStatuses')]
+    public function test_any_submission_blocks_controlled_invoice_deletion(
+        KsefInvoiceSubmissionStatus $status,
+    ): void {
         $invoice = $this->eligibleInvoice();
         $submission = app(KsefInvoiceSubmissionService::class)->prepare($invoice);
-        $submission->forceFill(['status' => KsefInvoiceSubmissionStatus::SessionOpened])->save();
+        $submission->forceFill(['status' => $status])->save();
 
         $this->expectInvoiceError(
             'invoice_delete_blocked_by_ksef_submission',
@@ -398,15 +588,52 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertDatabaseHas('ksef_invoice_submissions', ['id' => $submission->getKey()]);
     }
 
+    public static function deletionBlockingStatuses(): array
+    {
+        $statuses = [];
+        foreach (KsefInvoiceSubmissionStatus::cases() as $status) {
+            $statuses[$status->value] = [$status];
+        }
+
+        return $statuses;
+    }
+
+    public function test_bulk_delete_is_controlled_for_preparing_and_technical_submissions(): void
+    {
+        $preparingInvoice = $this->eligibleInvoice();
+        $preparing = app(KsefInvoiceSubmissionService::class)->prepare($preparingInvoice);
+        $failedInvoice = $this->eligibleInvoice();
+        $failed = app(KsefInvoiceSubmissionService::class)->prepare($failedInvoice);
+        $failed->forceFill(['status' => KsefInvoiceSubmissionStatus::TechnicalFailed])->save();
+
+        $this->expectInvoiceError(
+            'invoice_delete_blocked_by_ksef_submission',
+            fn () => app(InvoiceDeletionService::class)->deleteMany(
+                [
+                    $preparingInvoice->getKey() => $preparingInvoice->lock_version,
+                    $failedInvoice->getKey() => $failedInvoice->lock_version,
+                ],
+                $this->documentContext(),
+            ),
+        );
+
+        $this->assertDatabaseHas('invoices', ['id' => $preparingInvoice->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $failedInvoice->getKey()]);
+        $this->assertDatabaseHas('ksef_invoice_submissions', ['id' => $preparing->getKey()]);
+        $this->assertDatabaseHas('ksef_invoice_submissions', ['id' => $failed->getKey()]);
+    }
+
     private function eligibleInvoice(
         bool $finalize = true,
         KsefEnvironment $environment = KsefEnvironment::Test,
+        string $contextNip = '9876543210',
+        string $sellerNip = '9876543210',
     ): Invoice {
         $settings = app(KsefSettingsService::class)->get();
         $settings->forceFill([
             'is_active' => true,
             'environment' => $environment,
-            'context_nip' => '9876543210',
+            'context_nip' => $contextNip,
         ])->save();
         $order = $this->createDocumentOrder([
             'external_id' => 'KSEF-SUBMISSION-'.uniqid(),
@@ -421,7 +648,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         ]);
         $series = $this->createDocumentSeries(InvoiceDocumentType::Invoice, [
             'include_shipping' => false,
-            'seller_tax_id' => '9876543210',
+            'seller_tax_id' => $sellerNip,
         ]);
         KsefSeriesSetting::query()->create([
             'invoice_series_id' => $series->getKey(),
@@ -457,6 +684,22 @@ class KsefInvoiceSubmissionTest extends TestCase
         Http::fake(fn (Request $request) => $fake($request));
 
         return $fake;
+    }
+
+    private function validKsefNumber(string $sellerNip): string
+    {
+        $base = $sellerNip.'-20260819-0100001AF629';
+        $checksum = 0;
+        foreach (str_split($base) as $character) {
+            $checksum ^= ord($character);
+            for ($bit = 0; $bit < 8; $bit++) {
+                $checksum = ($checksum & 0x80) !== 0
+                    ? (($checksum << 1) ^ 0x07) & 0xFF
+                    : ($checksum << 1) & 0xFF;
+            }
+        }
+
+        return $base.'-'.strtoupper(str_pad(dechex($checksum), 2, '0', STR_PAD_LEFT));
     }
 
     private function expectKsefError(string $code, callable $operation): KsefApiException

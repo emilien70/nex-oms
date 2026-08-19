@@ -6,7 +6,10 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Exceptions\KsefApiException;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefHttpClient;
+use Modules\Ksef\Services\KsefOnlineSessionRequestFactory;
+use Modules\Ksef\ValueObjects\KsefOnlineSessionEncryptionData;
 use Tests\TestCase;
 
 class KsefHttpClientTest extends TestCase
@@ -155,10 +158,29 @@ class KsefHttpClientTest extends TestCase
         $encryptedKey = 'FAKE_ENCRYPTED_SYMMETRIC_KEY_SECRET';
         $encryptedInvoice = 'FAKE_ENCRYPTED_INVOICE_CONTENT_SECRET';
         $bearer = 'FAKE_SUBMISSION_BEARER_SECRET';
+        $encryption = new KsefOnlineSessionEncryptionData(
+            encryptedSymmetricKey: $encryptedKey,
+            initializationVector: 'FAKE_INITIALIZATION_VECTOR',
+            publicKeyId: 'FAKE_PUBLIC_KEY_ID',
+            encryptedInvoiceContent: $encryptedInvoice,
+            encryptedInvoiceHash: 'FAKE_ENCRYPTED_INVOICE_HASH',
+            encryptedInvoiceSize: 123,
+            cipherKey: 'FAKE_TRANSIENT_CIPHER_KEY',
+            cipherIv: 'FAKE_TRANSIENT_CIPHER_IV',
+        );
+        $factory = app(KsefOnlineSessionRequestFactory::class);
+        $submission = new KsefInvoiceSubmission;
+        $submission->forceFill([
+            'invoice_hash' => 'FAKE_PLAIN_INVOICE_HASH',
+            'invoice_size' => 100,
+        ]);
         Http::preventStrayRequests();
         Http::fakeSequence()
             ->push(['reasonCode' => 'OPEN_FAILED'], 403, [
-                'X-System-Warning' => "key={$encryptedKey} invoice={$encryptedInvoice} bearer={$bearer}",
+                'X-System-Warning' => "key={$encryptedKey} bearer={$bearer}",
+            ])
+            ->push(['reasonCode' => 'SEND_FAILED'], 403, [
+                'X-System-Warning' => "invoice={$encryptedInvoice} bearer={$bearer}",
             ])
             ->push(null, 204);
 
@@ -166,16 +188,26 @@ class KsefHttpClientTest extends TestCase
             app(KsefHttpClient::class)->post(
                 KsefEnvironment::Test,
                 '/sessions/online',
-                [
-                    'encryptedSymmetricKey' => $encryptedKey,
-                    'encryptedInvoiceContent' => $encryptedInvoice,
-                ],
+                $factory->openSession($encryption),
                 $bearer,
             );
             $this->fail('Expected safe API failure.');
         } catch (KsefApiException $exception) {
-            $this->assertSame('key=[ukryto] invoice=[ukryto] bearer=[ukryto]', $exception->systemWarning);
+            $this->assertSame('key=[ukryto] bearer=[ukryto]', $exception->systemWarning);
             $this->assertStringNotContainsString($encryptedKey, $exception->systemWarning);
+            $this->assertStringNotContainsString($bearer, $exception->systemWarning);
+        }
+
+        try {
+            app(KsefHttpClient::class)->post(
+                KsefEnvironment::Test,
+                '/sessions/online/SESSION/invoices',
+                $factory->sendInvoice($submission, $encryption),
+                $bearer,
+            );
+            $this->fail('Expected safe invoice send failure.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('invoice=[ukryto] bearer=[ukryto]', $exception->systemWarning);
             $this->assertStringNotContainsString($encryptedInvoice, $exception->systemWarning);
             $this->assertStringNotContainsString($bearer, $exception->systemWarning);
         }
@@ -187,6 +219,6 @@ class KsefHttpClientTest extends TestCase
         );
 
         $this->assertSame([], $response->data);
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
     }
 }

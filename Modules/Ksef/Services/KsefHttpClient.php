@@ -207,6 +207,7 @@ class KsefHttpClient
             $bearerToken,
             $payload['encryptedToken'] ?? null,
             $payload['encryptedSymmetricKey'] ?? null,
+            data_get($payload, 'encryption.encryptedSymmetricKey'),
             $payload['encryptedInvoiceContent'] ?? null,
             $rawBody,
             $this->xmlSignatureValue($rawBody),

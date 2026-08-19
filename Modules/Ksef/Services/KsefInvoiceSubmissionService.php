@@ -30,6 +30,7 @@ class KsefInvoiceSubmissionService
         private readonly KsefPublicKeyResolver $publicKeys,
         private readonly KsefOnlineSessionEncryptionService $encryption,
         private readonly KsefOnlineSessionRequestFactory $requests,
+        private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
     ) {}
 
     public function prepare(Invoice $invoice): KsefInvoiceSubmission
@@ -62,6 +63,7 @@ class KsefInvoiceSubmissionService
 
             $environment = $settings->environment;
             $this->assertEnvironmentAllowed($environment);
+            $contextNip = $this->configuredContextNip($settings->context_nip);
 
             $seriesEnabled = KsefSeriesSetting::query()
                 ->where('invoice_series_id', $managed->invoice_series_id)
@@ -104,10 +106,13 @@ class KsefInvoiceSubmissionService
                 $generatedAt,
                 KsefFa3EligibilityMode::Authoritative,
             );
+            $sellerNip = $this->frozenSellerNip($managed);
 
             return KsefInvoiceSubmission::query()->create([
                 'invoice_id' => $managed->getKey(),
                 'environment' => $environment,
+                'context_nip' => $contextNip,
+                'seller_nip' => $sellerNip,
                 'attempt_number' => $attemptNumber,
                 'status' => KsefInvoiceSubmissionStatus::Preparing,
                 'schema_id' => $generated->schemaId,
@@ -127,8 +132,13 @@ class KsefInvoiceSubmissionService
         $this->assertStatus($submission, [KsefInvoiceSubmissionStatus::Preparing]);
 
         try {
+            $contextNip = $this->submissionContextNip($submission);
+            $this->submissionSellerNip($submission);
             $this->assertPayloadIntegrity($submission);
-            $accessToken = $this->accessTokens->getValidAccessToken($submission->environment);
+            $accessToken = $this->accessTokens->getValidAccessToken(
+                $submission->environment,
+                $contextNip,
+            );
             $certificates = $this->onlineSession->publicKeyCertificates($submission->environment);
             $certificate = $this->publicKeys->resolve(
                 $certificates,
@@ -238,7 +248,12 @@ class KsefInvoiceSubmissionService
         ]);
 
         try {
-            $accessToken = $this->accessTokens->getValidAccessToken($submission->environment);
+            $contextNip = $this->submissionContextNip($submission);
+            $this->submissionSellerNip($submission);
+            $accessToken = $this->accessTokens->getValidAccessToken(
+                $submission->environment,
+                $contextNip,
+            );
             $data = $this->onlineSession->invoiceStatus(
                 $submission->environment,
                 $accessToken,
@@ -270,6 +285,16 @@ class KsefInvoiceSubmissionService
             'safe_error_code' => null,
             'safe_error_message' => null,
         ];
+        $identityError = $this->statusIdentityError($submission, $data);
+
+        if ($identityError !== null) {
+            return $this->markStatusUncertain(
+                $submission,
+                $attributes,
+                $identityError['code'],
+                $identityError['message'],
+            );
+        }
 
         if ($code !== null && in_array($code, self::PROCESSING_STATUS_CODES, true)) {
             return $this->transition(
@@ -289,6 +314,25 @@ class KsefInvoiceSubmissionService
                     $attributes,
                     'ksef_invoice_status_number_missing',
                     'KSeF zwrócił status sukcesu bez prawidłowego numeru KSeF.',
+                );
+            }
+
+            $sellerNip = $submission->seller_nip;
+            if (! is_string($sellerNip) || preg_match('/^\d{10}$/', $sellerNip) !== 1) {
+                return $this->markStatusUncertain(
+                    $submission,
+                    $attributes,
+                    'ksef_invoice_status_seller_identity_missing',
+                    'Brak zamrożonego identyfikatora sprzedawcy potrzebnego do potwierdzenia numeru KSeF.',
+                );
+            }
+
+            if (! hash_equals($sellerNip, substr($ksefNumber, 0, 10))) {
+                return $this->markStatusUncertain(
+                    $submission,
+                    $attributes,
+                    'ksef_invoice_status_seller_mismatch',
+                    'KSeF zwrócił numer niezgodny ze sprzedawcą wysłanej Faktury.',
                 );
             }
 
@@ -387,10 +431,10 @@ class KsefInvoiceSubmissionService
             $submission,
             [KsefInvoiceSubmissionStatus::Submitted, KsefInvoiceSubmissionStatus::Processing],
             KsefInvoiceSubmissionStatus::Uncertain,
-            $attributes + [
+            array_merge($attributes, [
                 'safe_error_code' => $safeCode,
                 'safe_error_message' => $safeMessage,
-            ],
+            ]),
         );
     }
 
@@ -481,6 +525,87 @@ class KsefInvoiceSubmissionService
                 'ksef_submission_payload_inconsistent',
             );
         }
+    }
+
+    private function configuredContextNip(mixed $value): string
+    {
+        if (! is_string($value) || preg_match('/^\d{10}$/', $value) !== 1) {
+            throw new KsefApiException(
+                'Konfiguracja nie zawiera prawidłowego NIP-u kontekstu KSeF.',
+                'ksef_submission_context_missing',
+            );
+        }
+
+        return $value;
+    }
+
+    private function frozenSellerNip(Invoice $invoice): string
+    {
+        $sellerNip = $this->buyerIdentity->normalizePolishNip(
+            data_get($invoice->seller_snapshot, 'tax_id'),
+        );
+
+        if ($sellerNip === null) {
+            throw new KsefApiException(
+                'Snapshot Faktury nie zawiera prawidłowego NIP-u sprzedawcy.',
+                'ksef_submission_seller_identity_missing',
+            );
+        }
+
+        return $sellerNip;
+    }
+
+    private function submissionContextNip(KsefInvoiceSubmission $submission): string
+    {
+        $contextNip = $submission->context_nip;
+
+        if (! is_string($contextNip) || preg_match('/^\d{10}$/', $contextNip) !== 1) {
+            throw new KsefApiException(
+                'Próba wysyłki nie posiada zamrożonego kontekstu KSeF.',
+                'ksef_submission_context_missing',
+            );
+        }
+
+        return $contextNip;
+    }
+
+    private function submissionSellerNip(KsefInvoiceSubmission $submission): string
+    {
+        $sellerNip = $submission->seller_nip;
+
+        if (! is_string($sellerNip) || preg_match('/^\d{10}$/', $sellerNip) !== 1) {
+            throw new KsefApiException(
+                'Próba wysyłki nie posiada zamrożonego identyfikatora sprzedawcy.',
+                'ksef_submission_seller_identity_missing',
+            );
+        }
+
+        return $sellerNip;
+    }
+
+    /** @return array{code: string, message: string}|null */
+    private function statusIdentityError(KsefInvoiceSubmission $submission, array $data): ?array
+    {
+        $referenceNumber = data_get($data, 'referenceNumber');
+        $invoiceHash = data_get($data, 'invoiceHash');
+
+        if (! is_string($referenceNumber) || $referenceNumber === ''
+            || ! is_string($invoiceHash) || $invoiceHash === '') {
+            return [
+                'code' => 'ksef_invoice_status_identity_missing',
+                'message' => 'KSeF zwrócił status bez identyfikatorów wysłanej Faktury.',
+            ];
+        }
+
+        if ($referenceNumber !== $submission->invoice_reference_number
+            || ! hash_equals($submission->invoice_hash, $invoiceHash)) {
+            return [
+                'code' => 'ksef_invoice_status_identity_mismatch',
+                'message' => 'KSeF zwrócił status niezgodny z identyfikatorem wysłanej Faktury.',
+            ];
+        }
+
+        return null;
     }
 
     private function optionalDate(array $data, string $path): ?CarbonImmutable

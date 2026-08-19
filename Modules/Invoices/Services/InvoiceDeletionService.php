@@ -70,10 +70,8 @@ class InvoiceDeletionService
                     hasCorrection: $managedInvoice->isInvoice() && $managedInvoice->corrections()->exists(),
                     hasOtherCorrection: $managedInvoice->isCorrection()
                         && $this->hasOtherCorrection($managedInvoice, $corrections),
-                    hasBlockingKsefSubmission: $managedInvoice->isInvoice()
-                        && $managedInvoice->ksefSubmissions()
-                            ->whereIn('status', $this->blockingKsefSubmissionStatuses())
-                            ->exists(),
+                    hasKsefSubmission: $managedInvoice->isInvoice()
+                        && $managedInvoice->ksefSubmissions()->exists(),
                 );
 
                 $this->policy->assertDeletable(
@@ -519,11 +517,10 @@ class InvoiceDeletionService
                 ->pluck('corrected_invoice_id')
                 ->map(static fn (mixed $id): int => (int) $id)
                 ->flip();
-        $invoiceIdsWithBlockingKsefSubmissions = $selectedInvoiceIds === []
+        $invoiceIdsWithKsefSubmissions = $selectedInvoiceIds === []
             ? collect()
             : KsefInvoiceSubmission::query()
                 ->whereIntegerInRaw('invoice_id', $selectedInvoiceIds)
-                ->whereIn('status', $this->blockingKsefSubmissionStatuses())
                 ->distinct()
                 ->pluck('invoice_id')
                 ->map(static fn (mixed $id): int => (int) $id)
@@ -534,7 +531,7 @@ class InvoiceDeletionService
             $correctionsByOrder,
             $existingSeriesIds,
             $invoiceIdsWithCorrections,
-            $invoiceIdsWithBlockingKsefSubmissions,
+            $invoiceIdsWithKsefSubmissions,
         ): array {
             /** @var Collection<int, Invoice> $corrections */
             $corrections = $correctionsByOrder->get($invoice->order_id, collect());
@@ -548,24 +545,11 @@ class InvoiceDeletionService
                     hasCorrection: $invoiceIdsWithCorrections->has((int) $invoice->getKey()),
                     hasOtherCorrection: $invoice->isCorrection()
                         && $this->hasOtherCorrection($invoice, $corrections),
-                    hasBlockingKsefSubmission: $invoiceIdsWithBlockingKsefSubmissions
+                    hasKsefSubmission: $invoiceIdsWithKsefSubmissions
                         ->has((int) $invoice->getKey()),
                 ),
             ];
         });
-    }
-
-    /** @return array<int, string> */
-    private function blockingKsefSubmissionStatuses(): array
-    {
-        return [
-            'session_opened',
-            'submitted',
-            'processing',
-            'accepted',
-            'rejected',
-            'uncertain',
-        ];
     }
 
     /**

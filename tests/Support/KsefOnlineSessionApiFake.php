@@ -24,8 +24,6 @@ class KsefOnlineSessionApiFake
     ];
 
     public array $statusResponse = [
-        'referenceNumber' => '20260819-INV-TEST-REFERENCE',
-        'invoiceHash' => 'TEST-HASH',
         'invoicingDate' => '2026-08-19T10:00:00Z',
         'ordinalNumber' => 1,
         'status' => [
@@ -119,7 +117,10 @@ class KsefOnlineSessionApiFake
         if (preg_match('#/sessions/[^/]+/invoices/[^/]+$#', $path) === 1) {
             $this->statusCalls++;
 
-            return Http::response($this->statusResponse);
+            return Http::response(array_replace([
+                'referenceNumber' => $this->sendResponse['referenceNumber'] ?? null,
+                'invoiceHash' => $this->sendPayload['invoiceHash'] ?? null,
+            ], $this->statusResponse));
         }
 
         return Http::response(['reasonCode' => 'UNEXPECTED_FAKE_REQUEST'], 599);

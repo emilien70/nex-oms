@@ -17,9 +17,12 @@ class KsefAccessTokenManager
         private readonly KsefSettingsService $settings,
     ) {}
 
-    public function getValidAccessToken(KsefEnvironment $environment): string
-    {
+    public function getValidAccessToken(
+        KsefEnvironment $environment,
+        ?string $expectedContextNip = null,
+    ): string {
         $settings = $this->settings->get();
+        $this->assertExpectedContext($settings->context_nip, $expectedContextNip);
         $credential = KsefCredential::query()
             ->where('environment', $environment->value)
             ->first();
@@ -59,6 +62,22 @@ class KsefAccessTokenManager
         $pair = $this->authentication->authenticate($credential, (string) $settings->context_nip);
 
         return $pair->accessToken;
+    }
+
+    private function assertExpectedContext(mixed $currentContextNip, ?string $expectedContextNip): void
+    {
+        if ($expectedContextNip === null) {
+            return;
+        }
+
+        if (preg_match('/^\d{10}$/', $expectedContextNip) !== 1
+            || ! is_string($currentContextNip)
+            || ! hash_equals($expectedContextNip, $currentContextNip)) {
+            throw new KsefApiException(
+                'Kontekst KSeF zmienił się od przygotowania Faktury. Przygotuj nową próbę wysyłki.',
+                'ksef_submission_context_changed',
+            );
+        }
     }
 
     private function refresh(KsefCredential $credential): string
