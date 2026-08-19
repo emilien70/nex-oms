@@ -112,6 +112,10 @@ class KsefHttpClient
         $data = $response->json();
 
         if ($response->successful()) {
+            if ($response->status() === 204) {
+                return new KsefApiResponse([], $systemWarning);
+            }
+
             if (! is_array($data)) {
                 throw new KsefApiException(
                     'KSeF zwrócił odpowiedź w nieprawidłowym formacie.',
@@ -168,7 +172,9 @@ class KsefHttpClient
             return null;
         }
 
-        $reasonCode = $data['reasonCode'] ?? data_get($data, 'status.code');
+        $reasonCode = $data['reasonCode']
+            ?? data_get($data, 'status.code')
+            ?? data_get($data, 'exception.exceptionDetailList.0.exceptionCode');
 
         if (! is_int($reasonCode) && ! is_string($reasonCode)) {
             return null;
@@ -200,6 +206,8 @@ class KsefHttpClient
         $secrets = array_filter([
             $bearerToken,
             $payload['encryptedToken'] ?? null,
+            $payload['encryptedSymmetricKey'] ?? null,
+            $payload['encryptedInvoiceContent'] ?? null,
             $rawBody,
             $this->xmlSignatureValue($rawBody),
         ], fn (mixed $secret): bool => is_string($secret) && $secret !== '');

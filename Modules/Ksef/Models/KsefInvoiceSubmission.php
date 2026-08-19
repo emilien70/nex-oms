@@ -1,0 +1,67 @@
+<?php
+
+namespace Modules\Ksef\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+
+class KsefInvoiceSubmission extends Model
+{
+    protected $fillable = [
+        'invoice_id',
+        'environment',
+        'attempt_number',
+        'status',
+        'schema_id',
+        'generated_at',
+        'payload_xml',
+        'invoice_hash',
+        'invoice_size',
+        'public_key_id',
+        'session_reference_number',
+        'session_valid_until',
+        'encrypted_invoice_hash',
+        'encrypted_invoice_size',
+        'invoice_reference_number',
+        'session_closed_at',
+        'ksef_status_code',
+        'ksef_number',
+        'acquisition_date',
+        'invoicing_date',
+        'permanent_storage_date',
+        'last_checked_at',
+        'safe_error_code',
+        'safe_error_message',
+        'session_close_error_code',
+        'session_close_error_message',
+    ];
+
+    protected $hidden = [
+        'payload_xml',
+    ];
+
+    protected $casts = [
+        'environment' => KsefEnvironment::class,
+        'attempt_number' => 'integer',
+        'status' => KsefInvoiceSubmissionStatus::class,
+        'generated_at' => 'immutable_datetime',
+        'payload_xml' => 'encrypted',
+        'invoice_size' => 'integer',
+        'session_valid_until' => 'immutable_datetime',
+        'encrypted_invoice_size' => 'integer',
+        'session_closed_at' => 'immutable_datetime',
+        'ksef_status_code' => 'integer',
+        'acquisition_date' => 'immutable_datetime',
+        'invoicing_date' => 'immutable_datetime',
+        'permanent_storage_date' => 'immutable_datetime',
+        'last_checked_at' => 'immutable_datetime',
+    ];
+
+    public function invoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class);
+    }
+}

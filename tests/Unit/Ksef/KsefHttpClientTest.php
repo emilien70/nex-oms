@@ -149,4 +149,44 @@ class KsefHttpClientTest extends TestCase
             && $request->body() === $xml);
         Http::assertSentCount(1);
     }
+
+    public function test_online_submission_secrets_are_redacted_and_no_content_is_accepted(): void
+    {
+        $encryptedKey = 'FAKE_ENCRYPTED_SYMMETRIC_KEY_SECRET';
+        $encryptedInvoice = 'FAKE_ENCRYPTED_INVOICE_CONTENT_SECRET';
+        $bearer = 'FAKE_SUBMISSION_BEARER_SECRET';
+        Http::preventStrayRequests();
+        Http::fakeSequence()
+            ->push(['reasonCode' => 'OPEN_FAILED'], 403, [
+                'X-System-Warning' => "key={$encryptedKey} invoice={$encryptedInvoice} bearer={$bearer}",
+            ])
+            ->push(null, 204);
+
+        try {
+            app(KsefHttpClient::class)->post(
+                KsefEnvironment::Test,
+                '/sessions/online',
+                [
+                    'encryptedSymmetricKey' => $encryptedKey,
+                    'encryptedInvoiceContent' => $encryptedInvoice,
+                ],
+                $bearer,
+            );
+            $this->fail('Expected safe API failure.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('key=[ukryto] invoice=[ukryto] bearer=[ukryto]', $exception->systemWarning);
+            $this->assertStringNotContainsString($encryptedKey, $exception->systemWarning);
+            $this->assertStringNotContainsString($encryptedInvoice, $exception->systemWarning);
+            $this->assertStringNotContainsString($bearer, $exception->systemWarning);
+        }
+
+        $response = app(KsefHttpClient::class)->post(
+            KsefEnvironment::Test,
+            '/sessions/online/SESSION/close',
+            bearerToken: $bearer,
+        );
+
+        $this->assertSame([], $response->data);
+        Http::assertSentCount(2);
+    }
 }

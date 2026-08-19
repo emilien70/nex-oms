@@ -1213,7 +1213,7 @@ NEX-OMS może wygenerować dla wystawionej Faktury VAT deterministyczny XML `FA 
 
 Podsumowanie VAT powstaje z zapisanych rozstrzygnięć `ksef_tax.line_treatments`, w tym osobnych pól dla `0 KR`, `0 WDT` i `0 EX`. Dla waluty obcej kwoty podatku w PLN pochodzą wyłącznie z historycznego `converted_tax_summary`; generator nie pobiera nowego kursu. MPP, tożsamość nabywcy, REGON i BDO również pochodzą ze snapshotów dokumentu, bez fallbacku do bieżącego zamówienia, serii albo ustawień treściowych KSeF.
 
-Wygenerowany XML nie jest zapisywany w bazie ani w plikach. KSeF.3B.2 nie otwiera sesji, nie wysyła Faktur, nie pobiera UPO i nie dodaje numeru KSeF, QR ani trybu offline.
+Sam generator nie zapisuje XML w bazie ani w plikach. KSeF.3B.2 nie otwiera sesji, nie wysyła Faktur, nie pobiera UPO i nie dodaje numeru KSeF, QR ani trybu offline; późniejsza warstwa transportowa może utrwalić dokładny wynik trybu autorytatywnego jako payload konkretnej próby.
 
 ## 30.7. Opcjonalne bloki dokumentu FA(3) KSeF.3C
 
@@ -1227,7 +1227,17 @@ Nowa Faktura VAT utrwala rozwiązanie w `payment_snapshot.ksef_payment` wersji 1
 
 Informacje dodatkowe są normalizowane liniowo i dzielone bez utraty znaków na elementy zgodne z limitem XSD. Numer zamówienia pochodzi wyłącznie z utrwalonego zewnętrznego identyfikatora, nigdy z wewnętrznego ID bazy. Wszystkie bloki przechodzą lokalną walidację oficjalnym FA(3) XSD. Etap nadal nie otwiera sesji, nie wysyła Faktur, nie pobiera UPO i nie obejmuje Korekt ani Pro form.
 
-## 30.8. Audyt gotowości KSeF
+## 30.8. Fundament transportu sesji online KSeF.4A.1
+
+KSeF.4A.1 obsługuje wyłącznie sfinalizowaną Fakturę VAT zakwalifikowaną przez istniejący tryb autorytatywny FA(3). Każda próba zapisuje osobny rekord `ksef_invoice_submissions` z zamrożonym środowiskiem, numerem próby, czasem generowania, hashami i dokładnym XML. `payload_xml` jest szyfrowany przez cast aplikacyjny i nie występuje jawnie w bazie. Pro formy i Korekty nie są obsługiwane.
+
+Transport używa sesji online KSeF API 2.6.1: wybiera aktualny klucz `SymmetricKeyEncryption`, generuje jednorazowy 32-bajtowy klucz AES i 16-bajtowy IV, szyfruje XML przez AES-256-CBC z PKCS#7 oraz klucz sesji przez RSA-OAEP SHA-256/MGF1-SHA256. Hash SHA-256 i rozmiar bajtowy są liczone osobno dla XML oraz ciphertextu; wartości hash są kodowane Base64. Klucz AES, IV i ciphertext nie są utrwalane.
+
+Przygotowanie próby odbywa się w krótkiej transakcji z blokadą Faktury, natomiast żaden lock bazy nie obejmuje HTTP. Aktywna, zaakceptowana albo niejednoznaczna próba blokuje kolejną wysyłkę. Timeout, 5xx lub niekompletna odpowiedź po side-effecting POST Faktury prowadzą do `uncertain` i nigdy do automatycznego ponowienia. Błąd zamknięcia sesji pozostawia stan `submitted` i zapisuje osobną bezpieczną diagnostykę. Dopiero endpoint statusu może ustawić `processing`, `accepted` z prawidłowym numerem KSeF albo `rejected`.
+
+Etap jest chroniony deploymentowym `KSEF_INVOICE_SUBMISSION_ENABLED=false` i nawet po jego testowym włączeniu dopuszcza wyłącznie środowisko TEST. Nie ma trasy, przycisku, automatyzacji, kolejki, harmonogramu, live requestu, trybu batch/offline, QR ani pobierania UPO. Wszystkie testy transportu korzystają z `Http::fake()`.
+
+## 30.9. Audyt gotowości KSeF
 
 Po zakończeniu modułu faktur zostanie wykonany osobny audyt obejmujący:
 

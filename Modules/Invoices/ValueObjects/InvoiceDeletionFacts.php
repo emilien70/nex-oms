@@ -9,5 +9,6 @@ final readonly class InvoiceDeletionFacts
         public bool $orderExists,
         public bool $hasCorrection,
         public bool $hasOtherCorrection,
+        public bool $hasBlockingKsefSubmission,
     ) {}
 }

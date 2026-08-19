@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 
 class Invoice extends Model
 {
@@ -139,6 +140,11 @@ class Invoice extends Model
     {
         return $this->hasMany(self::class, 'previous_correction_id')
             ->where('document_type', InvoiceDocumentType::Correction->value);
+    }
+
+    public function ksefSubmissions(): HasMany
+    {
+        return $this->hasMany(KsefInvoiceSubmission::class);
     }
 
     public function isDraft(): bool

@@ -16,6 +16,7 @@ use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\ValueObjects\InvoiceDeletionFacts;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Throwable;
 
 class InvoiceDeletionService
@@ -69,6 +70,10 @@ class InvoiceDeletionService
                     hasCorrection: $managedInvoice->isInvoice() && $managedInvoice->corrections()->exists(),
                     hasOtherCorrection: $managedInvoice->isCorrection()
                         && $this->hasOtherCorrection($managedInvoice, $corrections),
+                    hasBlockingKsefSubmission: $managedInvoice->isInvoice()
+                        && $managedInvoice->ksefSubmissions()
+                            ->whereIn('status', $this->blockingKsefSubmissionStatuses())
+                            ->exists(),
                 );
 
                 $this->policy->assertDeletable(
@@ -514,12 +519,22 @@ class InvoiceDeletionService
                 ->pluck('corrected_invoice_id')
                 ->map(static fn (mixed $id): int => (int) $id)
                 ->flip();
+        $invoiceIdsWithBlockingKsefSubmissions = $selectedInvoiceIds === []
+            ? collect()
+            : KsefInvoiceSubmission::query()
+                ->whereIntegerInRaw('invoice_id', $selectedInvoiceIds)
+                ->whereIn('status', $this->blockingKsefSubmissionStatuses())
+                ->distinct()
+                ->pluck('invoice_id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->flip();
 
         return $invoices->mapWithKeys(function (Invoice $invoice) use (
             $orders,
             $correctionsByOrder,
             $existingSeriesIds,
             $invoiceIdsWithCorrections,
+            $invoiceIdsWithBlockingKsefSubmissions,
         ): array {
             /** @var Collection<int, Invoice> $corrections */
             $corrections = $correctionsByOrder->get($invoice->order_id, collect());
@@ -533,9 +548,24 @@ class InvoiceDeletionService
                     hasCorrection: $invoiceIdsWithCorrections->has((int) $invoice->getKey()),
                     hasOtherCorrection: $invoice->isCorrection()
                         && $this->hasOtherCorrection($invoice, $corrections),
+                    hasBlockingKsefSubmission: $invoiceIdsWithBlockingKsefSubmissions
+                        ->has((int) $invoice->getKey()),
                 ),
             ];
         });
+    }
+
+    /** @return array<int, string> */
+    private function blockingKsefSubmissionStatuses(): array
+    {
+        return [
+            'session_opened',
+            'submitted',
+            'processing',
+            'accepted',
+            'rejected',
+            'uncertain',
+        ];
     }
 
     /**
