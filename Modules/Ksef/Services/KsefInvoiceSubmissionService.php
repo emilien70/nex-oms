@@ -365,10 +365,10 @@ class KsefInvoiceSubmissionService
                 $submission,
                 [KsefInvoiceSubmissionStatus::Submitted, KsefInvoiceSubmissionStatus::Processing],
                 KsefInvoiceSubmissionStatus::Rejected,
-                $attributes + [
+                array_merge($attributes, [
                     'safe_error_code' => 'ksef_invoice_rejected',
                     'safe_error_message' => 'KSeF odrzucił Fakturę podczas weryfikacji.',
-                ],
+                ]),
             );
         }
 

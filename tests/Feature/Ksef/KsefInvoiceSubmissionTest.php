@@ -296,6 +296,15 @@ class KsefInvoiceSubmissionTest extends TestCase
 
         $this->assertSame($expected, $submission->status);
         $this->assertStringNotContainsString('9876543210', (string) $submission->safe_error_message);
+        if ($expected === KsefInvoiceSubmissionStatus::Rejected) {
+            $this->assertSame(415, $submission->ksef_status_code);
+            $this->assertSame('ksef_invoice_rejected', $submission->safe_error_code);
+            $this->assertSame(
+                'KSeF odrzucił Fakturę podczas weryfikacji.',
+                $submission->safe_error_message,
+            );
+            $this->assertStringNotContainsString('SECRET TEST DETAIL', $submission->safe_error_message);
+        }
         if ($expected !== KsefInvoiceSubmissionStatus::Accepted) {
             $this->assertNull($submission->ksef_number);
         }
