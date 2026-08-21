@@ -1231,15 +1231,31 @@ Informacje dodatkowe są normalizowane liniowo i dzielone bez utraty znaków na 
 
 KSeF.4A.1 obsługuje wyłącznie sfinalizowaną Fakturę VAT zakwalifikowaną przez istniejący tryb autorytatywny FA(3). Każda próba zapisuje osobny rekord `ksef_invoice_submissions` z zamrożonym środowiskiem, NIP-em kontekstu uwierzytelnienia, NIP-em sprzedawcy z `Podmiot1`, numerem próby, czasem generowania, hashami i dokładnym XML. Kontekst i sprzedawca są odrębnymi tożsamościami, ponieważ oficjalny kontrakt KSeF dopuszcza działanie w uprawnionym kontekście innym niż sprzedawca. `payload_xml` jest szyfrowany przez cast aplikacyjny i nie występuje jawnie w bazie. Pro formy i Korekty nie są obsługiwane.
 
-Transport używa sesji online KSeF API 2.6.1: wybiera aktualny klucz `SymmetricKeyEncryption`, generuje jednorazowy 32-bajtowy klucz AES i 16-bajtowy IV, szyfruje XML przez AES-256-CBC z PKCS#7 oraz klucz sesji przez RSA-OAEP SHA-256/MGF1-SHA256. Hash SHA-256 i rozmiar bajtowy są liczone osobno dla XML oraz ciphertextu; wartości hash są kodowane Base64. Klucz AES, IV i ciphertext nie są utrwalane.
+Fundament transportu sesji online został pierwotnie zaimplementowany według kontraktu KSeF API 2.6.1. Po udostępnieniu na środowisku TEST API 2.7.0 wykonano osobny audyt zgodności faktycznie serwowanego OpenAPI; nie wykazał on różnic wymagających zmiany kodu transportu. Implementacja nie przypina numeru wersji API, dlatego przed kolejnym kontrolowanym uruchomieniem na środowisku docelowym należy ponownie zweryfikować aktualny kontrakt OpenAPI.
+
+Transport wybiera aktualny klucz `SymmetricKeyEncryption`, generuje jednorazowy 32-bajtowy klucz AES i 16-bajtowy IV, szyfruje XML przez AES-256-CBC z PKCS#7 oraz klucz sesji przez RSA-OAEP SHA-256/MGF1-SHA256. Hash SHA-256 i rozmiar bajtowy są liczone osobno dla XML oraz ciphertextu; wartości hash są kodowane Base64. Klucz AES, IV i ciphertext nie są utrwalane.
 
 Przygotowanie próby odbywa się w krótkiej transakcji z blokadą Faktury, natomiast żaden lock bazy nie obejmuje HTTP. Transport i odczyt statusu wymagają nadal tego samego zamrożonego kontekstu; zmiana globalnego NIP-u blokuje HTTP zamiast użyć ważnego tokena z innego kontekstu. Aktywna, zaakceptowana albo niejednoznaczna próba blokuje kolejną wysyłkę. Timeout, 5xx lub niekompletna odpowiedź po side-effecting POST Faktury prowadzą do `uncertain` i nigdy do automatycznego ponowienia. Błąd zamknięcia sesji pozostawia stan `submitted` i zapisuje osobną bezpieczną diagnostykę. Endpoint statusu może ustawić `processing`, `accepted` albo `rejected` dopiero po ścisłym potwierdzeniu numeru referencyjnego i hasha Faktury. `accepted` dodatkowo wymaga prawidłowego numeru KSeF z NIP-em odpowiadającym zamrożonemu sprzedawcy.
 
-Etap jest chroniony deploymentowym `KSEF_INVOICE_SUBMISSION_ENABLED=false` i nawet po jego testowym włączeniu dopuszcza wyłącznie środowisko TEST. Nie ma trasy, przycisku, automatyzacji, kolejki, harmonogramu, live requestu, trybu batch/offline, QR ani pobierania UPO. Wszystkie testy transportu korzystają z `Http::fake()`.
+Etap jest chroniony deploymentowym `KSEF_INVOICE_SUBMISSION_ENABLED=false` i nawet po jego kontrolowanym włączeniu dopuszcza wyłącznie środowisko TEST. Nie ma trasy ani przycisku wysyłki, automatycznej akcji, listenera, observera, kolejki, harmonogramu, automatycznego pollingu, trybu batch/offline, QR ani pobierania UPO. Pro forma nigdy nie podlega KSeF, a Korekty FA(3) pozostają poza zakresem obecnego generatora i transportu.
+
+Wartość `automatic_submission=true` może istnieć w trwałych ustawieniach, ale sama nie uruchamia transportu przy wyłączonym deployment gate i braku aktywnego workflow automatycznego. Przed przyszłym ustawieniem `KSEF_INVOICE_SUBMISSION_ENABLED=true` trzeba świadomie zweryfikować `automatic_submission` oraz wszystkie ścieżki triggerów i workflow. Automatyczne testy transportu nadal korzystają z `Http::fake()` i blokują stray HTTP.
+
+### Walidacja end-to-end KSeF.4A
+
+Status etapu: `KSeF.4A CLOSED`. Warstwa transportowa została technicznie zamknięta kontrolowaną walidacją end-to-end na środowisku KSeF TEST serwującym API 2.7.0. Użyto wyłącznie w pełni syntetycznej Faktury VAT, zamówienia, kontrahentów, danych bankowych i oznaczeń; nie wykorzystano rzeczywistych danych klientów, zamówień, rachunków, numerów seryjnych, BDO ani REGON. Syntetyczny kontekst utworzono oficjalnym mechanizmem testowym KSeF, a uwierzytelnienie wykonano certyfikatem self-signed dopuszczonym w TEST.
+
+Walidacja potwierdziła autorytatywny FA(3), lokalne oficjalne XSD, zamrożenie i szyfrowanie payloadu at rest, SHA-256, rozmiar bajtowy, AES-256-CBC, RSA-OAEP SHA-256/MGF1-SHA256, `SymmetricKeyEncryption`, Certificate/XAdES, `InvoiceWrite`, otwarcie sesji online, POST Faktury, zamknięcie sesji i odczyt statusu. POST Faktury wykonano dokładnie raz; nie było automatycznego resend, nowej próby ani ślepego retry. KSeF zwrócił status 200 i numer KSeF, a korelacja `referenceNumber`, `invoiceHash`, CRC numeru KSeF oraz NIP-u sprzedawcy zakończyła się powodzeniem. Lokalny stan został zapisany jako `accepted`, bez zmiany zamrożonego payloadu.
+
+Osobna weryfikacja po live teście wykonała dokładnie jeden read-only status GET. Ponownie potwierdziła kod 200, zgodne reference/hash, ten sam numer KSeF, lokalny stan `accepted`, jeden rekord submission i numer próby 1. Zaakceptowany syntetyczny dokument wraz z Order, Series i Submission pozostaje w bazie jako audit trail i nadal blokuje usunięcie Faktury.
+
+Po weryfikacji bezpiecznie przywrócono poprzedni credential i kontekst TEST, unieważniono syntetyczny runtime auth oraz wykonano świeży test uwierzytelnienia i połączenia z wynikiem `InvoiceWrite=YES`. Dedykowana seria testowa została zachowana dla audit trail, ale wyłączona dla KSeF. `DEMO LIVE REQUESTS: 0`; `PRODUCTION LIVE REQUESTS: 0`.
+
+Zamknięcie KSeF.4A oznacza zweryfikowany happy path warstwy transportowej na TEST, nie gotowy workflow użytkownika ani produkcyjny rollout. Użytkownik nie ma jeszcze akcji „Wyślij do KSeF”; nie zaimplementowano obsługi UPO, QR, offline, batch ani automatycznych retry. Failure modes pozostają pokryte automatycznymi testami fake-only, lecz nie były wszystkie sprawdzane live. Kolejny etap może udostępnić kontrolowany workflow aplikacyjny nad zweryfikowanym transportem, ale jego zakres nie jest jeszcze zatwierdzony.
 
 ## 30.9. Audyt gotowości KSeF
 
-Po zakończeniu modułu faktur zostanie wykonany osobny audyt obejmujący:
+Audyt gotowości KSeF jest prowadzony etapowo i obejmuje:
 
 - kompletność danych,
 - poprawność korekt,
@@ -1253,7 +1269,7 @@ Po zakończeniu modułu faktur zostanie wykonany osobny audyt obejmujący:
 - niezmienność dokumentów,
 - możliwość mapowania do aktualnej struktury KSeF.
 
-Dopiero po pozytywnym audycie rozpocznie się właściwa integracja.
+Kontrolowany happy path transportu KSeF.4A został pozytywnie zweryfikowany na TEST. Przed udostępnieniem workflow użytkownika lub rolloutem produkcyjnym wymagany jest kolejny audyt aktualnego kontraktu API, danych, triggerów i granic operacyjnych.
 
 ---
 
