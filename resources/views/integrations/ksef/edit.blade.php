@@ -662,6 +662,9 @@
                                             @endforeach
                                         </select>
                                         @error($field)<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                        @if ($field === 'automatic_submission')
+                                            <div class="ksef-help">Automatyczna transmisja nie jest jeszcze uruchomiona. Obecny workflow wysyłki Faktur jest ręczny.</div>
+                                        @endif
                                     </div>
                                 </div>
 

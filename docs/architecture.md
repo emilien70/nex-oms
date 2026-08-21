@@ -1217,6 +1217,16 @@ Po live flow wykonano osobną read-only weryfikację z dokładnie jednym status 
 
 Walidacja miała `DEMO LIVE REQUESTS: 0` i `PRODUCTION LIVE REQUESTS: 0`; nie stanowi produkcyjnego certyfikatu gotowości. Nie udostępnia użytkownikowi akcji wysyłki, UPO, QR, offline, batch ani obsługi Korekt FA(3); Pro forma pozostaje wyłączona z KSeF. Scenariusze `uncertain`, timeout, connection error, 5xx i malformed 2xx są nadal chronione semantyką bez automatycznego resend i testami fake-only, ale nie były wszystkie wykonywane live.
 
+### Ręczny workflow aplikacyjny KSeF.4B.1
+
+`KsefManualInvoiceSubmissionService` jest cienkim orkiestratorem policy nad niezmienionym transportem 4A. W zewnętrznej transakcji blokuje Fakturę i singleton `KsefSetting`, sprawdza brak jakiegokolwiek `KsefInvoiceSubmission` dla bieżącego środowiska i wywołuje istniejące `prepare()` dokładnie raz. Blokada Faktury serializuje podwójne żądania, a guard obejmuje również `rejected` oraz `technical_failed`, ponieważ retry nie należy do 4B.1. Historia z innego środowiska nie blokuje first attempt. Po commit orkiestrator wywołuje `submit()` dokładnie raz, bez `refreshStatus()` i bez obejmowania HTTP transakcją bazy.
+
+`KsefInvoiceSubmissionController` udostępnia wyłącznie dwie mutujące trasy POST z CSRF: pierwszą wysyłkę oraz ręczny refresh konkretnej próby. Refresh sprawdza ownership submission-Faktura przed delegacją i jest dopuszczany przez transport tylko dla `submitted` oraz `processing`; jedno żądanie wykonuje jeden status GET. Kontrolowane wyjątki pokazują wyłącznie bezpieczny komunikat, a nieoczekiwane błędy są redukowane do komunikatu ogólnego bez logowania sekretów lub payloadu.
+
+Status i historia są renderowane na read-only ekranie Faktury VAT. `Invoice::latestKsefSubmission()` korzysta z `HasOne::ofMany()` i jest eager-loadowane na liście Faktur, dzięki czemu kompaktowy badge nie powoduje N+1. Panel szczegółowy korzysta z posortowanej historii `ksef_invoice_submissions`, pokazuje pełny numer KSeF dla `accepted`, bezpieczne błędy i wyraźne ostrzeżenie dla `uncertain`; nie ujawnia XML, hashy, NIP-ów, identyfikatorów sesji ani surowych odpowiedzi. Nie powstała kolumna statusu na `invoices` ani równoległy system eventów.
+
+Workflow pozostaje TEST-only i zależy od deployment gate domyślnie `false`, aktywnej integracji oraz włączonej serii. Wyłączony gate ukrywa akcje, ale nie historię. `automatic_submission` nie ma żadnego triggera i pozostaje konfiguracją nieaktywną funkcjonalnie. Etap nie dodaje retry, reconciliation, kolejki, schedulera, automatycznego pollingu, UPO, QR, offline, batch, DEMO, PRODUCTION, Pro form ani Korekt KSeF.
+
 KSeF.2A nie tworzy:
 
 ```text

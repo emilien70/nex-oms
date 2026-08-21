@@ -39,15 +39,21 @@ class InvoiceController
     private function documentList(InvoiceIndexRequest $request, InvoiceDocumentType $documentType): View
     {
         $filters = $request->validated();
+        $relations = [
+            'series:id,name',
+            'order:id',
+            'corrections' => fn ($query) => $query
+                ->where('status', InvoiceDocumentStatus::Issued->value)
+                ->orderByDesc('issued_at')
+                ->orderByDesc('id'),
+        ];
+
+        if ($documentType === InvoiceDocumentType::Invoice) {
+            $relations[] = 'latestKsefSubmission';
+        }
+
         $query = Invoice::query()
-            ->with([
-                'series:id,name',
-                'order:id',
-                'corrections' => fn ($query) => $query
-                    ->where('status', InvoiceDocumentStatus::Issued->value)
-                    ->orderByDesc('issued_at')
-                    ->orderByDesc('id'),
-            ])
+            ->with($relations)
             ->where('document_type', $documentType->value)
             ->where('status', InvoiceDocumentStatus::Issued->value);
 

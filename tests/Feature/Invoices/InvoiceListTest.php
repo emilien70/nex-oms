@@ -2,12 +2,16 @@
 
 namespace Tests\Feature\Invoices;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\ProformaService;
+use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -363,6 +367,62 @@ class InvoiceListTest extends TestCase
         $secondPage = $this->get(route('invoices.index', ['year' => 2026, 'page' => 2]));
         $secondPage->assertOk();
         $this->assertCount(1, $secondPage->viewData('invoices'));
+    }
+
+    public function test_invoice_list_eager_loads_and_shows_latest_ksef_status_without_lazy_queries(): void
+    {
+        $invoices = collect(['Pierwsza', 'Druga', 'Trzecia'])->map(function (string $buyer): Invoice {
+            $order = $this->createDocumentOrder(['billing_name' => $buyer]);
+            $this->createDocumentItem($order);
+
+            return app(InvoiceIssuingService::class)->issue(
+                $order,
+                $this->createDocumentSeries(),
+                $this->documentContext(),
+            );
+        });
+        $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Rejected, 1);
+        $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Accepted, 2);
+        $this->createListSubmission($invoices[1], KsefInvoiceSubmissionStatus::Processing, 1);
+
+        Model::preventLazyLoading();
+
+        try {
+            $response = $this->get(route('invoices.index'));
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
+        $response->assertOk()
+            ->assertSee('KSeF')
+            ->assertSee('Przyjęta')
+            ->assertSee('Przetwarzanie')
+            ->assertSee('Nie wysłano');
+        $response->viewData('invoices')->getCollection()->each(
+            fn (Invoice $invoice) => $this->assertTrue($invoice->relationLoaded('latestKsefSubmission')),
+        );
+    }
+
+    private function createListSubmission(
+        Invoice $invoice,
+        KsefInvoiceSubmissionStatus $status,
+        int $attemptNumber,
+    ): KsefInvoiceSubmission {
+        $payload = '<Faktura>LIST '.$attemptNumber.'</Faktura>';
+
+        return KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => '9876543210',
+            'seller_nip' => '9876543210',
+            'attempt_number' => $attemptNumber,
+            'status' => $status,
+            'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now(),
+            'payload_xml' => $payload,
+            'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
+            'invoice_size' => strlen($payload),
+        ]);
     }
 
     private function assertUsesJsonBulkSelection(

@@ -167,6 +167,10 @@
             </div>
         </div>
 
+        @if ($invoice->isInvoice())
+            @include('invoices.partials.ksef-submissions')
+        @endif
+
         @include('invoices.partials.correction-series-modal', [
             'correctionSeries' => $correctionSeries,
             'modalId' => 'blockedInvoiceCorrectionSeriesModal',

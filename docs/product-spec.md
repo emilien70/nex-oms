@@ -1253,7 +1253,17 @@ Po weryfikacji bezpiecznie przywrócono poprzedni credential i kontekst TEST, un
 
 Zamknięcie KSeF.4A oznacza zweryfikowany happy path warstwy transportowej na TEST, nie gotowy workflow użytkownika ani produkcyjny rollout. Użytkownik nie ma jeszcze akcji „Wyślij do KSeF”; nie zaimplementowano obsługi UPO, QR, offline, batch ani automatycznych retry. Failure modes pozostają pokryte automatycznymi testami fake-only, lecz nie były wszystkie sprawdzane live. Kolejny etap może udostępnić kontrolowany workflow aplikacyjny nad zweryfikowanym transportem, ale jego zakres nie jest jeszcze zatwierdzony.
 
-## 30.9. Audyt gotowości KSeF
+## 30.9. Ręczny workflow TEST KSeF.4B.1
+
+KSeF.4B.1 udostępnia na read-only ekranie sfinalizowanej Faktury VAT ręczną pierwszą wysyłkę do KSeF TEST oraz ręczne, pojedyncze sprawdzenie statusu. Akcja wysyłki jest żądaniem POST z CSRF i jawnym oznaczeniem TEST. W ramach jednego wywołania istniejący transport przygotowuje najwyżej jedną próbę, otwiera jedną sesję i wykonuje najwyżej jeden POST Faktury; żądanie wysyłki kończy się lokalnym stanem `submitted` i nie odpytuje automatycznie statusu.
+
+Manualny orkiestrator blokuje Fakturę i bieżącą konfigurację w transakcji oraz atomowo sprawdza historię dla pary Faktura-bieżące środowisko. Każdy wcześniejszy rekord w tym samym środowisku, również `rejected` albo `technical_failed`, blokuje kolejną ręczną próbę. Historia z innego środowiska sama nie blokuje pierwszej próby w bieżącym środowisku. Przygotowanie pozostaje częścią tej transakcji, natomiast cały transport HTTP jest wykonywany dopiero po jej zatwierdzeniu.
+
+Ręczny refresh jest osobnym żądaniem POST, dostępnym wyłącznie dla `submitted` i `processing`, i wykonuje dokładnie jeden status GET. Stany terminalne, `uncertain`, `preparing` i `session_opened` nie mają akcji ponowienia ani odświeżenia w 4B.1. Numer KSeF jest prezentowany w całości dopiero dla `accepted`; historia pokazuje wyłącznie bezpieczne pola i komunikaty, bez XML, hashy, NIP-ów, referencji sesji i surowych odpowiedzi.
+
+Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.
+
+## 30.10. Audyt gotowości KSeF
 
 Audyt gotowości KSeF jest prowadzony etapowo i obejmuje:
 

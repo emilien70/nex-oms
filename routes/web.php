@@ -33,6 +33,7 @@ use Modules\Invoices\Http\Controllers\InvoiceSeriesNextNumberController;
 use Modules\Invoices\Http\Controllers\OrderInvoiceController;
 use Modules\Invoices\Http\Controllers\OrderProformaController;
 use Modules\Ksef\Http\Controllers\KsefConnectionTestController;
+use Modules\Ksef\Http\Controllers\KsefInvoiceSubmissionController;
 use Modules\Ksef\Http\Controllers\KsefPaymentTypeSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSeriesSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSettingsController;
@@ -121,6 +122,8 @@ Route::get('/invoices/{invoice}/corrections/create', [CorrectionController::clas
 Route::post('/invoices/{invoice}/corrections', [CorrectionController::class, 'store'])->name('invoices.corrections.store');
 Route::get('/invoices/corrections/{correction}/edit', [CorrectionController::class, 'edit'])->name('invoices.corrections.edit');
 Route::patch('/invoices/corrections/{correction}', [CorrectionController::class, 'update'])->name('invoices.corrections.update');
+Route::post('/invoices/{invoice}/ksef/submissions', [KsefInvoiceSubmissionController::class, 'store'])->name('invoices.ksef.submissions.store');
+Route::post('/invoices/{invoice}/ksef/submissions/{submission}/refresh', [KsefInvoiceSubmissionController::class, 'refresh'])->name('invoices.ksef.submissions.refresh');
 Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
 Route::delete('/invoices/{invoice}', InvoiceDeletionController::class)->name('invoices.destroy');
 Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');

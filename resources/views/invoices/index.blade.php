@@ -448,6 +448,7 @@
                         <col style="width: 105px;">
                         @if ($isInvoiceList)
                             <col style="width: 105px;">
+                            <col style="width: 120px;">
                         @endif
                         <col style="width: 128px;">
                     </colgroup>
@@ -461,6 +462,7 @@
                             <th class="text-end">Data</th>
                             @if ($isInvoiceList)
                                 <th class="text-center">Korekta</th>
+                                <th class="text-center">KSeF</th>
                             @endif
                             <th class="text-end">Akcje</th>
                         </tr>
@@ -512,6 +514,15 @@
                                             <button class="invoice-correction-button" type="button" data-bs-toggle="modal" data-bs-target="#invoiceListCorrectionSeriesModal" data-correction-url="{{ route('invoices.corrections.create', $invoice) }}">KOREKTA</button>
                                         @endif
                                     </td>
+                                    <td class="text-center">
+                                        @if ($invoice->latestKsefSubmission)
+                                            <span class="badge text-bg-{{ $invoice->latestKsefSubmission->status->badgeVariant() }}" data-ksef-list-status>
+                                                {{ $invoice->latestKsefSubmission->status->label() }}
+                                            </span>
+                                        @else
+                                            <span class="badge text-bg-secondary" data-ksef-list-status>Nie wysłano</span>
+                                        @endif
+                                    </td>
                                 @endif
                                 <td>
                                     <div class="invoice-action-group">
@@ -531,7 +542,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td class="invoice-empty" colspan="{{ $isInvoiceList ? 8 : 7 }}">Nie znaleziono {{ $documentNamePlural }} spełniających wybrane kryteria.</td></tr>
+                            <tr><td class="invoice-empty" colspan="{{ $isInvoiceList ? 9 : 7 }}">Nie znaleziono {{ $documentNamePlural }} spełniających wybrane kryteria.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

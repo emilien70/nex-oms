@@ -24,4 +24,29 @@ enum KsefInvoiceSubmissionStatus: string
             self::Uncertain,
         ], true);
     }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Preparing => 'Przygotowywanie',
+            self::SessionOpened => 'Sesja otwarta',
+            self::Submitted => 'Wysłana',
+            self::Processing => 'Przetwarzanie',
+            self::Accepted => 'Przyjęta',
+            self::Rejected => 'Odrzucona',
+            self::TechnicalFailed => 'Błąd techniczny',
+            self::Uncertain => 'Stan niepewny',
+        };
+    }
+
+    public function badgeVariant(): string
+    {
+        return match ($this) {
+            self::Preparing, self::Processing => 'info',
+            self::SessionOpened, self::Uncertain => 'warning',
+            self::Submitted => 'primary',
+            self::Accepted => 'success',
+            self::Rejected, self::TechnicalFailed => 'danger',
+        };
+    }
 }

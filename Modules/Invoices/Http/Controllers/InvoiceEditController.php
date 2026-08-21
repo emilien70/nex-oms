@@ -19,6 +19,9 @@ use Modules\Invoices\Services\InvoiceEditCurrencyConversionService;
 use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceEditViewModelFactory;
 use Modules\Invoices\Support\InvoiceReturnContext;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Models\KsefSetting;
 use Throwable;
 
 class InvoiceEditController extends Controller
@@ -45,6 +48,7 @@ class InvoiceEditController extends Controller
                 $chain = $sourceState->chain($invoice);
 
                 return view('invoices.edit-blocked-by-correction', [
+                    ...$this->ksefViewData($invoice),
                     'invoice' => $invoice,
                     'currentCorrection' => $chain->currentCorrection,
                     'latestFinalizedCorrection' => $chain->finalizedTail,
@@ -87,5 +91,33 @@ class InvoiceEditController extends Controller
         } catch (Throwable $exception) {
             return $responder->unexpected($exception, $invoice);
         }
+    }
+
+    /** @return array<string, mixed> */
+    private function ksefViewData(Invoice $invoice): array
+    {
+        $settings = KsefSetting::query()
+            ->where('singleton_key', KsefSetting::SINGLETON_KEY)
+            ->first();
+        $submissions = $invoice->ksefSubmissions()
+            ->orderByDesc('id')
+            ->get();
+        $currentSubmission = $settings === null
+            ? null
+            : $submissions->first(
+                fn (KsefInvoiceSubmission $submission): bool => $submission->environment === $settings->environment,
+            );
+
+        return [
+            'ksefSettings' => $settings,
+            'ksefSubmissions' => $submissions,
+            'latestKsefSubmission' => $submissions->first(),
+            'currentKsefSubmission' => $currentSubmission,
+            'ksefSeriesEnabled' => KsefSeriesSetting::query()
+                ->where('invoice_series_id', $invoice->invoice_series_id)
+                ->where('is_enabled', true)
+                ->exists(),
+            'ksefSubmissionGateEnabled' => config('ksef.invoice_submission_enabled') === true,
+        ];
     }
 }
