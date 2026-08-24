@@ -1255,6 +1255,12 @@ Oficjalny XSD został przypięty z repozytorium CIRFMF, commit `1c34fe2799387d51
 
 Cryptographically verified: **NO**. KSeF.5B zachowuje dokładny XML zwrócony przez HTTPS, weryfikuje nagłówek hasha MF, oficjalny XSD i identity dokumentu, ale nie deklaruje lokalnej walidacji podpisu XAdES ani łańcucha zaufania MF. Oficjalny XSD i przykłady v4-3 nie udostępniają w tym miejscu kompletnego kontraktu truststore potrzebnego do małego, niezależnego weryfikatora. Taki hardening wymaga osobnego etapu przed PRD. KSeF.5B nie obejmuje sesyjnego lub batch UPO, automatyzacji, retry, DEMO, PRODUCTION, Korekt, offline ani QR; testy są wyłącznie fake-only i nie wykonują live requestów.
 
+#### KSeF.5B-LIVE-UPO-TEST-001 — BLOCKED
+
+24 sierpnia 2026 r. pojedynczy kontrolowany request do KSeF TEST dla istniejącego zaakceptowanego submissionu zwrócił `200 application/xml`, dokładnie jeden dokument UPO w namespace v4-3 i prawidłowy `x-ms-meta-hash`; SHA-256 Base64 dokładnych bajtów odpowiedzi był zgodny. Wszystkie kontrole identity NEX przeszły, a odpowiedź zawierała element podpisu XMLDSig. Nie wykonano invoice POST, otwarcia sesji, status GET, retry ani requestów DEMO/PRODUCTION.
+
+Oficjalny, niezmodyfikowany XSD v4-3 odrzucił realny dokument TEST dwoma konfliktami kontraktu. `NazwaPodmiotuPrzyjmujacego` ma w XSD stałą wartość `Ministerstwo Finansów`, podczas gdy TEST zwrócił `Ministerstwo Finansów - środowisko testowe (TE)`. Ponadto live XML zawiera `Signature`, którego przypięty XSD nie deklaruje i nie dopuszcza przez wildcard. XSD pozostawiono bez zmian, walidacji nie osłabiono, UPO nie zapisano jako zweryfikowanego, nie wykonano drugiego GET, a submission pozostał `accepted` z niezmienioną tożsamością i payloadem. Wynik etapu: `BLOCKED_BY_MF_TEST_XSD_INCONSISTENCY`; wymaga osobnej decyzji architektonicznej o oficjalnym schemacie i walidacji podpisanego UPO.
+
 KSeF.2A nie tworzy:
 
 ```text
