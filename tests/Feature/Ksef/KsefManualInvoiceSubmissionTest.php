@@ -13,10 +13,12 @@ use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
+use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
@@ -76,6 +78,177 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         foreach (Http::recorded() as [$request]) {
             $this->assertSame('api-demo.ksef.mf.gov.pl', parse_url($request->url(), PHP_URL_HOST));
         }
+    }
+
+    #[DataProvider('listFirstAttemptEnvironments')]
+    public function test_list_first_attempt_uses_configured_environment_and_ignores_request_tampering(
+        KsefEnvironment $configuredEnvironment,
+        KsefEnvironment $forgedEnvironment,
+        string $expectedHost,
+    ): void {
+        $invoice = $this->eligibleInvoice(environment: $configuredEnvironment);
+        $this->validAccessToken($configuredEnvironment);
+        $fake = $this->fakeOnlineApi();
+        $route = route('invoices.ksef.submissions.first-attempt', $invoice);
+
+        $this->post($route, ['environment' => $forgedEnvironment->value])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHas(
+                'success',
+                'Faktura została przekazana do KSeF '.strtoupper($configuredEnvironment->value).'.',
+            );
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $this->assertSame($configuredEnvironment, $submission->environment);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame(1, $submission->attempt_number);
+        $this->assertSame(1, $fake->openCalls);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->closeCalls);
+        $this->assertSame(0, $fake->statusCalls);
+        foreach (Http::recorded() as [$request]) {
+            $this->assertSame($expectedHost, parse_url($request->url(), PHP_URL_HOST));
+        }
+
+        $this->post($route, ['environment' => $forgedEnvironment->value])
+            ->assertSessionHasErrors('ksef');
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(1, $fake->sendCalls);
+
+        $this->get(route('invoices.index'))
+            ->assertSee(KsefInvoiceSubmissionStatus::Submitted->label())
+            ->assertDontSee($route, false);
+    }
+
+    public static function listFirstAttemptEnvironments(): array
+    {
+        return [
+            'configured TEST ignores forged PRODUCTION' => [
+                KsefEnvironment::Test,
+                KsefEnvironment::Production,
+                'api-test.ksef.mf.gov.pl',
+            ],
+            'configured DEMO ignores forged TEST' => [
+                KsefEnvironment::Demo,
+                KsefEnvironment::Test,
+                'api-demo.ksef.mf.gov.pl',
+            ],
+        ];
+    }
+
+    #[DataProvider('crossEnvironmentFirstAttemptCases')]
+    public function test_list_first_attempt_is_independent_between_environments(
+        KsefEnvironment $activeEnvironment,
+        KsefEnvironment $historicalEnvironment,
+    ): void {
+        $invoice = $this->eligibleInvoice(environment: $activeEnvironment);
+        $historical = $this->createSubmission(
+            $invoice,
+            KsefInvoiceSubmissionStatus::Accepted,
+            $historicalEnvironment,
+        );
+        $this->validAccessToken($activeEnvironment);
+        $fake = $this->fakeOnlineApi();
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 2);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $historical->fresh()->status);
+        $this->assertDatabaseHas('ksef_invoice_submissions', [
+            'invoice_id' => $invoice->getKey(),
+            'environment' => $activeEnvironment->value,
+            'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Submitted->value,
+        ]);
+        $this->assertSame(1, $fake->sendCalls);
+    }
+
+    public static function crossEnvironmentFirstAttemptCases(): array
+    {
+        return [
+            'TEST history then DEMO first attempt' => [KsefEnvironment::Demo, KsefEnvironment::Test],
+            'DEMO history then TEST first attempt' => [KsefEnvironment::Test, KsefEnvironment::Demo],
+        ];
+    }
+
+    #[DataProvider('allSubmissionStatuses')]
+    public function test_list_first_attempt_rejects_any_current_environment_history(
+        KsefInvoiceSubmissionStatus $status,
+    ): void {
+        $invoice = $this->eligibleInvoice();
+        $this->createSubmission($invoice, $status);
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors('ksef');
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        Http::assertNothingSent();
+    }
+
+    public static function allSubmissionStatuses(): array
+    {
+        return collect(KsefInvoiceSubmissionStatus::cases())
+            ->mapWithKeys(fn (KsefInvoiceSubmissionStatus $status): array => [
+                $status->value => [$status],
+            ])
+            ->all();
+    }
+
+    #[DataProvider('blockedListFirstAttemptCases')]
+    public function test_list_first_attempt_preconditions_block_before_http(string $case): void
+    {
+        $invoice = $this->eligibleInvoice(
+            finalize: $case !== 'draft',
+            environment: $case === 'production' ? KsefEnvironment::Production : KsefEnvironment::Test,
+        );
+
+        if ($case === 'gate_disabled') {
+            config()->set('ksef.invoice_submission_enabled', false);
+        } elseif ($case === 'inactive') {
+            app(KsefSettingsService::class)->get()->forceFill(['is_active' => false])->save();
+        } elseif ($case === 'series_disabled') {
+            KsefSeriesSetting::query()
+                ->where('invoice_series_id', $invoice->invoice_series_id)
+                ->update(['is_enabled' => false]);
+        }
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHasErrors('ksef');
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
+    public static function blockedListFirstAttemptCases(): array
+    {
+        return [
+            'PRODUCTION' => ['production'],
+            'deployment gate disabled' => ['gate_disabled'],
+            'integration inactive' => ['inactive'],
+            'series disabled' => ['series_disabled'],
+            'invoice not finalized' => ['draft'],
+        ];
+    }
+
+    public function test_list_first_attempt_detects_environment_change_before_http(): void
+    {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Test);
+        $settings = app(KsefSettingsService::class)->get();
+        $expectedEnvironment = $settings->environment;
+        $settings->forceFill(['environment' => KsefEnvironment::Demo])->save();
+
+        try {
+            app(KsefManualInvoiceSubmissionService::class)
+                ->submitFirstAttempt($invoice, $expectedEnvironment);
+            $this->fail('Environment drift should reject the first attempt.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('ksef_submission_environment_changed', $exception->safeCode);
+        }
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
     }
 
     public function test_second_manual_post_is_blocked_after_successful_first_attempt(): void
@@ -246,6 +419,8 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ->update(['is_enabled' => false]);
         $this->post(route('invoices.ksef.submissions.store', $invoice))
             ->assertSessionHasErrors('ksef');
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHasErrors('ksef');
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
@@ -257,6 +432,8 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         config()->set('ksef.invoice_submission_enabled', false);
 
         $this->post(route('invoices.ksef.submissions.store', $invoice))
+            ->assertSessionHasErrors('ksef');
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
             ->assertSessionHasErrors('ksef');
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
@@ -282,6 +459,8 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $invoice->forceFill(['document_type' => $documentType])->saveQuietly();
 
         $this->post(route('invoices.ksef.submissions.store', $invoice))
+            ->assertSessionHasErrors('ksef');
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
             ->assertSessionHasErrors('ksef');
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
@@ -430,6 +609,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $submission = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Submitted);
 
         $this->get(route('invoices.ksef.submissions.store', $invoice))->assertMethodNotAllowed();
+        $this->get(route('invoices.ksef.submissions.first-attempt', $invoice))->assertMethodNotAllowed();
         $this->get(route('invoices.ksef.submissions.refresh', [
             'invoice' => $invoice,
             'submission' => $submission,

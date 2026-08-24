@@ -4,14 +4,19 @@ namespace Tests\Feature\Invoices;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\ProformaService;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\KsefSettingsService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -174,6 +179,7 @@ class InvoiceListTest extends TestCase
             ->assertSee(route('invoices.proformas.bulk-delete'), false)
             ->assertSee(route('invoices.destroy', $first), false)
             ->assertDontSee(route('invoices.edit', $first), false)
+            ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $first), false)
             ->assertDontSee('KOREKTA')
             ->assertSee('ZAZNACZ WSZYSTKO')
             ->assertSee('DRUKUJ ZAZNACZONE')
@@ -264,7 +270,7 @@ class InvoiceListTest extends TestCase
         $invoice->update(['total_gross' => '1234.56']);
 
         $correctionSeries = $this->createDocumentSeries(InvoiceDocumentType::Correction);
-        Invoice::query()->create([
+        $correction = Invoice::query()->create([
             'order_id' => $order->getKey(),
             'invoice_series_id' => $correctionSeries->getKey(),
             'document_type' => InvoiceDocumentType::Correction,
@@ -286,7 +292,8 @@ class InvoiceListTest extends TestCase
 
         $this->get(route('invoices.corrections.index'))
             ->assertOk()
-            ->assertSee('-108,55 EUR');
+            ->assertSee('-108,55 EUR')
+            ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $correction), false);
     }
 
     public function test_list_defaults_to_invoice_number_descending_and_quick_selects_submit_filters(): void
@@ -369,8 +376,14 @@ class InvoiceListTest extends TestCase
         $this->assertCount(1, $secondPage->viewData('invoices'));
     }
 
-    public function test_invoice_list_eager_loads_and_shows_latest_ksef_status_without_lazy_queries(): void
+    public function test_invoice_list_loads_latest_current_environment_status_without_lazy_or_secret_data(): void
     {
+        config()->set('ksef.invoice_submission_enabled', true);
+        app(KsefSettingsService::class)->get()->forceFill([
+            'is_active' => true,
+            'environment' => KsefEnvironment::Demo,
+            'context_nip' => '9876543210',
+        ])->save();
         $invoices = collect(['Pierwsza', 'Druga', 'Trzecia'])->map(function (string $buyer): Invoice {
             $order = $this->createDocumentOrder(['billing_name' => $buyer]);
             $this->createDocumentItem($order);
@@ -381,9 +394,10 @@ class InvoiceListTest extends TestCase
                 $this->documentContext(),
             );
         });
-        $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Rejected, 1);
-        $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Accepted, 2);
-        $this->createListSubmission($invoices[1], KsefInvoiceSubmissionStatus::Processing, 1);
+        $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Rejected, 1, KsefEnvironment::Demo);
+        $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Accepted, 2, KsefEnvironment::Demo);
+        $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Processing, 1, KsefEnvironment::Test);
+        $this->createListSubmission($invoices[1], KsefInvoiceSubmissionStatus::Processing, 1, KsefEnvironment::Demo);
 
         Model::preventLazyLoading();
 
@@ -399,13 +413,13 @@ class InvoiceListTest extends TestCase
             ->assertSee('Przetwarzanie')
             ->assertSee('Nie wysłano');
         $response->viewData('invoices')->getCollection()->each(
-            fn (Invoice $invoice) => $this->assertTrue($invoice->relationLoaded('latestKsefSubmission')),
+            fn (Invoice $invoice) => $this->assertFalse($invoice->relationLoaded('latestKsefSubmission')),
         );
-        $listedInvoice = $response->viewData('invoices')->getCollection()->firstWhere('id', $invoices[0]->getKey());
-        $latestSubmission = $listedInvoice->latestKsefSubmission;
+        $latestSubmission = $response->viewData('currentKsefSubmissions')->get($invoices[0]->getKey());
 
         $this->assertNotNull($latestSubmission);
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $latestSubmission->status);
+        $this->assertSame(KsefEnvironment::Demo, $latestSubmission->environment);
         $loadedAttributeNames = array_keys($latestSubmission->getAttributes());
         sort($loadedAttributeNames);
         $this->assertSame(['environment', 'id', 'invoice_id', 'status'], $loadedAttributeNames);
@@ -415,16 +429,163 @@ class InvoiceListTest extends TestCase
         $this->assertArrayNotHasKey('seller_nip', $latestSubmission->getAttributes());
     }
 
+    #[DataProvider('listSendEnvironments')]
+    public function test_invoice_list_shows_first_send_for_supported_environment_without_history(
+        KsefEnvironment $environment,
+        bool $expectsDemoWarning,
+    ): void {
+        $invoice = $this->createKsefListInvoice($environment);
+        $response = $this->get(route('invoices.index'));
+        $confirmation = "Wysłać Fakturę {$invoice->number} do KSeF ".strtoupper($environment->value).'?';
+
+        if ($expectsDemoWarning) {
+            $confirmation .= ' Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.';
+        }
+
+        $response->assertOk()
+            ->assertSee('Nie wysłano')
+            ->assertSee('WYŚLIJ')
+            ->assertSee(route('invoices.ksef.submissions.first-attempt', $invoice), false)
+            ->assertSee('data-confirm-message="'.e($confirmation).'"', false)
+            ->assertDontSee('name="environment"', false);
+
+        if (! $expectsDemoWarning) {
+            $response->assertDontSee('Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.');
+        }
+    }
+
+    public static function listSendEnvironments(): array
+    {
+        return [
+            'TEST' => [KsefEnvironment::Test, false],
+            'DEMO' => [KsefEnvironment::Demo, true],
+        ];
+    }
+
+    #[DataProvider('crossEnvironmentListCases')]
+    public function test_other_environment_history_does_not_hide_list_first_send(
+        KsefEnvironment $activeEnvironment,
+        KsefEnvironment $historicalEnvironment,
+    ): void {
+        $invoice = $this->createKsefListInvoice($activeEnvironment);
+        $this->createListSubmission(
+            $invoice,
+            KsefInvoiceSubmissionStatus::Accepted,
+            1,
+            $historicalEnvironment,
+        );
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSee('Nie wysłano')
+            ->assertSee(route('invoices.ksef.submissions.first-attempt', $invoice), false)
+            ->assertDontSee('Przyjęta');
+    }
+
+    public static function crossEnvironmentListCases(): array
+    {
+        return [
+            'TEST history with active DEMO' => [KsefEnvironment::Demo, KsefEnvironment::Test],
+            'DEMO history with active TEST' => [KsefEnvironment::Test, KsefEnvironment::Demo],
+        ];
+    }
+
+    #[DataProvider('allKsefSubmissionStatuses')]
+    public function test_any_current_environment_status_hides_list_first_send(
+        KsefInvoiceSubmissionStatus $status,
+    ): void {
+        $invoice = $this->createKsefListInvoice();
+        $this->createListSubmission($invoice, $status, 1);
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSee($status->label())
+            ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $invoice), false);
+    }
+
+    public static function allKsefSubmissionStatuses(): array
+    {
+        return collect(KsefInvoiceSubmissionStatus::cases())
+            ->mapWithKeys(fn (KsefInvoiceSubmissionStatus $status): array => [
+                $status->value => [$status],
+            ])
+            ->all();
+    }
+
+    #[DataProvider('unavailableListSendCases')]
+    public function test_list_first_send_is_hidden_when_precondition_is_missing(string $case): void
+    {
+        $invoice = $this->createKsefListInvoice(
+            environment: $case === 'production' ? KsefEnvironment::Production : KsefEnvironment::Test,
+            finalize: $case !== 'draft',
+            integrationActive: $case !== 'inactive',
+            seriesEnabled: $case !== 'series_disabled',
+            gateEnabled: $case !== 'gate_disabled',
+        );
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSee('Nie wysłano')
+            ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $invoice), false);
+    }
+
+    public static function unavailableListSendCases(): array
+    {
+        return [
+            'PRODUCTION' => ['production'],
+            'deployment gate disabled' => ['gate_disabled'],
+            'integration inactive' => ['inactive'],
+            'series disabled' => ['series_disabled'],
+            'invoice not finalized' => ['draft'],
+        ];
+    }
+
+    public function test_ksef_list_queries_do_not_grow_with_invoice_rows(): void
+    {
+        $invoice = $this->createKsefListInvoice();
+        $this->createListSubmission($invoice, KsefInvoiceSubmissionStatus::Submitted, 1);
+        $recording = false;
+        $bucket = 'single';
+        $queries = ['single' => [], 'many' => []];
+
+        DB::listen(function (object $query) use (&$recording, &$bucket, &$queries): void {
+            if ($recording && preg_match(
+                '/ksef_(settings|series_settings|invoice_submissions)/i',
+                $query->sql,
+            ) === 1) {
+                $queries[$bucket][] = $query->sql;
+            }
+        });
+
+        $recording = true;
+        $this->get(route('invoices.index', ['per_page' => 1000]))->assertOk();
+        $recording = false;
+
+        foreach (range(1, 12) as $sequence) {
+            $additional = $this->createKsefListInvoice();
+            $this->createListSubmission($additional, KsefInvoiceSubmissionStatus::Submitted, 1);
+        }
+
+        $bucket = 'many';
+        $recording = true;
+        $this->get(route('invoices.index', ['per_page' => 1000]))->assertOk();
+        $recording = false;
+
+        $this->assertSame(count($queries['single']), count($queries['many']));
+        $this->assertCount(3, $queries['many']);
+    }
+
     private function createListSubmission(
         Invoice $invoice,
         KsefInvoiceSubmissionStatus $status,
         int $attemptNumber,
+        KsefEnvironment $environment = KsefEnvironment::Test,
     ): KsefInvoiceSubmission {
         $payload = '<Faktura>LIST '.$attemptNumber.'</Faktura>';
 
         return KsefInvoiceSubmission::query()->create([
             'invoice_id' => $invoice->getKey(),
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'context_nip' => '9876543210',
             'seller_nip' => '9876543210',
             'attempt_number' => $attemptNumber,
@@ -435,6 +596,49 @@ class InvoiceListTest extends TestCase
             'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
             'invoice_size' => strlen($payload),
         ]);
+    }
+
+    private function createKsefListInvoice(
+        KsefEnvironment $environment = KsefEnvironment::Test,
+        bool $finalize = true,
+        bool $integrationActive = true,
+        bool $seriesEnabled = true,
+        bool $gateEnabled = true,
+    ): Invoice {
+        config()->set('ksef.invoice_submission_enabled', $gateEnabled);
+        app(KsefSettingsService::class)->get()->forceFill([
+            'is_active' => $integrationActive,
+            'environment' => $environment,
+            'context_nip' => '9876543210',
+        ])->save();
+        $order = $this->createDocumentOrder([
+            'external_id' => 'KSEF-LIST-'.uniqid(),
+            'billing_tax_id' => '5260250995',
+            'delivery_cost_gross' => '0.00',
+            'paid_amount' => '0.00',
+        ]);
+        $this->createDocumentItem($order, [
+            'unit_price_gross' => '123.00',
+            'total_price_gross' => '123.00',
+            'vat_rate' => '23.00',
+        ]);
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Invoice, [
+            'include_shipping' => false,
+            'seller_tax_id' => '9876543210',
+        ]);
+        KsefSeriesSetting::query()->create([
+            'invoice_series_id' => $series->getKey(),
+            'is_enabled' => $seriesEnabled,
+        ]);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $series,
+            $this->documentContext(),
+        )->refresh()->load('items');
+
+        return $finalize
+            ? app(InvoiceFinalizationService::class)->finalize($invoice)->load('items')
+            : $invoice;
     }
 
     private function assertUsesJsonBulkSelection(

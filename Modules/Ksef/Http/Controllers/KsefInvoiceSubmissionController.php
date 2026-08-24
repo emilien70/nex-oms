@@ -4,19 +4,52 @@ namespace Modules\Ksef\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Support\InvoiceReturnContext;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefInvoiceUpoService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
+use Modules\Ksef\Services\KsefSettingsService;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 class KsefInvoiceSubmissionController extends Controller
 {
+    public function firstAttempt(
+        Request $request,
+        Invoice $invoice,
+        KsefManualInvoiceSubmissionService $manualSubmissions,
+        KsefSettingsService $settings,
+    ): RedirectResponse {
+        $returnContext = InvoiceReturnContext::fromRequest(
+            $request,
+            InvoiceReturnContext::INVOICES,
+        );
+        $redirectUrl = $returnContext->url((int) ($invoice->order_id ?? 0));
+
+        try {
+            $expectedEnvironment = $settings->getExisting()->environment;
+            $submission = $manualSubmissions->submitFirstAttempt($invoice, $expectedEnvironment);
+            $environment = strtoupper($submission->environment->value);
+
+            return redirect($redirectUrl)->with(
+                'success',
+                "Faktura została przekazana do KSeF {$environment}.",
+            );
+        } catch (KsefApiException|InvoiceDomainException $exception) {
+            return redirect($redirectUrl)->withErrors(['ksef' => $exception->getMessage()]);
+        } catch (Throwable $exception) {
+            $this->logUnexpected($invoice, 'first_attempt', $exception);
+
+            return redirect($redirectUrl)->withErrors(['ksef' => 'Nie udało się wykonać operacji KSeF.']);
+        }
+    }
+
     public function store(
         Invoice $invoice,
         KsefManualInvoiceSubmissionService $manualSubmissions,

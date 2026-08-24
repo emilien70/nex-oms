@@ -1295,6 +1295,14 @@ Każda Faktura korzysta osobno z istniejącego `KsefManualInvoiceSubmissionServi
 
 KSeF.6B pozostaje synchroniczną operacją ręczną, bez queue, schedulera, Automation i triggera `automatic_submission`. Etap został zweryfikowany fake-only, bez live requestów. KSeF.6C pozostaje osobnym kontrolowanym DEMO E2E. Status: `KSeF.6B CLOSED`.
 
+### KSeF.6B.1 — first send from Invoice list
+
+Lista Faktur VAT pokazuje kompaktową akcję pierwszej wysyłki bez konieczności otwierania szczegółów dokumentu. Bieżące środowisko pochodzi wyłącznie z `KsefSetting.environment`; formularz listy nie przekazuje ani nie wybiera środowiska. Status w kolumnie KSeF jest najnowszym submissionem aktywnego środowiska, pobranym zbiorczo dla całej strony. Historia TEST nie udaje statusu DEMO i odwrotnie, a liczba zapytań KSeF nie rośnie wraz z liczbą wierszy.
+
+Dedykowana trasa POST korzysta z `KsefManualInvoiceSubmissionService::submitFirstAttempt()` oraz istniejących blokad Faktury, konfiguracji i historii prób. Akcja jest dostępna wyłącznie dla sfinalizowanej Faktury VAT z aktualnie włączoną serią, aktywną integracją, deployment gate i środowiskiem dopuszczonym przez `KsefOperationalEnvironmentPolicy`. Dowolny submission w bieżącym środowisku wyłącza first send z listy, także `rejected` i `technical_failed`; świadomy retry, status refresh, reconciliation i UPO pozostają na ekranie pojedynczej Faktury. TEST i DEMO są obsługiwane, a PRODUCTION blokowane przed HTTP.
+
+KSeF.6B.1 nie dodaje zbiorczej akcji checkboxów, kolejki, Automation, schedulera, status pollingu ani nowego mechanizmu transportowego. Miesięczny eksport KSeF.6B pozostaje bez zmian. Wszystkie regresje są fake-only, bez live requestów; KSeF.6C pozostaje osobnym etapem. Status: `KSeF.6B.1 CLOSED`.
+
 KSeF.2A nie tworzy:
 
 ```text

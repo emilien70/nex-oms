@@ -73,8 +73,8 @@ class KsefInvoiceSubmissionService
             $environment = $settings->environment;
             if ($expectedEnvironment !== null && $environment !== $expectedEnvironment) {
                 throw new KsefApiException(
-                    'Środowisko KSeF zmieniło się podczas eksportu. Pozostałe Faktury nie zostały wysłane.',
-                    'ksef_monthly_export_environment_changed',
+                    'Środowisko KSeF zmieniło się podczas operacji. Faktura nie została wysłana.',
+                    'ksef_submission_environment_changed',
                 );
             }
             $this->environments->assertAllowed($environment);

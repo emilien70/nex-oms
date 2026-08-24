@@ -162,7 +162,7 @@ class KsefMonthlyInvoiceExportService
                 'context_nip_missing',
                 'ksef_invoice_encryption_failed',
                 'ksef_invoice_send_response_incomplete',
-                'ksef_monthly_export_environment_changed',
+                'ksef_submission_environment_changed',
                 'ksef_operational_environment_blocked',
                 'ksef_public_key_invalid',
                 'ksef_public_key_not_rsa',

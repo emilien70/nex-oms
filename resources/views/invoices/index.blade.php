@@ -238,6 +238,29 @@
             cursor: default;
         }
 
+        .invoice-ksef-list-cell {
+            align-items: center;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .invoice-ksef-list-send {
+            background: #fff;
+            border: 1px solid #9fc7ed;
+            border-radius: 4px;
+            color: #0875d1;
+            font-size: 9px;
+            line-height: 1;
+            padding: 4px 8px;
+        }
+
+        .invoice-ksef-list-send:hover,
+        .invoice-ksef-list-send:focus {
+            background: #f1f7fd;
+            border-color: #64a8e8;
+        }
+
         .invoice-list-footer {
             align-items: center;
             display: flex;
@@ -483,6 +506,14 @@
                                 $currentCorrection = $isInvoiceList
                                     ? $invoice->corrections->first(fn ($correction) => ! $correction->isFinalized())
                                     : null;
+                                $currentKsefSubmission = $isInvoiceList
+                                    ? $currentKsefSubmissions->get($invoice->getKey())
+                                    : null;
+                                $ksefListCanSend = $isInvoiceList
+                                    && $currentKsefSubmission === null
+                                    && $invoice->isFinalized()
+                                    && $ksefListSendConfigured
+                                    && in_array((int) $invoice->invoice_series_id, $ksefEnabledSeriesIds, true);
                                 $documentEditRouteParameters = match (true) {
                                     $isCorrectionList => ['correction' => $invoice, ...$returnContext->parameters()],
                                     $isInvoiceList => ['invoice' => $invoice, ...$returnContext->parameters()],
@@ -515,13 +546,31 @@
                                         @endif
                                     </td>
                                     <td class="text-center">
-                                        @if ($invoice->latestKsefSubmission)
-                                            <span class="badge text-bg-{{ $invoice->latestKsefSubmission->status->badgeVariant() }}" data-ksef-list-status>
-                                                {{ $invoice->latestKsefSubmission->status->label() }}
-                                            </span>
-                                        @else
-                                            <span class="badge text-bg-secondary" data-ksef-list-status>Nie wysłano</span>
-                                        @endif
+                                        <div class="invoice-ksef-list-cell">
+                                            @if ($currentKsefSubmission)
+                                                <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-list-status>
+                                                    {{ $currentKsefSubmission->status->label() }}
+                                                </span>
+                                            @else
+                                                <span class="badge text-bg-secondary" data-ksef-list-status>Nie wysłano</span>
+                                            @endif
+
+                                            @if ($ksefListCanSend)
+                                                @php
+                                                    $ksefEnvironmentCode = strtoupper($ksefListEnvironment->value);
+                                                    $ksefSendConfirmation = "Wysłać Fakturę {$invoice->number} do KSeF {$ksefEnvironmentCode}?";
+                                                    if ($ksefListEnvironment === \Modules\Ksef\Enums\KsefEnvironment::Demo) {
+                                                        $ksefSendConfirmation .= ' Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.';
+                                                    }
+                                                @endphp
+                                                <form method="POST" action="{{ route('invoices.ksef.submissions.first-attempt', $invoice) }}" data-ksef-list-send-form data-confirm-message="{{ $ksefSendConfirmation }}">
+                                                    @csrf
+                                                    <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                                                    <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+                                                    <button class="invoice-ksef-list-send" type="submit">WYŚLIJ</button>
+                                                </form>
+                                            @endif
+                                        </div>
                                     </td>
                                 @endif
                                 <td>
@@ -628,6 +677,14 @@
             const printSelection = printForm?.querySelector('[data-bulk-print-selection]');
             const deleteSelection = deleteForm?.querySelector('[data-bulk-delete-selection]');
             const documentNamePlural = @json($documentNamePlural);
+
+            document.querySelectorAll('[data-ksef-list-send-form]').forEach((form) => {
+                form.addEventListener('submit', (event) => {
+                    if (!window.confirm(form.dataset.confirmMessage)) {
+                        event.preventDefault();
+                    }
+                });
+            });
 
             const showDeleteBlockedMessage = (message) => {
                 if (typeof window.nexOmsShowError === 'function') {

@@ -124,6 +124,7 @@ Route::get('/invoices/{invoice}/corrections/create', [CorrectionController::clas
 Route::post('/invoices/{invoice}/corrections', [CorrectionController::class, 'store'])->name('invoices.corrections.store');
 Route::get('/invoices/corrections/{correction}/edit', [CorrectionController::class, 'edit'])->name('invoices.corrections.edit');
 Route::patch('/invoices/corrections/{correction}', [CorrectionController::class, 'update'])->name('invoices.corrections.update');
+Route::post('/invoices/{invoice}/ksef/submissions/first-attempt', [KsefInvoiceSubmissionController::class, 'firstAttempt'])->name('invoices.ksef.submissions.first-attempt');
 Route::post('/invoices/{invoice}/ksef/submissions', [KsefInvoiceSubmissionController::class, 'store'])->name('invoices.ksef.submissions.store');
 Route::post('/invoices/{invoice}/ksef/submissions/{submission}/refresh', [KsefInvoiceSubmissionController::class, 'refresh'])->name('invoices.ksef.submissions.refresh');
 Route::post('/invoices/{invoice}/ksef/submissions/{submission}/reconcile', [KsefInvoiceSubmissionController::class, 'reconcile'])->name('invoices.ksef.submissions.reconcile');

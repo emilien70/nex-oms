@@ -4,6 +4,7 @@ namespace Modules\Invoices\Http\Controllers;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
@@ -13,12 +14,17 @@ use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionSeriesResolver;
 use Modules\Invoices\Services\InvoiceMoneyFormatter;
 use Modules\Invoices\Support\InvoiceReturnContext;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 
 class InvoiceController
 {
     public function __construct(
         private readonly CorrectionSeriesResolver $correctionSeries,
         private readonly InvoiceMoneyFormatter $moneyFormatter,
+        private readonly KsefOperationalEnvironmentPolicy $ksefEnvironments,
     ) {}
 
     public function index(InvoiceIndexRequest $request): View
@@ -39,6 +45,9 @@ class InvoiceController
     private function documentList(InvoiceIndexRequest $request, InvoiceDocumentType $documentType): View
     {
         $filters = $request->validated();
+        $isInvoiceList = $documentType === InvoiceDocumentType::Invoice;
+        $isProformaList = $documentType === InvoiceDocumentType::Proforma;
+        $isCorrectionList = $documentType === InvoiceDocumentType::Correction;
         $relations = [
             'series:id,name',
             'order:id',
@@ -47,15 +56,6 @@ class InvoiceController
                 ->orderByDesc('issued_at')
                 ->orderByDesc('id'),
         ];
-
-        if ($documentType === InvoiceDocumentType::Invoice) {
-            $relations['latestKsefSubmission'] = fn ($query) => $query->select([
-                'ksef_invoice_submissions.id',
-                'ksef_invoice_submissions.invoice_id',
-                'ksef_invoice_submissions.environment',
-                'ksef_invoice_submissions.status',
-            ]);
-        }
 
         $query = Invoice::query()
             ->with($relations)
@@ -67,6 +67,9 @@ class InvoiceController
 
         $perPage = (int) ($filters['per_page'] ?? 25);
         $invoices = $query->paginate($perPage)->withQueryString();
+        $ksefListData = $isInvoiceList
+            ? $this->ksefListData($invoices->getCollection())
+            : $this->emptyKsefListData();
         $series = InvoiceSeries::query()
             ->where('document_type', $documentType->value)
             ->orderByDesc('is_system')
@@ -94,9 +97,6 @@ class InvoiceController
             ->orderBy('currency')
             ->pluck('currency');
 
-        $isInvoiceList = $documentType === InvoiceDocumentType::Invoice;
-        $isProformaList = $documentType === InvoiceDocumentType::Proforma;
-        $isCorrectionList = $documentType === InvoiceDocumentType::Correction;
         $returnTo = match ($documentType) {
             InvoiceDocumentType::Invoice => InvoiceReturnContext::INVOICES,
             InvoiceDocumentType::Proforma => InvoiceReturnContext::PROFORMAS,
@@ -171,7 +171,60 @@ class InvoiceController
             'correctionSeries' => $isInvoiceList
                 ? $this->correctionSeries->active()
                 : collect(),
+            ...$ksefListData,
         ]);
+    }
+
+    /**
+     * @param  Collection<int, Invoice>  $invoices
+     * @return array<string, mixed>
+     */
+    private function ksefListData(Collection $invoices): array
+    {
+        $settings = KsefSetting::query()
+            ->where('singleton_key', KsefSetting::SINGLETON_KEY)
+            ->first();
+        $enabledSeriesIds = KsefSeriesSetting::query()
+            ->where('is_enabled', true)
+            ->pluck('invoice_series_id')
+            ->map(fn (int|string $id): int => (int) $id)
+            ->all();
+        $submissions = collect();
+
+        if ($settings !== null && $invoices->isNotEmpty()) {
+            $invoiceIds = $invoices->modelKeys();
+            $latestIds = KsefInvoiceSubmission::query()
+                ->selectRaw('MAX(id)')
+                ->whereIntegerInRaw('invoice_id', $invoiceIds)
+                ->where('environment', $settings->environment->value)
+                ->groupBy('invoice_id');
+
+            $submissions = KsefInvoiceSubmission::query()
+                ->whereIn('id', $latestIds)
+                ->get(['id', 'invoice_id', 'environment', 'status'])
+                ->keyBy('invoice_id');
+        }
+
+        return [
+            'currentKsefSubmissions' => $submissions,
+            'ksefEnabledSeriesIds' => $enabledSeriesIds,
+            'ksefListEnvironment' => $settings?->environment,
+            'ksefListSendConfigured' => $settings !== null
+                && $settings->is_active
+                && config('ksef.invoice_submission_enabled') === true
+                && $this->ksefEnvironments->allows($settings->environment),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function emptyKsefListData(): array
+    {
+        return [
+            'currentKsefSubmissions' => collect(),
+            'ksefEnabledSeriesIds' => [],
+            'ksefListEnvironment' => null,
+            'ksefListSendConfigured' => false,
+        ];
     }
 
     /** @param array<string, mixed> $filters */
