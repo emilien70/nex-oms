@@ -332,6 +332,31 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ->assertDontSee('FAKE_SUBMISSION_API_TOKEN');
     }
 
+    public function test_current_status_ignores_other_environment_attempt_but_history_and_test_send_remain_visible(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->createSubmission(
+            $invoice,
+            KsefInvoiceSubmissionStatus::Rejected,
+            KsefEnvironment::Demo,
+            ['safe_error_message' => 'Bezpieczny historyczny opis DEMO.'],
+        );
+
+        $response = $this->get(route('invoices.edit', $invoice));
+        $html = $response->getContent();
+
+        $response->assertOk()
+            ->assertSee('Wyślij do KSeF TEST');
+        $this->assertMatchesRegularExpression(
+            '/<div class="invoice-ksef-status-row">.*?data-ksef-current-status[^>]*>Nie wysłano<\/span>.*?<\/div>/s',
+            $html,
+        );
+        $this->assertMatchesRegularExpression(
+            '/<table[^>]*data-ksef-submission-history[^>]*>.*?DEMO.*?Odrzucona.*?<\/table>/s',
+            $html,
+        );
+    }
+
     public function test_accepted_panel_shows_full_number_without_send_or_refresh(): void
     {
         $invoice = $this->eligibleInvoice();
@@ -410,6 +435,27 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'rejected' => [KsefInvoiceSubmissionStatus::Rejected],
             'technical_failed' => [KsefInvoiceSubmissionStatus::TechnicalFailed],
         ];
+    }
+
+    public function test_rejected_panel_and_history_show_safe_ksef_status_code_without_raw_details(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Rejected, attributes: [
+            'ksef_status_code' => 415,
+            'safe_error_message' => 'KSeF odrzucił Fakturę podczas weryfikacji.',
+            'invoice_reference_number' => 'RAW_SYNTHETIC_REJECTION_DETAIL',
+        ]);
+
+        $response = $this->get(route('invoices.edit', $invoice));
+
+        $response->assertOk()
+            ->assertSee('Odrzucona')
+            ->assertSee('data-ksef-current-status-code', false)
+            ->assertSee('data-ksef-history-status-code', false)
+            ->assertSee('Kod KSeF: <strong>415</strong>', false)
+            ->assertSee('Kod KSeF: 415')
+            ->assertSee('KSeF odrzucił Fakturę podczas weryfikacji.')
+            ->assertDontSee('RAW_SYNTHETIC_REJECTION_DETAIL');
     }
 
     public function test_uncertain_and_failed_history_exposes_only_safe_diagnostics_latest_first(): void

@@ -401,6 +401,18 @@ class InvoiceListTest extends TestCase
         $response->viewData('invoices')->getCollection()->each(
             fn (Invoice $invoice) => $this->assertTrue($invoice->relationLoaded('latestKsefSubmission')),
         );
+        $listedInvoice = $response->viewData('invoices')->getCollection()->firstWhere('id', $invoices[0]->getKey());
+        $latestSubmission = $listedInvoice->latestKsefSubmission;
+
+        $this->assertNotNull($latestSubmission);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $latestSubmission->status);
+        $loadedAttributeNames = array_keys($latestSubmission->getAttributes());
+        sort($loadedAttributeNames);
+        $this->assertSame(['environment', 'id', 'invoice_id', 'status'], $loadedAttributeNames);
+        $this->assertArrayNotHasKey('payload_xml', $latestSubmission->getAttributes());
+        $this->assertArrayNotHasKey('invoice_hash', $latestSubmission->getAttributes());
+        $this->assertArrayNotHasKey('context_nip', $latestSubmission->getAttributes());
+        $this->assertArrayNotHasKey('seller_nip', $latestSubmission->getAttributes());
     }
 
     private function createListSubmission(

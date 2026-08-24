@@ -49,7 +49,12 @@ class InvoiceController
         ];
 
         if ($documentType === InvoiceDocumentType::Invoice) {
-            $relations[] = 'latestKsefSubmission';
+            $relations['latestKsefSubmission'] = fn ($query) => $query->select([
+                'ksef_invoice_submissions.id',
+                'ksef_invoice_submissions.invoice_id',
+                'ksef_invoice_submissions.environment',
+                'ksef_invoice_submissions.status',
+            ]);
         }
 
         $query = Invoice::query()

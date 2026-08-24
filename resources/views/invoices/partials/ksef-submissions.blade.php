@@ -1,5 +1,4 @@
 @php
-    $displaySubmission = $currentKsefSubmission ?? $latestKsefSubmission;
     $configuredEnvironment = $ksefSettings?->environment;
     $isTestEnvironment = $configuredEnvironment === \Modules\Ksef\Enums\KsefEnvironment::Test;
     $canSend = $invoice->isInvoice()
@@ -97,29 +96,35 @@
 
     <div class="invoice-ksef-status-row">
         <span>Bieżący status:</span>
-        @if ($displaySubmission)
-            <span class="badge text-bg-{{ $displaySubmission->status->badgeVariant() }}" data-ksef-current-status>
-                {{ $displaySubmission->status->label() }}
+        @if ($currentKsefSubmission)
+            <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-current-status>
+                {{ $currentKsefSubmission->status->label() }}
             </span>
-            <span class="text-muted">({{ strtoupper($displaySubmission->environment->value) }})</span>
+            <span class="text-muted">({{ strtoupper($currentKsefSubmission->environment->value) }})</span>
         @else
             <span class="badge text-bg-secondary" data-ksef-current-status>Nie wysłano</span>
         @endif
     </div>
 
-    @if ($displaySubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted && $displaySubmission->ksef_number)
+    @if ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted && $currentKsefSubmission->ksef_number)
         <p class="invoice-ksef-message">
             Numer KSeF:
-            <strong class="invoice-ksef-number" data-ksef-number>{{ $displaySubmission->ksef_number }}</strong>
+            <strong class="invoice-ksef-number" data-ksef-number>{{ $currentKsefSubmission->ksef_number }}</strong>
         </p>
     @endif
 
-    @if ($displaySubmission?->safe_error_message)
-        <p class="invoice-ksef-message" data-ksef-safe-error>{{ $displaySubmission->safe_error_message }}</p>
+    @if ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected && $currentKsefSubmission->ksef_status_code !== null)
+        <p class="invoice-ksef-message" data-ksef-current-status-code>
+            Kod KSeF: <strong>{{ $currentKsefSubmission->ksef_status_code }}</strong>
+        </p>
     @endif
 
-    @if ($displaySubmission?->session_close_error_message)
-        <p class="invoice-ksef-message invoice-ksef-warning">{{ $displaySubmission->session_close_error_message }}</p>
+    @if ($currentKsefSubmission?->safe_error_message)
+        <p class="invoice-ksef-message" data-ksef-safe-error>{{ $currentKsefSubmission->safe_error_message }}</p>
+    @endif
+
+    @if ($currentKsefSubmission?->session_close_error_message)
+        <p class="invoice-ksef-message invoice-ksef-warning">{{ $currentKsefSubmission->session_close_error_message }}</p>
     @endif
 
     @if ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Uncertain)
@@ -191,6 +196,11 @@
                                         <span class="invoice-ksef-number">{{ $submission->ksef_number }}</span>
                                         @if ($submission->acquisition_date)
                                             <br><span class="text-muted">Przyjęto: {{ $submission->acquisition_date->format('d.m.Y H:i') }}</span>
+                                        @endif
+                                    @elseif ($submission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected && $submission->ksef_status_code !== null)
+                                        <span data-ksef-history-status-code>Kod KSeF: {{ $submission->ksef_status_code }}</span>
+                                        @if ($submission->safe_error_message)
+                                            <br>{{ $submission->safe_error_message }}
                                         @endif
                                     @elseif ($submission->safe_error_message)
                                         {{ $submission->safe_error_message }}
