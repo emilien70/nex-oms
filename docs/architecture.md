@@ -1313,6 +1313,12 @@ UPO pobrano z MF dokładnie raz. Oryginalny podpisany XML został zweryfikowany 
 
 Cały przebieg wykonał `TEST LIVE REQUESTS: 0`, `PRODUCTION LIVE REQUESTS: 0` oraz `MONTHLY EXPORT LIVE POST: 0`. Konfigurację środowiska, aktywność serii i mapowanie serii przywrócono do wartości sprzed próby, serwer diagnostyczny zatrzymano, a deployment gate ponownie ma domyślną wartość `false`. Historia obu prób i UPO pozostała trwałym audytem. Statusy: `KSeF.6C-LIVE-DEMO-E2E-004 — PASS`, `KSeF.6C CLOSED`, `KSeF.6 CLOSED`.
 
+### KSeF.6D — lokalne włączenie operacyjne
+
+24 sierpnia 2026 r. lokalny deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` został świadomie pozostawiony aktywny do bieżących testów TEST i DEMO. Po zwykłym restarcie aplikacji kwalifikująca się Faktura w aktywnej serii KSeF pokazuje na liście akcję `WYŚLIJ`. Niezależna `KsefOperationalEnvironmentPolicy` nadal blokuje PRODUCTION przed utworzeniem submissionu i przed HTTP. Domyślna wartość w konfiguracji oraz `.env.example` pozostają `false`.
+
+Kontrolowany smoke test nowej Faktury z wyłącznie fikcyjnymi danymi wykonał dokładnie jedną próbę i jeden invoice POST do DEMO, bez automatycznego retry i bez eksportu miesięcznego. Dokument przeszedł do `accepted`, otrzymał numer KSeF i jedno UPO. Oryginalne UPO przeszło walidację hash, tożsamości, odbiorcy DEMO i obecności pojedynczego podpisu, zostało zapisane szyfrowane oraz pobrane lokalnie byte-for-byte bez kolejnego requestu do MF; zgodność projekcji z UPO v4-3 przeszła. `TEST LIVE REQUESTS: 0`, `PRODUCTION LIVE REQUESTS: 0`, `MONTHLY EXPORT LIVE POST: 0`. Lokalny runtime pozostał z gate `true`, a dedykowana seria DEMO pozostała aktywna i włączona do KSeF. Status: `KSeF.6D CLOSED`.
+
 KSeF.2A nie tworzy:
 
 ```text
