@@ -34,7 +34,7 @@ class KsefOnlineSessionApiFake
 
     public ?array $sessionInvoicesResponse = null;
 
-    /** @var array<string, array{status?: int, body?: mixed, connection?: bool}> */
+    /** @var array<string, array{status?: int, body?: mixed, headers?: array<string, string>, connection?: bool}> */
     public array $failures = [];
 
     public int $publicKeyCalls = 0;
@@ -89,6 +89,7 @@ class KsefOnlineSessionApiFake
             return Http::response(
                 $failure['body'] ?? ['reasonCode' => 'SYNTHETIC_FAILURE'],
                 $failure['status'] ?? 500,
+                $failure['headers'] ?? [],
             );
         }
 

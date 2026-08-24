@@ -279,6 +279,18 @@
             overflow-wrap: anywhere;
         }
 
+        .ksef-export-row {
+            align-items: end;
+            display: grid;
+            gap: 12px;
+            grid-template-columns: minmax(220px, 360px) auto;
+            max-width: 560px;
+        }
+
+        .ksef-export-row .btn {
+            min-height: 38px;
+        }
+
         @media (max-width: 720px) {
             .ksef-page {
                 margin: -1rem;
@@ -298,6 +310,11 @@
                 padding: 0 0 6px;
                 text-align: left;
             }
+
+            .ksef-export-row {
+                align-items: stretch;
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 
@@ -311,13 +328,11 @@
                     href="{{ route('integrations.ksef.edit') }}"
                     data-ksef-tab="connection"
                 >Połączenie</a>
-                <button
-                    class="ksef-tab"
-                    type="button"
-                    disabled
-                    title="Funkcja będzie dostępna w kolejnym etapie."
+                <a
+                    class="ksef-tab {{ $activeTab === 'export' ? 'is-active' : '' }}"
+                    href="{{ route('integrations.ksef.edit', ['tab' => 'export']) }}"
                     data-ksef-tab="export"
-                >Eksportuj dokumenty</button>
+                >Eksportuj dokumenty</a>
                 <a
                     class="ksef-tab {{ $activeTab === 'series' ? 'is-active' : '' }}"
                     href="{{ route('integrations.ksef.edit', ['tab' => 'series']) }}"
@@ -337,7 +352,49 @@
                     </div>
                 @endif
 
-                @if ($activeTab === 'series')
+                @if ($activeTab === 'export')
+                    <form
+                        class="ksef-form"
+                        method="POST"
+                        action="{{ route('integrations.ksef.export') }}"
+                        data-ksef-export-form
+                        data-ksef-export-environment="{{ strtoupper($settings->environment->value) }}"
+                        @if ($settings->environment === \Modules\Ksef\Enums\KsefEnvironment::Demo) data-ksef-export-demo @endif
+                    >
+                        @csrf
+
+                        <section class="ksef-section" aria-labelledby="ksef-export-heading">
+                            <h2 class="ksef-section-title" id="ksef-export-heading">Eksportuj dokumenty</h2>
+
+                            @if ($settings->environment === \Modules\Ksef\Enums\KsefEnvironment::Demo)
+                                <div class="ksef-environment-notice mb-3" role="note" data-ksef-export-demo-warning>
+                                    Środowisko DEMO / przedprodukcyjne. Eksportuj wyłącznie dokumenty zawierające dane testowe lub fikcyjne.
+                                </div>
+                            @endif
+
+                            <div class="ksef-export-row">
+                                <div>
+                                    <label class="form-label" for="ksef-export-month">Eksportuj faktury z miesiąca</label>
+                                    <select class="form-select @error('month') is-invalid @enderror" id="ksef-export-month" name="month" required data-ksef-export-month>
+                                        @foreach ($monthlyExportPeriods as $month => $label)
+                                            <option value="{{ $month }}" @selected(old('month', array_key_first($monthlyExportPeriods)) === $month)>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('month')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                                <button class="btn btn-primary" type="submit" @disabled(! $monthlyExportGateEnabled || ! $settings->is_active || ! $monthlyExportEnvironmentAllowed)>Eksportuj</button>
+                            </div>
+
+                            @if (! $monthlyExportGateEnabled)
+                                <p class="ksef-help mt-3">Wysyłka KSeF jest wyłączona na poziomie wdrożenia.</p>
+                            @elseif (! $settings->is_active)
+                                <p class="ksef-help mt-3">Integracja KSeF nie jest aktywna.</p>
+                            @elseif (! $monthlyExportEnvironmentAllowed)
+                                <p class="ksef-help mt-3">Operacyjny transport Faktur do środowiska produkcyjnego KSeF nie został jeszcze odblokowany.</p>
+                            @endif
+                        </section>
+                    </form>
+                @elseif ($activeTab === 'series')
                     <form method="POST" action="{{ route('integrations.ksef.series.update') }}" data-ksef-series-form>
                         @csrf
                         @method('PUT')
@@ -708,6 +765,25 @@
 
     <script>
         (() => {
+            const exportForm = document.querySelector('[data-ksef-export-form]');
+            const exportMonth = document.querySelector('[data-ksef-export-month]');
+
+            if (exportForm && exportMonth) {
+                exportForm.addEventListener('submit', (event) => {
+                    const monthLabel = exportMonth.options[exportMonth.selectedIndex]?.text || exportMonth.value;
+                    const environment = exportForm.dataset.ksefExportEnvironment || '';
+                    let message = `Wyeksportować niewysłane Faktury z ${monthLabel} do KSeF ${environment}?`;
+
+                    if (exportForm.hasAttribute('data-ksef-export-demo')) {
+                        message += ' Upewnij się, że dokumenty zawierają wyłącznie dane testowe lub fikcyjne.';
+                    }
+
+                    if (!window.confirm(message)) {
+                        event.preventDefault();
+                    }
+                });
+            }
+
             const environmentSelect = document.querySelector('[data-ksef-environment]');
             const notice = document.querySelector('[data-ksef-environment-notice]');
             const tokenInput = document.querySelector('[data-ksef-api-token]');

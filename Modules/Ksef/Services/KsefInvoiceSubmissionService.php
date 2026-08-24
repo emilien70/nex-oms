@@ -5,6 +5,7 @@ namespace Modules\Ksef\Services;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefPublicKeyUsage;
@@ -34,11 +35,18 @@ class KsefInvoiceSubmissionService
         private readonly KsefOperationalEnvironmentPolicy $environments,
     ) {}
 
-    public function prepare(Invoice $invoice): KsefInvoiceSubmission
-    {
+    public function prepare(
+        Invoice $invoice,
+        ?KsefEnvironment $expectedEnvironment = null,
+        bool $firstAttemptOnly = false,
+    ): KsefInvoiceSubmission {
         $this->assertTransportEnabled();
 
-        return DB::transaction(function () use ($invoice): KsefInvoiceSubmission {
+        return DB::transaction(function () use (
+            $invoice,
+            $expectedEnvironment,
+            $firstAttemptOnly,
+        ): KsefInvoiceSubmission {
             $managed = Invoice::query()
                 ->lockForUpdate()
                 ->findOrFail($invoice->getKey());
@@ -63,6 +71,12 @@ class KsefInvoiceSubmissionService
             }
 
             $environment = $settings->environment;
+            if ($expectedEnvironment !== null && $environment !== $expectedEnvironment) {
+                throw new KsefApiException(
+                    'Środowisko KSeF zmieniło się podczas eksportu. Pozostałe Faktury nie zostały wysłane.',
+                    'ksef_monthly_export_environment_changed',
+                );
+            }
             $this->environments->assertAllowed($environment);
             $contextNip = $this->configuredContextNip($settings->context_nip);
 
@@ -84,6 +98,12 @@ class KsefInvoiceSubmissionService
                 ->where('environment', $environment->value)
                 ->lockForUpdate()
                 ->get(['id', 'status']);
+            if ($firstAttemptOnly && $history->isNotEmpty()) {
+                throw new KsefApiException(
+                    'Faktura posiada już próbę przekazania do KSeF w aktywnym środowisku.',
+                    'ksef_submission_first_attempt_already_exists',
+                );
+            }
             $this->lifecycle->assertNewAttemptAllowed($history);
 
             $attemptNumber = ((int) KsefInvoiceSubmission::query()

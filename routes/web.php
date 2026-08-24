@@ -34,6 +34,7 @@ use Modules\Invoices\Http\Controllers\OrderInvoiceController;
 use Modules\Invoices\Http\Controllers\OrderProformaController;
 use Modules\Ksef\Http\Controllers\KsefConnectionTestController;
 use Modules\Ksef\Http\Controllers\KsefInvoiceSubmissionController;
+use Modules\Ksef\Http\Controllers\KsefMonthlyInvoiceExportController;
 use Modules\Ksef\Http\Controllers\KsefPaymentTypeSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSeriesSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSettingsController;
@@ -66,6 +67,7 @@ Route::get('/integrations', [IntegrationController::class, 'index'])->name('inte
 Route::get('/integrations/ksef', [KsefSettingsController::class, 'edit'])->name('integrations.ksef.edit');
 Route::put('/integrations/ksef', [KsefSettingsController::class, 'update'])->name('integrations.ksef.update');
 Route::post('/integrations/ksef/test-connection', KsefConnectionTestController::class)->name('integrations.ksef.test-connection');
+Route::post('/integrations/ksef/export', KsefMonthlyInvoiceExportController::class)->name('integrations.ksef.export');
 Route::put('/integrations/ksef/series', [KsefSeriesSettingsController::class, 'update'])->name('integrations.ksef.series.update');
 Route::put('/integrations/ksef/payment-types', [KsefPaymentTypeSettingsController::class, 'update'])->name('integrations.ksef.payment-types.update');
 Route::get('/integrations/couriers', [CourierIntegrationController::class, 'index'])->name('integrations.couriers.index');

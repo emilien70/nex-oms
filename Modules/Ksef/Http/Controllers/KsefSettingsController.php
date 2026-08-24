@@ -12,6 +12,8 @@ use Modules\Ksef\Enums\KsefPaymentType;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Http\Requests\UpdateKsefSettingsRequest;
 use Modules\Ksef\Services\KsefCertificateMaterialService;
+use Modules\Ksef\Services\KsefMonthlyExportPeriod;
+use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Modules\Ksef\Services\KsefPaymentMethodMappingService;
 use Modules\Ksef\Services\KsefSettingsService;
 
@@ -21,15 +23,19 @@ class KsefSettingsController extends Controller
         Request $request,
         KsefSettingsService $settingsService,
         KsefPaymentMethodMappingService $paymentMappings,
+        KsefMonthlyExportPeriod $exportPeriods,
+        KsefOperationalEnvironmentPolicy $operationalEnvironments,
     ): View {
         $activeTab = match ($request->query('tab')) {
+            'export' => 'export',
             'series' => 'series',
             'payment-types' => 'payment-types',
             default => 'connection',
         };
+        $settings = $settingsService->get();
 
         return view('integrations.ksef.edit', [
-            'settings' => $settingsService->get(),
+            'settings' => $settings,
             'environmentOptions' => KsefEnvironment::cases(),
             'authenticationMethods' => KsefAuthenticationMethod::cases(),
             'zeroVatClassifications' => KsefZeroVatClassification::cases(),
@@ -43,6 +49,9 @@ class KsefSettingsController extends Controller
             'paymentMethods' => $activeTab === 'payment-types'
                 ? $paymentMappings->methodsForConfiguration()
                 : collect(),
+            'monthlyExportPeriods' => $exportPeriods->options(),
+            'monthlyExportGateEnabled' => config('ksef.invoice_submission_enabled') === true,
+            'monthlyExportEnvironmentAllowed' => $operationalEnvironments->allows($settings->environment),
             'activeTab' => $activeTab,
         ]);
     }

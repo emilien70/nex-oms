@@ -62,7 +62,7 @@ class KsefSettingsTest extends TestCase
                 ->all() === ['wdt', 'export', 'domestic']);
 
         $this->assertMatchesRegularExpression(
-            '/<button(?=[^>]*data-ksef-tab="export")(?=[^>]*\bdisabled\b)[^>]*>/s',
+            '/<a(?=[^>]*data-ksef-tab="export")(?=[^>]*href="[^"]*tab=export)[^>]*>/s',
             $response->getContent(),
         );
         $this->assertMatchesRegularExpression(

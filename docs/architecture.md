@@ -1285,6 +1285,16 @@ Credentiale, runtime tokeny, historia prób, lifecycle i numer próby pozostają
 
 KSeF.6A pozostaje workflow ręcznym i został zweryfikowany wyłącznie przez fake HTTP, bez requestów live do TEST, DEMO lub PRODUCTION. `automatic_submission` nadal nie ma triggera. Zakładka „Eksportuj dokumenty” pozostaje poza zakresem do KSeF.6B, a kontrolowany DEMO E2E pozostaje osobnym etapem KSeF.6C. Status: `KSeF.6A CLOSED`.
 
+### KSeF.6B — miesięczny eksport niewysłanych Faktur
+
+Zakładka „Eksportuj dokumenty” udostępnia prosty ręczny formularz wzorowany na modelu Base: wybór bieżącego albo jednego z 12 poprzednich miesięcy oraz polecenie eksportu. Formularz przekazuje wyłącznie miesiąc `YYYY-MM`; nie zawiera wyboru środowiska. Środowisko jest snapshotowane z `KsefSetting.environment` na początku operacji, a przed każdą pierwszą próbą istniejący workflow pod blokadą potwierdza, że konfiguracja nadal odpowiada snapshotowi. Zmiana środowiska zatrzymuje pozostałą część eksportu bez przełączenia kolejnych dokumentów na nowy host.
+
+Kwalifikują się wyłącznie sfinalizowane Faktury VAT z `issue_date` należącą do wybranego miesiąca, których seria jest aktualnie włączona w `KsefSeriesSetting` i które nie mają żadnego `KsefInvoiceSubmission` w aktywnym środowisku. Dowolna istniejąca próba w tym środowisku, w tym `rejected` albo `technical_failed`, wyklucza dokument z eksportu; ponowienie pozostaje świadomą operacją na pojedynczej Fakturze. Historia innego środowiska nie wyklucza pierwszej próby. Dokumenty są przetwarzane deterministycznie według `issue_date`, a następnie `id`.
+
+Każda Faktura korzysta osobno z istniejącego `KsefManualInvoiceSubmissionService`, własnego submissionu i własnej sesji. Nie ma transakcji obejmującej cały miesiąc i HTTP, batch persistence, automatycznego retry, status pollingu, reconciliation ani pobierania UPO. Błąd konkretnego dokumentu nie blokuje następnych, natomiast `429`, błąd sieci, globalny błąd autoryzacji/credentiala albo awaria API zatrzymują pozostałe dokumenty bez sleep/retry. TEST i DEMO są dopuszczone przez `KsefOperationalEnvironmentPolicy`; PRODUCTION pozostaje zablokowane przed HTTP, a niezależny deployment gate oraz `KsefSetting.is_active` są nadal wymagane.
+
+KSeF.6B pozostaje synchroniczną operacją ręczną, bez queue, schedulera, Automation i triggera `automatic_submission`. Etap został zweryfikowany fake-only, bez live requestów. KSeF.6C pozostaje osobnym kontrolowanym DEMO E2E. Status: `KSeF.6B CLOSED`.
+
 KSeF.2A nie tworzy:
 
 ```text
