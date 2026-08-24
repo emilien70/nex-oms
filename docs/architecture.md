@@ -1303,6 +1303,16 @@ Dedykowana trasa POST korzysta z `KsefManualInvoiceSubmissionService::submitFirs
 
 KSeF.6B.1 nie dodaje zbiorczej akcji checkboxów, kolejki, Automation, schedulera, status pollingu ani nowego mechanizmu transportowego. Miesięczny eksport KSeF.6B pozostaje bez zmian. Wszystkie regresje są fake-only, bez live requestów; KSeF.6C pozostaje osobnym etapem. Status: `KSeF.6B.1 CLOSED`.
 
+### KSeF.6C — kontrolowana weryfikacja DEMO E2E
+
+24 sierpnia 2026 r. diagnostyka `KSeF.6C-NETWORK-DIAG-001` przeszła w tym samym procesie PHP co aplikacja webowa, z bezpośrednim połączeniem wyłącznie do oficjalnego hosta DEMO. Refresh tokena dostępu, pobranie klucza publicznego, otwarcie pustej sesji i jej zamknięcie zakończyły się poprawnie, bez invoice POST. Wcześniejszy `network_error` wystąpił na tymczasowej lokalnej ścieżce proxy/forwardera przed dotarciem pierwszego requestu `/auth/token/refresh` do obserwatora lub MF; bezpośredni transport produkcyjnego kodu nie wykazał błędu. Status: `KSeF.6C-NETWORK-DIAG-001 — PASS`.
+
+Po potwierdzeniu operatora wykonano `KSeF.6C-LIVE-DEMO-E2E-004` na istniejącej Fakturze testowej. Z ekranu pojedynczej Faktury utworzono dokładnie próbę nr 2, zachowując próbę nr 1 jako `technical_failed/network_error`; nie powstała próba nr 3. Próba nr 2 wykonała dokładnie jeden invoice POST, bez automatycznego retry i bez udziału eksportu miesięcznego. Status został pobrany jeden raz i przeszedł bezpośrednio do `accepted`; numer KSeF, tożsamość dokumentu oraz zamrożone metadane FA(3) przeszły walidację.
+
+UPO pobrano z MF dokładnie raz. Oryginalny podpisany XML został zweryfikowany semantycznie, zachowany byte-for-byte i zaszyfrowany at rest; lokalne pobranie zwróciło identyczne bajty bez kolejnego requestu do MF, a ponowne application-level pobranie było idempotentne. Oryginalny artefakt zawiera jeden rootowy podpis XMLDSig; obecność podpisu została potwierdzona, ale nie wykonano kryptograficznej weryfikacji XAdES. `Original UPO XSD-valid: NO`. `Compatibility projection XSD-valid: YES`.
+
+Cały przebieg wykonał `TEST LIVE REQUESTS: 0`, `PRODUCTION LIVE REQUESTS: 0` oraz `MONTHLY EXPORT LIVE POST: 0`. Konfigurację środowiska, aktywność serii i mapowanie serii przywrócono do wartości sprzed próby, serwer diagnostyczny zatrzymano, a deployment gate ponownie ma domyślną wartość `false`. Historia obu prób i UPO pozostała trwałym audytem. Statusy: `KSeF.6C-LIVE-DEMO-E2E-004 — PASS`, `KSeF.6C CLOSED`, `KSeF.6 CLOSED`.
+
 KSeF.2A nie tworzy:
 
 ```text
