@@ -27,14 +27,18 @@ final class KsefUpoFixture
             'version' => '4-3',
             'logical_structure' => 'Schemat_FA(3)_v1-0E.xsd',
             'form_code' => 'FA (3)',
+            'receiver_name' => 'Ministerstwo Finansów - środowisko testowe (TE)',
+            'signature_mode' => 'valid',
+            'issue_date' => '2026-08-21',
             'duplicate_document' => false,
         ], $overrides);
         $document = self::document($values);
         $documents = $document.($values['duplicate_document'] ? $document : '');
+        $signature = self::signature((string) $values['signature_mode']);
 
         return '<?xml version="1.0" encoding="UTF-8"?>'."\n"
             .'<Potwierdzenie xmlns="'.self::escape($values['namespace']).'" wersjaSchemy="'.self::escape($values['version']).'">'."\n"
-            .'  <NazwaPodmiotuPrzyjmujacego>Ministerstwo Finansów</NazwaPodmiotuPrzyjmujacego>'."\n"
+            .'  <NazwaPodmiotuPrzyjmujacego>'.self::escape($values['receiver_name']).'</NazwaPodmiotuPrzyjmujacego>'."\n"
             .'  <NumerReferencyjnySesji>'.self::escape($values['session_reference']).'</NumerReferencyjnySesji>'."\n"
             .'  <Uwierzytelnienie>'."\n"
             .'    <IdKontekstu><Nip>'.self::escape($values['context_nip']).'</Nip></IdKontekstu>'."\n"
@@ -43,6 +47,7 @@ final class KsefUpoFixture
             .'  <NazwaStrukturyLogicznej>'.self::escape($values['logical_structure']).'</NazwaStrukturyLogicznej>'."\n"
             .'  <KodFormularza>'.self::escape($values['form_code']).'</KodFormularza>'."\n"
             .$documents
+            .$signature
             .'</Potwierdzenie>';
     }
 
@@ -70,12 +75,27 @@ final class KsefUpoFixture
             .'    <NipSprzedawcy>'.self::escape($values['seller_nip']).'</NipSprzedawcy>'."\n"
             .'    <NumerKSeFDokumentu>'.self::escape($values['ksef_number']).'</NumerKSeFDokumentu>'."\n"
             .'    <NumerFaktury>'.self::escape($values['invoice_number']).'</NumerFaktury>'."\n"
-            .'    <DataWystawieniaFaktury>2026-08-21</DataWystawieniaFaktury>'."\n"
+            .'    <DataWystawieniaFaktury>'.self::escape($values['issue_date']).'</DataWystawieniaFaktury>'."\n"
             .'    <DataPrzeslaniaDokumentu>2026-08-21T10:00:00Z</DataPrzeslaniaDokumentu>'."\n"
             .'    <DataNadaniaNumeruKSeF>2026-08-21T10:00:01Z</DataNadaniaNumeruKSeF>'."\n"
             .'    <SkrotDokumentu>'.self::escape($values['invoice_hash']).'</SkrotDokumentu>'."\n"
             .'    <TrybWysylki>'.self::escape($values['mode']).'</TrybWysylki>'."\n"
             .'  </Dokument>'."\n";
+    }
+
+    private static function signature(string $mode): string
+    {
+        $valid = '  <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="Synthetic-UPO-Signature">'
+            .'<ds:SignedInfo/></ds:Signature>'."\n";
+
+        return match ($mode) {
+            'valid' => $valid,
+            'none' => '',
+            'duplicate' => $valid.$valid,
+            'upo_namespace' => '  <Signature>synthetic</Signature>'."\n",
+            'no_namespace' => '  <Signature xmlns="">synthetic</Signature>'."\n",
+            default => throw new \InvalidArgumentException('Nieobsługiwany syntetyczny wariant podpisu UPO.'),
+        };
     }
 
     private static function escape(string|bool $value): string

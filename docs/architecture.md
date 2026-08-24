@@ -1261,6 +1261,14 @@ Cryptographically verified: **NO**. KSeF.5B zachowuje dokładny XML zwrócony pr
 
 Oficjalny, niezmodyfikowany XSD v4-3 odrzucił realny dokument TEST dwoma konfliktami kontraktu. `NazwaPodmiotuPrzyjmujacego` ma w XSD stałą wartość `Ministerstwo Finansów`, podczas gdy TEST zwrócił `Ministerstwo Finansów - środowisko testowe (TE)`. Ponadto live XML zawiera `Signature`, którego przypięty XSD nie deklaruje i nie dopuszcza przez wildcard. XSD pozostawiono bez zmian, walidacji nie osłabiono, UPO nie zapisano jako zweryfikowanego, nie wykonano drugiego GET, a submission pozostał `accepted` z niezmienioną tożsamością i payloadem. Wynik etapu: `BLOCKED_BY_MF_TEST_XSD_INCONSISTENCY`; wymaga osobnej decyzji architektonicznej o oficjalnym schemacie i walidacji podpisanego UPO.
 
+#### KSeF.5B.1 — signed UPO compatibility validation
+
+NEX rozdziela oryginalny artefakt UPO od tymczasowej projekcji używanej wyłącznie do walidacji oficjalnym XSD. Hash z nagłówka MF jest weryfikowany na niezmienionych bajtach odpowiedzi. Oryginalny XML musi zawierać dokładną nazwę odbiorcy właściwą dla środowiska (`Ministerstwo Finansów - środowisko testowe (TE)` dla TEST, `Ministerstwo Finansów - środowisko przedprodukcyjne (TR)` dla DEMO i `Ministerstwo Finansów` dla PRODUCTION), dokładnie jeden element `ds:Signature` w namespace XMLDSig oraz zgodną tożsamość sesji, podmiotów i Faktury. Wszystkie te kontrole są wykonywane przed utworzeniem projekcji i na oryginalnym XML.
+
+Niezależna, nieutrwalana projekcja DOM usuwa wyłącznie wcześniej zweryfikowany `ds:Signature` i zmienia wcześniej zweryfikowaną nazwę odbiorcy na stałą `Ministerstwo Finansów`, wymaganą przez niezmieniony oficjalny XSD UPO v4-3. Każdy inny błąd XSD nadal odrzuca dokument. Do bazy oraz lokalnego pobrania trafia wyłącznie oryginalny, podpisany XML bez jakiejkolwiek normalizacji.
+
+`Original UPO XSD-valid: NO`. `Compatibility projection XSD-valid: YES`. `Original artifact preserved byte-for-byte: YES`. `Cryptographically verified: NO`. `Signed artifact presence verified: YES`. Etap potwierdza obecność podpisu XMLDSig, ale nie deklaruje poprawności kryptograficznej XAdES, zaufania certyfikatu ani poprawności łańcucha zaufania.
+
 KSeF.2A nie tworzy:
 
 ```text

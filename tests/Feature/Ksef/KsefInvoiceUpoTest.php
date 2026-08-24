@@ -94,6 +94,14 @@ class KsefInvoiceUpoTest extends TestCase
         $this->assertSame($xml, $upo->payload_xml);
         $this->assertSame($hash, $upo->payload_hash);
         $this->assertSame(strlen($xml), $upo->payload_size);
+        $this->assertStringContainsString(
+            '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"',
+            $upo->payload_xml,
+        );
+        $this->assertStringContainsString(
+            '<NazwaPodmiotuPrzyjmujacego>Ministerstwo Finansów - środowisko testowe (TE)</NazwaPodmiotuPrzyjmujacego>',
+            $upo->payload_xml,
+        );
         $this->assertNotNull($upo->fetched_at);
         $this->assertSame(KsefUpoValidator::SCHEMA_ID, $upo->schema_id);
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->fresh()->status);
@@ -228,10 +236,35 @@ class KsefInvoiceUpoTest extends TestCase
             'invoice hash' => [[
                 'invoice_hash' => 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
             ], 'UPO nie odpowiada utrwalonemu XML-owi wysłanej Faktury.'],
+            'logical structure' => [[
+                'logical_structure' => 'Schemat_FA(2)_v1-0E.xsd',
+            ], 'UPO wskazuje nieobsługiwaną strukturę Faktury.'],
+            'form code' => [[
+                'form_code' => 'FA (2)',
+            ], 'UPO wskazuje nieobsługiwany formularz Faktury.'],
             'delivery mode' => [[
                 'mode' => 'Offline',
             ], 'UPO nie dotyczy obsługiwanego trybu wysyłki online.'],
         ];
+    }
+
+    public function test_compatibility_projection_never_hides_an_unrelated_xsd_failure(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $submission = $this->acceptedSubmission($invoice);
+        $this->validAccessToken();
+        $xml = $this->upoXml($invoice, $submission, ['issue_date' => 'NOT-A-DATE']);
+        $this->fakeUpo($xml, $this->hash($xml));
+
+        $this->post(route('invoices.ksef.submissions.upo.fetch', compact('invoice', 'submission')))
+            ->assertSessionHasErrors([
+                'ksef' => 'Dokument UPO nie jest zgodny z oficjalnym schematem UPO v4-3.',
+            ]);
+
+        $this->assertDatabaseCount('ksef_invoice_upos', 0);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->fresh()->status);
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (Request $request): bool => $request->method() === 'POST');
     }
 
     public function test_hash_is_checked_against_exact_raw_body_before_xml_validation(): void
@@ -389,6 +422,14 @@ class KsefInvoiceUpoTest extends TestCase
             ->assertDownload('UPO_'.$submission->ksef_number.'.xml')
             ->assertHeader('Content-Type', 'application/xml');
         $this->assertSame($xml, $response->streamedContent());
+        $this->assertStringContainsString(
+            '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"',
+            $response->streamedContent(),
+        );
+        $this->assertStringContainsString(
+            'Ministerstwo Finansów - środowisko testowe (TE)',
+            $response->streamedContent(),
+        );
         Http::assertNothingSent();
     }
 
