@@ -1,0 +1,13 @@
+{
+    "schema": "UPO v4-3",
+    "namespace": "http://upo.schematy.mf.gov.pl/KSeF/v4-3",
+    "source_repository": "https://github.com/CIRFMF/ksef-api",
+    "source_commit": "1c34fe2799387d517b83a2fb21e31e83d5f66247",
+    "vendored_at": "2026-08-24",
+    "files": {
+        "upo-v4-3.xsd": {
+            "source": "https://raw.githubusercontent.com/CIRFMF/ksef-api/1c34fe2799387d517b83a2fb21e31e83d5f66247/faktury/upo/schemy/upo-v4-3.xsd",
+            "sha256": "1e5ff386a29324021a9e0126319680aec0b1e0d4f4a18add30b2f5d12ce6fa86"
+        }
+    }
+}

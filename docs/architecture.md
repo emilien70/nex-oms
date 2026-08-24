@@ -1243,6 +1243,18 @@ Ręczny orkiestrator nadal blokuje Fakturę i konfigurację przed przygotowaniem
 
 Panel Faktury pokazuje retry jako „Utwórz nową próbę KSeF TEST” wyłącznie po wyniku dopuszczonym przez policy. Dla `uncertain` pokazuje ostrzeżenie zakazujące ponownego wysłania oraz akcję „Sprawdź wynik transmisji”, jeśli istnieje referencja sesji. `accepted` nie ma akcji wysyłki. Historia nie ujawnia XML, hashy, NIP-ów, referencji ani sekretów. KSeF.5A pozostaje ręczne i TEST-only: nie dodaje UPO, kolejki, Automation, schedulera, automatycznej wysyłki ani pollingu, DEMO, PRODUCTION, Korekt FA(3), QR, offline lub batch. Implementacja i testy nie wykonują live requestów.
 
+### KSeF.5B — UPO Faktury
+
+Indywidualne UPO można pobrać ręcznie wyłącznie dla zaakceptowanej Faktury VAT ze środowiska TEST. `KsefInvoiceUpoService` korzysta z zamrożonych danych próby oraz endpointu `GET /sessions/{referenceNumber}/invoices/ksef/{ksefNumber}/upo`; nie wykonuje invoice POST, nie tworzy nowej próby i nie zmienia statusu `accepted`. Deployment gate oraz aktywna integracja są wymagane tylko dla pobrania z MF. Po poprawnym zapisie lokalny download działa bez gate, access tokenu i kolejnego requestu do KSeF.
+
+`KsefHttpClient::getRaw()` zachowuje dokładne bajty XML i udostępnia wyłącznie wybrany nagłówek `x-ms-meta-hash` oraz zsanityzowany `X-System-Warning`. Przed parsowaniem obliczany jest SHA-256 dokładnego body w Base64 i porównywany z nagłówkiem MF. Następnie XML przechodzi lokalną walidację niezmodyfikowanym oficjalnym XSD UPO v4-3 z `LIBXML_NONET` oraz kontrolę jednej pozycji dokumentowej, referencji sesji, NIP-u kontekstu i sprzedawcy, numeru KSeF, numeru Faktury, hasha FA(3), struktury `FA (3)` i trybu `Online`.
+
+Oficjalny XSD został przypięty z repozytorium CIRFMF, commit `1c34fe2799387d517b83a2fb21e31e83d5f66247`; SHA-256 pliku `upo-v4-3.xsd` to `1e5ff386a29324021a9e0126319680aec0b1e0d4f4a18add30b2f5d12ce6fa86`. Oficjalny przykład TEST zawiera rozszerzoną nazwę podmiotu przyjmującego, podczas gdy przypięty XSD ma dla tego elementu stałą wartość `Ministerstwo Finansów`. Implementacja nie modyfikuje oficjalnego schematu i failuje bezpiecznie; rzeczywiste zachowanie TEST w tym punkcie wymaga osobnego kontrolowanego `KSeF.5B-LIVE-UPO-TEST-001`.
+
+`ksef_invoice_upos` przechowuje najwyżej jeden immutable artefakt na submission dzięki unikalnemu kluczowi obcemu z `restrictOnDelete`. Dokładny XML ma encrypted cast; jawnie przechowywane są tylko identyfikator schematu, SHA-256 Base64, rozmiar i czas pobrania. Zapis następuje po walidacji, w krótkiej transakcji z ponownym `lockForUpdate()` i kontrolą niezmienności submissionu. Błąd transportu, hasha, XSD lub identity nie zapisuje UPO i nie zmienia lifecycle transmisji.
+
+Cryptographically verified: **NO**. KSeF.5B zachowuje dokładny XML zwrócony przez HTTPS, weryfikuje nagłówek hasha MF, oficjalny XSD i identity dokumentu, ale nie deklaruje lokalnej walidacji podpisu XAdES ani łańcucha zaufania MF. Oficjalny XSD i przykłady v4-3 nie udostępniają w tym miejscu kompletnego kontraktu truststore potrzebnego do małego, niezależnego weryfikatora. Taki hardening wymaga osobnego etapu przed PRD. KSeF.5B nie obejmuje sesyjnego lub batch UPO, automatyzacji, retry, DEMO, PRODUCTION, Korekt, offline ani QR; testy są wyłącznie fake-only i nie wykonują live requestów.
+
 KSeF.2A nie tworzy:
 
 ```text

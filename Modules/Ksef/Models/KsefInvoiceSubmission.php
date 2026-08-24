@@ -4,6 +4,7 @@ namespace Modules\Ksef\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
@@ -65,5 +66,10 @@ class KsefInvoiceSubmission extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function upo(): HasOne
+    {
+        return $this->hasOne(KsefInvoiceUpo::class);
     }
 }

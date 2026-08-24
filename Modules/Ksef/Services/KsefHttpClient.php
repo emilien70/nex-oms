@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\ValueObjects\KsefApiResponse;
+use Modules\Ksef\ValueObjects\KsefRawApiResponse;
 
 class KsefHttpClient
 {
@@ -19,6 +20,24 @@ class KsefHttpClient
         array $query = [],
     ): KsefApiResponse {
         return $this->send($environment, 'GET', $path, null, null, $bearerToken, $query);
+    }
+
+    public function getRaw(
+        KsefEnvironment $environment,
+        string $path,
+        ?string $bearerToken = null,
+        array $query = [],
+    ): KsefRawApiResponse {
+        return $this->send(
+            $environment,
+            'GET',
+            $path,
+            null,
+            null,
+            $bearerToken,
+            $query,
+            rawResponse: true,
+        );
     }
 
     public function post(
@@ -63,8 +82,9 @@ class KsefHttpClient
         ?string $rawBody,
         ?string $bearerToken,
         array $query,
-    ): KsefApiResponse {
-        $request = $this->request($environment);
+        bool $rawResponse = false,
+    ): KsefApiResponse|KsefRawApiResponse {
+        $request = $this->request($environment, $rawResponse);
 
         if (filled($bearerToken)) {
             $request = $request->withToken($bearerToken);
@@ -91,19 +111,23 @@ class KsefHttpClient
             );
         }
 
-        return $this->parseResponse(
-            $response,
-            $this->requestSecrets($payload, $bearerToken, $rawBody),
-        );
+        $requestSecrets = $this->requestSecrets($payload, $bearerToken, $rawBody);
+
+        return $rawResponse
+            ? $this->parseRawResponse($response, $requestSecrets)
+            : $this->parseResponse($response, $requestSecrets);
     }
 
-    private function request(KsefEnvironment $environment): PendingRequest
+    private function request(KsefEnvironment $environment, bool $rawResponse = false): PendingRequest
     {
-        return Http::baseUrl($this->baseUrl($environment))
-            ->acceptJson()
+        $request = Http::baseUrl($this->baseUrl($environment))
             ->withHeaders(['X-Error-Format' => 'problem-details'])
             ->connectTimeout((int) config('ksef.connect_timeout_seconds', 5))
             ->timeout((int) config('ksef.request_timeout_seconds', 15));
+
+        return $rawResponse
+            ? $request->accept('application/xml')
+            : $request->acceptJson();
     }
 
     private function parseResponse(Response $response, array $requestSecrets): KsefApiResponse
@@ -128,6 +152,41 @@ class KsefHttpClient
             return new KsefApiResponse($data, $systemWarning);
         }
 
+        $this->throwResponseException($response, $systemWarning, $data);
+    }
+
+    private function parseRawResponse(Response $response, array $requestSecrets): KsefRawApiResponse
+    {
+        $systemWarning = $this->systemWarning($response, $requestSecrets);
+
+        if (! $response->successful()) {
+            $this->throwResponseException($response, $systemWarning, $response->json());
+        }
+
+        $body = $response->body();
+        if ($body === '') {
+            throw new KsefApiException(
+                'KSeF zwrócił pustą odpowiedź UPO.',
+                'malformed_response',
+                $response->status(),
+                systemWarning: $systemWarning,
+            );
+        }
+
+        $contentHash = trim((string) $response->header('x-ms-meta-hash'));
+
+        return new KsefRawApiResponse(
+            $body,
+            $contentHash === '' ? null : $contentHash,
+            $systemWarning,
+        );
+    }
+
+    private function throwResponseException(
+        Response $response,
+        ?string $systemWarning,
+        mixed $data,
+    ): never {
         $retryAfter = $this->retryAfterSeconds($response);
         $reasonCode = $this->reasonCode($data);
         $status = $response->status();

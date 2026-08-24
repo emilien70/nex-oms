@@ -104,6 +104,7 @@ class InvoiceEditController extends Controller
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
             ->first();
         $submissions = $invoice->ksefSubmissions()
+            ->with('upo')
             ->orderByDesc('id')
             ->get();
         $currentEnvironmentSubmissions = $settings === null

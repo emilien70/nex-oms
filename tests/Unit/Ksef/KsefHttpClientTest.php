@@ -153,6 +153,34 @@ class KsefHttpClientTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_get_raw_preserves_exact_xml_bytes_and_selected_hash_header(): void
+    {
+        $xml = "<?xml version=\"1.0\"?>\r\n<Potwierdzenie>RAW</Potwierdzenie>\r\n";
+        $hash = base64_encode(hash('sha256', $xml, true));
+        Http::preventStrayRequests();
+        Http::fake(['*' => Http::response($xml, 200, [
+            'Content-Type' => 'application/xml',
+            'x-ms-meta-hash' => $hash,
+            'X-System-Warning' => 'safe warning',
+        ])]);
+
+        $response = app(KsefHttpClient::class)->getRaw(
+            KsefEnvironment::Test,
+            '/sessions/SESSION/invoices/ksef/KSEF-NUMBER/upo',
+            'FAKE_RAW_RESPONSE_BEARER',
+        );
+
+        $this->assertSame($xml, $response->body);
+        $this->assertSame($hash, $response->contentHash);
+        $this->assertSame('safe warning', $response->systemWarning);
+        Http::assertSent(fn (Request $request): bool => $request->method() === 'GET'
+            && str_ends_with($request->url(), '/sessions/SESSION/invoices/ksef/KSEF-NUMBER/upo')
+            && $request->hasHeader('Accept', 'application/xml')
+            && $request->hasHeader('Authorization', 'Bearer FAKE_RAW_RESPONSE_BEARER')
+            && $request->hasHeader('X-Error-Format', 'problem-details'));
+        Http::assertSentCount(1);
+    }
+
     public function test_online_submission_secrets_are_redacted_and_no_content_is_accepted(): void
     {
         $encryptedKey = 'FAKE_ENCRYPTED_SYMMETRIC_KEY_SECRET';

@@ -16,6 +16,13 @@
         && $isTestEnvironment
         && $currentKsefSubmission?->status->allowsReconciliation() === true
         && filled($currentKsefSubmission->session_reference_number);
+    $currentKsefUpo = $currentKsefSubmission?->upo;
+    $canFetchUpo = $currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted
+        && $currentKsefUpo === null
+        && $ksefSubmissionGateEnabled
+        && $ksefSettings?->is_active
+        && $isTestEnvironment
+        && $currentKsefSubmission->environment === \Modules\Ksef\Enums\KsefEnvironment::Test;
 @endphp
 
 <style>
@@ -115,6 +122,12 @@
         </p>
     @endif
 
+    @if ($currentKsefUpo)
+        <p class="invoice-ksef-message" data-ksef-upo-fetched-at>
+            UPO pobrano: {{ $currentKsefUpo->fetched_at->format('d.m.Y H:i') }}
+        </p>
+    @endif
+
     @if ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected && $currentKsefSubmission->ksef_status_code !== null)
         <p class="invoice-ksef-message" data-ksef-current-status-code>
             Kod KSeF: <strong>{{ $currentKsefSubmission->ksef_status_code }}</strong>
@@ -154,6 +167,19 @@
                 <button class="btn btn-outline-warning" type="submit">Sprawdź wynik transmisji</button>
             </form>
         @endif
+
+
+        @if ($currentKsefUpo)
+            <a class="btn btn-outline-secondary" href="{{ route('invoices.ksef.submissions.upo.download', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-upo-download>
+                <i class="bi bi-download" aria-hidden="true"></i>
+                Pobierz UPO
+            </a>
+        @elseif ($canFetchUpo)
+            <form method="POST" action="{{ route('invoices.ksef.submissions.upo.fetch', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-upo-fetch-form>
+                @csrf
+                <button class="btn btn-outline-primary" type="submit">Pobierz UPO z KSeF</button>
+            </form>
+        @endif
     </div>
 
     @if (! $ksefSubmissionGateEnabled)
@@ -185,6 +211,7 @@
                             <th>Wygenerowano</th>
                             <th>Sprawdzono</th>
                             <th>Wynik</th>
+                            <th>UPO</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -208,6 +235,15 @@
                                         @endif
                                     @elseif ($submission->safe_error_message)
                                         {{ $submission->safe_error_message }}
+                                    @else
+                                        —
+                                    @endif
+                                </td>
+                                <td>
+                                    @if ($submission->upo)
+                                        <a href="{{ route('invoices.ksef.submissions.upo.download', ['invoice' => $invoice, 'submission' => $submission]) }}">
+                                            Pobierz
+                                        </a>
                                     @else
                                         —
                                     @endif

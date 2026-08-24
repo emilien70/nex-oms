@@ -10,7 +10,9 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
+use Modules\Ksef\Services\KsefInvoiceUpoService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 class KsefInvoiceSubmissionController extends Controller
@@ -75,10 +77,57 @@ class KsefInvoiceSubmissionController extends Controller
         }
     }
 
-    private function logUnexpected(Invoice $invoice, string $operation, Throwable $exception): void
-    {
+    public function fetchUpo(
+        Invoice $invoice,
+        KsefInvoiceSubmission $submission,
+        KsefInvoiceUpoService $upos,
+    ): RedirectResponse {
+        abort_unless($submission->invoice_id === $invoice->getKey(), 404);
+
+        try {
+            $upos->fetch($invoice, $submission);
+
+            return back()->with('success', 'UPO zostało pobrane i bezpiecznie zapisane.');
+        } catch (KsefApiException $exception) {
+            return back()->withErrors(['ksef' => $exception->getMessage()]);
+        } catch (Throwable $exception) {
+            $this->logUnexpected($invoice, 'fetch_upo', $exception, $submission);
+
+            return back()->withErrors(['ksef' => 'Nie udało się pobrać UPO z KSeF.']);
+        }
+    }
+
+    public function downloadUpo(
+        Invoice $invoice,
+        KsefInvoiceSubmission $submission,
+        KsefInvoiceUpoService $upos,
+    ): StreamedResponse {
+        abort_unless($submission->invoice_id === $invoice->getKey(), 404);
+
+        $upo = $upos->stored($invoice, $submission);
+        abort_if($upo === null, 404);
+        $xml = $upo->payload_xml;
+        $number = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) $submission->ksef_number);
+        $filename = 'UPO_'.trim((string) $number, '_').'.xml';
+
+        return response()->streamDownload(
+            static function () use ($xml): void {
+                echo $xml;
+            },
+            $filename,
+            ['Content-Type' => 'application/xml'],
+        );
+    }
+
+    private function logUnexpected(
+        Invoice $invoice,
+        string $operation,
+        Throwable $exception,
+        ?KsefInvoiceSubmission $submission = null,
+    ): void {
         Log::error('Nieoczekiwany błąd manualnej operacji KSeF.', [
             'invoice_id' => $invoice->getKey(),
+            'submission_id' => $submission?->getKey(),
             'operation' => $operation,
             'exception_class' => $exception::class,
         ]);

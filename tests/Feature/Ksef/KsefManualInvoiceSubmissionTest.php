@@ -173,7 +173,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Historia KSeF tej Faktury nie pozwala utworzyć kolejnej próby.')
-            ->assertDontSee(route('invoices.ksef.submissions.store', $invoice), false);
+            ->assertDontSee('action="'.route('invoices.ksef.submissions.store', $invoice).'"', false);
         $this->post(route('invoices.ksef.submissions.store', $invoice))->assertSessionHasErrors('ksef');
         $this->assertSame(KsefInvoiceSubmissionStatus::Rejected, $latest->fresh()->status);
         $this->assertDatabaseCount('ksef_invoice_submissions', 2);
@@ -481,7 +481,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $response->assertOk()
             ->assertSee('Przyjęta')
             ->assertSee($number)
-            ->assertDontSee(route('invoices.ksef.submissions.store', $invoice), false)
+            ->assertDontSee('action="'.route('invoices.ksef.submissions.store', $invoice).'"', false)
             ->assertDontSee(route('invoices.ksef.submissions.refresh', [
                 'invoice' => $invoice,
                 'submission' => $submission,
@@ -629,7 +629,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Brak referencji sesji potrzebnej do bezpiecznego sprawdzenia wyniku.')
-            ->assertDontSee(route('invoices.ksef.submissions.store', $invoice), false)
+            ->assertDontSee('action="'.route('invoices.ksef.submissions.store', $invoice).'"', false)
             ->assertDontSee(route('invoices.ksef.submissions.reconcile', [
                 'invoice' => $invoice,
                 'submission' => $submission,
@@ -654,7 +654,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $response->assertOk()
             ->assertSee('Wysłana')
             ->assertSee('Wysyłka KSeF jest wyłączona na poziomie wdrożenia.')
-            ->assertDontSee(route('invoices.ksef.submissions.store', $invoice), false)
+            ->assertDontSee('action="'.route('invoices.ksef.submissions.store', $invoice).'"', false)
             ->assertDontSee(route('invoices.ksef.submissions.refresh', [
                 'invoice' => $invoice,
                 'submission' => $submission,

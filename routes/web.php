@@ -125,6 +125,8 @@ Route::patch('/invoices/corrections/{correction}', [CorrectionController::class,
 Route::post('/invoices/{invoice}/ksef/submissions', [KsefInvoiceSubmissionController::class, 'store'])->name('invoices.ksef.submissions.store');
 Route::post('/invoices/{invoice}/ksef/submissions/{submission}/refresh', [KsefInvoiceSubmissionController::class, 'refresh'])->name('invoices.ksef.submissions.refresh');
 Route::post('/invoices/{invoice}/ksef/submissions/{submission}/reconcile', [KsefInvoiceSubmissionController::class, 'reconcile'])->name('invoices.ksef.submissions.reconcile');
+Route::post('/invoices/{invoice}/ksef/submissions/{submission}/upo', [KsefInvoiceSubmissionController::class, 'fetchUpo'])->name('invoices.ksef.submissions.upo.fetch');
+Route::get('/invoices/{invoice}/ksef/submissions/{submission}/upo', [KsefInvoiceSubmissionController::class, 'downloadUpo'])->name('invoices.ksef.submissions.upo.download');
 Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
 Route::delete('/invoices/{invoice}', InvoiceDeletionController::class)->name('invoices.destroy');
 Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');

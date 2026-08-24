@@ -6,6 +6,7 @@ use Carbon\CarbonImmutable;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\ValueObjects\KsefOnlineSessionOpenResult;
+use Modules\Ksef\ValueObjects\KsefRawApiResponse;
 use Throwable;
 
 class KsefOnlineSessionClient
@@ -98,6 +99,20 @@ class KsefOnlineSessionClient
                 ['pageSize' => 10],
             )
             ->data;
+    }
+
+    public function invoiceUpo(
+        KsefEnvironment $environment,
+        string $accessToken,
+        string $sessionReference,
+        string $ksefNumber,
+    ): KsefRawApiResponse {
+        return $this->http->getRaw(
+            $environment,
+            '/sessions/'.rawurlencode($sessionReference)
+                .'/invoices/ksef/'.rawurlencode($ksefNumber).'/upo',
+            $accessToken,
+        );
     }
 
     private function requiredString(array $data, string $path, string $safeCode): string
