@@ -11,6 +11,7 @@ use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Services\KsefAccessTokenManager;
 use Modules\Ksef\Services\KsefSettingsService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\KsefApiFake;
 use Tests\Support\KsefCertificateFixtureFactory;
 use Tests\TestCase;
@@ -37,6 +38,47 @@ class KsefAccessTokenManagerTest extends TestCase
 
         $this->assertSame('VALID_ACCESS_TOKEN', $token);
         Http::assertNothingSent();
+    }
+
+    #[DataProvider('credentialSeparationCases')]
+    public function test_access_token_never_falls_back_between_environments(
+        KsefEnvironment $storedEnvironment,
+        KsefEnvironment $requestedEnvironment,
+    ): void {
+        Http::preventStrayRequests();
+        app(KsefSettingsService::class)->get()->forceFill([
+            'environment' => $requestedEnvironment,
+            'context_nip' => '1234567890',
+        ])->save();
+        $credential = KsefCredential::query()->create([
+            'environment' => $storedEnvironment,
+            'authentication_method' => KsefAuthenticationMethod::Token,
+            'api_token' => 'STORED_ENVIRONMENT_API_TOKEN',
+            'access_token' => 'STORED_ENVIRONMENT_ACCESS_TOKEN',
+            'access_token_valid_until' => now()->addMinutes(10),
+        ]);
+
+        try {
+            app(KsefAccessTokenManager::class)->getValidAccessToken(
+                $requestedEnvironment,
+                '1234567890',
+            );
+            $this->fail('Expected missing credential for requested environment.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('api_token_missing', $exception->safeCode);
+        }
+
+        $this->assertSame('STORED_ENVIRONMENT_ACCESS_TOKEN', $credential->fresh()->access_token);
+        Http::assertNothingSent();
+    }
+
+    public static function credentialSeparationCases(): array
+    {
+        return [
+            'TEST never supplies DEMO' => [KsefEnvironment::Test, KsefEnvironment::Demo],
+            'DEMO never supplies TEST' => [KsefEnvironment::Demo, KsefEnvironment::Test],
+            'DEMO never supplies PRODUCTION' => [KsefEnvironment::Demo, KsefEnvironment::Production],
+        ];
     }
 
     public function test_expected_context_mismatch_blocks_valid_cached_token_without_http(): void

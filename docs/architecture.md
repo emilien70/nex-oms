@@ -1277,6 +1277,14 @@ Oryginalny XML zawierał dokładną nazwę odbiorcy TEST, dokładnie jeden rooto
 
 Do `ksef_invoice_upos` zapisano dokładnie jeden oryginalny artefakt byte-for-byte, zaszyfrowany at rest, z zachowanym podpisem i nazwą TEST. Lokalny download zwrócił identyczne bajty bez requestu do MF, a ponowne application-level pobranie użyło istniejącego UPO i również nie wykonało requestu. Submission pozostał `accepted`, deployment gate przywrócono do `false`, `DEMO LIVE REQUESTS: 0`, `PRODUCTION LIVE REQUESTS: 0`. `Original artifact preserved byte-for-byte: YES`. `Cryptographically verified: NO`. `Signed artifact presence verified: YES`.
 
+### KSeF.6A — DEMO enablement i UI zależne od środowiska
+
+`KsefOperationalEnvironmentPolicy` jest jednym źródłem prawdy dla ręcznych operacji Faktury: TEST i DEMO dopuszczają przygotowanie oraz wysyłkę, refresh statusu, reconciliation i zdalne pobranie UPO, natomiast PRODUCTION pozostaje zablokowane przed HTTP. Niezależny deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`; operacja wymaga jednocześnie włączonego gate i zgody policy. Test połączenia i diagnostyka credentiali nie są operacyjnym transportem Faktur i nie zostały objęte tą blokadą.
+
+Credentiale, runtime tokeny, historia prób, lifecycle i numer próby pozostają rozdzielone per environment, bez fallbacku między TEST, DEMO i PRODUCTION. Panel Faktury wyznacza bieżącą próbę względem aktywnego `ksef_settings.environment`, pokazuje pełną historię z oznaczeniem środowiska i generuje dynamiczne etykiety TEST albo DEMO. DEMO ma jawne ostrzeżenie o danych testowych/fikcyjnych oraz osobne potwierdzenie przed wysyłką; dla PRODUCTION panel pokazuje blokadę i nie udostępnia operacji zdalnych. Pobranie lokalnie zapisanego historycznego UPO pozostaje dostępne niezależnie od bieżącego środowiska i deployment gate.
+
+KSeF.6A pozostaje workflow ręcznym i został zweryfikowany wyłącznie przez fake HTTP, bez requestów live do TEST, DEMO lub PRODUCTION. `automatic_submission` nadal nie ma triggera. Zakładka „Eksportuj dokumenty” pozostaje poza zakresem do KSeF.6B, a kontrolowany DEMO E2E pozostaje osobnym etapem KSeF.6C. Status: `KSeF.6A CLOSED`.
+
 KSeF.2A nie tworzy:
 
 ```text

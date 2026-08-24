@@ -23,6 +23,7 @@ use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\KsefInvoiceSubmissionLifecyclePolicy;
+use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Throwable;
 
 class InvoiceEditController extends Controller
@@ -36,6 +37,7 @@ class InvoiceEditController extends Controller
         CorrectionSourceStateService $sourceState,
         CorrectionSeriesResolver $correctionSeries,
         KsefInvoiceSubmissionLifecyclePolicy $ksefLifecycle,
+        KsefOperationalEnvironmentPolicy $ksefEnvironments,
     ): View {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
@@ -50,7 +52,7 @@ class InvoiceEditController extends Controller
                 $chain = $sourceState->chain($invoice);
 
                 return view('invoices.edit-blocked-by-correction', [
-                    ...$this->ksefViewData($invoice, $ksefLifecycle),
+                    ...$this->ksefViewData($invoice, $ksefLifecycle, $ksefEnvironments),
                     'invoice' => $invoice,
                     'currentCorrection' => $chain->currentCorrection,
                     'latestFinalizedCorrection' => $chain->finalizedTail,
@@ -99,6 +101,7 @@ class InvoiceEditController extends Controller
     private function ksefViewData(
         Invoice $invoice,
         KsefInvoiceSubmissionLifecyclePolicy $lifecycle,
+        KsefOperationalEnvironmentPolicy $environments,
     ): array {
         $settings = KsefSetting::query()
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
@@ -126,6 +129,8 @@ class InvoiceEditController extends Controller
                 ->where('is_enabled', true)
                 ->exists(),
             'ksefSubmissionGateEnabled' => config('ksef.invoice_submission_enabled') === true,
+            'ksefOperationalEnvironmentAllowed' => $settings !== null
+                && $environments->allows($settings->environment),
         ];
     }
 }

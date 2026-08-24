@@ -5,7 +5,6 @@ namespace Modules\Ksef\Services;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Models\Invoice;
-use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefPublicKeyUsage;
@@ -32,6 +31,7 @@ class KsefInvoiceSubmissionService
         private readonly KsefOnlineSessionRequestFactory $requests,
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
         private readonly KsefInvoiceSubmissionLifecyclePolicy $lifecycle,
+        private readonly KsefOperationalEnvironmentPolicy $environments,
     ) {}
 
     public function prepare(Invoice $invoice): KsefInvoiceSubmission
@@ -63,7 +63,7 @@ class KsefInvoiceSubmissionService
             }
 
             $environment = $settings->environment;
-            $this->assertEnvironmentAllowed($environment);
+            $this->environments->assertAllowed($environment);
             $contextNip = $this->configuredContextNip($settings->context_nip);
 
             $seriesEnabled = KsefSeriesSetting::query()
@@ -118,7 +118,7 @@ class KsefInvoiceSubmissionService
     {
         $this->assertTransportEnabled();
         $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
-        $this->assertEnvironmentAllowed($submission->environment);
+        $this->environments->assertAllowed($submission->environment);
         $this->assertStatus($submission, [KsefInvoiceSubmissionStatus::Preparing]);
 
         try {
@@ -229,7 +229,7 @@ class KsefInvoiceSubmissionService
     {
         $this->assertTransportEnabled();
         $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
-        $this->assertEnvironmentAllowed($submission->environment);
+        $this->environments->assertAllowed($submission->environment);
         if (! $submission->status->allowsStatusRefresh()) {
             throw $this->invalidState();
         }
@@ -260,7 +260,7 @@ class KsefInvoiceSubmissionService
     {
         $this->assertTransportEnabled();
         $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
-        $this->assertEnvironmentAllowed($submission->environment);
+        $this->environments->assertAllowed($submission->environment);
 
         if (! $submission->status->allowsReconciliation()) {
             throw $this->invalidState();
@@ -622,16 +622,6 @@ class KsefInvoiceSubmissionService
             throw new KsefApiException(
                 'Transport Faktur do KSeF jest wyłączony w konfiguracji wdrożenia.',
                 'ksef_submission_disabled',
-            );
-        }
-    }
-
-    private function assertEnvironmentAllowed(KsefEnvironment $environment): void
-    {
-        if ($environment !== KsefEnvironment::Test) {
-            throw new KsefApiException(
-                'Transport Faktur jest w tym etapie dozwolony wyłącznie dla środowiska TEST.',
-                'ksef_submission_environment_blocked',
             );
         }
     }

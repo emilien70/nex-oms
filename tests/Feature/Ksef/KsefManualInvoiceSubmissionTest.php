@@ -54,6 +54,30 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame(0, $fake->statusCalls);
     }
 
+    public function test_demo_manual_send_uses_demo_credential_host_and_dynamic_success_message(): void
+    {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Demo);
+        $this->validAccessToken(KsefEnvironment::Demo);
+        $fake = $this->fakeOnlineApi();
+
+        $this->post(route('invoices.ksef.submissions.store', $invoice))
+            ->assertSessionHas(
+                'success',
+                'Faktura została przekazana do KSeF DEMO. Sprawdź status, aby potwierdzić przyjęcie.',
+            );
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $this->assertSame(KsefEnvironment::Demo, $submission->environment);
+        $this->assertSame(1, $submission->attempt_number);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(0, $fake->statusCalls);
+        Http::assertSentCount(4);
+
+        foreach (Http::recorded() as [$request]) {
+            $this->assertSame('api-demo.ksef.mf.gov.pl', parse_url($request->url(), PHP_URL_HOST));
+        }
+    }
+
     public function test_second_manual_post_is_blocked_after_successful_first_attempt(): void
     {
         $invoice = $this->eligibleInvoice();
@@ -239,24 +263,15 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    #[DataProvider('blockedEnvironments')]
-    public function test_demo_and_production_are_blocked_without_http(KsefEnvironment $environment): void
+    public function test_production_is_blocked_without_http(): void
     {
-        $invoice = $this->eligibleInvoice(environment: $environment);
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Production);
 
         $this->post(route('invoices.ksef.submissions.store', $invoice))
             ->assertSessionHasErrors('ksef');
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
-    }
-
-    public static function blockedEnvironments(): array
-    {
-        return [
-            'demo' => [KsefEnvironment::Demo],
-            'production' => [KsefEnvironment::Production],
-        ];
     }
 
     #[DataProvider('unsupportedDocumentTypes')]
@@ -438,7 +453,8 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ->assertSee('Nie wysłano')
             ->assertSee('Wyślij do KSeF TEST')
             ->assertSee(route('invoices.ksef.submissions.store', $invoice), false)
-            ->assertSee('Wyślij Fakturę do KSeF TEST?')
+            ->assertSee('Wysłać tę Fakturę do KSeF TEST?')
+            ->assertDontSee('data-ksef-demo-warning', false)
             ->assertDontSee('FAKE_SUBMISSION_API_TOKEN');
     }
 
@@ -465,6 +481,82 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             '/<table[^>]*data-ksef-submission-history[^>]*>.*?DEMO.*?Odrzucona.*?<\/table>/s',
             $html,
         );
+    }
+
+    public function test_demo_panel_uses_demo_current_submission_warning_labels_and_actions(): void
+    {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Demo);
+        $this->createSubmission(
+            $invoice,
+            KsefInvoiceSubmissionStatus::Accepted,
+            KsefEnvironment::Test,
+            ['ksef_number' => $this->validKsefNumber('9876543210')],
+        );
+
+        $response = $this->get(route('invoices.edit', $invoice));
+        $html = $response->getContent();
+
+        $response->assertOk()
+            ->assertSee('DEMO')
+            ->assertSee('Wyślij do KSeF DEMO')
+            ->assertSee('data-ksef-demo-warning', false)
+            ->assertSee('Środowisko DEMO / przedprodukcyjne.')
+            ->assertSee('Wysłać tę Fakturę do KSeF DEMO?')
+            ->assertSee('Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.');
+        $this->assertMatchesRegularExpression(
+            '/<div class="invoice-ksef-status-row">.*?data-ksef-current-status[^>]*>Nie wysłano<\/span>.*?<\/div>/s',
+            $html,
+        );
+
+        $submission = $this->createSubmission(
+            $invoice,
+            KsefInvoiceSubmissionStatus::TechnicalFailed,
+            KsefEnvironment::Demo,
+        );
+        $this->get(route('invoices.edit', $invoice))
+            ->assertSee('Utwórz nową próbę KSeF DEMO')
+            ->assertSee('Utworzyć nową próbę KSeF DEMO?');
+
+        $submission->forceFill(['status' => KsefInvoiceSubmissionStatus::Submitted])->save();
+        $this->get(route('invoices.edit', $invoice))
+            ->assertSee(route('invoices.ksef.submissions.refresh', compact('invoice', 'submission')), false)
+            ->assertSee('Sprawdź status');
+
+        $submission->forceFill(['status' => KsefInvoiceSubmissionStatus::Uncertain])->save();
+        $this->get(route('invoices.edit', $invoice))
+            ->assertSee(route('invoices.ksef.submissions.reconcile', compact('invoice', 'submission')), false)
+            ->assertSee('Sprawdź wynik transmisji');
+
+        $submission->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'ksef_number' => $this->validKsefNumber('9876543210'),
+        ])->save();
+        $this->get(route('invoices.edit', $invoice))
+            ->assertSee(route('invoices.ksef.submissions.upo.fetch', compact('invoice', 'submission')), false)
+            ->assertSee('Pobierz UPO z KSeF');
+    }
+
+    public function test_production_panel_keeps_history_but_hides_all_remote_actions(): void
+    {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Production);
+        $submission = $this->createSubmission(
+            $invoice,
+            KsefInvoiceSubmissionStatus::Submitted,
+            KsefEnvironment::Production,
+        );
+
+        $response = $this->get(route('invoices.edit', $invoice));
+
+        $response->assertOk()
+            ->assertSee('PRODUCTION')
+            ->assertSee('Wysłana')
+            ->assertSee('data-ksef-submission-history', false)
+            ->assertSee('Operacyjny transport Faktur do KSeF PRODUCTION nie został jeszcze odblokowany.')
+            ->assertDontSee('data-ksef-demo-warning', false)
+            ->assertDontSee('action="'.route('invoices.ksef.submissions.store', $invoice).'"', false)
+            ->assertDontSee(route('invoices.ksef.submissions.refresh', compact('invoice', 'submission')), false)
+            ->assertDontSee(route('invoices.ksef.submissions.reconcile', compact('invoice', 'submission')), false)
+            ->assertDontSee(route('invoices.ksef.submissions.upo.fetch', compact('invoice', 'submission')), false);
     }
 
     public function test_accepted_panel_shows_full_number_without_send_or_refresh(): void
@@ -712,10 +804,11 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             : $invoice;
     }
 
-    private function validAccessToken(): KsefCredential
-    {
+    private function validAccessToken(
+        KsefEnvironment $environment = KsefEnvironment::Test,
+    ): KsefCredential {
         return KsefCredential::query()->create([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => 'FAKE_MANUAL_API_TOKEN',
             'access_token' => 'FAKE_VALID_MANUAL_ACCESS_TOKEN',

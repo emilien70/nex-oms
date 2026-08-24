@@ -1,19 +1,20 @@
 @php
     $configuredEnvironment = $ksefSettings?->environment;
-    $isTestEnvironment = $configuredEnvironment === \Modules\Ksef\Enums\KsefEnvironment::Test;
+    $environmentCode = $configuredEnvironment ? strtoupper($configuredEnvironment->value) : null;
+    $isDemoEnvironment = $configuredEnvironment === \Modules\Ksef\Enums\KsefEnvironment::Demo;
     $canSend = $invoice->isInvoice()
         && $invoice->isFinalized()
         && $ksefSubmissionGateEnabled
         && $ksefSettings?->is_active
-        && $isTestEnvironment
+        && $ksefOperationalEnvironmentAllowed
         && $ksefSeriesEnabled
         && $ksefCanCreateAttempt;
     $isRetry = $currentKsefSubmission?->status->allowsNewAttempt() === true;
     $canRefresh = $ksefSubmissionGateEnabled
-        && $isTestEnvironment
+        && $ksefOperationalEnvironmentAllowed
         && $currentKsefSubmission?->status->allowsStatusRefresh() === true;
     $canReconcile = $ksefSubmissionGateEnabled
-        && $isTestEnvironment
+        && $ksefOperationalEnvironmentAllowed
         && $currentKsefSubmission?->status->allowsReconciliation() === true
         && filled($currentKsefSubmission->session_reference_number);
     $currentKsefUpo = $currentKsefSubmission?->upo;
@@ -21,8 +22,8 @@
         && $currentKsefUpo === null
         && $ksefSubmissionGateEnabled
         && $ksefSettings?->is_active
-        && $isTestEnvironment
-        && $currentKsefSubmission->environment === \Modules\Ksef\Enums\KsefEnvironment::Test;
+        && $ksefOperationalEnvironmentAllowed
+        && $currentKsefSubmission->environment === $configuredEnvironment;
 @endphp
 
 <style>
@@ -150,11 +151,25 @@
         <p class="invoice-ksef-message invoice-ksef-warning">Sesja została otwarta. Nie wysyłaj Faktury ponownie.</p>
     @endif
 
+    @if ($isDemoEnvironment)
+        <p class="invoice-ksef-message invoice-ksef-warning" data-ksef-demo-warning>
+            Środowisko DEMO / przedprodukcyjne. Do testów wysyłaj wyłącznie dokumenty zawierające dane testowe lub fikcyjne. Uwierzytelnienie i uprawnienia środowiska DEMO są rzeczywiste.
+        </p>
+    @endif
+
     <div class="invoice-ksef-actions">
         @if ($canSend)
-            <form method="POST" action="{{ route('invoices.ksef.submissions.store', $invoice) }}" data-ksef-send-form onsubmit="return window.confirm('{{ $isRetry ? 'Utworzyć nową próbę KSeF TEST? Poprzednia próba pozostanie w historii.' : 'Wyślij Fakturę do KSeF TEST?' }}')">
+            @php
+                $sendConfirmation = $isRetry
+                    ? "Utworzyć nową próbę KSeF {$environmentCode}? Poprzednia próba pozostanie w historii."
+                    : "Wysłać tę Fakturę do KSeF {$environmentCode}?";
+                if ($isDemoEnvironment) {
+                    $sendConfirmation .= ' Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.';
+                }
+            @endphp
+            <form method="POST" action="{{ route('invoices.ksef.submissions.store', $invoice) }}" data-ksef-send-form onsubmit="return window.confirm('{{ $sendConfirmation }}')">
                 @csrf
-                <button class="btn btn-primary" type="submit">{{ $isRetry ? 'Utwórz nową próbę KSeF TEST' : 'Wyślij do KSeF TEST' }}</button>
+                <button class="btn btn-primary" type="submit">{{ $isRetry ? "Utwórz nową próbę KSeF {$environmentCode}" : "Wyślij do KSeF {$environmentCode}" }}</button>
             </form>
         @elseif ($canRefresh)
             <form method="POST" action="{{ route('invoices.ksef.submissions.refresh', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-refresh-form>
@@ -186,8 +201,8 @@
         <p class="invoice-ksef-message">Wysyłka KSeF jest wyłączona na poziomie wdrożenia.</p>
     @elseif (! $ksefSettings?->is_active)
         <p class="invoice-ksef-message">Integracja KSeF nie jest aktywna.</p>
-    @elseif (! $isTestEnvironment)
-        <p class="invoice-ksef-message">Ręczna wysyłka jest w tym etapie dostępna wyłącznie w środowisku TEST.</p>
+    @elseif (! $ksefOperationalEnvironmentAllowed)
+        <p class="invoice-ksef-message">Operacyjny transport Faktur do KSeF {{ $environmentCode }} nie został jeszcze odblokowany.</p>
     @elseif (! $ksefSeriesEnabled)
         <p class="invoice-ksef-message">Seria numeracji Faktury nie jest włączona do KSeF.</p>
     @elseif ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Uncertain && ! $canReconcile)

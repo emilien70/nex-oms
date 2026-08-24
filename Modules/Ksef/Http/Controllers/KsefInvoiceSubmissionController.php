@@ -22,11 +22,12 @@ class KsefInvoiceSubmissionController extends Controller
         KsefManualInvoiceSubmissionService $manualSubmissions,
     ): RedirectResponse {
         try {
-            $manualSubmissions->submit($invoice);
+            $submission = $manualSubmissions->submit($invoice);
+            $environment = strtoupper($submission->environment->value);
 
             return back()->with(
                 'success',
-                'Faktura została przekazana do KSeF TEST. Sprawdź status, aby potwierdzić przyjęcie.',
+                "Faktura została przekazana do KSeF {$environment}. Sprawdź status, aby potwierdzić przyjęcie.",
             );
         } catch (KsefApiException|InvoiceDomainException $exception) {
             return back()->withErrors(['ksef' => $exception->getMessage()]);

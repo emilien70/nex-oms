@@ -117,7 +117,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_prepare_rejects_disabled_transport_wrong_environment_and_unsupported_documents_without_http(): void
+    public function test_prepare_rejects_disabled_transport_production_and_unsupported_documents_without_http(): void
     {
         $invoice = $this->eligibleInvoice();
         config()->set('ksef.invoice_submission_enabled', false);
@@ -127,13 +127,13 @@ class KsefInvoiceSubmissionTest extends TestCase
         );
 
         config()->set('ksef.invoice_submission_enabled', true);
-        foreach ([KsefEnvironment::Demo, KsefEnvironment::Production] as $environment) {
-            app(KsefSettingsService::class)->get()->forceFill(['environment' => $environment])->save();
-            $this->expectKsefError(
-                'ksef_submission_environment_blocked',
-                fn () => app(KsefInvoiceSubmissionService::class)->prepare($invoice),
-            );
-        }
+        app(KsefSettingsService::class)->get()->forceFill([
+            'environment' => KsefEnvironment::Production,
+        ])->save();
+        $this->expectKsefError(
+            'ksef_operational_environment_blocked',
+            fn () => app(KsefInvoiceSubmissionService::class)->prepare($invoice),
+        );
 
         app(KsefSettingsService::class)->get()->forceFill(['environment' => KsefEnvironment::Test])->save();
         foreach ([InvoiceDocumentType::Proforma, InvoiceDocumentType::Correction] as $type) {
@@ -145,6 +145,105 @@ class KsefInvoiceSubmissionTest extends TestCase
         }
 
         Http::assertNothingSent();
+    }
+
+    #[DataProvider('crossEnvironmentHistoryCases')]
+    public function test_submission_history_is_isolated_per_environment(
+        KsefEnvironment $historyEnvironment,
+        KsefEnvironment $currentEnvironment,
+        KsefInvoiceSubmissionStatus $historyStatus,
+    ): void {
+        $invoice = $this->eligibleInvoice(environment: $historyEnvironment);
+        $service = app(KsefInvoiceSubmissionService::class);
+        $history = $service->prepare($invoice);
+        $history->forceFill(['status' => $historyStatus])->save();
+        app(KsefSettingsService::class)->get()->forceFill([
+            'environment' => $currentEnvironment,
+        ])->save();
+
+        $current = $service->prepare($invoice);
+
+        $this->assertSame($currentEnvironment, $current->environment);
+        $this->assertSame(1, $current->attempt_number);
+        $this->assertSame($historyStatus, $history->fresh()->status);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 2);
+        Http::assertNothingSent();
+    }
+
+    public static function crossEnvironmentHistoryCases(): array
+    {
+        return [
+            'accepted TEST does not block DEMO' => [
+                KsefEnvironment::Test,
+                KsefEnvironment::Demo,
+                KsefInvoiceSubmissionStatus::Accepted,
+            ],
+            'uncertain TEST does not block DEMO' => [
+                KsefEnvironment::Test,
+                KsefEnvironment::Demo,
+                KsefInvoiceSubmissionStatus::Uncertain,
+            ],
+            'accepted DEMO does not block TEST' => [
+                KsefEnvironment::Demo,
+                KsefEnvironment::Test,
+                KsefInvoiceSubmissionStatus::Accepted,
+            ],
+            'uncertain DEMO does not block TEST' => [
+                KsefEnvironment::Demo,
+                KsefEnvironment::Test,
+                KsefInvoiceSubmissionStatus::Uncertain,
+            ],
+        ];
+    }
+
+    public function test_demo_attempt_number_starts_at_one_after_multiple_test_attempts(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $first = $service->prepare($invoice);
+        $first->forceFill(['status' => KsefInvoiceSubmissionStatus::TechnicalFailed])->save();
+        $second = $service->prepare($invoice);
+        $second->forceFill(['status' => KsefInvoiceSubmissionStatus::Accepted])->save();
+        app(KsefSettingsService::class)->get()->forceFill([
+            'environment' => KsefEnvironment::Demo,
+        ])->save();
+
+        $demo = $service->prepare($invoice);
+
+        $this->assertSame(KsefEnvironment::Demo, $demo->environment);
+        $this->assertSame(1, $demo->attempt_number);
+        $this->assertSame(2, $second->attempt_number);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('demoBlockingStatuses')]
+    public function test_demo_history_blocks_another_demo_attempt(
+        KsefInvoiceSubmissionStatus $status,
+        string $safeCode,
+    ): void {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Demo);
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        $submission->forceFill(['status' => $status])->save();
+
+        $this->expectKsefError($safeCode, fn () => $service->prepare($invoice));
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        Http::assertNothingSent();
+    }
+
+    public static function demoBlockingStatuses(): array
+    {
+        return [
+            'accepted' => [
+                KsefInvoiceSubmissionStatus::Accepted,
+                'ksef_submission_already_exists',
+            ],
+            'uncertain' => [
+                KsefInvoiceSubmissionStatus::Uncertain,
+                'ksef_submission_reconciliation_required',
+            ],
+        ];
     }
 
     public function test_prepare_requires_finalized_invoice_active_ksef_and_enabled_series(): void
@@ -236,6 +335,134 @@ class KsefInvoiceSubmissionTest extends TestCase
             return ! str_contains($path, '/sessions/')
                 || $request->hasHeader('Authorization', 'Bearer FAKE_VALID_SUBMISSION_ACCESS_TOKEN');
         });
+    }
+
+    public function test_demo_online_flow_uses_only_demo_host_and_posts_invoice_once(): void
+    {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Demo);
+        $this->validAccessToken(KsefEnvironment::Demo);
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+
+        $submission = $service->submit($service->prepare($invoice));
+
+        $this->assertSame(KsefEnvironment::Demo, $submission->environment);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame(1, $submission->attempt_number);
+        $this->assertSame(1, $fake->publicKeyCalls);
+        $this->assertSame(1, $fake->openCalls);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->closeCalls);
+        $this->assertSame(0, $fake->statusCalls);
+        Http::assertSentCount(4);
+
+        foreach (Http::recorded() as [$request]) {
+            $this->assertSame('api-demo.ksef.mf.gov.pl', parse_url($request->url(), PHP_URL_HOST));
+        }
+    }
+
+    public function test_demo_status_refresh_uses_demo_host_and_maps_processing(): void
+    {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Demo);
+        $this->validAccessToken(KsefEnvironment::Demo);
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        $submission->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Submitted,
+            'session_reference_number' => '20260819-SO-DEMO-REFERENCE',
+            'invoice_reference_number' => '20260819-INV-DEMO-REFERENCE',
+        ])->save();
+        $fake->statusResponse = [
+            'referenceNumber' => $submission->invoice_reference_number,
+            'invoiceHash' => $submission->invoice_hash,
+            'status' => ['code' => 150, 'description' => 'Przetwarzanie'],
+        ];
+
+        $submission = $service->refreshStatus($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
+        $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(0, $fake->sendCalls);
+        Http::assertSentCount(1);
+        Http::assertSent(fn (Request $request): bool => parse_url($request->url(), PHP_URL_HOST) === 'api-demo.ksef.mf.gov.pl');
+    }
+
+    #[DataProvider('demoReconciliationCases')]
+    public function test_demo_reconciliation_uses_demo_lookup_without_invoice_resend(
+        bool $knownInvoiceReference,
+    ): void {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Demo);
+        $this->validAccessToken(KsefEnvironment::Demo);
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        $invoiceReference = '20260819-INV-DEMO-RECONCILIATION';
+        $submission->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Uncertain,
+            'session_reference_number' => '20260819-SO-DEMO-REFERENCE',
+            'invoice_reference_number' => $knownInvoiceReference ? $invoiceReference : null,
+        ])->save();
+        $status = [
+            'referenceNumber' => $invoiceReference,
+            'invoiceHash' => $submission->invoice_hash,
+            'status' => ['code' => 150, 'description' => 'Przetwarzanie'],
+        ];
+        $fake->statusResponse = $status;
+        $fake->sessionInvoicesResponse = ['invoices' => [$status]];
+
+        $submission = $service->reconcile($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
+        $this->assertSame($invoiceReference, $submission->invoice_reference_number);
+        $this->assertSame($knownInvoiceReference ? 1 : 0, $fake->statusCalls);
+        $this->assertSame($knownInvoiceReference ? 0 : 1, $fake->sessionInvoicesCalls);
+        $this->assertSame(0, $fake->sendCalls);
+        Http::assertSentCount(1);
+        Http::assertSent(fn (Request $request): bool => parse_url($request->url(), PHP_URL_HOST) === 'api-demo.ksef.mf.gov.pl');
+    }
+
+    public static function demoReconciliationCases(): array
+    {
+        return [
+            'known invoice reference' => [true],
+            'missing invoice reference' => [false],
+        ];
+    }
+
+    public function test_production_prepare_submit_refresh_and_reconcile_are_blocked_before_http(): void
+    {
+        $service = app(KsefInvoiceSubmissionService::class);
+        $productionInvoice = $this->eligibleInvoice(environment: KsefEnvironment::Production);
+        $this->expectKsefError(
+            'ksef_operational_environment_blocked',
+            fn () => $service->prepare($productionInvoice),
+        );
+        Http::assertNothingSent();
+
+        $invoice = $this->eligibleInvoice();
+        $submission = $service->prepare($invoice);
+        $submission->forceFill(['environment' => KsefEnvironment::Production])->save();
+
+        $this->expectKsefError(
+            'ksef_operational_environment_blocked',
+            fn () => $service->submit($submission),
+        );
+        Http::assertNothingSent();
+
+        $submission->forceFill(['status' => KsefInvoiceSubmissionStatus::Submitted])->save();
+        $this->expectKsefError(
+            'ksef_operational_environment_blocked',
+            fn () => $service->refreshStatus($submission),
+        );
+        Http::assertNothingSent();
+
+        $submission->forceFill(['status' => KsefInvoiceSubmissionStatus::Uncertain])->save();
+        $this->expectKsefError(
+            'ksef_operational_environment_blocked',
+            fn () => $service->reconcile($submission),
+        );
+        Http::assertNothingSent();
     }
 
     public function test_status_refresh_maps_processing_then_accepted_without_regenerating_payload(): void
@@ -880,10 +1107,11 @@ class KsefInvoiceSubmissionTest extends TestCase
             : $invoice;
     }
 
-    private function validAccessToken(): KsefCredential
-    {
+    private function validAccessToken(
+        KsefEnvironment $environment = KsefEnvironment::Test,
+    ): KsefCredential {
         return KsefCredential::query()->create([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => 'FAKE_SUBMISSION_API_TOKEN',
             'access_token' => 'FAKE_VALID_SUBMISSION_ACCESS_TOKEN',

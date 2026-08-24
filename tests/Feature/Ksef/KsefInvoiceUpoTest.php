@@ -15,10 +15,12 @@ use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefInvoiceUpo;
 use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\KsefInvoiceUpoService;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefUpoValidator;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -143,15 +145,56 @@ class KsefInvoiceUpoTest extends TestCase
             ->all();
     }
 
-    public function test_fetch_is_test_only_and_invoice_only(): void
+    public function test_demo_fetch_uses_demo_host_and_preserves_original_signed_tr_upo(): void
     {
-        $invoice = $this->eligibleInvoice();
-        $demo = $this->acceptedSubmission($invoice, ['environment' => KsefEnvironment::Demo]);
+        $invoice = $this->eligibleInvoice(KsefEnvironment::Demo);
+        $submission = $this->acceptedSubmission($invoice, [
+            'environment' => KsefEnvironment::Demo,
+        ]);
+        $this->validAccessToken(KsefEnvironment::Demo);
+        $xml = $this->upoXml($invoice, $submission, [
+            'receiver_name' => 'Ministerstwo Finansów - środowisko przedprodukcyjne (TR)',
+        ])."\r\n";
+        $this->fakeUpo($xml, $this->hash($xml));
 
-        $this->post(route('invoices.ksef.submissions.upo.fetch', [
-            'invoice' => $invoice,
-            'submission' => $demo,
-        ]))->assertSessionHasErrors('ksef');
+        $this->post(route('invoices.ksef.submissions.upo.fetch', compact('invoice', 'submission')))
+            ->assertSessionHas('success');
+
+        $upo = KsefInvoiceUpo::query()->sole();
+        $this->assertSame($xml, $upo->payload_xml);
+        $this->assertStringContainsString(
+            '<NazwaPodmiotuPrzyjmujacego>Ministerstwo Finansów - środowisko przedprodukcyjne (TR)</NazwaPodmiotuPrzyjmujacego>',
+            $upo->payload_xml,
+        );
+        $this->assertStringContainsString(
+            '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"',
+            $upo->payload_xml,
+        );
+        $this->assertNotSame(
+            $xml,
+            DB::table('ksef_invoice_upos')->where('id', $upo->getKey())->value('payload_xml'),
+        );
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->fresh()->status);
+        Http::assertSentCount(1);
+        Http::assertSent(fn (Request $request): bool => parse_url($request->url(), PHP_URL_HOST) === 'api-demo.ksef.mf.gov.pl'
+            && str_contains($request->url(), '/sessions/'.rawurlencode(KsefUpoFixture::SESSION_REFERENCE).'/invoices/ksef/'));
+    }
+
+    public function test_production_fetch_is_blocked_before_http_and_non_invoice_is_rejected(): void
+    {
+        $invoice = $this->eligibleInvoice(KsefEnvironment::Production);
+        $production = $this->acceptedSubmission($invoice, [
+            'environment' => KsefEnvironment::Production,
+        ]);
+
+        try {
+            app(KsefInvoiceUpoService::class)->fetch($invoice, $production);
+            $this->fail('Expected production UPO environment block.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('ksef_operational_environment_blocked', $exception->safeCode);
+        }
+
+        Http::assertNothingSent();
 
         foreach ([InvoiceDocumentType::Proforma, InvoiceDocumentType::Correction] as $type) {
             $document = $this->eligibleInvoice();
@@ -414,7 +457,15 @@ class KsefInvoiceUpoTest extends TestCase
         $xml = $this->upoXml($invoice, $submission)."\r\n";
         $this->storeUpo($submission, $xml);
         config()->set('ksef.invoice_submission_enabled', false);
+        app(KsefSettingsService::class)->get()->forceFill([
+            'environment' => KsefEnvironment::Production,
+        ])->save();
         KsefCredential::query()->delete();
+
+        $this->get(route('invoices.edit', $invoice))
+            ->assertOk()
+            ->assertSee(route('invoices.ksef.submissions.upo.download', compact('invoice', 'submission')), false)
+            ->assertDontSee('data-ksef-upo-fetch-form', false);
 
         $response = $this->get(route('invoices.ksef.submissions.upo.download', compact('invoice', 'submission')));
 
@@ -467,12 +518,13 @@ class KsefInvoiceUpoTest extends TestCase
             ->assertDontSee('Pobierz UPO z KSeF');
     }
 
-    private function eligibleInvoice(): Invoice
-    {
+    private function eligibleInvoice(
+        KsefEnvironment $environment = KsefEnvironment::Test,
+    ): Invoice {
         $settings = app(KsefSettingsService::class)->get();
         $settings->forceFill([
             'is_active' => true,
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'context_nip' => KsefUpoFixture::CONTEXT_NIP,
         ])->save();
         $order = $this->createDocumentOrder([
@@ -526,10 +578,11 @@ class KsefInvoiceUpoTest extends TestCase
         ], $attributes));
     }
 
-    private function validAccessToken(): KsefCredential
-    {
+    private function validAccessToken(
+        KsefEnvironment $environment = KsefEnvironment::Test,
+    ): KsefCredential {
         return KsefCredential::query()->create([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => 'FAKE_UPO_API_TOKEN',
             'access_token' => 'FAKE_UPO_ACCESS_TOKEN',

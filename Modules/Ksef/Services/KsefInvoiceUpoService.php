@@ -6,7 +6,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Models\Invoice;
-use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
@@ -19,6 +18,7 @@ class KsefInvoiceUpoService
         private readonly KsefAccessTokenManager $accessTokens,
         private readonly KsefOnlineSessionClient $onlineSession,
         private readonly KsefUpoValidator $validator,
+        private readonly KsefOperationalEnvironmentPolicy $environments,
     ) {}
 
     public function fetch(
@@ -160,12 +160,7 @@ class KsefInvoiceUpoService
             );
         }
 
-        if ($submission->environment !== KsefEnvironment::Test) {
-            throw new KsefApiException(
-                'Pobieranie UPO jest w tym etapie dostępne wyłącznie w środowisku TEST.',
-                'ksef_upo_environment_blocked',
-            );
-        }
+        $this->environments->assertAllowed($submission->environment);
 
         $this->requiredReference(
             $submission->session_reference_number,
