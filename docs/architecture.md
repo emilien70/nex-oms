@@ -1269,6 +1269,14 @@ Niezależna, nieutrwalana projekcja DOM usuwa wyłącznie wcześniej zweryfikowa
 
 `Original UPO XSD-valid: NO`. `Compatibility projection XSD-valid: YES`. `Original artifact preserved byte-for-byte: YES`. `Cryptographically verified: NO`. `Signed artifact presence verified: YES`. Etap potwierdza obecność podpisu XMLDSig, ale nie deklaruje poprawności kryptograficznej XAdES, zaufania certyfikatu ani poprawności łańcucha zaufania.
 
+#### KSeF.5B-LIVE-UPO-TEST-002 — PASS
+
+24 sierpnia 2026 r. istniejący zaakceptowany submission TEST dla Faktury VAT `KSEF-UI 2/2026` przeszedł kontrolowany workflow pobrania UPO przez produkcyjną trasę aplikacji. Wykonano dokładnie jeden UPO GET oraz jeden wymagany refresh tokena dostępu; nie wykonano invoice POST, otwarcia lub zamknięcia sesji ani status GET. Odpowiedź `200 application/xml` miała poprawny `x-ms-meta-hash`, a SHA-256 Base64 dokładnych 5460 bajtów odpowiedzi był zgodny.
+
+Oryginalny XML zawierał dokładną nazwę odbiorcy TEST, dokładnie jeden rootowy `ds:Signature`, jeden dokument oraz zgodne identity sesji, kontekstu, sprzedawcy, numeru KSeF, numeru Faktury, hasha FA(3), formularza, struktury logicznej i trybu `Online`. `Original UPO XSD-valid: NO` zgodnie ze znanymi konfliktami receiver/Signature. Oddzielna projekcja usunęła podpis i znormalizowała nazwę wyłącznie w pamięci; `Compatibility projection XSD-valid: YES` względem niezmienionego oficjalnego XSD.
+
+Do `ksef_invoice_upos` zapisano dokładnie jeden oryginalny artefakt byte-for-byte, zaszyfrowany at rest, z zachowanym podpisem i nazwą TEST. Lokalny download zwrócił identyczne bajty bez requestu do MF, a ponowne application-level pobranie użyło istniejącego UPO i również nie wykonało requestu. Submission pozostał `accepted`, deployment gate przywrócono do `false`, `DEMO LIVE REQUESTS: 0`, `PRODUCTION LIVE REQUESTS: 0`. `Original artifact preserved byte-for-byte: YES`. `Cryptographically verified: NO`. `Signed artifact presence verified: YES`.
+
 KSeF.2A nie tworzy:
 
 ```text
