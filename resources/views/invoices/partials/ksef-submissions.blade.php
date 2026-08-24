@@ -7,13 +7,15 @@
         && $ksefSettings?->is_active
         && $isTestEnvironment
         && $ksefSeriesEnabled
-        && $currentKsefSubmission === null;
+        && $ksefCanCreateAttempt;
+    $isRetry = $currentKsefSubmission?->status->allowsNewAttempt() === true;
     $canRefresh = $ksefSubmissionGateEnabled
         && $isTestEnvironment
-        && in_array($currentKsefSubmission?->status, [
-            \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Submitted,
-            \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Processing,
-        ], true);
+        && $currentKsefSubmission?->status->allowsStatusRefresh() === true;
+    $canReconcile = $ksefSubmissionGateEnabled
+        && $isTestEnvironment
+        && $currentKsefSubmission?->status->allowsReconciliation() === true
+        && filled($currentKsefSubmission->session_reference_number);
 @endphp
 
 <style>
@@ -128,7 +130,7 @@
     @endif
 
     @if ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Uncertain)
-        <p class="invoice-ksef-message invoice-ksef-warning">Nie wysyłaj ponownie. Stan dostarczenia jest niepewny.</p>
+        <p class="invoice-ksef-message invoice-ksef-warning">Nie wolno ponownie wysłać dokumentu przed ustaleniem wyniku poprzedniej transmisji.</p>
     @elseif ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Preparing)
         <p class="invoice-ksef-message invoice-ksef-warning">Próba została rozpoczęta. Nie wysyłaj ponownie.</p>
     @elseif ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::SessionOpened)
@@ -137,14 +139,19 @@
 
     <div class="invoice-ksef-actions">
         @if ($canSend)
-            <form method="POST" action="{{ route('invoices.ksef.submissions.store', $invoice) }}" data-ksef-send-form onsubmit="return window.confirm('Wyślij Fakturę do KSeF TEST?')">
+            <form method="POST" action="{{ route('invoices.ksef.submissions.store', $invoice) }}" data-ksef-send-form onsubmit="return window.confirm('{{ $isRetry ? 'Utworzyć nową próbę KSeF TEST? Poprzednia próba pozostanie w historii.' : 'Wyślij Fakturę do KSeF TEST?' }}')">
                 @csrf
-                <button class="btn btn-primary" type="submit">Wyślij do KSeF TEST</button>
+                <button class="btn btn-primary" type="submit">{{ $isRetry ? 'Utwórz nową próbę KSeF TEST' : 'Wyślij do KSeF TEST' }}</button>
             </form>
         @elseif ($canRefresh)
             <form method="POST" action="{{ route('invoices.ksef.submissions.refresh', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-refresh-form>
                 @csrf
                 <button class="btn btn-outline-primary" type="submit">Sprawdź status</button>
+            </form>
+        @elseif ($canReconcile)
+            <form method="POST" action="{{ route('invoices.ksef.submissions.reconcile', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-reconcile-form>
+                @csrf
+                <button class="btn btn-outline-warning" type="submit">Sprawdź wynik transmisji</button>
             </form>
         @endif
     </div>
@@ -157,13 +164,10 @@
         <p class="invoice-ksef-message">Ręczna wysyłka jest w tym etapie dostępna wyłącznie w środowisku TEST.</p>
     @elseif (! $ksefSeriesEnabled)
         <p class="invoice-ksef-message">Seria numeracji Faktury nie jest włączona do KSeF.</p>
-    @elseif ($currentKsefSubmission && ! $canRefresh && ! in_array($currentKsefSubmission->status, [
-        \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted,
-        \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Uncertain,
-        \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Preparing,
-        \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::SessionOpened,
-    ], true))
-        <p class="invoice-ksef-message">Ponowienie wysyłki nie jest dostępne w tym workflow.</p>
+    @elseif ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Uncertain && ! $canReconcile)
+        <p class="invoice-ksef-message">Brak referencji sesji potrzebnej do bezpiecznego sprawdzenia wyniku. Kolejna wysyłka pozostaje zablokowana.</p>
+    @elseif ($currentKsefSubmission && ! $canSend && $currentKsefSubmission->status->allowsNewAttempt())
+        <p class="invoice-ksef-message">Historia KSeF tej Faktury nie pozwala utworzyć kolejnej próby.</p>
     @endif
 
     <div class="invoice-ksef-history">

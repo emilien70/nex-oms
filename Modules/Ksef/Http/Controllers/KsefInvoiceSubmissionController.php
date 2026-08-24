@@ -20,7 +20,7 @@ class KsefInvoiceSubmissionController extends Controller
         KsefManualInvoiceSubmissionService $manualSubmissions,
     ): RedirectResponse {
         try {
-            $manualSubmissions->submitFirst($invoice);
+            $manualSubmissions->submit($invoice);
 
             return back()->with(
                 'success',
@@ -30,6 +30,26 @@ class KsefInvoiceSubmissionController extends Controller
             return back()->withErrors(['ksef' => $exception->getMessage()]);
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'send', $exception);
+
+            return back()->withErrors(['ksef' => 'Nie udało się wykonać operacji KSeF.']);
+        }
+    }
+
+    public function reconcile(
+        Invoice $invoice,
+        KsefInvoiceSubmission $submission,
+        KsefInvoiceSubmissionService $submissions,
+    ): RedirectResponse {
+        abort_unless($submission->invoice_id === $invoice->getKey(), 404);
+
+        try {
+            $submissions->reconcile($submission);
+
+            return back()->with('success', 'Wynik transmisji KSeF został sprawdzony.');
+        } catch (KsefApiException $exception) {
+            return back()->withErrors(['ksef' => $exception->getMessage()]);
+        } catch (Throwable $exception) {
+            $this->logUnexpected($invoice, 'reconcile', $exception);
 
             return back()->withErrors(['ksef' => 'Nie udało się wykonać operacji KSeF.']);
         }

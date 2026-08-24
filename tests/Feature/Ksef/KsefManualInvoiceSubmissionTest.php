@@ -4,6 +4,7 @@ namespace Tests\Feature\Ksef;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
@@ -68,7 +69,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame(0, $fake->statusCalls);
     }
 
-    public function test_technical_failure_is_persisted_and_still_blocks_second_manual_post(): void
+    public function test_retry_safe_technical_failure_allows_a_new_attempt_and_preserves_history(): void
     {
         $invoice = $this->eligibleInvoice();
         $this->validAccessToken();
@@ -84,12 +85,26 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             KsefInvoiceSubmissionStatus::TechnicalFailed,
             KsefInvoiceSubmission::query()->sole()->status,
         );
+        $first = KsefInvoiceSubmission::query()->sole();
+        $firstPayload = $first->payload_xml;
+        $firstRawPayload = DB::table('ksef_invoice_submissions')
+            ->where('id', $first->getKey())
+            ->value('payload_xml');
+        unset($fake->failures['/invoices']);
 
         $this->post(route('invoices.ksef.submissions.store', $invoice))
-            ->assertSessionHasErrors('ksef');
+            ->assertSessionHas('success');
 
-        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
-        $this->assertSame(1, $fake->sendCalls);
+        $second = KsefInvoiceSubmission::query()->orderByDesc('attempt_number')->firstOrFail();
+        $this->assertDatabaseCount('ksef_invoice_submissions', 2);
+        $this->assertSame(2, $second->attempt_number);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $second->status);
+        $this->assertSame($firstPayload, $first->fresh()->payload_xml);
+        $this->assertNotSame(
+            $firstRawPayload,
+            DB::table('ksef_invoice_submissions')->where('id', $second->getKey())->value('payload_xml'),
+        );
+        $this->assertSame(2, $fake->sendCalls);
         $this->assertSame(0, $fake->statusCalls);
     }
 
@@ -110,10 +125,59 @@ class KsefManualInvoiceSubmissionTest extends TestCase
     public static function blockingStatuses(): array
     {
         return collect(KsefInvoiceSubmissionStatus::cases())
+            ->reject(fn (KsefInvoiceSubmissionStatus $status): bool => $status->allowsNewAttempt())
             ->mapWithKeys(fn (KsefInvoiceSubmissionStatus $status): array => [
                 $status->value => [$status],
             ])
             ->all();
+    }
+
+    #[DataProvider('retryableStatuses')]
+    public function test_retryable_attempt_allows_exactly_one_new_manual_attempt(
+        KsefInvoiceSubmissionStatus $status,
+    ): void {
+        $invoice = $this->eligibleInvoice();
+        $first = $this->createSubmission($invoice, $status);
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+
+        $this->post(route('invoices.ksef.submissions.store', $invoice))->assertSessionHas('success');
+        $this->post(route('invoices.ksef.submissions.store', $invoice))->assertSessionHasErrors('ksef');
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 2);
+        $this->assertSame($status, $first->fresh()->status);
+        $this->assertDatabaseHas('ksef_invoice_submissions', [
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Test->value,
+            'attempt_number' => 2,
+            'status' => KsefInvoiceSubmissionStatus::Submitted->value,
+        ]);
+        $this->assertSame(1, $fake->sendCalls);
+    }
+
+    public static function retryableStatuses(): array
+    {
+        return [
+            'rejected' => [KsefInvoiceSubmissionStatus::Rejected],
+            'technical failed' => [KsefInvoiceSubmissionStatus::TechnicalFailed],
+        ];
+    }
+
+    public function test_accepted_history_blocks_retry_even_when_latest_attempt_is_rejected(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Accepted);
+        $latest = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Rejected);
+
+        $response = $this->get(route('invoices.edit', $invoice));
+
+        $response->assertOk()
+            ->assertSee('Historia KSeF tej Faktury nie pozwala utworzyć kolejnej próby.')
+            ->assertDontSee(route('invoices.ksef.submissions.store', $invoice), false);
+        $this->post(route('invoices.ksef.submissions.store', $invoice))->assertSessionHasErrors('ksef');
+        $this->assertSame(KsefInvoiceSubmissionStatus::Rejected, $latest->fresh()->status);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 2);
+        Http::assertNothingSent();
     }
 
     public function test_attempt_in_another_environment_does_not_block_first_attempt_in_current_environment(): void
@@ -303,6 +367,48 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_uncertain_attempt_can_be_reconciled_once_without_invoice_resend(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $submission = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Uncertain);
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->statusResponse = [
+            'referenceNumber' => $submission->invoice_reference_number,
+            'invoiceHash' => $submission->invoice_hash,
+            'invoicingDate' => '2026-08-21T10:00:00Z',
+            'ordinalNumber' => 1,
+            'status' => ['code' => 150, 'description' => 'Przetwarzanie'],
+        ];
+
+        $route = route('invoices.ksef.submissions.reconcile', [
+            'invoice' => $invoice,
+            'submission' => $submission,
+        ]);
+        $this->post($route)->assertSessionHas('success', 'Wynik transmisji KSeF został sprawdzony.');
+        $this->post($route)->assertSessionHasErrors('ksef');
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->refresh()->status);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(0, $fake->sessionInvoicesCalls);
+        $this->assertSame(0, $fake->sendCalls);
+    }
+
+    public function test_cross_invoice_reconciliation_returns_404_without_http(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $otherInvoice = $this->eligibleInvoice();
+        $submission = $this->createSubmission($otherInvoice, KsefInvoiceSubmissionStatus::Uncertain);
+
+        $this->post(route('invoices.ksef.submissions.reconcile', [
+            'invoice' => $invoice,
+            'submission' => $submission,
+        ]))->assertNotFound();
+
+        Http::assertNothingSent();
+    }
+
     public function test_manual_routes_do_not_accept_get_requests(): void
     {
         $invoice = $this->eligibleInvoice();
@@ -310,6 +416,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $this->get(route('invoices.ksef.submissions.store', $invoice))->assertMethodNotAllowed();
         $this->get(route('invoices.ksef.submissions.refresh', [
+            'invoice' => $invoice,
+            'submission' => $submission,
+        ]))->assertMethodNotAllowed();
+        $this->get(route('invoices.ksef.submissions.reconcile', [
             'invoice' => $invoice,
             'submission' => $submission,
         ]))->assertMethodNotAllowed();
@@ -375,6 +485,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ->assertDontSee(route('invoices.ksef.submissions.refresh', [
                 'invoice' => $invoice,
                 'submission' => $submission,
+            ]), false)
+            ->assertDontSee(route('invoices.ksef.submissions.reconcile', [
+                'invoice' => $invoice,
+                'submission' => $submission,
             ]), false);
     }
 
@@ -394,6 +508,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
                 'invoice' => $invoice,
                 'submission' => $submission,
             ]), false)
+            ->assertDontSee(route('invoices.ksef.submissions.reconcile', [
+                'invoice' => $invoice,
+                'submission' => $submission,
+            ]), false)
             ->assertDontSee('Wyślij do KSeF TEST');
     }
 
@@ -406,7 +524,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
     }
 
     #[DataProvider('failedUiStatuses')]
-    public function test_rejected_and_technical_failed_panels_show_only_safe_error_without_retry(
+    public function test_rejected_and_technical_failed_panels_show_safe_error_and_controlled_new_attempt(
         KsefInvoiceSubmissionStatus $status,
     ): void {
         $invoice = $this->eligibleInvoice();
@@ -420,9 +538,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $response->assertOk()
             ->assertSee($status->label())
             ->assertSee('Bezpieczny komunikat dla użytkownika.')
-            ->assertSee('Ponowienie wysyłki nie jest dostępne w tym workflow.')
+            ->assertSee('Utwórz nową próbę KSeF TEST')
+            ->assertSee('Poprzednia próba pozostanie w historii.')
             ->assertDontSee('HIDDEN_RAW_REFERENCE')
-            ->assertDontSee(route('invoices.ksef.submissions.store', $invoice), false)
+            ->assertSee(route('invoices.ksef.submissions.store', $invoice), false)
             ->assertDontSee(route('invoices.ksef.submissions.refresh', [
                 'invoice' => $invoice,
                 'submission' => $submission,
@@ -478,7 +597,12 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Stan niepewny')
-            ->assertSee('Nie wysyłaj ponownie. Stan dostarczenia jest niepewny.')
+            ->assertSee('Nie wolno ponownie wysłać dokumentu przed ustaleniem wyniku poprzedniej transmisji.')
+            ->assertSee('Sprawdź wynik transmisji')
+            ->assertSee(route('invoices.ksef.submissions.reconcile', [
+                'invoice' => $invoice,
+                'submission' => $second,
+            ]), false)
             ->assertSee('Bezpieczny opis stanu niepewnego.')
             ->assertSee('Bezpieczny opis odrzucenia.')
             ->assertDontSee('Wyślij do KSeF TEST')
@@ -491,6 +615,32 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             strpos($html, 'data-ksef-submission-id="'.$first->getKey().'"'),
             strpos($html, 'data-ksef-submission-id="'.$second->getKey().'"'),
         );
+    }
+
+    public function test_uncertain_without_session_reference_blocks_resend_and_has_no_reconciliation_action(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $submission = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Uncertain, attributes: [
+            'session_reference_number' => null,
+            'invoice_reference_number' => null,
+        ]);
+
+        $response = $this->get(route('invoices.edit', $invoice));
+
+        $response->assertOk()
+            ->assertSee('Brak referencji sesji potrzebnej do bezpiecznego sprawdzenia wyniku.')
+            ->assertDontSee(route('invoices.ksef.submissions.store', $invoice), false)
+            ->assertDontSee(route('invoices.ksef.submissions.reconcile', [
+                'invoice' => $invoice,
+                'submission' => $submission,
+            ]), false);
+
+        $this->post(route('invoices.ksef.submissions.reconcile', [
+            'invoice' => $invoice,
+            'submission' => $submission,
+        ]))->assertSessionHasErrors('ksef');
+        $this->assertSame(KsefInvoiceSubmissionStatus::Uncertain, $submission->fresh()->status);
+        Http::assertNothingSent();
     }
 
     public function test_gate_false_keeps_history_visible_but_hides_manual_actions(): void

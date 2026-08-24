@@ -31,6 +31,7 @@ class KsefInvoiceSubmissionService
         private readonly KsefOnlineSessionEncryptionService $encryption,
         private readonly KsefOnlineSessionRequestFactory $requests,
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
+        private readonly KsefInvoiceSubmissionLifecyclePolicy $lifecycle,
     ) {}
 
     public function prepare(Invoice $invoice): KsefInvoiceSubmission
@@ -78,23 +79,12 @@ class KsefInvoiceSubmissionService
                 );
             }
 
-            $activeStatuses = collect(KsefInvoiceSubmissionStatus::cases())
-                ->filter(static fn (KsefInvoiceSubmissionStatus $status): bool => $status->blocksNewAttempt())
-                ->map(static fn (KsefInvoiceSubmissionStatus $status): string => $status->value)
-                ->all();
-            $activeExists = KsefInvoiceSubmission::query()
+            $history = KsefInvoiceSubmission::query()
                 ->where('invoice_id', $managed->getKey())
                 ->where('environment', $environment->value)
-                ->whereIn('status', $activeStatuses)
                 ->lockForUpdate()
-                ->exists();
-
-            if ($activeExists) {
-                throw new KsefApiException(
-                    'Dla tej Faktury istnieje już aktywna lub zakończona sukcesem próba KSeF.',
-                    'ksef_submission_already_exists',
-                );
-            }
+                ->get(['id', 'status']);
+            $this->lifecycle->assertNewAttemptAllowed($history);
 
             $attemptNumber = ((int) KsefInvoiceSubmission::query()
                 ->where('invoice_id', $managed->getKey())
@@ -153,7 +143,6 @@ class KsefInvoiceSubmissionService
             );
             $submission = $this->transition(
                 $submission,
-                [KsefInvoiceSubmissionStatus::Preparing],
                 KsefInvoiceSubmissionStatus::SessionOpened,
                 [
                     'session_reference_number' => $open->referenceNumber,
@@ -203,7 +192,6 @@ class KsefInvoiceSubmissionService
 
         $submission = $this->transition(
             $submission,
-            [KsefInvoiceSubmissionStatus::SessionOpened],
             KsefInvoiceSubmissionStatus::Submitted,
             [
                 'invoice_reference_number' => $invoiceReference,
@@ -242,10 +230,9 @@ class KsefInvoiceSubmissionService
         $this->assertTransportEnabled();
         $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
         $this->assertEnvironmentAllowed($submission->environment);
-        $this->assertStatus($submission, [
-            KsefInvoiceSubmissionStatus::Submitted,
-            KsefInvoiceSubmissionStatus::Processing,
-        ]);
+        if (! $submission->status->allowsStatusRefresh()) {
+            throw $this->invalidState();
+        }
 
         try {
             $contextNip = $this->submissionContextNip($submission);
@@ -261,16 +248,139 @@ class KsefInvoiceSubmissionService
                 $submission->invoice_reference_number,
             );
         } catch (KsefApiException $exception) {
-            $this->updateWithoutTransition($submission, [
-                'last_checked_at' => $this->forStorage(CarbonImmutable::now('UTC')),
-                'safe_error_code' => $this->safeErrorCode($exception),
-                'safe_error_message' => $this->safeMessage($exception),
-            ]);
+            $this->recordLookupFailure($submission, $exception, reconciliation: false);
 
             throw $exception;
         }
 
         return $this->applyInvoiceStatus($submission, $data);
+    }
+
+    public function reconcile(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
+    {
+        $this->assertTransportEnabled();
+        $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
+        $this->assertEnvironmentAllowed($submission->environment);
+
+        if (! $submission->status->allowsReconciliation()) {
+            throw $this->invalidState();
+        }
+
+        try {
+            $contextNip = $this->submissionContextNip($submission);
+            $this->submissionSellerNip($submission);
+            $this->assertPayloadIntegrity($submission);
+            $sessionReference = $this->requiredSubmissionReference(
+                $submission->session_reference_number,
+                'Próba nie posiada referencji sesji potrzebnej do bezpiecznego ustalenia wyniku transmisji.',
+                'ksef_submission_reconciliation_unavailable',
+            );
+            $accessToken = $this->accessTokens->getValidAccessToken(
+                $submission->environment,
+                $contextNip,
+            );
+
+            if (is_string($submission->invoice_reference_number)
+                && trim($submission->invoice_reference_number) !== '') {
+                $data = $this->onlineSession->invoiceStatus(
+                    $submission->environment,
+                    $accessToken,
+                    $sessionReference,
+                    $submission->invoice_reference_number,
+                );
+            } else {
+                [$submission, $data] = $this->recoverInvoiceReference(
+                    $submission,
+                    $this->onlineSession->sessionInvoices(
+                        $submission->environment,
+                        $accessToken,
+                        $sessionReference,
+                    ),
+                );
+            }
+        } catch (KsefApiException $exception) {
+            $this->recordLookupFailure($submission, $exception, reconciliation: true);
+
+            throw $exception;
+        }
+
+        return $this->applyInvoiceStatus($submission, $data);
+    }
+
+    /** @return array{0: KsefInvoiceSubmission, 1: array<string, mixed>} */
+    private function recoverInvoiceReference(
+        KsefInvoiceSubmission $submission,
+        array $data,
+    ): array {
+        $invoices = $data['invoices'] ?? null;
+        $continuationToken = $data['continuationToken'] ?? null;
+
+        if (! is_array($invoices)
+            || ($continuationToken !== null && ! is_string($continuationToken))) {
+            throw new KsefApiException(
+                'KSeF zwrócił niekompletną odpowiedź podczas ustalania wyniku transmisji.',
+                'ksef_reconciliation_response_incomplete',
+            );
+        }
+
+        if (is_string($continuationToken) && trim($continuationToken) !== '') {
+            throw new KsefApiException(
+                'Nie można jednoznacznie ustalić wyniku transmisji KSeF.',
+                'ksef_reconciliation_result_ambiguous',
+            );
+        }
+
+        $matches = collect($invoices)
+            ->filter(function (mixed $invoice) use ($submission): bool {
+                if (! is_array($invoice)) {
+                    return false;
+                }
+
+                $hash = $invoice['invoiceHash'] ?? null;
+
+                return is_string($hash) && hash_equals($submission->invoice_hash, $hash);
+            })
+            ->values();
+
+        if ($matches->count() !== 1) {
+            throw new KsefApiException(
+                'Nie udało się jednoznacznie odnaleźć Faktury w istniejącej sesji KSeF. Dokument nie został wysłany ponownie.',
+                $matches->isEmpty()
+                    ? 'ksef_reconciliation_result_unresolved'
+                    : 'ksef_reconciliation_result_ambiguous',
+            );
+        }
+
+        /** @var array<string, mixed> $match */
+        $match = $matches->first();
+        $invoiceReference = $this->requiredSubmissionReference(
+            $match['referenceNumber'] ?? null,
+            'KSeF zwrócił wynik transmisji bez referencji Faktury.',
+            'ksef_reconciliation_response_incomplete',
+        );
+        $submission = DB::transaction(function () use ($submission, $invoiceReference): KsefInvoiceSubmission {
+            $managed = KsefInvoiceSubmission::query()
+                ->lockForUpdate()
+                ->findOrFail($submission->getKey());
+
+            if (! $managed->status->allowsReconciliation()) {
+                throw $this->invalidState();
+            }
+
+            if (is_string($managed->invoice_reference_number)
+                && $managed->invoice_reference_number !== $invoiceReference) {
+                throw new KsefApiException(
+                    'Nie można jednoznacznie ustalić referencji Faktury KSeF.',
+                    'ksef_reconciliation_result_ambiguous',
+                );
+            }
+
+            $managed->forceFill(['invoice_reference_number' => $invoiceReference])->save();
+
+            return $managed->refresh();
+        }, 3);
+
+        return [$submission, $match];
     }
 
     private function applyInvoiceStatus(KsefInvoiceSubmission $submission, array $data): KsefInvoiceSubmission
@@ -299,7 +409,6 @@ class KsefInvoiceSubmissionService
         if ($code !== null && in_array($code, self::PROCESSING_STATUS_CODES, true)) {
             return $this->transition(
                 $submission,
-                [KsefInvoiceSubmissionStatus::Submitted, KsefInvoiceSubmissionStatus::Processing],
                 KsefInvoiceSubmissionStatus::Processing,
                 $attributes,
             );
@@ -354,7 +463,6 @@ class KsefInvoiceSubmissionService
 
             return $this->transition(
                 $submission,
-                [KsefInvoiceSubmissionStatus::Submitted, KsefInvoiceSubmissionStatus::Processing],
                 KsefInvoiceSubmissionStatus::Accepted,
                 $attributes,
             );
@@ -363,7 +471,6 @@ class KsefInvoiceSubmissionService
         if ($code !== null && in_array($code, self::REJECTED_STATUS_CODES, true)) {
             return $this->transition(
                 $submission,
-                [KsefInvoiceSubmissionStatus::Submitted, KsefInvoiceSubmissionStatus::Processing],
                 KsefInvoiceSubmissionStatus::Rejected,
                 array_merge($attributes, [
                     'safe_error_code' => 'ksef_invoice_rejected',
@@ -397,7 +504,6 @@ class KsefInvoiceSubmissionService
     ): KsefInvoiceSubmission {
         return $this->transition(
             $submission,
-            [KsefInvoiceSubmissionStatus::Preparing, KsefInvoiceSubmissionStatus::SessionOpened],
             KsefInvoiceSubmissionStatus::TechnicalFailed,
             [
                 'safe_error_code' => $this->safeErrorCode($exception),
@@ -412,7 +518,6 @@ class KsefInvoiceSubmissionService
     ): KsefInvoiceSubmission {
         return $this->transition(
             $submission,
-            [KsefInvoiceSubmissionStatus::SessionOpened],
             KsefInvoiceSubmissionStatus::Uncertain,
             [
                 'safe_error_code' => $this->safeErrorCode($exception),
@@ -429,7 +534,6 @@ class KsefInvoiceSubmissionService
     ): KsefInvoiceSubmission {
         return $this->transition(
             $submission,
-            [KsefInvoiceSubmissionStatus::Submitted, KsefInvoiceSubmissionStatus::Processing],
             KsefInvoiceSubmissionStatus::Uncertain,
             array_merge($attributes, [
                 'safe_error_code' => $safeCode,
@@ -440,20 +544,16 @@ class KsefInvoiceSubmissionService
 
     private function transition(
         KsefInvoiceSubmission $submission,
-        array $allowedFrom,
         KsefInvoiceSubmissionStatus $to,
         array $attributes = [],
     ): KsefInvoiceSubmission {
-        return DB::transaction(function () use ($submission, $allowedFrom, $to, $attributes): KsefInvoiceSubmission {
+        return DB::transaction(function () use ($submission, $to, $attributes): KsefInvoiceSubmission {
             $managed = KsefInvoiceSubmission::query()
                 ->lockForUpdate()
                 ->findOrFail($submission->getKey());
 
-            if (! in_array($managed->status, $allowedFrom, true)) {
-                throw new KsefApiException(
-                    'Stan próby wysyłki KSeF nie pozwala na tę operację.',
-                    'ksef_submission_state_invalid',
-                );
+            if (! $managed->status->canTransitionTo($to)) {
+                throw $this->invalidState();
             }
 
             $managed->forceFill($attributes + ['status' => $to])->save();
@@ -476,14 +576,44 @@ class KsefInvoiceSubmissionService
         }, 3);
     }
 
+    private function recordLookupFailure(
+        KsefInvoiceSubmission $submission,
+        KsefApiException $exception,
+        bool $reconciliation,
+    ): void {
+        DB::transaction(function () use ($submission, $exception, $reconciliation): void {
+            $managed = KsefInvoiceSubmission::query()
+                ->lockForUpdate()
+                ->findOrFail($submission->getKey());
+            $canRecord = $reconciliation
+                ? $managed->status->allowsReconciliation()
+                : $managed->status->allowsStatusRefresh();
+
+            if (! $canRecord) {
+                return;
+            }
+
+            $managed->forceFill([
+                'last_checked_at' => $this->forStorage(CarbonImmutable::now('UTC')),
+                'safe_error_code' => $this->safeErrorCode($exception),
+                'safe_error_message' => $this->safeMessage($exception),
+            ])->save();
+        }, 3);
+    }
+
     private function assertStatus(KsefInvoiceSubmission $submission, array $allowed): void
     {
         if (! in_array($submission->status, $allowed, true)) {
-            throw new KsefApiException(
-                'Stan próby wysyłki KSeF nie pozwala na tę operację.',
-                'ksef_submission_state_invalid',
-            );
+            throw $this->invalidState();
         }
+    }
+
+    private function invalidState(): KsefApiException
+    {
+        return new KsefApiException(
+            'Stan próby wysyłki KSeF nie pozwala na tę operację.',
+            'ksef_submission_state_invalid',
+        );
     }
 
     private function assertTransportEnabled(): void
@@ -581,6 +711,18 @@ class KsefInvoiceSubmissionService
         }
 
         return $sellerNip;
+    }
+
+    private function requiredSubmissionReference(
+        mixed $value,
+        string $message,
+        string $safeCode,
+    ): string {
+        if (! is_string($value) || trim($value) === '') {
+            throw new KsefApiException($message, $safeCode);
+        }
+
+        return trim($value);
     }
 
     /** @return array{code: string, message: string}|null */

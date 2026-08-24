@@ -493,7 +493,7 @@ class KsefInvoiceSubmissionTest extends TestCase
             $this->assertSame(1, $fake->sendCalls);
             $this->assertSame(0, $fake->closeCalls);
             $this->expectKsefError(
-                'ksef_submission_already_exists',
+                'ksef_submission_reconciliation_required',
                 fn () => $service->prepare($invoice),
             );
         }
@@ -554,6 +554,210 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertSame('network_error', $submission->safe_error_code);
     }
 
+    public function test_reconciliation_recovers_missing_reference_by_exact_hash_and_accepts_without_resend(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $path = '/sessions/online/20260819-SO-TEST-REFERENCE/invoices';
+        $fake->failures[$path] = ['connection' => true];
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        $payload = $submission->payload_xml;
+
+        $this->expectKsefError('network_error', fn () => $service->submit($submission));
+        $submission->refresh();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Uncertain, $submission->status);
+        $this->assertNull($submission->invoice_reference_number);
+        unset($fake->failures[$path]);
+        $fake->sessionInvoicesResponse = [
+            'invoices' => [[
+                'referenceNumber' => '20260819-INV-RECOVERED-REFERENCE',
+                'invoiceHash' => $submission->invoice_hash,
+                'invoicingDate' => '2026-08-19T10:00:00Z',
+                'acquisitionDate' => '2026-08-19T10:00:01Z',
+                'permanentStorageDate' => '2026-08-19T10:00:02Z',
+                'ordinalNumber' => 1,
+                'ksefNumber' => $this->validKsefNumber($submission->seller_nip),
+                'status' => ['code' => 200, 'description' => 'Sukces'],
+            ]],
+        ];
+
+        $submission = $service->reconcile($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame('20260819-INV-RECOVERED-REFERENCE', $submission->invoice_reference_number);
+        $this->assertSame($this->validKsefNumber('9876543210'), $submission->ksef_number);
+        $this->assertSame($payload, $submission->payload_xml);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->sessionInvoicesCalls);
+        $this->assertSame(0, $fake->statusCalls);
+    }
+
+    #[DataProvider('reconciliationStatusCases')]
+    public function test_reconciliation_maps_safe_statuses_without_creating_attempt_or_invoice_post(
+        int $code,
+        KsefInvoiceSubmissionStatus $expected,
+        ?string $expectedError,
+    ): void {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        $submission->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Uncertain,
+            'session_reference_number' => '20260819-SO-TEST-REFERENCE',
+            'invoice_reference_number' => null,
+        ])->save();
+        $fake->sessionInvoicesResponse = [
+            'invoices' => [[
+                'referenceNumber' => '20260819-INV-RECONCILED-REFERENCE',
+                'invoiceHash' => $submission->invoice_hash,
+                'invoicingDate' => '2026-08-19T10:00:00Z',
+                'ordinalNumber' => 1,
+                'status' => ['code' => $code, 'description' => 'Synthetic reconciliation status'],
+            ]],
+        ];
+
+        $submission = $service->reconcile($submission);
+
+        $this->assertSame($expected, $submission->status);
+        $this->assertSame($expectedError, $submission->safe_error_code);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(0, $fake->sendCalls);
+        $this->assertSame(1, $fake->sessionInvoicesCalls);
+    }
+
+    public static function reconciliationStatusCases(): array
+    {
+        return [
+            'processing' => [150, KsefInvoiceSubmissionStatus::Processing, null],
+            'rejected' => [415, KsefInvoiceSubmissionStatus::Rejected, 'ksef_invoice_rejected'],
+            'unknown remains uncertain' => [299, KsefInvoiceSubmissionStatus::Uncertain, 'ksef_invoice_status_unknown'],
+        ];
+    }
+
+    #[DataProvider('reconciliationIdentityCases')]
+    public function test_reconciliation_preserves_all_existing_identity_guards(
+        string $reference,
+        string $hash,
+        ?string $ksefNumber,
+        string $expectedError,
+    ): void {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        $submission->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Uncertain,
+            'session_reference_number' => '20260819-SO-TEST-REFERENCE',
+            'invoice_reference_number' => '20260819-INV-TEST-REFERENCE',
+        ])->save();
+        $fake->statusResponse = [
+            'referenceNumber' => $reference === 'MATCH' ? $submission->invoice_reference_number : $reference,
+            'invoiceHash' => $hash === 'MATCH' ? $submission->invoice_hash : $hash,
+            'invoicingDate' => '2026-08-19T10:00:00Z',
+            'ordinalNumber' => 1,
+            'ksefNumber' => $ksefNumber === 'FOREIGN_VALID'
+                ? $this->validKsefNumber('5265877635')
+                : $ksefNumber,
+            'status' => ['code' => 200, 'description' => 'Sukces'],
+        ];
+
+        $submission = $service->reconcile($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Uncertain, $submission->status);
+        $this->assertSame($expectedError, $submission->safe_error_code);
+        $this->assertNull($submission->ksef_number);
+        $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(0, $fake->sendCalls);
+    }
+
+    public static function reconciliationIdentityCases(): array
+    {
+        return [
+            'reference mismatch' => ['WRONG-REFERENCE', 'MATCH', null, 'ksef_invoice_status_identity_mismatch'],
+            'hash mismatch' => ['MATCH', 'WRONG-HASH', null, 'ksef_invoice_status_identity_mismatch'],
+            'invalid KSeF number' => ['MATCH', 'MATCH', 'INVALID-KSEF-NUMBER', 'ksef_invoice_status_number_missing'],
+            'seller mismatch' => ['MATCH', 'MATCH', 'FOREIGN_VALID', 'ksef_invoice_status_seller_mismatch'],
+        ];
+    }
+
+    #[DataProvider('reconciliationFailureCases')]
+    public function test_reconciliation_failure_keeps_uncertain_without_resend(
+        ?array $failure,
+        ?array $response,
+        string $expectedError,
+    ): void {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        $submission->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Uncertain,
+            'session_reference_number' => '20260819-SO-TEST-REFERENCE',
+            'invoice_reference_number' => null,
+        ])->save();
+        $path = '/sessions/20260819-SO-TEST-REFERENCE/invoices';
+        if ($failure !== null) {
+            $fake->failures[$path] = $failure;
+        }
+        if ($response !== null) {
+            $fake->sessionInvoicesResponse = collect($response)
+                ->map(function (mixed $value) use ($submission): mixed {
+                    if (! is_array($value)) {
+                        return $value;
+                    }
+
+                    return array_map(function (mixed $item) use ($submission): mixed {
+                        if (! is_array($item)) {
+                            return $item;
+                        }
+
+                        if (($item['invoiceHash'] ?? null) === 'MATCH_AT_RUNTIME') {
+                            $item['invoiceHash'] = $submission->invoice_hash;
+                        }
+
+                        return $item;
+                    }, $value);
+                })
+                ->all();
+        }
+
+        $this->expectKsefError($expectedError, fn () => $service->reconcile($submission));
+
+        $submission->refresh();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Uncertain, $submission->status);
+        $this->assertSame(
+            $expectedError === 'http_500' ? 'SYNTHETIC_FAILURE' : $expectedError,
+            $submission->safe_error_code,
+        );
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(0, $fake->sendCalls);
+        $this->assertSame(1, $fake->sessionInvoicesCalls);
+    }
+
+    public static function reconciliationFailureCases(): array
+    {
+        return [
+            'connection error' => [['connection' => true], null, 'network_error'],
+            'server error' => [['status' => 500], null, 'http_500'],
+            'no matching invoice' => [null, ['invoices' => []], 'ksef_reconciliation_result_unresolved'],
+            'incomplete pagination' => [null, [
+                'invoices' => [],
+                'continuationToken' => 'MORE-RESULTS',
+            ], 'ksef_reconciliation_result_ambiguous'],
+            'duplicate hash' => [null, ['invoices' => [
+                ['referenceNumber' => 'REF-1', 'invoiceHash' => 'MATCH_AT_RUNTIME'],
+                ['referenceNumber' => 'REF-2', 'invoiceHash' => 'MATCH_AT_RUNTIME'],
+            ]], 'ksef_reconciliation_result_ambiguous'],
+        ];
+    }
+
     public function test_active_accepted_and_uncertain_attempts_block_duplicates_without_http(): void
     {
         foreach ([
@@ -569,7 +773,9 @@ class KsefInvoiceSubmissionTest extends TestCase
             $submission->forceFill(['status' => $status])->save();
 
             $this->expectKsefError(
-                'ksef_submission_already_exists',
+                $status === KsefInvoiceSubmissionStatus::Uncertain
+                    ? 'ksef_submission_reconciliation_required'
+                    : 'ksef_submission_already_exists',
                 fn () => app(KsefInvoiceSubmissionService::class)->prepare($invoice),
             );
         }

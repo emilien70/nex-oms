@@ -13,16 +13,76 @@ enum KsefInvoiceSubmissionStatus: string
     case TechnicalFailed = 'technical_failed';
     case Uncertain = 'uncertain';
 
-    public function blocksNewAttempt(): bool
+    public function isTerminal(): bool
     {
         return in_array($this, [
-            self::Preparing,
-            self::SessionOpened,
+            self::Accepted,
+            self::Rejected,
+            self::TechnicalFailed,
+        ], true);
+    }
+
+    public function blocksDocumentEdit(): bool
+    {
+        return true;
+    }
+
+    public function blocksDocumentDeletion(): bool
+    {
+        return true;
+    }
+
+    public function allowsStatusRefresh(): bool
+    {
+        return in_array($this, [
             self::Submitted,
             self::Processing,
-            self::Accepted,
-            self::Uncertain,
         ], true);
+    }
+
+    public function allowsReconciliation(): bool
+    {
+        return $this === self::Uncertain;
+    }
+
+    public function allowsNewAttempt(): bool
+    {
+        return in_array($this, [
+            self::Rejected,
+            self::TechnicalFailed,
+        ], true);
+    }
+
+    public function requiresReconciliation(): bool
+    {
+        return $this === self::Uncertain;
+    }
+
+    public function blocksNewAttempt(): bool
+    {
+        return ! $this->allowsNewAttempt();
+    }
+
+    public function canTransitionTo(self $status): bool
+    {
+        return match ($this) {
+            self::Preparing => in_array($status, [
+                self::SessionOpened,
+                self::TechnicalFailed,
+            ], true),
+            self::SessionOpened => in_array($status, [
+                self::Submitted,
+                self::TechnicalFailed,
+                self::Uncertain,
+            ], true),
+            self::Submitted, self::Processing, self::Uncertain => in_array($status, [
+                self::Processing,
+                self::Accepted,
+                self::Rejected,
+                self::Uncertain,
+            ], true),
+            self::Accepted, self::Rejected, self::TechnicalFailed => false,
+        };
     }
 
     public function label(): string

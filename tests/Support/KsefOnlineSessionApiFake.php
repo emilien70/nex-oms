@@ -32,6 +32,8 @@ class KsefOnlineSessionApiFake
         ],
     ];
 
+    public ?array $sessionInvoicesResponse = null;
+
     /** @var array<string, array{status?: int, body?: mixed, connection?: bool}> */
     public array $failures = [];
 
@@ -44,6 +46,8 @@ class KsefOnlineSessionApiFake
     public int $closeCalls = 0;
 
     public int $statusCalls = 0;
+
+    public int $sessionInvoicesCalls = 0;
 
     public ?array $openPayload = null;
 
@@ -123,6 +127,17 @@ class KsefOnlineSessionApiFake
             ], $this->statusResponse));
         }
 
+        if (preg_match('#/sessions/[^/]+/invoices$#', $path) === 1) {
+            $this->sessionInvoicesCalls++;
+
+            return Http::response($this->sessionInvoicesResponse ?? [
+                'invoices' => [array_replace([
+                    'referenceNumber' => $this->sendResponse['referenceNumber'] ?? null,
+                    'invoiceHash' => $this->sendPayload['invoiceHash'] ?? null,
+                ], $this->statusResponse)],
+            ]);
+        }
+
         return Http::response(['reasonCode' => 'UNEXPECTED_FAKE_REQUEST'], 599);
     }
 
@@ -173,6 +188,8 @@ class KsefOnlineSessionApiFake
             $this->closeCalls++;
         } elseif (preg_match('#/sessions/[^/]+/invoices/[^/]+$#', $path) === 1) {
             $this->statusCalls++;
+        } elseif (preg_match('#/sessions/[^/]+/invoices$#', $path) === 1) {
+            $this->sessionInvoicesCalls++;
         }
     }
 }

@@ -85,6 +85,21 @@ class KsefOnlineSessionClient
             ->data;
     }
 
+    public function sessionInvoices(
+        KsefEnvironment $environment,
+        string $accessToken,
+        string $sessionReference,
+    ): array {
+        return $this->http
+            ->get(
+                $environment,
+                '/sessions/'.rawurlencode($sessionReference).'/invoices',
+                $accessToken,
+                ['pageSize' => 10],
+            )
+            ->data;
+    }
+
     private function requiredString(array $data, string $path, string $safeCode): string
     {
         $value = data_get($data, $path);

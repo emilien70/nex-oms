@@ -22,6 +22,7 @@ use Modules\Invoices\Support\InvoiceReturnContext;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefInvoiceSubmissionLifecyclePolicy;
 use Throwable;
 
 class InvoiceEditController extends Controller
@@ -34,6 +35,7 @@ class InvoiceEditController extends Controller
         InvoiceEditViewModelFactory $viewModels,
         CorrectionSourceStateService $sourceState,
         CorrectionSeriesResolver $correctionSeries,
+        KsefInvoiceSubmissionLifecyclePolicy $ksefLifecycle,
     ): View {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
@@ -48,7 +50,7 @@ class InvoiceEditController extends Controller
                 $chain = $sourceState->chain($invoice);
 
                 return view('invoices.edit-blocked-by-correction', [
-                    ...$this->ksefViewData($invoice),
+                    ...$this->ksefViewData($invoice, $ksefLifecycle),
                     'invoice' => $invoice,
                     'currentCorrection' => $chain->currentCorrection,
                     'latestFinalizedCorrection' => $chain->finalizedTail,
@@ -94,25 +96,30 @@ class InvoiceEditController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function ksefViewData(Invoice $invoice): array
-    {
+    private function ksefViewData(
+        Invoice $invoice,
+        KsefInvoiceSubmissionLifecyclePolicy $lifecycle,
+    ): array {
         $settings = KsefSetting::query()
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
             ->first();
         $submissions = $invoice->ksefSubmissions()
             ->orderByDesc('id')
             ->get();
-        $currentSubmission = $settings === null
-            ? null
-            : $submissions->first(
+        $currentEnvironmentSubmissions = $settings === null
+            ? collect()
+            : $submissions->filter(
                 fn (KsefInvoiceSubmission $submission): bool => $submission->environment === $settings->environment,
             );
+        $currentSubmission = $currentEnvironmentSubmissions->first();
 
         return [
             'ksefSettings' => $settings,
             'ksefSubmissions' => $submissions,
             'latestKsefSubmission' => $submissions->first(),
             'currentKsefSubmission' => $currentSubmission,
+            'ksefCanCreateAttempt' => $settings !== null
+                && $lifecycle->allowsNewAttempt($currentEnvironmentSubmissions),
             'ksefSeriesEnabled' => KsefSeriesSetting::query()
                 ->where('invoice_series_id', $invoice->invoice_series_id)
                 ->where('is_enabled', true)
