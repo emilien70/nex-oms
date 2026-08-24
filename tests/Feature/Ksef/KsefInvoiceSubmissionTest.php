@@ -253,6 +253,8 @@ class KsefInvoiceSubmissionTest extends TestCase
             'ksef_fa3_document_not_finalized',
             fn () => app(KsefInvoiceSubmissionService::class)->prepare($invoice),
         );
+        $this->assertNull($invoice->fresh()->finalized_at);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
 
         $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
         app(KsefSettingsService::class)->get()->forceFill(['is_active' => false])->save();

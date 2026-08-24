@@ -509,9 +509,17 @@
                                 $currentKsefSubmission = $isInvoiceList
                                     ? $currentKsefSubmissions->get($invoice->getKey())
                                     : null;
+                                $ksefListDocumentReady = $invoice->isInvoice()
+                                    && $invoice->isIssued()
+                                    && is_string($invoice->number)
+                                    && trim($invoice->number) !== ''
+                                    && $invoice->sequence_number !== null
+                                    && is_string($invoice->numbering_period_key)
+                                    && trim($invoice->numbering_period_key) !== ''
+                                    && $invoice->series !== null;
                                 $ksefListCanSend = $isInvoiceList
                                     && $currentKsefSubmission === null
-                                    && $invoice->isFinalized()
+                                    && $ksefListDocumentReady
                                     && $ksefListSendConfigured
                                     && in_array((int) $invoice->invoice_series_id, $ksefEnabledSeriesIds, true);
                                 $documentEditRouteParameters = match (true) {
@@ -559,6 +567,9 @@
                                                 @php
                                                     $ksefEnvironmentCode = strtoupper($ksefListEnvironment->value);
                                                     $ksefSendConfirmation = "Wysłać Fakturę {$invoice->number} do KSeF {$ksefEnvironmentCode}?";
+                                                    if (! $invoice->isFinalized()) {
+                                                        $ksefSendConfirmation .= ' Wysłanie do KSeF zamknie Fakturę i uniemożliwi jej dalszą edycję.';
+                                                    }
                                                     if ($ksefListEnvironment === \Modules\Ksef\Enums\KsefEnvironment::Demo) {
                                                         $ksefSendConfirmation .= ' Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.';
                                                     }

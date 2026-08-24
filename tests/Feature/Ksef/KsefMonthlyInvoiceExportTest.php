@@ -179,6 +179,7 @@ class KsefMonthlyInvoiceExportTest extends TestCase
                 'environment' => 'demo',
             ]);
         }
+        $this->assertNull($draft->fresh()->finalized_at);
     }
 
     public function test_three_first_attempts_are_exactly_once_and_same_environment_rerun_is_empty(): void

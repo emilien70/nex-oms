@@ -432,12 +432,16 @@ class InvoiceListTest extends TestCase
     #[DataProvider('listSendEnvironments')]
     public function test_invoice_list_shows_first_send_for_supported_environment_without_history(
         KsefEnvironment $environment,
+        bool $finalized,
         bool $expectsDemoWarning,
     ): void {
-        $invoice = $this->createKsefListInvoice($environment);
+        $invoice = $this->createKsefListInvoice($environment, finalize: $finalized);
         $response = $this->get(route('invoices.index'));
         $confirmation = "Wysłać Fakturę {$invoice->number} do KSeF ".strtoupper($environment->value).'?';
 
+        if (! $finalized) {
+            $confirmation .= ' Wysłanie do KSeF zamknie Fakturę i uniemożliwi jej dalszą edycję.';
+        }
         if ($expectsDemoWarning) {
             $confirmation .= ' Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.';
         }
@@ -457,8 +461,10 @@ class InvoiceListTest extends TestCase
     public static function listSendEnvironments(): array
     {
         return [
-            'TEST' => [KsefEnvironment::Test, false],
-            'DEMO' => [KsefEnvironment::Demo, true],
+            'finalized TEST' => [KsefEnvironment::Test, true, false],
+            'unfinalized TEST' => [KsefEnvironment::Test, false, false],
+            'finalized DEMO' => [KsefEnvironment::Demo, true, true],
+            'unfinalized DEMO' => [KsefEnvironment::Demo, false, true],
         ];
     }
 
@@ -517,11 +523,14 @@ class InvoiceListTest extends TestCase
     {
         $invoice = $this->createKsefListInvoice(
             environment: $case === 'production' ? KsefEnvironment::Production : KsefEnvironment::Test,
-            finalize: $case !== 'draft',
+            finalize: false,
             integrationActive: $case !== 'inactive',
             seriesEnabled: $case !== 'series_disabled',
             gateEnabled: $case !== 'gate_disabled',
         );
+        if ($case === 'inconsistent') {
+            $invoice->forceFill(['numbering_period_key' => null])->saveQuietly();
+        }
 
         $this->get(route('invoices.index'))
             ->assertOk()
@@ -536,8 +545,18 @@ class InvoiceListTest extends TestCase
             'deployment gate disabled' => ['gate_disabled'],
             'integration inactive' => ['inactive'],
             'series disabled' => ['series_disabled'],
-            'invoice not finalized' => ['draft'],
+            'inconsistent numbering' => ['inconsistent'],
         ];
+    }
+
+    public function test_draft_invoice_never_shows_list_first_send(): void
+    {
+        $invoice = $this->createKsefListInvoice(finalize: false);
+        $invoice->forceFill(['status' => InvoiceDocumentStatus::Draft])->saveQuietly();
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $invoice), false);
     }
 
     public function test_ksef_list_queries_do_not_grow_with_invoice_rows(): void

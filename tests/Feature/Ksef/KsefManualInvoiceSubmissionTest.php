@@ -7,9 +7,11 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
+use Modules\Invoices\Services\InvoiceMutationPolicy;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
@@ -17,6 +19,7 @@ use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
@@ -136,6 +139,76 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         ];
     }
 
+    public function test_list_first_attempt_atomically_finalizes_unfinalized_invoice_before_transport(): void
+    {
+        $invoice = $this->eligibleInvoice(finalize: false);
+        $this->validAccessToken();
+        $fake = new KsefOnlineSessionApiFake;
+        $baselineTransactionLevel = DB::transactionLevel();
+        Http::fake(function (Request $request) use ($fake, $baselineTransactionLevel) {
+            $this->assertSame($baselineTransactionLevel, DB::transactionLevel());
+
+            return $fake($request);
+        });
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHas('success');
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $finalized = $invoice->fresh();
+        $this->assertTrue($finalized->isFinalized());
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame(1, $submission->attempt_number);
+        $this->assertSame('FA (3) 1-0E', $submission->schema_id);
+        $this->assertSame(base64_encode(hash('sha256', $submission->payload_xml, true)), $submission->invoice_hash);
+        $this->assertSame(strlen($submission->payload_xml), $submission->invoice_size);
+        $this->assertSame(1, $fake->openCalls);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->closeCalls);
+
+        try {
+            app(InvoiceMutationPolicy::class)->assertContentMutable($finalized);
+            $this->fail('Finalized invoice should reject content mutation.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('invoice_finalized', $exception->errorCode());
+        }
+    }
+
+    public function test_first_attempt_preflight_failure_rolls_back_finalization_and_sends_no_http(): void
+    {
+        $invoice = $this->eligibleInvoice(finalize: false);
+        $metadata = $invoice->tax_metadata_snapshot;
+        unset($metadata['ksef_tax']);
+        $invoice->forceFill(['tax_metadata_snapshot' => $metadata])->saveQuietly();
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHasErrors('ksef');
+
+        $this->assertNull($invoice->fresh()->finalized_at);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_first_attempt_authoritative_prepare_failure_rolls_back_finalization_and_submission(): void
+    {
+        $invoice = $this->eligibleInvoice(finalize: false);
+        $this->mock(KsefFa3DocumentGenerator::class, function ($mock): void {
+            $mock->shouldReceive('generate')
+                ->once()
+                ->andThrow(new InvoiceDomainException(
+                    'synthetic_authoritative_failure',
+                    'Syntetyczny błąd autorytatywnego FA(3).',
+                ));
+        });
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHasErrors('ksef');
+
+        $this->assertNull($invoice->fresh()->finalized_at);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
     #[DataProvider('crossEnvironmentFirstAttemptCases')]
     public function test_list_first_attempt_is_independent_between_environments(
         KsefEnvironment $activeEnvironment,
@@ -176,7 +249,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
     public function test_list_first_attempt_rejects_any_current_environment_history(
         KsefInvoiceSubmissionStatus $status,
     ): void {
-        $invoice = $this->eligibleInvoice();
+        $invoice = $this->eligibleInvoice(finalize: false);
         $this->createSubmission($invoice, $status);
 
         $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
@@ -184,6 +257,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ->assertSessionHasErrors('ksef');
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertNull($invoice->fresh()->finalized_at);
         Http::assertNothingSent();
     }
 
@@ -200,7 +274,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
     public function test_list_first_attempt_preconditions_block_before_http(string $case): void
     {
         $invoice = $this->eligibleInvoice(
-            finalize: $case !== 'draft',
+            finalize: false,
             environment: $case === 'production' ? KsefEnvironment::Production : KsefEnvironment::Test,
         );
 
@@ -218,6 +292,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ->assertSessionHasErrors('ksef');
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        $this->assertNull($invoice->fresh()->finalized_at);
         Http::assertNothingSent();
     }
 
@@ -228,13 +303,12 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'deployment gate disabled' => ['gate_disabled'],
             'integration inactive' => ['inactive'],
             'series disabled' => ['series_disabled'],
-            'invoice not finalized' => ['draft'],
         ];
     }
 
     public function test_list_first_attempt_detects_environment_change_before_http(): void
     {
-        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Test);
+        $invoice = $this->eligibleInvoice(finalize: false, environment: KsefEnvironment::Test);
         $settings = app(KsefSettingsService::class)->get();
         $expectedEnvironment = $settings->environment;
         $settings->forceFill(['environment' => KsefEnvironment::Demo])->save();
@@ -248,7 +322,58 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         }
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        $this->assertNull($invoice->fresh()->finalized_at);
         Http::assertNothingSent();
+    }
+
+    #[DataProvider('postCommitTransportFailureCases')]
+    public function test_first_attempt_keeps_invoice_finalized_after_post_commit_transport_failure(
+        string $case,
+        KsefInvoiceSubmissionStatus $expectedStatus,
+    ): void {
+        $invoice = $this->eligibleInvoice(finalize: false);
+
+        if ($case === 'access_token') {
+            KsefCredential::query()->create([
+                'environment' => KsefEnvironment::Test,
+                'authentication_method' => KsefAuthenticationMethod::Token,
+                'api_token' => 'FAKE_FIRST_ATTEMPT_API_TOKEN',
+            ]);
+        } else {
+            $this->validAccessToken();
+        }
+
+        $fake = $this->fakeOnlineApi();
+        $failurePath = match ($case) {
+            'access_token' => '/auth/challenge',
+            'public_key' => '/security/public-key-certificates',
+            'session_open' => '/sessions/online',
+            'ambiguous_send' => '/sessions/online/20260819-SO-TEST-REFERENCE/invoices',
+        };
+        $fake->failures[$failurePath] = $case === 'access_token' || $case === 'ambiguous_send'
+            ? ['connection' => true]
+            : ['status' => 500];
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHasErrors('ksef');
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $this->assertTrue($invoice->fresh()->isFinalized());
+        $this->assertSame($expectedStatus, $submission->status);
+        $this->assertSame(1, $submission->attempt_number);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame($case === 'ambiguous_send' ? 1 : 0, $fake->sendCalls);
+        $this->assertSame(0, $fake->closeCalls);
+    }
+
+    public static function postCommitTransportFailureCases(): array
+    {
+        return [
+            'access token network failure' => ['access_token', KsefInvoiceSubmissionStatus::TechnicalFailed],
+            'public key failure' => ['public_key', KsefInvoiceSubmissionStatus::TechnicalFailed],
+            'session open failure' => ['session_open', KsefInvoiceSubmissionStatus::TechnicalFailed],
+            'ambiguous invoice send' => ['ambiguous_send', KsefInvoiceSubmissionStatus::Uncertain],
+        ];
     }
 
     public function test_second_manual_post_is_blocked_after_successful_first_attempt(): void

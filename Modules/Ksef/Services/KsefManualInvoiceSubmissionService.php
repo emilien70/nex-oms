@@ -4,6 +4,7 @@ namespace Modules\Ksef\Services;
 
 use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
@@ -13,6 +14,7 @@ class KsefManualInvoiceSubmissionService
 {
     public function __construct(
         private readonly KsefInvoiceSubmissionService $submissions,
+        private readonly InvoiceFinalizationService $finalization,
     ) {}
 
     public function submit(Invoice $invoice): KsefInvoiceSubmission
@@ -24,7 +26,22 @@ class KsefManualInvoiceSubmissionService
         Invoice $invoice,
         KsefEnvironment $expectedEnvironment,
     ): KsefInvoiceSubmission {
-        return $this->submitPrepared($invoice, $expectedEnvironment, true);
+        $submission = DB::transaction(function () use (
+            $invoice,
+            $expectedEnvironment,
+        ): KsefInvoiceSubmission {
+            $finalized = $invoice->isFinalized()
+                ? $invoice
+                : $this->finalization->finalize($invoice);
+
+            return $this->submissions->prepare(
+                $finalized,
+                $expectedEnvironment,
+                true,
+            );
+        }, 3);
+
+        return $this->submissions->submit($submission);
     }
 
     private function submitPrepared(
