@@ -47,8 +47,13 @@ class KsefCertificateAuthenticationTest extends TestCase
         $this->assertStringNotContainsString('PRIVATE KEY', $fake->lastSignedXml);
         $this->assertStringNotContainsString(KsefApiFake::API_TOKEN, $fake->lastSignedXml);
 
-        Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/auth/xades-signature')
-            && $request->hasHeader('Content-Type', 'application/xml'));
+        Http::assertSent(function (Request $request): bool {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/auth/xades-signature')
+                && $request->hasHeader('Content-Type', 'application/xml')
+                && ($query['verifyCertificateChain'] ?? null) === 'false';
+        });
 
         $credential->refresh();
         $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
@@ -58,6 +63,35 @@ class KsefCertificateAuthenticationTest extends TestCase
             JSON_THROW_ON_ERROR,
         );
         $this->assertStringNotContainsString(KsefApiFake::AUTHENTICATION_TOKEN, $stored);
+    }
+
+    #[DataProvider('certificateChainVerifiedEnvironments')]
+    public function test_non_test_xades_auth_does_not_disable_certificate_chain_verification(
+        KsefEnvironment $environment,
+    ): void {
+        $credential = $this->credential(KsefCertificateFixtureFactory::ec(), $environment);
+        $fake = $this->fakeApi();
+
+        app(KsefCertificateAuthenticationService::class)->authenticate(
+            $credential,
+            '1234567890',
+        );
+
+        Http::assertSent(function (Request $request): bool {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/auth/xades-signature')
+                && ! array_key_exists('verifyCertificateChain', $query);
+        });
+        $this->assertSame(1, $fake->xadesInitCalls);
+    }
+
+    public static function certificateChainVerifiedEnvironments(): array
+    {
+        return [
+            'demo' => [KsefEnvironment::Demo],
+            'production' => [KsefEnvironment::Production],
+        ];
     }
 
     #[DataProvider('terminalStatuses')]
@@ -370,16 +404,18 @@ class KsefCertificateAuthenticationTest extends TestCase
         ];
     }
 
-    private function credential(array $fixture): KsefCredential
-    {
+    private function credential(
+        array $fixture,
+        KsefEnvironment $environment = KsefEnvironment::Test,
+    ): KsefCredential {
         $settings = app(KsefSettingsService::class)->get();
         $settings->forceFill([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'context_nip' => '1234567890',
         ])->save();
 
         return KsefCredential::query()->create([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'authentication_method' => KsefAuthenticationMethod::Certificate,
             'authentication_certificate' => $fixture['certificate'],
             'authentication_private_key' => $fixture['private_key'],

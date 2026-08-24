@@ -5,6 +5,7 @@ namespace Modules\Ksef\Services;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
+use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefSetting;
@@ -66,6 +67,7 @@ final class KsefCertificateAuthenticationService
                 $environment,
                 '/auth/xades-signature',
                 $signedXml,
+                query: $this->certificateChainVerificationQuery($environment),
             );
             $this->addWarning($warnings, $initResponse->systemWarning);
             $pair = $this->completion->complete(
@@ -152,6 +154,13 @@ final class KsefCertificateAuthenticationService
         }
 
         return $value;
+    }
+
+    private function certificateChainVerificationQuery(KsefEnvironment $environment): array
+    {
+        return $environment === KsefEnvironment::Test
+            ? ['verifyCertificateChain' => 'false']
+            : [];
     }
 
     private function addWarning(array &$warnings, ?string $warning): void
