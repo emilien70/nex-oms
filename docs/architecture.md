@@ -1227,6 +1227,10 @@ Status i historia są renderowane na read-only ekranie Faktury VAT. `Invoice::la
 
 Workflow pozostaje TEST-only i zależy od deployment gate domyślnie `false`, aktywnej integracji oraz włączonej serii. Wyłączony gate ukrywa akcje, ale nie historię. `automatic_submission` nie ma żadnego triggera i pozostaje konfiguracją nieaktywną funkcjonalnie. Etap nie dodaje retry, reconciliation, kolejki, schedulera, automatycznego pollingu, UPO, QR, offline, batch, DEMO, PRODUCTION, Pro form ani Korekt KSeF.
 
+24 sierpnia 2026 r. etap `KSeF.4B.1-LIVE-UI-TEST-001` przeszedł kontrolowany happy path przez normalny ręczny workflow aplikacji na środowisku KSeF TEST. Syntetyczna Faktura VAT została wysłana dokładnie jednym invoice POST-em, bez automatycznego odświeżenia i bez drugiego attemptu; po jednym ręcznym status GET otrzymała stan `accepted` oraz prawidłowy numer KSeF. Historia i bieżący status były poprawnie widoczne w UI bez ujawnienia XML ani sekretów.
+
+Przed właściwym happy pathem odrębny syntetyczny dokument zakończył się kontrolowanym `network_error` przed pobraniem klucza sesji, otwarciem sesji i invoice POST-em; dokumentu nie wysłano ponownie. Po teście wyłączono ponownie dedykowaną serię `KSEF UI LIVE TEST`, a deployment gate wrócił do domyślnego stanu `false`; kontekst i credential TEST nie były czasowo zmieniane. `DEMO LIVE REQUESTS: 0`; `PRODUCTION LIVE REQUESTS: 0`.
+
 KSeF.2A nie tworzy:
 
 ```text
