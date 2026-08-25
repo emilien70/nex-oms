@@ -18,6 +18,7 @@ use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefInvoiceUpo;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
@@ -26,6 +27,7 @@ use Modules\Ksef\Services\KsefSettingsService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\KsefOnlineSessionApiFake;
+use Tests\Support\KsefUpoFixture;
 use Tests\TestCase;
 
 class KsefManualInvoiceSubmissionTest extends TestCase
@@ -107,6 +109,8 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame($fake->statusResponse['ksefNumber'], $submission->ksef_number);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(1, $fake->upoCalls);
+        $this->assertDatabaseCount('ksef_invoice_upos', 0);
     }
 
     public function test_immediate_status_failure_does_not_turn_a_successful_send_into_failure_or_retry(): void
@@ -671,6 +675,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->refresh()->status);
         $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(0, $fake->upoCalls);
     }
 
     public function test_list_status_refresh_returns_without_success_message(): void
@@ -698,6 +703,51 @@ class KsefManualInvoiceSubmissionTest extends TestCase
     public function test_processing_attempt_can_be_refreshed_once_to_accepted(): void
     {
         $invoice = $this->eligibleInvoice();
+        $submission = $this->createSubmission(
+            $invoice,
+            KsefInvoiceSubmissionStatus::Processing,
+            attributes: [
+                'session_reference_number' => KsefUpoFixture::SESSION_REFERENCE,
+                'invoice_reference_number' => KsefUpoFixture::INVOICE_REFERENCE,
+            ],
+        );
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->statusResponse = [
+            'referenceNumber' => $submission->invoice_reference_number,
+            'invoiceHash' => $submission->invoice_hash,
+            'invoicingDate' => '2026-08-21T10:00:00Z',
+            'acquisitionDate' => '2026-08-21T10:00:01Z',
+            'permanentStorageDate' => '2026-08-21T10:00:02Z',
+            'status' => ['code' => 200, 'description' => 'Przyjęta'],
+            'ksefNumber' => $this->validKsefNumber('9876543210'),
+        ];
+        $fake->upoResponse = KsefUpoFixture::xml([
+            'context_nip' => $submission->context_nip,
+            'seller_nip' => $submission->seller_nip,
+            'session_reference' => $submission->session_reference_number,
+            'ksef_number' => $fake->statusResponse['ksefNumber'],
+            'invoice_number' => $invoice->number,
+            'invoice_hash' => $submission->invoice_hash,
+        ]);
+
+        $this->post(route('invoices.ksef.submissions.refresh', [
+            'invoice' => $invoice,
+            'submission' => $submission,
+        ]))->assertSessionHas('success');
+
+        $submission->refresh();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame($fake->statusResponse['ksefNumber'], $submission->ksef_number);
+        $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(1, $fake->upoCalls);
+        $this->assertSame($fake->upoResponse, KsefInvoiceUpo::query()->sole()->payload_xml);
+        $this->assertSame(0, $fake->sendCalls);
+    }
+
+    public function test_accepted_status_remains_saved_when_automatic_upo_is_not_yet_available(): void
+    {
+        $invoice = $this->eligibleInvoice();
         $submission = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Processing);
         $this->validAccessToken();
         $fake = $this->fakeOnlineApi();
@@ -714,12 +764,15 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->post(route('invoices.ksef.submissions.refresh', [
             'invoice' => $invoice,
             'submission' => $submission,
-        ]))->assertSessionHas('success');
+        ]))->assertSessionHasErrors([
+            'ksef' => 'UPO tej Faktury nie jest jeszcze dostępne w KSeF.',
+        ]);
 
-        $submission->refresh();
-        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
-        $this->assertSame($fake->statusResponse['ksefNumber'], $submission->ksef_number);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->refresh()->status);
         $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(1, $fake->upoCalls);
+        $this->assertSame(0, $fake->sendCalls);
+        $this->assertDatabaseCount('ksef_invoice_upos', 0);
     }
 
     #[DataProvider('nonRefreshableStatuses')]

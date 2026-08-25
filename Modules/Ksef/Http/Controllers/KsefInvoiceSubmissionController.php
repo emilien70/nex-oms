@@ -11,7 +11,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Support\InvoiceReturnContext;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
-use Modules\Ksef\Services\KsefInvoiceSubmissionService;
+use Modules\Ksef\Services\KsefInvoiceStatusFollowUpService;
 use Modules\Ksef\Services\KsefInvoiceUpoService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
@@ -25,7 +25,7 @@ class KsefInvoiceSubmissionController extends Controller
         Invoice $invoice,
         KsefManualInvoiceSubmissionService $manualSubmissions,
         KsefSettingsService $settings,
-        KsefInvoiceSubmissionService $submissions,
+        KsefInvoiceStatusFollowUpService $statusFollowUp,
     ): RedirectResponse {
         $returnContext = InvoiceReturnContext::fromRequest(
             $request,
@@ -36,7 +36,7 @@ class KsefInvoiceSubmissionController extends Controller
         try {
             $expectedEnvironment = $settings->getExisting()->environment;
             $submission = $manualSubmissions->submitFirstAttempt($invoice, $expectedEnvironment);
-            $this->refreshStatusOnce($invoice, $submission, $submissions);
+            $this->refreshStatusOnce($invoice, $submission, $statusFollowUp);
 
             return redirect($redirectUrl);
         } catch (KsefApiException|InvoiceDomainException $exception) {
@@ -51,11 +51,11 @@ class KsefInvoiceSubmissionController extends Controller
     public function store(
         Invoice $invoice,
         KsefManualInvoiceSubmissionService $manualSubmissions,
-        KsefInvoiceSubmissionService $submissions,
+        KsefInvoiceStatusFollowUpService $statusFollowUp,
     ): RedirectResponse {
         try {
             $submission = $manualSubmissions->submit($invoice);
-            $this->refreshStatusOnce($invoice, $submission, $submissions);
+            $this->refreshStatusOnce($invoice, $submission, $statusFollowUp);
             $environment = strtoupper($submission->environment->value);
 
             return back()->with(
@@ -74,12 +74,12 @@ class KsefInvoiceSubmissionController extends Controller
     public function reconcile(
         Invoice $invoice,
         KsefInvoiceSubmission $submission,
-        KsefInvoiceSubmissionService $submissions,
+        KsefInvoiceStatusFollowUpService $statusFollowUp,
     ): RedirectResponse {
         abort_unless($submission->invoice_id === $invoice->getKey(), 404);
 
         try {
-            $submissions->reconcile($submission);
+            $statusFollowUp->reconcile($invoice, $submission);
 
             return back()->with('success', 'Wynik transmisji KSeF został sprawdzony.');
         } catch (KsefApiException $exception) {
@@ -95,12 +95,12 @@ class KsefInvoiceSubmissionController extends Controller
         Request $request,
         Invoice $invoice,
         KsefInvoiceSubmission $submission,
-        KsefInvoiceSubmissionService $submissions,
+        KsefInvoiceStatusFollowUpService $statusFollowUp,
     ): RedirectResponse {
         abort_unless($submission->invoice_id === $invoice->getKey(), 404);
 
         try {
-            $submissions->refreshStatus($submission);
+            $statusFollowUp->refresh($invoice, $submission);
 
             if ($request->input('return_to') === InvoiceReturnContext::INVOICES) {
                 return back();
@@ -173,12 +173,12 @@ class KsefInvoiceSubmissionController extends Controller
     private function refreshStatusOnce(
         Invoice $invoice,
         KsefInvoiceSubmission $submission,
-        KsefInvoiceSubmissionService $submissions,
+        KsefInvoiceStatusFollowUpService $statusFollowUp,
     ): void {
         try {
-            $submissions->refreshStatus($submission);
+            $statusFollowUp->refresh($invoice, $submission);
         } catch (KsefApiException) {
-            // The invoice was already sent; refreshStatus persists safe lookup diagnostics.
+            // The invoice was already sent; status and UPO follow-up preserve their completed state.
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'post_send_status', $exception, $submission);
         }

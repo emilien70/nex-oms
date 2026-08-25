@@ -34,6 +34,10 @@ class KsefOnlineSessionApiFake
 
     public ?array $sessionInvoicesResponse = null;
 
+    public ?string $upoResponse = null;
+
+    public ?string $upoContentHash = null;
+
     /** @var array<string, array{status?: int, body?: mixed, headers?: array<string, string>, connection?: bool}> */
     public array $failures = [];
 
@@ -48,6 +52,8 @@ class KsefOnlineSessionApiFake
     public int $statusCalls = 0;
 
     public int $sessionInvoicesCalls = 0;
+
+    public int $upoCalls = 0;
 
     public ?array $openPayload = null;
 
@@ -119,6 +125,20 @@ class KsefOnlineSessionApiFake
             return Http::response(null, 204);
         }
 
+        if (preg_match('#/sessions/[^/]+/invoices/ksef/[^/]+/upo$#', $path) === 1) {
+            $this->upoCalls++;
+
+            if ($this->upoResponse === null) {
+                return Http::response(['reasonCode' => '21178'], 404);
+            }
+
+            return Http::response($this->upoResponse, 200, [
+                'Content-Type' => 'application/xml',
+                'x-ms-meta-hash' => $this->upoContentHash
+                    ?? base64_encode(hash('sha256', $this->upoResponse, true)),
+            ]);
+        }
+
         if (preg_match('#/sessions/[^/]+/invoices/[^/]+$#', $path) === 1) {
             $this->statusCalls++;
 
@@ -187,6 +207,8 @@ class KsefOnlineSessionApiFake
             $this->sendPayload = $request->data();
         } elseif (preg_match('#/sessions/online/[^/]+/close$#', $path) === 1) {
             $this->closeCalls++;
+        } elseif (preg_match('#/sessions/[^/]+/invoices/ksef/[^/]+/upo$#', $path) === 1) {
+            $this->upoCalls++;
         } elseif (preg_match('#/sessions/[^/]+/invoices/[^/]+$#', $path) === 1) {
             $this->statusCalls++;
         } elseif (preg_match('#/sessions/[^/]+/invoices$#', $path) === 1) {
