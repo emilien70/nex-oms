@@ -676,12 +676,12 @@
                                                         $ksefRejectedResult = $ksefRejectedResult !== '' ? $ksefRejectedResult : '—';
                                                     @endphp
                                                     <a class="badge text-bg-danger invoice-ksef-list-rejected" href="{{ route('invoices.edit', $documentEditRouteParameters) }}" data-ksef-list-rejected-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefRejectedResult }}" title="{{ $ksefRejectedResult }}" aria-label="Otwórz odrzuconą Fakturę {{ $invoice->number }}">Odrzucona</a>
-                                                @elseif ($currentKsefSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Submitted)
+                                                @elseif ($currentKsefSubmission->status->allowsStatusRefresh())
                                                     <form method="POST" action="{{ route('invoices.ksef.submissions.refresh', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-refresh-form>
                                                         @csrf
                                                         <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
                                                         <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
-                                                        <button class="badge text-bg-primary invoice-ksef-list-refresh" type="submit" data-ksef-list-refresh-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Sprawdź status" title="Sprawdź status" aria-label="Sprawdź status Faktury {{ $invoice->number }} w KSeF">Wysłana</button>
+                                                        <button class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }} invoice-ksef-list-refresh" type="submit" data-ksef-list-refresh-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Sprawdź status" title="Sprawdź status" aria-label="Sprawdź status Faktury {{ $invoice->number }} w KSeF">{{ $currentKsefSubmission->status->label() }}</button>
                                                     </form>
                                                 @else
                                                     <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-list-status>

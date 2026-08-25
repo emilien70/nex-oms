@@ -40,7 +40,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         Http::preventStrayRequests();
     }
 
-    public function test_first_manual_send_posts_invoice_exactly_once_without_status_polling(): void
+    public function test_first_manual_send_posts_invoice_once_and_checks_status_once(): void
     {
         $invoice = $this->eligibleInvoice();
         $this->validAccessToken();
@@ -51,12 +51,12 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $response->assertRedirect()
             ->assertSessionHas('success', 'Faktura została przekazana do KSeF TEST. Sprawdź status, aby potwierdzić przyjęcie.');
         $submission = KsefInvoiceSubmission::query()->sole();
-        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
         $this->assertSame(1, $submission->attempt_number);
         $this->assertSame(1, $fake->openCalls);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->closeCalls);
-        $this->assertSame(0, $fake->statusCalls);
+        $this->assertSame(1, $fake->statusCalls);
     }
 
     public function test_demo_manual_send_uses_demo_credential_host_and_dynamic_success_message(): void
@@ -73,14 +73,69 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $submission = KsefInvoiceSubmission::query()->sole();
         $this->assertSame(KsefEnvironment::Demo, $submission->environment);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
         $this->assertSame(1, $submission->attempt_number);
         $this->assertSame(1, $fake->sendCalls);
-        $this->assertSame(0, $fake->statusCalls);
-        Http::assertSentCount(4);
+        $this->assertSame(1, $fake->statusCalls);
+        Http::assertSentCount(5);
 
         foreach (Http::recorded() as [$request]) {
             $this->assertSame('api-demo.ksef.mf.gov.pl', parse_url($request->url(), PHP_URL_HOST));
         }
+    }
+
+    public function test_first_attempt_can_be_accepted_by_the_single_immediate_status_check(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->statusResponse = [
+            'invoicingDate' => '2026-08-21T10:00:00Z',
+            'acquisitionDate' => '2026-08-21T10:00:01Z',
+            'permanentStorageDate' => '2026-08-21T10:00:02Z',
+            'status' => ['code' => 200, 'description' => 'Przyjęta'],
+            'ksefNumber' => $this->validKsefNumber('9876543210'),
+        ];
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasNoErrors()
+            ->assertSessionMissing('success');
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame($fake->statusResponse['ksefNumber'], $submission->ksef_number);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->statusCalls);
+    }
+
+    public function test_immediate_status_failure_does_not_turn_a_successful_send_into_failure_or_retry(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->failures['/sessions/20260819-SO-TEST-REFERENCE/invoices/20260819-INV-TEST-REFERENCE'] = [
+            'status' => 503,
+            'body' => ['reasonCode' => 'SYNTHETIC_STATUS_UNAVAILABLE'],
+        ];
+        $route = route('invoices.ksef.submissions.first-attempt', $invoice);
+
+        $this->post($route)
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasNoErrors()
+            ->assertSessionMissing('success');
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame('SYNTHETIC_STATUS_UNAVAILABLE', $submission->safe_error_code);
+        $this->assertNotNull($submission->last_checked_at);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->statusCalls);
+
+        $this->post($route)->assertSessionHasErrors('ksef');
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->statusCalls);
     }
 
     #[DataProvider('listFirstAttemptEnvironments')]
@@ -100,12 +155,12 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $submission = KsefInvoiceSubmission::query()->sole();
         $this->assertSame($configuredEnvironment, $submission->environment);
-        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
         $this->assertSame(1, $submission->attempt_number);
         $this->assertSame(1, $fake->openCalls);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->closeCalls);
-        $this->assertSame(0, $fake->statusCalls);
+        $this->assertSame(1, $fake->statusCalls);
         foreach (Http::recorded() as [$request]) {
             $this->assertSame($expectedHost, parse_url($request->url(), PHP_URL_HOST));
         }
@@ -116,7 +171,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame(1, $fake->sendCalls);
 
         $this->get(route('invoices.index'))
-            ->assertSee(KsefInvoiceSubmissionStatus::Submitted->label())
+            ->assertSee(KsefInvoiceSubmissionStatus::Processing->label())
             ->assertDontSee($route, false);
     }
 
@@ -154,7 +209,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $submission = KsefInvoiceSubmission::query()->sole();
         $finalized = $invoice->fresh();
         $this->assertTrue($finalized->isFinalized());
-        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
         $this->assertSame(1, $submission->attempt_number);
         $this->assertSame('FA (3) 1-0E', $submission->schema_id);
         $this->assertSame(base64_encode(hash('sha256', $submission->payload_xml, true)), $submission->invoice_hash);
@@ -162,6 +217,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame(1, $fake->openCalls);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->closeCalls);
+        $this->assertSame(1, $fake->statusCalls);
 
         try {
             app(InvoiceMutationPolicy::class)->assertContentMutable($finalized);
@@ -229,9 +285,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'invoice_id' => $invoice->getKey(),
             'environment' => $activeEnvironment->value,
             'attempt_number' => 1,
-            'status' => KsefInvoiceSubmissionStatus::Submitted->value,
+            'status' => KsefInvoiceSubmissionStatus::Processing->value,
         ]);
         $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->statusCalls);
     }
 
     public static function crossEnvironmentFirstAttemptCases(): array
@@ -385,7 +442,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 1);
         $this->assertSame(1, $fake->sendCalls);
-        $this->assertSame(0, $fake->statusCalls);
+        $this->assertSame(1, $fake->statusCalls);
     }
 
     public function test_retry_safe_technical_failure_allows_a_new_attempt_and_preserves_history(): void
@@ -417,14 +474,14 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $second = KsefInvoiceSubmission::query()->orderByDesc('attempt_number')->firstOrFail();
         $this->assertDatabaseCount('ksef_invoice_submissions', 2);
         $this->assertSame(2, $second->attempt_number);
-        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $second->status);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $second->status);
         $this->assertSame($firstPayload, $first->fresh()->payload_xml);
         $this->assertNotSame(
             $firstRawPayload,
             DB::table('ksef_invoice_submissions')->where('id', $second->getKey())->value('payload_xml'),
         );
         $this->assertSame(2, $fake->sendCalls);
-        $this->assertSame(0, $fake->statusCalls);
+        $this->assertSame(1, $fake->statusCalls);
     }
 
     #[DataProvider('blockingStatuses')]
@@ -469,9 +526,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'invoice_id' => $invoice->getKey(),
             'environment' => KsefEnvironment::Test->value,
             'attempt_number' => 2,
-            'status' => KsefInvoiceSubmissionStatus::Submitted->value,
+            'status' => KsefInvoiceSubmissionStatus::Processing->value,
         ]);
         $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->statusCalls);
     }
 
     public static function retryableStatuses(): array
@@ -519,8 +577,9 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'invoice_id' => $invoice->getKey(),
             'environment' => KsefEnvironment::Test->value,
             'attempt_number' => 1,
-            'status' => KsefInvoiceSubmissionStatus::Submitted->value,
+            'status' => KsefInvoiceSubmissionStatus::Processing->value,
         ]);
+        $this->assertSame(1, $fake->statusCalls);
     }
 
     public function test_manual_send_preconditions_reject_without_submission_or_http(): void

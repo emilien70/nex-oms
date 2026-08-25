@@ -474,15 +474,17 @@ class InvoiceListTest extends TestCase
             ->assertDontSee('data-ksef-list-upo-trigger', false);
     }
 
-    public function test_submitted_list_status_uses_existing_status_refresh_action(): void
-    {
+    #[DataProvider('refreshableListStatuses')]
+    public function test_refreshable_list_status_uses_existing_status_refresh_action(
+        KsefInvoiceSubmissionStatus $status,
+    ): void {
         $invoice = $this->createKsefListInvoice();
-        $submission = $this->createListSubmission($invoice, KsefInvoiceSubmissionStatus::Submitted, 1);
+        $submission = $this->createListSubmission($invoice, $status, 1);
 
         $response = $this->get(route('invoices.index'));
 
         $response->assertOk()
-            ->assertSee('Wysłana')
+            ->assertSee($status->label())
             ->assertSee('data-ksef-list-refresh-form', false)
             ->assertSee('data-ksef-list-refresh-trigger', false)
             ->assertSee('data-ksef-status-tooltip', false)
@@ -494,6 +496,14 @@ class InvoiceListTest extends TestCase
             ]), false)
             ->assertDontSee('data-ksef-list-send-trigger', false)
             ->assertDontSee('data-ksef-list-upo-trigger', false);
+    }
+
+    public static function refreshableListStatuses(): array
+    {
+        return [
+            'submitted' => [KsefInvoiceSubmissionStatus::Submitted],
+            'processing' => [KsefInvoiceSubmissionStatus::Processing],
+        ];
     }
 
     #[DataProvider('listSendEnvironments')]

@@ -1255,7 +1255,7 @@ Zamknięcie KSeF.4A oznacza zweryfikowany happy path warstwy transportowej na TE
 
 ## 30.9. Ręczny workflow TEST KSeF.4B.1
 
-KSeF.4B.1 udostępnia na read-only ekranie sfinalizowanej Faktury VAT ręczną pierwszą wysyłkę do KSeF TEST oraz ręczne, pojedyncze sprawdzenie statusu. Akcja wysyłki jest żądaniem POST z CSRF i jawnym oznaczeniem TEST. W ramach jednego wywołania istniejący transport przygotowuje najwyżej jedną próbę, otwiera jedną sesję i wykonuje najwyżej jeden POST Faktury; żądanie wysyłki kończy się lokalnym stanem `submitted` i nie odpytuje automatycznie statusu.
+KSeF.4B.1 udostępnia na read-only ekranie sfinalizowanej Faktury VAT ręczną pierwszą wysyłkę do KSeF TEST oraz ręczne, pojedyncze sprawdzenie statusu. Akcja wysyłki jest żądaniem POST z CSRF i jawnym oznaczeniem TEST. W ramach jednego wywołania istniejący transport przygotowuje najwyżej jedną próbę, otwiera jedną sesję i wykonuje najwyżej jeden POST Faktury. Po udanym zakończeniu transportu NEX wykonuje dokładnie jeden status GET bez pollingu i retry; wynik może od razu ustawić `processing`, `accepted` albo `rejected`. Niepowodzenie tego dodatkowego odczytu nie cofa udanej wysyłki, nie tworzy nowej próby i pozostawia dokument w stanie pozwalającym na późniejsze ręczne sprawdzenie.
 
 Manualny orkiestrator blokuje Fakturę i bieżącą konfigurację w transakcji oraz atomowo sprawdza historię dla pary Faktura-bieżące środowisko. Każdy wcześniejszy rekord w tym samym środowisku, również `rejected` albo `technical_failed`, blokuje kolejną ręczną próbę. Historia z innego środowiska sama nie blokuje pierwszej próby w bieżącym środowisku. Przygotowanie pozostaje częścią tej transakcji, natomiast cały transport HTTP jest wykonywany dopiero po jej zatwierdzeniu.
 

@@ -25,6 +25,7 @@ class KsefInvoiceSubmissionController extends Controller
         Invoice $invoice,
         KsefManualInvoiceSubmissionService $manualSubmissions,
         KsefSettingsService $settings,
+        KsefInvoiceSubmissionService $submissions,
     ): RedirectResponse {
         $returnContext = InvoiceReturnContext::fromRequest(
             $request,
@@ -34,7 +35,8 @@ class KsefInvoiceSubmissionController extends Controller
 
         try {
             $expectedEnvironment = $settings->getExisting()->environment;
-            $manualSubmissions->submitFirstAttempt($invoice, $expectedEnvironment);
+            $submission = $manualSubmissions->submitFirstAttempt($invoice, $expectedEnvironment);
+            $this->refreshStatusOnce($invoice, $submission, $submissions);
 
             return redirect($redirectUrl);
         } catch (KsefApiException|InvoiceDomainException $exception) {
@@ -49,9 +51,11 @@ class KsefInvoiceSubmissionController extends Controller
     public function store(
         Invoice $invoice,
         KsefManualInvoiceSubmissionService $manualSubmissions,
+        KsefInvoiceSubmissionService $submissions,
     ): RedirectResponse {
         try {
             $submission = $manualSubmissions->submit($invoice);
+            $this->refreshStatusOnce($invoice, $submission, $submissions);
             $environment = strtoupper($submission->environment->value);
 
             return back()->with(
@@ -164,6 +168,20 @@ class KsefInvoiceSubmissionController extends Controller
             $filename,
             ['Content-Type' => 'application/xml'],
         );
+    }
+
+    private function refreshStatusOnce(
+        Invoice $invoice,
+        KsefInvoiceSubmission $submission,
+        KsefInvoiceSubmissionService $submissions,
+    ): void {
+        try {
+            $submissions->refreshStatus($submission);
+        } catch (KsefApiException) {
+            // The invoice was already sent; refreshStatus persists safe lookup diagnostics.
+        } catch (Throwable $exception) {
+            $this->logUnexpected($invoice, 'post_send_status', $exception, $submission);
+        }
     }
 
     private function logUnexpected(
