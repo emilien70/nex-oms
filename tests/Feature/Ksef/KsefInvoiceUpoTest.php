@@ -119,6 +119,13 @@ class KsefInvoiceUpoTest extends TestCase
         $this->assertDatabaseCount('ksef_invoice_upos', 1);
         $this->assertSame($xml, $upo->fresh()->payload_xml);
         Http::assertSentCount(1);
+
+        $download = $this->post($route, ['download' => '1']);
+        $download->assertOk()
+            ->assertDownload('UPO_'.$submission->ksef_number.'.xml')
+            ->assertHeader('Content-Type', 'application/xml');
+        $this->assertSame($xml, $download->streamedContent());
+        Http::assertSentCount(1);
     }
 
     #[DataProvider('nonAcceptedStatuses')]

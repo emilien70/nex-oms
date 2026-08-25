@@ -201,7 +201,16 @@ class InvoiceController
 
             $submissions = KsefInvoiceSubmission::query()
                 ->whereIn('id', $latestIds)
-                ->get(['id', 'invoice_id', 'environment', 'status'])
+                ->get([
+                    'id',
+                    'invoice_id',
+                    'environment',
+                    'status',
+                    'acquisition_date',
+                    'ksef_number',
+                    'ksef_status_code',
+                    'safe_error_message',
+                ])
                 ->keyBy('invoice_id');
         }
 

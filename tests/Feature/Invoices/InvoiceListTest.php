@@ -395,7 +395,12 @@ class InvoiceListTest extends TestCase
             );
         });
         $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Rejected, 1, KsefEnvironment::Demo);
-        $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Accepted, 2, KsefEnvironment::Demo);
+        $acceptedSubmission = $this->createListSubmission(
+            $invoices[0],
+            KsefInvoiceSubmissionStatus::Accepted,
+            2,
+            KsefEnvironment::Demo,
+        );
         $this->createListSubmission($invoices[0], KsefInvoiceSubmissionStatus::Processing, 1, KsefEnvironment::Test);
         $this->createListSubmission($invoices[1], KsefInvoiceSubmissionStatus::Processing, 1, KsefEnvironment::Demo);
 
@@ -410,6 +415,13 @@ class InvoiceListTest extends TestCase
         $response->assertOk()
             ->assertSee('KSeF')
             ->assertSee('Przyjęta')
+            ->assertSee('data-ksef-list-upo-trigger', false)
+            ->assertSee('Faktura została zautoryzowana przez KSeF dnia 21.08.2026 09:40:43 pod numerem 6282192260-20260821-440DF5800001-5F')
+            ->assertSee(route('invoices.ksef.submissions.upo.fetch', [
+                'invoice' => $invoices[0],
+                'submission' => $acceptedSubmission,
+            ]), false)
+            ->assertSee('name="download" value="1"', false)
             ->assertSee('Przetwarzanie')
             ->assertSee('Nie wysłano');
         $response->viewData('invoices')->getCollection()->each(
@@ -422,49 +434,109 @@ class InvoiceListTest extends TestCase
         $this->assertSame(KsefEnvironment::Demo, $latestSubmission->environment);
         $loadedAttributeNames = array_keys($latestSubmission->getAttributes());
         sort($loadedAttributeNames);
-        $this->assertSame(['environment', 'id', 'invoice_id', 'status'], $loadedAttributeNames);
+        $this->assertSame([
+            'acquisition_date',
+            'environment',
+            'id',
+            'invoice_id',
+            'ksef_number',
+            'ksef_status_code',
+            'safe_error_message',
+            'status',
+        ], $loadedAttributeNames);
         $this->assertArrayNotHasKey('payload_xml', $latestSubmission->getAttributes());
         $this->assertArrayNotHasKey('invoice_hash', $latestSubmission->getAttributes());
         $this->assertArrayNotHasKey('context_nip', $latestSubmission->getAttributes());
         $this->assertArrayNotHasKey('seller_nip', $latestSubmission->getAttributes());
     }
 
+    public function test_rejected_list_status_shows_safe_result_and_links_to_invoice_edit(): void
+    {
+        $invoice = $this->createKsefListInvoice();
+        $submission = $this->createListSubmission($invoice, KsefInvoiceSubmissionStatus::Rejected, 1);
+        $submission->forceFill([
+            'ksef_status_code' => 415,
+            'safe_error_message' => 'KSeF odrzucił Fakturę podczas weryfikacji.',
+        ])->save();
+
+        $response = $this->get(route('invoices.index'));
+
+        $response->assertOk()
+            ->assertSee('data-ksef-list-rejected-trigger', false)
+            ->assertSee('data-ksef-status-tooltip', false)
+            ->assertSee('data-bs-title="Kod KSeF: 415', false)
+            ->assertSee('KSeF odrzucił Fakturę podczas weryfikacji.')
+            ->assertSee(route('invoices.edit', [
+                'invoice' => $invoice,
+                'return_to' => 'invoices',
+            ]), false)
+            ->assertDontSee('data-ksef-list-send-trigger', false)
+            ->assertDontSee('data-ksef-list-upo-trigger', false);
+    }
+
+    public function test_submitted_list_status_uses_existing_status_refresh_action(): void
+    {
+        $invoice = $this->createKsefListInvoice();
+        $submission = $this->createListSubmission($invoice, KsefInvoiceSubmissionStatus::Submitted, 1);
+
+        $response = $this->get(route('invoices.index'));
+
+        $response->assertOk()
+            ->assertSee('Wysłana')
+            ->assertSee('data-ksef-list-refresh-form', false)
+            ->assertSee('data-ksef-list-refresh-trigger', false)
+            ->assertSee('data-ksef-status-tooltip', false)
+            ->assertSee('data-bs-title="Sprawdź status"', false)
+            ->assertSee('name="return_to" value="invoices"', false)
+            ->assertSee(route('invoices.ksef.submissions.refresh', [
+                'invoice' => $invoice,
+                'submission' => $submission,
+            ]), false)
+            ->assertDontSee('data-ksef-list-send-trigger', false)
+            ->assertDontSee('data-ksef-list-upo-trigger', false);
+    }
+
     #[DataProvider('listSendEnvironments')]
     public function test_invoice_list_shows_first_send_for_supported_environment_without_history(
         KsefEnvironment $environment,
         bool $finalized,
-        bool $expectsDemoWarning,
     ): void {
         $invoice = $this->createKsefListInvoice($environment, finalize: $finalized);
         $response = $this->get(route('invoices.index'));
-        $confirmation = "Wysłać Fakturę {$invoice->number} do KSeF ".strtoupper($environment->value).'?';
-
-        if (! $finalized) {
-            $confirmation .= ' Wysłanie do KSeF zamknie Fakturę i uniemożliwi jej dalszą edycję.';
-        }
-        if ($expectsDemoWarning) {
-            $confirmation .= ' Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.';
-        }
 
         $response->assertOk()
             ->assertSee('Nie wysłano')
-            ->assertSee('WYŚLIJ')
+            ->assertDontSee('WYŚLIJ')
+            ->assertSee('type="submit" data-ksef-list-send-trigger', false)
+            ->assertSee('data-ksef-list-send-trigger', false)
+            ->assertSee('data-ksef-status-tooltip', false)
+            ->assertSee("document.querySelectorAll('[data-ksef-status-tooltip]')", false)
+            ->assertSee('data-bs-target="#invoiceKsefSendConfirmationModal"', false)
+            ->assertSee('data-bs-title="Faktura nieprzekazana - przekaż do KSeF"', false)
+            ->assertSee('title="Faktura nieprzekazana - przekaż do KSeF"', false)
             ->assertSee(route('invoices.ksef.submissions.first-attempt', $invoice), false)
-            ->assertSee('data-confirm-message="'.e($confirmation).'"', false)
+            ->assertSee('data-ksef-list-send-modal', false)
+            ->assertSee('class="modal-dialog invoice-ksef-confirm-dialog"', false)
+            ->assertDontSee('modal-dialog-centered')
+            ->assertSee('Czy przekazać fakturę do KSeF 2.0?')
+            ->assertSee('data-ksef-list-send-confirm', false)
+            ->assertSee('>Tak</button>', false)
+            ->assertSee('>Anuluj</button>', false)
+            ->assertSee('HTMLFormElement.prototype.submit.call(form);', false)
+            ->assertDontSee('data-ksef-list-send-form data-confirm-message', false)
+            ->assertDontSee('Wysłać Fakturę')
+            ->assertDontSee('Wysłanie do KSeF zamknie Fakturę')
+            ->assertDontSee('Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.')
             ->assertDontSee('name="environment"', false);
-
-        if (! $expectsDemoWarning) {
-            $response->assertDontSee('Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.');
-        }
     }
 
     public static function listSendEnvironments(): array
     {
         return [
-            'finalized TEST' => [KsefEnvironment::Test, true, false],
-            'unfinalized TEST' => [KsefEnvironment::Test, false, false],
-            'finalized DEMO' => [KsefEnvironment::Demo, true, true],
-            'unfinalized DEMO' => [KsefEnvironment::Demo, false, true],
+            'finalized TEST' => [KsefEnvironment::Test, true],
+            'unfinalized TEST' => [KsefEnvironment::Test, false],
+            'finalized DEMO' => [KsefEnvironment::Demo, true],
+            'unfinalized DEMO' => [KsefEnvironment::Demo, false],
         ];
     }
 
@@ -484,6 +556,7 @@ class InvoiceListTest extends TestCase
         $this->get(route('invoices.index'))
             ->assertOk()
             ->assertSee('Nie wysłano')
+            ->assertSee('data-ksef-list-send-trigger', false)
             ->assertSee(route('invoices.ksef.submissions.first-attempt', $invoice), false)
             ->assertDontSee('Przyjęta');
     }
@@ -503,10 +576,16 @@ class InvoiceListTest extends TestCase
         $invoice = $this->createKsefListInvoice();
         $this->createListSubmission($invoice, $status, 1);
 
-        $this->get(route('invoices.index'))
+        $response = $this->get(route('invoices.index'))
             ->assertOk()
             ->assertSee($status->label())
             ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $invoice), false);
+
+        if ($status === KsefInvoiceSubmissionStatus::Accepted) {
+            $response->assertSee('data-ksef-list-upo-trigger', false);
+        } else {
+            $response->assertDontSee('data-ksef-list-upo-trigger', false);
+        }
     }
 
     public static function allKsefSubmissionStatuses(): array
@@ -535,6 +614,7 @@ class InvoiceListTest extends TestCase
         $this->get(route('invoices.index'))
             ->assertOk()
             ->assertSee('Nie wysłano')
+            ->assertDontSee('data-ksef-list-send-trigger', false)
             ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $invoice), false);
     }
 
@@ -556,6 +636,7 @@ class InvoiceListTest extends TestCase
 
         $this->get(route('invoices.index'))
             ->assertOk()
+            ->assertDontSee('data-ksef-list-send-trigger', false)
             ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $invoice), false);
     }
 
@@ -614,6 +695,10 @@ class InvoiceListTest extends TestCase
             'payload_xml' => $payload,
             'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
             'invoice_size' => strlen($payload),
+            ...($status === KsefInvoiceSubmissionStatus::Accepted ? [
+                'ksef_number' => '6282192260-20260821-440DF5800001-5F',
+                'acquisition_date' => '2026-08-21 09:40:43',
+            ] : []),
         ]);
     }
 

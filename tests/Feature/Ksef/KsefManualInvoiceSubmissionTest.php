@@ -96,10 +96,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $this->post($route, ['environment' => $forgedEnvironment->value])
             ->assertRedirect(route('invoices.index'))
-            ->assertSessionHas(
-                'success',
-                'Faktura została przekazana do KSeF '.strtoupper($configuredEnvironment->value).'.',
-            );
+            ->assertSessionMissing('success');
 
         $submission = KsefInvoiceSubmission::query()->sole();
         $this->assertSame($configuredEnvironment, $submission->environment);
@@ -152,7 +149,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         });
 
         $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
-            ->assertSessionHas('success');
+            ->assertSessionMissing('success');
 
         $submission = KsefInvoiceSubmission::query()->sole();
         $finalized = $invoice->fresh();
@@ -224,7 +221,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $fake = $this->fakeOnlineApi();
 
         $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
-            ->assertSessionHas('success');
+            ->assertSessionMissing('success');
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 2);
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $historical->fresh()->status);
@@ -612,6 +609,28 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'invoice' => $invoice,
             'submission' => $submission,
         ]))->assertSessionHas('success', 'Status KSeF został odświeżony.');
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->refresh()->status);
+        $this->assertSame(1, $fake->statusCalls);
+    }
+
+    public function test_list_status_refresh_returns_without_success_message(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $submission = app(KsefInvoiceSubmissionService::class)
+            ->submit(app(KsefInvoiceSubmissionService::class)->prepare($invoice));
+
+        $this->from(route('invoices.index'))
+            ->post(route('invoices.ksef.submissions.refresh', [
+                'invoice' => $invoice,
+                'submission' => $submission,
+            ]), [
+                'return_to' => 'invoices',
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionMissing('success');
 
         $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->refresh()->status);
         $this->assertSame(1, $fake->statusCalls);

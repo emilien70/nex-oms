@@ -34,13 +34,9 @@ class KsefInvoiceSubmissionController extends Controller
 
         try {
             $expectedEnvironment = $settings->getExisting()->environment;
-            $submission = $manualSubmissions->submitFirstAttempt($invoice, $expectedEnvironment);
-            $environment = strtoupper($submission->environment->value);
+            $manualSubmissions->submitFirstAttempt($invoice, $expectedEnvironment);
 
-            return redirect($redirectUrl)->with(
-                'success',
-                "Faktura została przekazana do KSeF {$environment}.",
-            );
+            return redirect($redirectUrl);
         } catch (KsefApiException|InvoiceDomainException $exception) {
             return redirect($redirectUrl)->withErrors(['ksef' => $exception->getMessage()]);
         } catch (Throwable $exception) {
@@ -92,6 +88,7 @@ class KsefInvoiceSubmissionController extends Controller
     }
 
     public function refresh(
+        Request $request,
         Invoice $invoice,
         KsefInvoiceSubmission $submission,
         KsefInvoiceSubmissionService $submissions,
@@ -100,6 +97,10 @@ class KsefInvoiceSubmissionController extends Controller
 
         try {
             $submissions->refreshStatus($submission);
+
+            if ($request->input('return_to') === InvoiceReturnContext::INVOICES) {
+                return back();
+            }
 
             return back()->with('success', 'Status KSeF został odświeżony.');
         } catch (KsefApiException $exception) {
@@ -112,14 +113,19 @@ class KsefInvoiceSubmissionController extends Controller
     }
 
     public function fetchUpo(
+        Request $request,
         Invoice $invoice,
         KsefInvoiceSubmission $submission,
         KsefInvoiceUpoService $upos,
-    ): RedirectResponse {
+    ): RedirectResponse|StreamedResponse {
         abort_unless($submission->invoice_id === $invoice->getKey(), 404);
 
         try {
-            $upos->fetch($invoice, $submission);
+            $upo = $upos->fetch($invoice, $submission);
+
+            if ($request->boolean('download')) {
+                return $this->upoDownloadResponse($submission, $upo->payload_xml);
+            }
 
             return back()->with('success', 'UPO zostało pobrane i bezpiecznie zapisane.');
         } catch (KsefApiException $exception) {
@@ -140,7 +146,14 @@ class KsefInvoiceSubmissionController extends Controller
 
         $upo = $upos->stored($invoice, $submission);
         abort_if($upo === null, 404);
-        $xml = $upo->payload_xml;
+
+        return $this->upoDownloadResponse($submission, $upo->payload_xml);
+    }
+
+    private function upoDownloadResponse(
+        KsefInvoiceSubmission $submission,
+        string $xml,
+    ): StreamedResponse {
         $number = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) $submission->ksef_number);
         $filename = 'UPO_'.trim((string) $number, '_').'.xml';
 

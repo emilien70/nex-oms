@@ -242,23 +242,119 @@
             align-items: center;
             display: flex;
             flex-direction: column;
-            gap: 4px;
         }
 
         .invoice-ksef-list-send {
-            background: #fff;
-            border: 1px solid #9fc7ed;
-            border-radius: 4px;
-            color: #0875d1;
-            font-size: 9px;
-            line-height: 1;
-            padding: 4px 8px;
+            border: 0;
+            cursor: pointer;
         }
 
         .invoice-ksef-list-send:hover,
         .invoice-ksef-list-send:focus {
-            background: #f1f7fd;
-            border-color: #64a8e8;
+            opacity: .8;
+        }
+
+        .invoice-ksef-list-send:focus-visible {
+            box-shadow: 0 0 0 2px rgba(13, 110, 253, .3);
+            outline: 0;
+        }
+
+        .invoice-ksef-list-upo {
+            border: 0;
+            cursor: pointer;
+        }
+
+        .invoice-ksef-list-upo:hover,
+        .invoice-ksef-list-upo:focus {
+            color: #fff;
+            opacity: .8;
+        }
+
+        .invoice-ksef-list-rejected {
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .invoice-ksef-list-rejected:hover,
+        .invoice-ksef-list-rejected:focus {
+            color: #fff;
+            opacity: .8;
+        }
+
+        .invoice-ksef-list-refresh {
+            border: 0;
+            cursor: pointer;
+        }
+
+        .invoice-ksef-list-refresh:hover,
+        .invoice-ksef-list-refresh:focus {
+            color: #fff;
+            opacity: .8;
+        }
+
+        .invoice-ksef-status-tooltip {
+            --bs-tooltip-bg: #4d5257;
+            --bs-tooltip-opacity: 1;
+        }
+
+        .invoice-ksef-status-tooltip .tooltip-inner {
+            font-size: 11px;
+            line-height: 1.35;
+            max-width: 220px;
+            padding: 8px 10px;
+        }
+
+        .invoice-ksef-confirm-dialog {
+            margin-top: 12px;
+            max-width: 650px;
+        }
+
+        .invoice-ksef-confirm-content {
+            border: 0;
+            border-radius: 8px;
+        }
+
+        .invoice-ksef-confirm-body {
+            padding: 20px 24px 18px;
+            text-align: center;
+        }
+
+        .invoice-ksef-confirm-icon {
+            color: #e57905;
+            font-size: 42px;
+            line-height: 1;
+        }
+
+        .invoice-ksef-confirm-question {
+            color: #20252b;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 28px 0 30px;
+        }
+
+        .invoice-ksef-confirm-actions {
+            display: flex;
+            gap: 7px;
+            justify-content: center;
+        }
+
+        .invoice-ksef-confirm-actions .btn {
+            border-radius: 20px;
+            min-width: 64px;
+            padding: 9px 18px;
+        }
+
+        .invoice-ksef-confirm-accept {
+            background: #f57c00;
+            border-color: #f57c00;
+            color: #fff;
+        }
+
+        .invoice-ksef-confirm-accept:hover,
+        .invoice-ksef-confirm-accept:focus {
+            background: #d96d00;
+            border-color: #d96d00;
+            color: #fff;
         }
 
         .invoice-list-footer {
@@ -556,30 +652,51 @@
                                     <td class="text-center">
                                         <div class="invoice-ksef-list-cell">
                                             @if ($currentKsefSubmission)
-                                                <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-list-status>
-                                                    {{ $currentKsefSubmission->status->label() }}
-                                                </span>
-                                            @else
-                                                <span class="badge text-bg-secondary" data-ksef-list-status>Nie wysłano</span>
-                                            @endif
+                                                @if ($currentKsefSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted)
+                                                    @php
+                                                        $ksefAcceptedAt = $currentKsefSubmission->acquisition_date?->format('d.m.Y H:i:s') ?? '—';
+                                                        $ksefAcceptedNumber = trim((string) $currentKsefSubmission->ksef_number) ?: '—';
+                                                        $ksefAcceptedTooltip = "Faktura została zautoryzowana przez KSeF dnia {$ksefAcceptedAt} pod numerem {$ksefAcceptedNumber}";
+                                                    @endphp
+                                                    <form method="POST" action="{{ route('invoices.ksef.submissions.upo.fetch', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-upo-form>
+                                                        @csrf
+                                                        <input type="hidden" name="download" value="1">
+                                                        <button class="badge text-bg-success invoice-ksef-list-upo" type="submit" data-ksef-list-upo-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefAcceptedTooltip }}" title="{{ $ksefAcceptedTooltip }}">Przyjęta</button>
+                                                    </form>
+                                                @elseif ($currentKsefSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected)
+                                                    @php
+                                                        $ksefRejectedResult = $currentKsefSubmission->ksef_status_code !== null
+                                                            ? 'Kod KSeF: '.$currentKsefSubmission->ksef_status_code
+                                                            : '';
 
-                                            @if ($ksefListCanSend)
-                                                @php
-                                                    $ksefEnvironmentCode = strtoupper($ksefListEnvironment->value);
-                                                    $ksefSendConfirmation = "Wysłać Fakturę {$invoice->number} do KSeF {$ksefEnvironmentCode}?";
-                                                    if (! $invoice->isFinalized()) {
-                                                        $ksefSendConfirmation .= ' Wysłanie do KSeF zamknie Fakturę i uniemożliwi jej dalszą edycję.';
-                                                    }
-                                                    if ($ksefListEnvironment === \Modules\Ksef\Enums\KsefEnvironment::Demo) {
-                                                        $ksefSendConfirmation .= ' Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.';
-                                                    }
-                                                @endphp
-                                                <form method="POST" action="{{ route('invoices.ksef.submissions.first-attempt', $invoice) }}" data-ksef-list-send-form data-confirm-message="{{ $ksefSendConfirmation }}">
+                                                        if ($currentKsefSubmission->safe_error_message) {
+                                                            $ksefRejectedResult .= ($ksefRejectedResult !== '' ? "\n" : '').$currentKsefSubmission->safe_error_message;
+                                                        }
+
+                                                        $ksefRejectedResult = $ksefRejectedResult !== '' ? $ksefRejectedResult : '—';
+                                                    @endphp
+                                                    <a class="badge text-bg-danger invoice-ksef-list-rejected" href="{{ route('invoices.edit', $documentEditRouteParameters) }}" data-ksef-list-rejected-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefRejectedResult }}" title="{{ $ksefRejectedResult }}" aria-label="Otwórz odrzuconą Fakturę {{ $invoice->number }}">Odrzucona</a>
+                                                @elseif ($currentKsefSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Submitted)
+                                                    <form method="POST" action="{{ route('invoices.ksef.submissions.refresh', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-refresh-form>
+                                                        @csrf
+                                                        <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                                                        <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+                                                        <button class="badge text-bg-primary invoice-ksef-list-refresh" type="submit" data-ksef-list-refresh-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Sprawdź status" title="Sprawdź status" aria-label="Sprawdź status Faktury {{ $invoice->number }} w KSeF">Wysłana</button>
+                                                    </form>
+                                                @else
+                                                    <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-list-status>
+                                                        {{ $currentKsefSubmission->status->label() }}
+                                                    </span>
+                                                @endif
+                                            @elseif ($ksefListCanSend)
+                                                <form method="POST" action="{{ route('invoices.ksef.submissions.first-attempt', $invoice) }}" data-ksef-list-send-form>
                                                     @csrf
                                                     <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
                                                     <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
-                                                    <button class="invoice-ksef-list-send" type="submit">WYŚLIJ</button>
+                                                    <button class="badge text-bg-secondary invoice-ksef-list-send" type="submit" data-ksef-list-send-trigger data-ksef-status-tooltip data-bs-toggle="modal" data-bs-target="#invoiceKsefSendConfirmationModal" data-bs-placement="top" data-bs-title="Faktura nieprzekazana - przekaż do KSeF" title="Faktura nieprzekazana - przekaż do KSeF" aria-label="Faktura {{ $invoice->number }} nieprzekazana - przekaż do KSeF">Nie wysłano</button>
                                                 </form>
+                                            @else
+                                                <span class="badge text-bg-secondary" data-ksef-list-status>Nie wysłano</span>
                                             @endif
                                         </div>
                                     </td>
@@ -673,6 +790,21 @@
             'modalId' => 'invoiceListCorrectionSeriesModal',
             'returnContext' => $returnContext,
         ])
+
+        <div class="modal fade" id="invoiceKsefSendConfirmationModal" tabindex="-1" aria-labelledby="invoiceKsefSendConfirmationQuestion" aria-hidden="true" data-ksef-list-send-modal>
+            <div class="modal-dialog invoice-ksef-confirm-dialog">
+                <div class="modal-content invoice-ksef-confirm-content">
+                    <div class="modal-body invoice-ksef-confirm-body">
+                        <i class="bi bi-exclamation-triangle invoice-ksef-confirm-icon" aria-hidden="true"></i>
+                        <h2 class="invoice-ksef-confirm-question" id="invoiceKsefSendConfirmationQuestion">Czy przekazać fakturę do KSeF 2.0?</h2>
+                        <div class="invoice-ksef-confirm-actions">
+                            <button class="btn invoice-ksef-confirm-accept" type="button" data-ksef-list-send-confirm>Tak</button>
+                            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Anuluj</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     @endif
 
     <script>
@@ -689,12 +821,40 @@
             const deleteSelection = deleteForm?.querySelector('[data-bulk-delete-selection]');
             const documentNamePlural = @json($documentNamePlural);
 
+            if (typeof bootstrap !== 'undefined') {
+                document.querySelectorAll('[data-ksef-status-tooltip]').forEach((element) => {
+                    bootstrap.Tooltip.getOrCreateInstance(element, {
+                        container: 'body',
+                        customClass: 'invoice-ksef-status-tooltip',
+                    });
+                });
+            }
+
+            const ksefSendModalElement = document.querySelector('[data-ksef-list-send-modal]');
+            const ksefSendConfirmButton = document.querySelector('[data-ksef-list-send-confirm]');
+            let pendingKsefSendForm = null;
+
             document.querySelectorAll('[data-ksef-list-send-form]').forEach((form) => {
                 form.addEventListener('submit', (event) => {
-                    if (!window.confirm(form.dataset.confirmMessage)) {
-                        event.preventDefault();
-                    }
+                    event.preventDefault();
+                    pendingKsefSendForm = form;
                 });
+            });
+
+            ksefSendConfirmButton?.addEventListener('click', () => {
+                if (!pendingKsefSendForm) {
+                    return;
+                }
+
+                const form = pendingKsefSendForm;
+                pendingKsefSendForm = null;
+                ksefSendConfirmButton.disabled = true;
+                HTMLFormElement.prototype.submit.call(form);
+            });
+
+            ksefSendModalElement?.addEventListener('hidden.bs.modal', () => {
+                pendingKsefSendForm = null;
+                ksefSendConfirmButton.disabled = false;
             });
 
             const showDeleteBlockedMessage = (message) => {
