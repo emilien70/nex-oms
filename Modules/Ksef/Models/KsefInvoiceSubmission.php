@@ -36,6 +36,11 @@ class KsefInvoiceSubmission extends Model
         'invoicing_date',
         'permanent_storage_date',
         'last_checked_at',
+        'next_follow_up_at',
+        'follow_up_attempts',
+        'last_follow_up_at',
+        'last_follow_up_error_code',
+        'last_follow_up_error_message',
         'safe_error_code',
         'safe_error_message',
         'session_close_error_code',
@@ -61,6 +66,9 @@ class KsefInvoiceSubmission extends Model
         'invoicing_date' => 'immutable_datetime',
         'permanent_storage_date' => 'immutable_datetime',
         'last_checked_at' => 'immutable_datetime',
+        'next_follow_up_at' => 'immutable_datetime',
+        'follow_up_attempts' => 'integer',
+        'last_follow_up_at' => 'immutable_datetime',
     ];
 
     public function invoice(): BelongsTo

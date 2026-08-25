@@ -416,7 +416,7 @@ class InvoiceListTest extends TestCase
             ->assertSee('KSeF')
             ->assertSee('Zaakceptowana')
             ->assertSee('data-ksef-list-upo-trigger', false)
-            ->assertSee('Faktura została zautoryzowana przez KSeF dnia 21.08.2026 09:40:43 pod numerem 6282192260-20260821-440DF5800001-5F')
+            ->assertSee('Faktura została przyjęta. NEX automatycznie oczekuje na UPO. Kliknij, aby spróbować pobrać teraz.')
             ->assertSee(route('invoices.ksef.submissions.upo.fetch', [
                 'invoice' => $invoices[0],
                 'submission' => $acceptedSubmission,
@@ -440,6 +440,7 @@ class InvoiceListTest extends TestCase
         $this->assertNotNull($latestSubmission);
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $latestSubmission->status);
         $this->assertSame(KsefEnvironment::Demo, $latestSubmission->environment);
+        $this->assertTrue($latestSubmission->relationLoaded('upo'));
         $loadedAttributeNames = array_keys($latestSubmission->getAttributes());
         sort($loadedAttributeNames);
         $this->assertSame([
@@ -496,7 +497,7 @@ class InvoiceListTest extends TestCase
             ->assertSee('data-ksef-list-refresh-form', false)
             ->assertSee('data-ksef-list-refresh-trigger', false)
             ->assertSee('data-ksef-status-tooltip', false)
-            ->assertSee('data-bs-title="Sprawdź status"', false)
+            ->assertSee('data-bs-title="Status jest sprawdzany automatycznie. Kliknij, aby sprawdzić teraz."', false)
             ->assertSee('name="return_to" value="invoices"', false)
             ->assertSee(route('invoices.ksef.submissions.refresh', [
                 'invoice' => $invoice,

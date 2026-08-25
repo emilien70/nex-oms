@@ -200,6 +200,7 @@ class InvoiceController
                 ->groupBy('invoice_id');
 
             $submissions = KsefInvoiceSubmission::query()
+                ->with('upo:id,ksef_invoice_submission_id')
                 ->whereIn('id', $latestIds)
                 ->get([
                     'id',

@@ -33,6 +33,7 @@ class KsefInvoiceSubmissionService
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
         private readonly KsefInvoiceSubmissionLifecyclePolicy $lifecycle,
         private readonly KsefOperationalEnvironmentPolicy $environments,
+        private readonly KsefSubmissionFollowUpPolicy $followUp,
     ) {}
 
     public function prepare(
@@ -215,6 +216,11 @@ class KsefInvoiceSubmissionService
             KsefInvoiceSubmissionStatus::Submitted,
             [
                 'invoice_reference_number' => $invoiceReference,
+                'next_follow_up_at' => $this->followUp->nextAttemptAt(0),
+                'follow_up_attempts' => 0,
+                'last_follow_up_at' => null,
+                'last_follow_up_error_code' => null,
+                'last_follow_up_error_message' => null,
                 'safe_error_code' => null,
                 'safe_error_message' => null,
             ],
@@ -526,6 +532,7 @@ class KsefInvoiceSubmissionService
             $submission,
             KsefInvoiceSubmissionStatus::TechnicalFailed,
             [
+                'next_follow_up_at' => null,
                 'safe_error_code' => $this->safeErrorCode($exception),
                 'safe_error_message' => $this->safeMessage($exception),
             ],
@@ -540,6 +547,11 @@ class KsefInvoiceSubmissionService
             $submission,
             KsefInvoiceSubmissionStatus::Uncertain,
             [
+                'next_follow_up_at' => $this->followUp->nextAttemptAt(0),
+                'follow_up_attempts' => 0,
+                'last_follow_up_at' => null,
+                'last_follow_up_error_code' => null,
+                'last_follow_up_error_message' => null,
                 'safe_error_code' => $this->safeErrorCode($exception),
                 'safe_error_message' => $this->safeMessage($exception),
             ],
@@ -574,6 +586,13 @@ class KsefInvoiceSubmissionService
 
             if (! $managed->status->canTransitionTo($to)) {
                 throw $this->invalidState();
+            }
+
+            if (in_array($to, [
+                KsefInvoiceSubmissionStatus::Rejected,
+                KsefInvoiceSubmissionStatus::TechnicalFailed,
+            ], true)) {
+                $attributes['next_follow_up_at'] = null;
             }
 
             $managed->forceFill($attributes + ['status' => $to])->save();

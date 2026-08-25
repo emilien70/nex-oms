@@ -123,12 +123,12 @@ class KsefInvoiceSubmissionController extends Controller
         Request $request,
         Invoice $invoice,
         KsefInvoiceSubmission $submission,
-        KsefInvoiceUpoService $upos,
+        KsefInvoiceStatusFollowUpService $statusFollowUp,
     ): JsonResponse|RedirectResponse|StreamedResponse {
         abort_unless($submission->invoice_id === $invoice->getKey(), 404);
 
         try {
-            $upo = $upos->fetch($invoice, $submission);
+            $upo = $statusFollowUp->fetchUpo($invoice, $submission);
 
             if ($request->boolean('download')) {
                 return $this->upoDownloadResponse($submission, $upo->payload_xml);

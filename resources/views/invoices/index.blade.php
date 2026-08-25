@@ -656,7 +656,9 @@
                                                     @php
                                                         $ksefAcceptedAt = $currentKsefSubmission->acquisition_date?->format('d.m.Y H:i:s') ?? '—';
                                                         $ksefAcceptedNumber = trim((string) $currentKsefSubmission->ksef_number) ?: '—';
-                                                        $ksefAcceptedTooltip = "Faktura została zautoryzowana przez KSeF dnia {$ksefAcceptedAt} pod numerem {$ksefAcceptedNumber}";
+                                                        $ksefAcceptedTooltip = $currentKsefSubmission->upo
+                                                            ? "Faktura została zautoryzowana przez KSeF dnia {$ksefAcceptedAt} pod numerem {$ksefAcceptedNumber}"
+                                                            : 'Faktura została przyjęta. NEX automatycznie oczekuje na UPO. Kliknij, aby spróbować pobrać teraz.';
                                                     @endphp
                                                     <form method="POST" action="{{ route('invoices.ksef.submissions.upo.fetch', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-upo-form>
                                                         @csrf
@@ -681,7 +683,7 @@
                                                         @csrf
                                                         <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
                                                         <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
-                                                        <button class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }} invoice-ksef-list-refresh" type="submit" data-ksef-list-refresh-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Sprawdź status" title="Sprawdź status" aria-label="Sprawdź status Faktury {{ $invoice->number }} w KSeF">{{ $currentKsefSubmission->status->label() }}</button>
+                                                        <button class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }} invoice-ksef-list-refresh" type="submit" data-ksef-list-refresh-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Status jest sprawdzany automatycznie. Kliknij, aby sprawdzić teraz." title="Status jest sprawdzany automatycznie. Kliknij, aby sprawdzić teraz." aria-label="Sprawdź status Faktury {{ $invoice->number }} w KSeF">{{ $currentKsefSubmission->status->label() }}</button>
                                                     </form>
                                                 @else
                                                     <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-list-status>

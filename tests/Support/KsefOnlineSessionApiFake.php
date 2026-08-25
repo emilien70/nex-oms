@@ -32,6 +32,9 @@ class KsefOnlineSessionApiFake
         ],
     ];
 
+    /** @var list<array<string, mixed>> */
+    public array $statusResponses = [];
+
     public ?array $sessionInvoicesResponse = null;
 
     public ?string $upoResponse = null;
@@ -140,12 +143,15 @@ class KsefOnlineSessionApiFake
         }
 
         if (preg_match('#/sessions/[^/]+/invoices/[^/]+$#', $path) === 1) {
+            $statusResponse = $this->statusResponses === []
+                ? $this->statusResponse
+                : $this->statusResponses[min($this->statusCalls, count($this->statusResponses) - 1)];
             $this->statusCalls++;
 
             return Http::response(array_replace([
                 'referenceNumber' => $this->sendResponse['referenceNumber'] ?? null,
                 'invoiceHash' => $this->sendPayload['invoiceHash'] ?? null,
-            ], $this->statusResponse));
+            ], $statusResponse));
         }
 
         if (preg_match('#/sessions/[^/]+/invoices$#', $path) === 1) {

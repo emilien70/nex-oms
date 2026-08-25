@@ -3,9 +3,10 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
-use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Integrations\AllegroShipping\Jobs\RefreshAllegroShipmentJob;
+use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
+use Modules\Ksef\Services\KsefSubmissionFollowUpDispatcher;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\IntegrationApiLogPruner;
@@ -62,3 +63,8 @@ Schedule::call(function (): void {
         ->where(fn ($query) => $query->whereNull('last_synced_at')->orWhere('last_synced_at', '<=', $syncCutoff))
         ->eachById(fn (Shipment $shipment) => RefreshAllegroShipmentJob::dispatch($shipment));
 })->name('allegro-shipping-refresh-active-shipments')->hourly()->withoutOverlapping();
+
+Schedule::call(fn () => app(KsefSubmissionFollowUpDispatcher::class)->dispatchDue())
+    ->name('ksef-submission-follow-up')
+    ->everyMinute()
+    ->withoutOverlapping();

@@ -174,7 +174,7 @@
         @elseif ($canRefresh)
             <form method="POST" action="{{ route('invoices.ksef.submissions.refresh', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-refresh-form>
                 @csrf
-                <button class="btn btn-outline-primary" type="submit">Sprawdź status</button>
+                <button class="btn btn-outline-primary" type="submit" title="Status jest sprawdzany automatycznie. Kliknij, aby sprawdzić teraz.">Sprawdź status</button>
             </form>
         @elseif ($canReconcile)
             <form method="POST" action="{{ route('invoices.ksef.submissions.reconcile', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-reconcile-form>
@@ -192,7 +192,7 @@
         @elseif ($canFetchUpo)
             <form method="POST" action="{{ route('invoices.ksef.submissions.upo.fetch', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-upo-fetch-form>
                 @csrf
-                <button class="btn btn-outline-primary" type="submit">Pobierz UPO z KSeF</button>
+                <button class="btn btn-outline-primary" type="submit" title="Faktura została przyjęta. NEX automatycznie oczekuje na UPO. Kliknij, aby spróbować pobrać teraz.">Pobierz UPO z KSeF</button>
             </form>
         @endif
     </div>

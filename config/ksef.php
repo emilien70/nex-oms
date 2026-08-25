@@ -20,4 +20,29 @@ return [
     'auth_poll_interval_ms' => 500,
     'auth_poll_max_attempts' => 20,
     'access_token_refresh_skew_seconds' => 60,
+
+    'follow_up' => [
+        'queue' => 'ksef',
+        'dispatch_batch_size' => 20,
+        'unique_for_seconds' => 300,
+        'lock_seconds' => 120,
+        'backoff_seconds' => [60, 300, 900, 3600],
+        'rate_limits' => [
+            'status' => [
+                'per_second' => 20,
+                'per_minute' => 90,
+                'per_hour' => 900,
+            ],
+            'reconcile' => [
+                'per_second' => 5,
+                'per_minute' => 15,
+                'per_hour' => 90,
+            ],
+            'upo' => [
+                'per_second' => 5,
+                'per_minute' => 20,
+                'per_hour' => 90,
+            ],
+        ],
+    ],
 ];
