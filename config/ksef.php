@@ -9,6 +9,12 @@ return [
         'production' => env('KSEF_PRODUCTION_BASE_URL', 'https://api.ksef.mf.gov.pl/v2'),
     ],
 
+    'qr_base_urls' => [
+        'test' => 'https://qr-test.ksef.mf.gov.pl',
+        'demo' => 'https://qr-demo.ksef.mf.gov.pl',
+        'production' => 'https://qr.ksef.mf.gov.pl',
+    ],
+
     'connect_timeout_seconds' => 5,
     'request_timeout_seconds' => 15,
     'auth_poll_interval_ms' => 500,

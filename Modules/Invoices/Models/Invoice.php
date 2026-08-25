@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 
 class Invoice extends Model
@@ -151,6 +152,14 @@ class Invoice extends Model
     public function latestKsefSubmission(): HasOne
     {
         return $this->hasOne(KsefInvoiceSubmission::class)->ofMany('id', 'max');
+    }
+
+    public function latestAcceptedKsefSubmission(): HasOne
+    {
+        return $this->hasOne(KsefInvoiceSubmission::class)->ofMany(
+            ['id' => 'max'],
+            static fn ($query) => $query->where('status', KsefInvoiceSubmissionStatus::Accepted->value),
+        );
     }
 
     public function isDraft(): bool

@@ -11,6 +11,7 @@
     .related-document { font-size: 7.5pt; line-height: 1.25; padding-left: 8px; vertical-align: middle; }
     .section-label { font-weight: bold; }
     .meta-table td { border-bottom: 1px solid #c9c9c9; padding: 3px 4px; }
+    .meta-table .ksef-meta-value { font-size: 7.5pt; line-height: 1.25; }
     .party-title { border-right: 1px solid #c7c7c7; font-size: 8.5pt; font-weight: normal; padding: 2px 7px 2px 5px; vertical-align: top; }
     .party-details { padding: 2px 5px; vertical-align: top; }
     .items { border-collapse: collapse; width: 100%; }

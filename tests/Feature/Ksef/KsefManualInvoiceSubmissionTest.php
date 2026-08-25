@@ -6,12 +6,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceMutationPolicy;
+use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
@@ -88,7 +90,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
     public function test_first_attempt_can_be_accepted_by_the_single_immediate_status_check(): void
     {
+        Storage::fake('local');
         $invoice = $this->eligibleInvoice();
+        $pdfPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
+        Storage::disk('local')->put($pdfPath, '%PDF-1.7 before KSeF acceptance');
         $this->validAccessToken();
         $fake = $this->fakeOnlineApi();
         $fake->statusResponse = [
@@ -111,6 +116,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame(1, $fake->statusCalls);
         $this->assertSame(1, $fake->upoCalls);
         $this->assertDatabaseCount('ksef_invoice_upos', 0);
+        Storage::disk('local')->assertMissing($pdfPath);
     }
 
     public function test_immediate_status_failure_does_not_turn_a_successful_send_into_failure_or_retry(): void

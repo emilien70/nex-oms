@@ -19,7 +19,11 @@ use Modules\Invoices\Services\InvoicePdfRenderer;
 use Modules\Invoices\Services\InvoicePdfStorage;
 use Modules\Invoices\Services\InvoicePdfViewModelFactory;
 use Modules\Invoices\Services\ProformaService;
+use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
+use Tests\Support\KsefUpoFixture;
 use Tests\TestCase;
 
 class InvoicePdfTest extends TestCase
@@ -213,7 +217,7 @@ class InvoicePdfTest extends TestCase
         $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
 
-        $this->assertStringEndsWith('/invoice-v41.pdf', $newPath);
+        $this->assertStringEndsWith('/invoice-v43.pdf', $newPath);
         $this->assertSame($first, $second);
         Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($newPath);
@@ -256,6 +260,134 @@ class InvoicePdfTest extends TestCase
             $this->assertStringContainsString('06.08.2026', $html);
             $this->assertMatchesRegularExpression('/Data wystawienia:.*?Termin płatności:/s', $html);
         }
+    }
+
+    public function test_accepted_ksef_details_are_shown_below_order_number_on_invoice(): void
+    {
+        $invoice = $this->issueInvoice();
+        $number = KsefUpoFixture::ksefNumber();
+        $payload = '<Faktura>PDF KSEF</Faktura>';
+
+        KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Demo,
+            'context_nip' => KsefUpoFixture::CONTEXT_NIP,
+            'seller_nip' => KsefUpoFixture::SELLER_NIP,
+            'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now()->subMinute(),
+            'payload_xml' => $payload,
+            'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
+            'invoice_size' => strlen($payload),
+            'ksef_status_code' => 200,
+            'ksef_number' => $number,
+            'acquisition_date' => '2026-08-24 09:51:15',
+            'last_checked_at' => '2026-08-24 09:51:15',
+        ]);
+
+        $document = app(InvoicePdfViewModelFactory::class)->make($invoice->fresh());
+        $html = app(InvoicePdfRenderer::class)->html($invoice->fresh());
+
+        $base64UrlHash = rtrim(strtr(base64_encode(hash('sha256', $payload, true)), '+/', '-_'), '=');
+        $verificationUrl = 'https://qr-demo.ksef.mf.gov.pl/invoice/'.KsefUpoFixture::SELLER_NIP
+            .'/'.$invoice->issue_date->format('d-m-Y').'/'.$base64UrlHash;
+
+        $this->assertSame($number, $document['ksef']['number']);
+        $this->assertSame('24.08.2026 09:51:15', $document['ksef']['processed_at']);
+        $this->assertSame('Przyjęta', $document['ksef']['status']);
+        $this->assertSame($verificationUrl, $document['ksef']['verification_url']);
+        $this->assertStringContainsString('Numer KSeF:', $html);
+        $this->assertStringContainsString($number, $html);
+        $this->assertStringContainsString('Data przetworzenia w KSeF:', $html);
+        $this->assertStringContainsString('24.08.2026 09:51:15', $html);
+        $this->assertStringContainsString('Status KSeF:', $html);
+        $this->assertStringContainsString('Przyjęta', $html);
+        $this->assertMatchesRegularExpression(
+            '/Numer zamówienia:.*Numer KSeF:.*Data przetworzenia w KSeF:.*Status KSeF:/s',
+            $html,
+        );
+
+        $pdf = app(InvoicePdfRenderer::class)->render($invoice->fresh());
+
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        $this->assertStringContainsString($verificationUrl, $pdf);
+    }
+
+    public function test_ksef_details_are_hidden_without_an_accepted_invoice_submission(): void
+    {
+        $invoice = $this->issueInvoice();
+        $payload = '<Faktura>PDF KSEF PROCESSING</Faktura>';
+
+        KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => KsefUpoFixture::CONTEXT_NIP,
+            'seller_nip' => KsefUpoFixture::SELLER_NIP,
+            'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Processing,
+            'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now()->subMinute(),
+            'payload_xml' => $payload,
+            'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
+            'invoice_size' => strlen($payload),
+        ]);
+
+        $document = app(InvoicePdfViewModelFactory::class)->make($invoice->fresh());
+        $html = app(InvoicePdfRenderer::class)->html($invoice->fresh());
+
+        $this->assertNull($document['ksef']);
+        $this->assertStringNotContainsString('Numer KSeF:', $html);
+        $this->assertStringNotContainsString('Data przetworzenia w KSeF:', $html);
+        $this->assertStringNotContainsString('Status KSeF:', $html);
+    }
+
+    public function test_pdf_uses_latest_accepted_ksef_submission_when_a_newer_attempt_is_not_accepted(): void
+    {
+        $invoice = $this->issueInvoice();
+        $number = KsefUpoFixture::ksefNumber();
+        $acceptedPayload = '<Faktura>PDF KSEF ACCEPTED</Faktura>';
+
+        KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => KsefUpoFixture::CONTEXT_NIP,
+            'seller_nip' => KsefUpoFixture::SELLER_NIP,
+            'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now()->subMinutes(2),
+            'payload_xml' => $acceptedPayload,
+            'invoice_hash' => base64_encode(hash('sha256', $acceptedPayload, true)),
+            'invoice_size' => strlen($acceptedPayload),
+            'ksef_status_code' => 200,
+            'ksef_number' => $number,
+            'acquisition_date' => '2026-08-24 09:51:15',
+            'last_checked_at' => '2026-08-24 09:51:15',
+        ]);
+
+        $processingPayload = '<Faktura>PDF KSEF PROCESSING DEMO</Faktura>';
+        KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Demo,
+            'context_nip' => KsefUpoFixture::CONTEXT_NIP,
+            'seller_nip' => KsefUpoFixture::SELLER_NIP,
+            'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Processing,
+            'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now()->subMinute(),
+            'payload_xml' => $processingPayload,
+            'invoice_hash' => base64_encode(hash('sha256', $processingPayload, true)),
+            'invoice_size' => strlen($processingPayload),
+        ]);
+
+        $document = app(InvoicePdfViewModelFactory::class)->make($invoice->fresh());
+
+        $this->assertSame($number, $document['ksef']['number']);
+        $this->assertStringStartsWith(
+            'https://qr-test.ksef.mf.gov.pl/invoice/',
+            $document['ksef']['verification_url'],
+        );
     }
 
     public function test_invoice_and_proforma_omit_payment_due_row_when_date_is_empty(): void

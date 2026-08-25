@@ -73,7 +73,9 @@ class InvoicePdfRenderer
 
             foreach ($invoices as $invoice) {
                 $pdf->AddPage('P', 'A4');
-                $pdf->writeHTML($this->html($invoice), true, false, true, false, '');
+                $document = $this->viewModels->make($invoice);
+                $pdf->writeHTML($this->htmlDocument($document), true, false, true, false, '');
+                $this->writeKsefQr($pdf, $document);
             }
 
             return $pdf->Output('', 'S');
@@ -91,8 +93,13 @@ class InvoicePdfRenderer
 
     public function html(Invoice $invoice): string
     {
-        $data = $this->viewModels->make($invoice);
-        $view = match ($data['type']) {
+        return $this->htmlDocument($this->viewModels->make($invoice));
+    }
+
+    /** @param array<string, mixed> $document */
+    private function htmlDocument(array $document): string
+    {
+        $view = match ($document['type']) {
             'invoice' => 'invoices.pdf.invoice',
             'proforma' => 'invoices.pdf.proforma',
             'correction' => 'invoices.pdf.correction',
@@ -103,11 +110,52 @@ class InvoicePdfRenderer
         };
 
         return view($view, [
-            'document' => $data,
+            'document' => $document,
             'fonts' => [
                 'heading' => $this->fonts->heading(),
                 'body' => $this->fonts->body(),
             ],
         ])->render();
+    }
+
+    /** @param array<string, mixed> $document */
+    private function writeKsefQr(\TCPDF $pdf, array $document): void
+    {
+        $url = $document['ksef']['verification_url'] ?? null;
+        $number = $document['ksef']['number'] ?? null;
+
+        if (! is_string($url) || $url === '' || ! is_string($number) || $number === '') {
+            return;
+        }
+
+        $x = 8.0;
+        $blockWidth = 35.0;
+        $qrSize = 27.0;
+        $blockHeight = 45.0;
+        $y = $pdf->GetY() + 4.0;
+
+        if (($y + $blockHeight) > ($pdf->getPageHeight() - 12.0)) {
+            $pdf->AddPage('P', 'A4');
+            $y = 12.0;
+        }
+
+        $pdf->SetFont($this->fonts->body(), '', 7);
+        $pdf->SetXY($x, $y);
+        $pdf->Cell($blockWidth, 4.0, 'Sprawdź w KSeF', 0, 1, 'C', false, $url);
+
+        $qrX = $x + (($blockWidth - $qrSize) / 2);
+        $qrY = $pdf->GetY() + 1.0;
+        $pdf->write2DBarcode($url, 'QRCODE,M', $qrX, $qrY, $qrSize, $qrSize, [
+            'border' => false,
+            'padding' => 'auto',
+            'fgcolor' => [0, 0, 0],
+            'bgcolor' => [255, 255, 255],
+        ]);
+        $pdf->Link($qrX, $qrY, $qrSize, $qrSize, $url);
+
+        $pdf->SetFont($this->fonts->body(), '', 6.5);
+        $pdf->SetXY($x, $qrY + $qrSize + 1.0);
+        $pdf->MultiCell($blockWidth, 3.0, $number, 0, 'C', false, 1, $x, '', true);
+        $pdf->SetY(max($pdf->GetY(), $y + $blockHeight));
     }
 }

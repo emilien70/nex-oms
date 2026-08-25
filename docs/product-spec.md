@@ -1261,6 +1261,8 @@ Manualny orkiestrator blokuje Fakturę i bieżącą konfigurację w transakcji o
 
 Ręczny refresh jest osobnym żądaniem POST, dostępnym wyłącznie dla `submitted` i `processing`, i wykonuje dokładnie jeden status GET. Stany terminalne, `uncertain`, `preparing` i `session_opened` nie mają akcji ponowienia ani odświeżenia w 4B.1. Numer KSeF jest prezentowany w całości dopiero dla `accepted`; historia pokazuje wyłącznie bezpieczne pola i komunikaty, bez XML, hashy, NIP-ów, referencji sesji i surowych odpowiedzi.
 
+Po potwierdzeniu statusu `accepted` PDF Faktury prezentuje pod numerem zamówienia numer KSeF, datę przetworzenia pochodzącą z `acquisition_date` oraz status KSeF. Pod informacjami dodatkowymi pokazuje również jeden kod weryfikacyjny KOD I z podpisem „Sprawdź w KSeF” i numerem KSeF. Link QR powstaje lokalnie z zamrożonego środowiska próby, NIP-u sprzedawcy, daty wystawienia `P_1` i hasha dokładnie wysłanego XML; przyjęcie unieważnia wcześniejszy cache PDF. Pro forma i dokumenty bez zaakceptowanej próby nie pokazują danych ani kodu KSeF.
+
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.
 
 ## 30.10. Audyt gotowości KSeF

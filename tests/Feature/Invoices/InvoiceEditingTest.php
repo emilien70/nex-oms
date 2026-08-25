@@ -757,7 +757,7 @@ class InvoiceEditingTest extends TestCase
         $regeneratedPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
 
         $this->assertSame($currentPath, $regeneratedPath);
-        $this->assertStringEndsWith('/invoice-v41.pdf', $regeneratedPath);
+        $this->assertStringEndsWith('/invoice-v43.pdf', $regeneratedPath);
         Storage::disk('local')->assertExists($regeneratedPath);
         $this->assertCount(1, Storage::disk('local')->allFiles('invoices/'.$invoice->getKey()));
     }
