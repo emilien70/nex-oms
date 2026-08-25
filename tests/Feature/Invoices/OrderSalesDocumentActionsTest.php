@@ -14,6 +14,11 @@ use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Invoices\Services\ProformaService;
+use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\KsefSettingsService;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -114,6 +119,144 @@ class OrderSalesDocumentActionsTest extends TestCase
         ]), $after);
         $this->assertStringNotContainsString($proforma->number, $after);
         $this->assertStringNotContainsString('PRO FORMA', $after);
+    }
+
+    public function test_order_page_uses_the_existing_ksef_submission_flow_for_an_eligible_invoice(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries();
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $series,
+            $this->documentContext(),
+        );
+
+        $this->enableKsefForSeries($series);
+
+        $response = $this->get(route('orders.show', $order));
+
+        $response->assertOk()
+            ->assertSee(route('invoices.ksef.submissions.first-attempt', $invoice), false)
+            ->assertSee('data-order-ksef-send-form', false)
+            ->assertSee('data-order-ksef-send-trigger', false)
+            ->assertSee('name="return_to" value="order"', false)
+            ->assertSee('data-bs-title="Przeka&#380; do KSeF"', false)
+            ->assertSee('data-order-ksef-send-modal', false)
+            ->assertSee('Czy przekaza&#263; faktur&#281; do KSeF 2.0?', false)
+            ->assertSee('data-order-ksef-send-confirm', false)
+            ->assertSee('HTMLFormElement.prototype.submit.call(form);', false)
+            ->assertDontSee('data-sales-document-ksef-label', false);
+    }
+
+    public function test_order_page_hides_ksef_action_for_an_invoice_series_not_enabled_for_ksef(): void
+    {
+        config()->set('ksef.invoice_submission_enabled', true);
+        app(KsefSettingsService::class)->get()->forceFill([
+            'is_active' => true,
+            'environment' => KsefEnvironment::Test,
+        ])->save();
+
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+
+        $html = app(OrderSalesDocumentActionsView::class)->render($order);
+
+        $this->assertStringNotContainsString('management-issued-invoice-ksef', $html);
+        $this->assertStringNotContainsString('data-order-ksef-send-form', $html);
+        $this->assertStringNotContainsString('data-order-ksef-reference', $html);
+    }
+
+    public function test_existing_ksef_submission_is_presented_with_the_oms_invoice_number_instead_of_button(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries();
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $series,
+            $this->documentContext(),
+        );
+        $this->enableKsefForSeries($series);
+
+        $payload = '<Faktura>ORDER CARD KSEF TEST</Faktura>';
+        KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => '9876543210',
+            'seller_nip' => '9876543210',
+            'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Submitted,
+            'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now(),
+            'payload_xml' => $payload,
+            'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
+            'invoice_size' => strlen($payload),
+        ]);
+        KsefSeriesSetting::query()
+            ->where('invoice_series_id', $series->getKey())
+            ->update(['is_enabled' => false]);
+
+        $html = app(OrderSalesDocumentActionsView::class)->render($order);
+
+        $this->assertStringContainsString('data-order-ksef-reference', $html);
+        $this->assertStringContainsString('KSeF: '.$invoice->number, $html);
+        $this->assertStringNotContainsString('data-order-ksef-send-form', $html);
+        $this->assertStringNotContainsString('data-order-ksef-send-trigger', $html);
+        $this->assertStringNotContainsString('data-sales-document-ksef-label', $html);
+        $this->assertStringNotContainsString('data-order-ksef-invoice-pdf', $html);
+    }
+
+    public function test_accepted_ksef_submission_links_oms_invoice_number_to_official_pdf_download_flow(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries();
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $series,
+            $this->documentContext(),
+        );
+        $this->enableKsefForSeries($series);
+
+        $payload = '<Faktura>ORDER CARD ACCEPTED KSEF TEST</Faktura>';
+        $submission = KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => '9876543210',
+            'seller_nip' => '9876543210',
+            'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now(),
+            'payload_xml' => $payload,
+            'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
+            'invoice_size' => strlen($payload),
+            'ksef_number' => '9876543210-20260825-AAAAAAAAAA-BB',
+            'acquisition_date' => now(),
+        ]);
+
+        $response = $this->get(route('orders.show', $order));
+        $downloadRoute = route('invoices.ksef.submissions.invoice.download', compact('invoice', 'submission'));
+
+        $response->assertOk()
+            ->assertSee('data-order-ksef-invoice-pdf', false)
+            ->assertSee('data-ksef-invoice-source-url="'.$downloadRoute.'"', false)
+            ->assertSee('data-ksef-number="'.$submission->ksef_number.'"', false)
+            ->assertSee('KSeF: '.$invoice->number)
+            ->assertSee('Pobierz PDF Faktury z KSeF')
+            ->assertSee('ksef-fe-invoice-converter.umd.js', false)
+            ->assertSee("generator.generateInvoice(invoiceFile, additionalData, 'blob')", false)
+            ->assertSee('rgba(220, 53, 69, 0.8)', false);
+        $this->assertFileExists(public_path(
+            'vendor/ksef-pdf-generator/1.1.31/ksef-fe-invoice-converter.umd.js',
+        ));
+        $this->assertFileExists(public_path('vendor/ksef-pdf-generator/1.1.31/LICENSE'));
     }
 
     public function test_issued_correction_is_presented_with_invoice_style_actions(): void
@@ -218,6 +361,19 @@ class OrderSalesDocumentActionsTest extends TestCase
                 ]),
             ],
             $this->documentContext('2026-08-05 10:00:00'),
+        );
+    }
+
+    private function enableKsefForSeries(InvoiceSeries $series): void
+    {
+        config()->set('ksef.invoice_submission_enabled', true);
+        app(KsefSettingsService::class)->get()->forceFill([
+            'is_active' => true,
+            'environment' => KsefEnvironment::Test,
+        ])->save();
+        KsefSeriesSetting::query()->updateOrCreate(
+            ['invoice_series_id' => $series->getKey()],
+            ['is_enabled' => true],
         );
     }
 }

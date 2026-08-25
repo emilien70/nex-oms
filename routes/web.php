@@ -130,6 +130,7 @@ Route::post('/invoices/{invoice}/ksef/submissions/{submission}/refresh', [KsefIn
 Route::post('/invoices/{invoice}/ksef/submissions/{submission}/reconcile', [KsefInvoiceSubmissionController::class, 'reconcile'])->name('invoices.ksef.submissions.reconcile');
 Route::post('/invoices/{invoice}/ksef/submissions/{submission}/upo', [KsefInvoiceSubmissionController::class, 'fetchUpo'])->name('invoices.ksef.submissions.upo.fetch');
 Route::get('/invoices/{invoice}/ksef/submissions/{submission}/upo', [KsefInvoiceSubmissionController::class, 'downloadUpo'])->name('invoices.ksef.submissions.upo.download');
+Route::get('/invoices/{invoice}/ksef/submissions/{submission}/invoice', [KsefInvoiceSubmissionController::class, 'downloadInvoiceSource'])->name('invoices.ksef.submissions.invoice.download');
 Route::get('/invoices/{invoice}/edit', [InvoiceEditController::class, 'edit'])->name('invoices.edit');
 Route::delete('/invoices/{invoice}', InvoiceDeletionController::class)->name('invoices.destroy');
 Route::patch('/invoices/{invoice}/buyer', [InvoiceEditController::class, 'updateBuyer'])->name('invoices.buyer.update');

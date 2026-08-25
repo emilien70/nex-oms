@@ -1263,6 +1263,8 @@ Ręczny refresh jest osobnym żądaniem POST, dostępnym wyłącznie dla `submit
 
 Po potwierdzeniu statusu `accepted` PDF Faktury prezentuje pod numerem zamówienia numer KSeF, datę przetworzenia pochodzącą z `acquisition_date` oraz status KSeF. Pod informacjami dodatkowymi pokazuje również jeden kod weryfikacyjny KOD I z podpisem „Sprawdź w KSeF” i numerem KSeF. Link QR powstaje lokalnie z zamrożonego środowiska próby, NIP-u sprzedawcy, daty wystawienia `P_1` i hasha dokładnie wysłanego XML; przyjęcie unieważnia wcześniejszy cache PDF. Pro forma i dokumenty bez zaakceptowanej próby nie pokazują danych ani kodu KSeF.
 
+Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
+
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.
 
 ## 30.10. Audyt gotowości KSeF

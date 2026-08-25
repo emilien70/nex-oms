@@ -92,7 +92,7 @@ enum KsefInvoiceSubmissionStatus: string
             self::SessionOpened => 'Sesja otwarta',
             self::Submitted => 'Wysłana',
             self::Processing => 'Przetwarzanie',
-            self::Accepted => 'Przyjęta',
+            self::Accepted => 'Zaakceptowana',
             self::Rejected => 'Odrzucona',
             self::TechnicalFailed => 'Błąd techniczny',
             self::Uncertain => 'Stan niepewny',

@@ -3,14 +3,17 @@
 namespace Modules\Ksef\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Support\InvoiceReturnContext;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Services\KsefInvoiceSourceService;
 use Modules\Ksef\Services\KsefInvoiceStatusFollowUpService;
 use Modules\Ksef\Services\KsefInvoiceUpoService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
@@ -152,6 +155,32 @@ class KsefInvoiceSubmissionController extends Controller
         abort_if($upo === null, 404);
 
         return $this->upoDownloadResponse($submission, $upo->payload_xml);
+    }
+
+    public function downloadInvoiceSource(
+        Invoice $invoice,
+        KsefInvoiceSubmission $submission,
+        KsefInvoiceSourceService $invoices,
+    ): Response|JsonResponse {
+        abort_unless($submission->invoice_id === $invoice->getKey(), 404);
+
+        try {
+            $source = $invoices->fetch($invoice, $submission);
+
+            return response($source->body, 200, [
+                'Cache-Control' => 'no-store, private',
+                'Content-Type' => 'application/xml; charset=UTF-8',
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+        } catch (KsefApiException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
+        } catch (Throwable $exception) {
+            $this->logUnexpected($invoice, 'download_invoice_source', $exception, $submission);
+
+            return response()->json([
+                'message' => 'Nie udało się pobrać Faktury z KSeF.',
+            ], 500);
+        }
     }
 
     private function upoDownloadResponse(

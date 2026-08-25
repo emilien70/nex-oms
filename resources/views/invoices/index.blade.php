@@ -661,7 +661,7 @@
                                                     <form method="POST" action="{{ route('invoices.ksef.submissions.upo.fetch', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-upo-form>
                                                         @csrf
                                                         <input type="hidden" name="download" value="1">
-                                                        <button class="badge text-bg-success invoice-ksef-list-upo" type="submit" data-ksef-list-upo-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefAcceptedTooltip }}" title="{{ $ksefAcceptedTooltip }}">Przyjęta</button>
+                                                        <button class="badge text-bg-success invoice-ksef-list-upo" type="submit" data-ksef-list-upo-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefAcceptedTooltip }}" title="{{ $ksefAcceptedTooltip }}">{{ $currentKsefSubmission->status->label() }}</button>
                                                     </form>
                                                 @elseif ($currentKsefSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected)
                                                     @php

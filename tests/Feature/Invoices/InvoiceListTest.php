@@ -414,7 +414,7 @@ class InvoiceListTest extends TestCase
 
         $response->assertOk()
             ->assertSee('KSeF')
-            ->assertSee('Przyjęta')
+            ->assertSee('Zaakceptowana')
             ->assertSee('data-ksef-list-upo-trigger', false)
             ->assertSee('Faktura została zautoryzowana przez KSeF dnia 21.08.2026 09:40:43 pod numerem 6282192260-20260821-440DF5800001-5F')
             ->assertSee(route('invoices.ksef.submissions.upo.fetch', [
@@ -568,7 +568,7 @@ class InvoiceListTest extends TestCase
             ->assertSee('Nie wysłano')
             ->assertSee('data-ksef-list-send-trigger', false)
             ->assertSee(route('invoices.ksef.submissions.first-attempt', $invoice), false)
-            ->assertDontSee('Przyjęta');
+            ->assertDontSee('Zaakceptowana');
     }
 
     public static function crossEnvironmentListCases(): array

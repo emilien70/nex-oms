@@ -38,7 +38,15 @@ class OrderInvoiceAjaxTest extends TestCase
         $this->assertStringContainsString(route('invoices.destroy', $response->json('document.id')), $response->json('html'));
         $this->assertStringContainsString('data-sales-document-delete-form', $response->json('html'));
         $this->assertStringNotContainsString('Usuwanie Faktury VAT nie jest jeszcze dostępne', $response->json('html'));
-        $this->assertStringContainsString('bi-paperclip', $response->json('html'));
+        $this->assertStringNotContainsString('data-sales-document-ksef-label', $response->json('html'));
+        $this->assertStringNotContainsString('management-issued-invoice-ksef', $response->json('html'));
+        $this->assertStringNotContainsString('data-order-ksef-send-form', $response->json('html'));
+        $this->assertStringNotContainsString('data-order-ksef-reference', $response->json('html'));
+        $this->assertStringNotContainsString(
+            route('invoices.ksef.submissions.first-attempt', $response->json('document.id')),
+            $response->json('html'),
+        );
+        $this->assertStringNotContainsString('bi-paperclip', $response->json('html'));
         $this->assertStringContainsString(route('invoices.pdf', $response->json('document.id')), $response->json('html'));
         $this->assertStringNotContainsString('WYSTAW FAKTUR', $response->json('html'));
         $this->assertStringNotContainsString('PRO FORMA', $response->json('html'));

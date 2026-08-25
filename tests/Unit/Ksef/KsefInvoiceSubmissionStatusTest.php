@@ -10,6 +10,11 @@ use PHPUnit\Framework\TestCase;
 
 class KsefInvoiceSubmissionStatusTest extends TestCase
 {
+    public function test_accepted_status_uses_the_central_polish_label(): void
+    {
+        $this->assertSame('Zaakceptowana', KsefInvoiceSubmissionStatus::Accepted->label());
+    }
+
     #[DataProvider('lifecycleCases')]
     public function test_status_has_central_lifecycle_contract(
         KsefInvoiceSubmissionStatus $status,

@@ -295,14 +295,14 @@ class InvoicePdfTest extends TestCase
 
         $this->assertSame($number, $document['ksef']['number']);
         $this->assertSame('24.08.2026 09:51:15', $document['ksef']['processed_at']);
-        $this->assertSame('Przyjęta', $document['ksef']['status']);
+        $this->assertSame('Zaakceptowana', $document['ksef']['status']);
         $this->assertSame($verificationUrl, $document['ksef']['verification_url']);
         $this->assertStringContainsString('Numer KSeF:', $html);
         $this->assertStringContainsString($number, $html);
         $this->assertStringContainsString('Data przetworzenia w KSeF:', $html);
         $this->assertStringContainsString('24.08.2026 09:51:15', $html);
         $this->assertStringContainsString('Status KSeF:', $html);
-        $this->assertStringContainsString('Przyjęta', $html);
+        $this->assertStringContainsString('Zaakceptowana', $html);
         $this->assertMatchesRegularExpression(
             '/Numer zamówienia:.*Numer KSeF:.*Data przetworzenia w KSeF:.*Status KSeF:/s',
             $html,

@@ -410,6 +410,125 @@
             border-radius: 4px !important;
         }
 
+        .management-issued-invoice-ksef-form {
+            display: inline-flex;
+            margin: 0;
+        }
+
+        .management-issued-invoice-actions .management-issued-invoice-ksef,
+        .management-issued-invoice-actions .management-issued-invoice-ksef:disabled {
+            background-color: rgba(220, 53, 69, 0.05);
+            border-color: rgba(220, 53, 69, 0.2);
+            border-radius: 4px;
+            color: #4e565f;
+            flex: 0 0 auto;
+            opacity: 1;
+            padding: 0 8px;
+            width: auto;
+        }
+
+        .management-issued-invoice-actions button.management-issued-invoice-ksef:not(:disabled):hover,
+        .management-issued-invoice-actions button.management-issued-invoice-ksef:not(:disabled):focus-visible {
+            background-color: rgba(220, 53, 69, 0.05);
+            border-color: rgba(220, 53, 69, 0.35);
+            color: #4e565f;
+        }
+
+        .management-issued-invoice-ksef-reference {
+            align-items: center;
+            background-color: rgba(220, 53, 69, 0.8) !important;
+            border-color: rgba(220, 53, 69, 0.8) !important;
+            color: #fff !important;
+            display: inline-flex;
+            font-size: 12px;
+            line-height: 1;
+            min-height: 30px;
+        }
+
+        .management-issued-invoice-ksef-download {
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .management-issued-invoice-ksef-download:hover,
+        .management-issued-invoice-ksef-download:focus-visible {
+            background-color: rgba(220, 53, 69, 0.9) !important;
+            border-color: rgba(220, 53, 69, 0.9) !important;
+            color: #fff !important;
+            text-decoration: none;
+        }
+
+        .management-issued-invoice-ksef-download[aria-busy="true"] {
+            cursor: wait;
+            opacity: 0.75;
+            pointer-events: none;
+        }
+
+        .invoice-ksef-status-tooltip {
+            --bs-tooltip-bg: #4d5257;
+            --bs-tooltip-opacity: 1;
+        }
+
+        .invoice-ksef-status-tooltip .tooltip-inner {
+            font-size: 11px;
+            line-height: 1.35;
+            max-width: 220px;
+            padding: 8px 10px;
+        }
+
+        .invoice-ksef-confirm-dialog {
+            margin-top: 12px;
+            max-width: 650px;
+        }
+
+        .invoice-ksef-confirm-content {
+            border: 0;
+            border-radius: 8px;
+        }
+
+        .invoice-ksef-confirm-body {
+            padding: 20px 24px 18px;
+            text-align: center;
+        }
+
+        .invoice-ksef-confirm-icon {
+            color: #e57905;
+            font-size: 42px;
+            line-height: 1;
+        }
+
+        .invoice-ksef-confirm-question {
+            color: #20252b;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 28px 0 30px;
+        }
+
+        .invoice-ksef-confirm-actions {
+            display: flex;
+            gap: 7px;
+            justify-content: center;
+        }
+
+        .invoice-ksef-confirm-actions .btn {
+            border-radius: 20px;
+            min-width: 64px;
+            padding: 9px 18px;
+        }
+
+        .invoice-ksef-confirm-accept {
+            background: #f57c00;
+            border-color: #f57c00;
+            color: #fff;
+        }
+
+        .invoice-ksef-confirm-accept:hover,
+        .invoice-ksef-confirm-accept:focus {
+            background: #d96d00;
+            border-color: #d96d00;
+            color: #fff;
+        }
+
         .management-issued-proforma-actions {
             grid-column: 3;
             justify-self: start;
@@ -2041,6 +2160,21 @@
         </div>
     </div>
 
+    <div class="modal fade" id="orderKsefSendConfirmationModal" tabindex="-1" aria-labelledby="orderKsefSendConfirmationQuestion" aria-hidden="true" data-order-ksef-send-modal>
+        <div class="modal-dialog invoice-ksef-confirm-dialog">
+            <div class="modal-content invoice-ksef-confirm-content">
+                <div class="modal-body invoice-ksef-confirm-body">
+                    <i class="bi bi-exclamation-triangle invoice-ksef-confirm-icon" aria-hidden="true"></i>
+                    <h2 class="invoice-ksef-confirm-question" id="orderKsefSendConfirmationQuestion">Czy przekaza&#263; faktur&#281; do KSeF 2.0?</h2>
+                    <div class="invoice-ksef-confirm-actions">
+                        <button class="btn invoice-ksef-confirm-accept" type="button" data-order-ksef-send-confirm>Tak</button>
+                        <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Anuluj</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="nex-card">
         <div class="nex-card-header">
             <h2 class="nex-card-title">Historia</h2>
@@ -2074,9 +2208,172 @@
                 });
             };
 
+            const initializeOrderKsefTooltips = (root = document) => {
+                if (typeof bootstrap === 'undefined') {
+                    return;
+                }
+
+                const tooltipElements = root.matches?.('[data-order-ksef-tooltip]')
+                    ? [root]
+                    : Array.from(root.querySelectorAll?.('[data-order-ksef-tooltip]') || []);
+
+                tooltipElements.forEach((element) => {
+                    bootstrap.Tooltip.getOrCreateInstance(element, {
+                        container: 'body',
+                        customClass: 'invoice-ksef-status-tooltip',
+                    });
+                });
+            };
+
             syncSalesDocumentNumberWidths();
+            initializeOrderKsefTooltips();
             window.addEventListener('load', () => syncSalesDocumentNumberWidths());
             document.fonts?.ready.then(() => syncSalesDocumentNumberWidths());
+
+            const ksefSendModalElement = document.querySelector('[data-order-ksef-send-modal]');
+            const ksefSendConfirmButton = document.querySelector('[data-order-ksef-send-confirm]');
+            let pendingKsefSendForm = null;
+
+            document.addEventListener('submit', (event) => {
+                const form = event.target.closest('[data-order-ksef-send-form]');
+
+                if (!form) {
+                    return;
+                }
+
+                event.preventDefault();
+                pendingKsefSendForm = form;
+            });
+
+            ksefSendConfirmButton?.addEventListener('click', () => {
+                if (!pendingKsefSendForm) {
+                    return;
+                }
+
+                const form = pendingKsefSendForm;
+                pendingKsefSendForm = null;
+                ksefSendConfirmButton.disabled = true;
+                HTMLFormElement.prototype.submit.call(form);
+            });
+
+            ksefSendModalElement?.addEventListener('hidden.bs.modal', () => {
+                pendingKsefSendForm = null;
+                ksefSendConfirmButton.disabled = false;
+            });
+
+            let ksefPdfGeneratorPromise = null;
+
+            const loadKsefPdfGenerator = (source) => {
+                const loaded = globalThis['ksef-fe-invoice-converter'];
+
+                if (typeof loaded?.generateInvoice === 'function') {
+                    return Promise.resolve(loaded);
+                }
+
+                if (!ksefPdfGeneratorPromise) {
+                    ksefPdfGeneratorPromise = new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = source;
+                        script.async = true;
+                        script.dataset.ksefPdfGenerator = 'true';
+                        script.addEventListener('load', () => {
+                            const generator = globalThis['ksef-fe-invoice-converter'];
+
+                            if (typeof generator?.generateInvoice === 'function') {
+                                resolve(generator);
+                                return;
+                            }
+
+                            reject(new Error('Nie udało się uruchomić generatora PDF KSeF.'));
+                        });
+                        script.addEventListener('error', () => {
+                            ksefPdfGeneratorPromise = null;
+                            reject(new Error('Nie udało się załadować generatora PDF KSeF.'));
+                        });
+                        document.head.append(script);
+                    });
+                }
+
+                return ksefPdfGeneratorPromise;
+            };
+
+            const ksefInvoiceDownloadError = async (response) => {
+                try {
+                    const data = await response.json();
+
+                    if (typeof data?.message === 'string' && data.message.trim() !== '') {
+                        return data.message;
+                    }
+                } catch (error) {
+                    // The controlled endpoint may fail before producing a JSON response.
+                }
+
+                return 'Nie udało się pobrać Faktury z KSeF.';
+            };
+
+            document.addEventListener('click', async (event) => {
+                const trigger = event.target.closest('[data-order-ksef-invoice-pdf]');
+
+                if (!trigger) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                if (trigger.getAttribute('aria-busy') === 'true') {
+                    return;
+                }
+
+                trigger.setAttribute('aria-busy', 'true');
+
+                try {
+                    const [generator, response] = await Promise.all([
+                        loadKsefPdfGenerator(trigger.dataset.ksefPdfGeneratorSrc),
+                        fetch(trigger.dataset.ksefInvoiceSourceUrl, {
+                            headers: {
+                                'Accept': 'application/xml',
+                            },
+                        }),
+                    ]);
+
+                    if (!response.ok) {
+                        throw new Error(await ksefInvoiceDownloadError(response));
+                    }
+
+                    const xml = await response.text();
+                    const invoiceFile = new File([xml], 'invoice.xml', {
+                        type: 'application/xml',
+                    });
+                    const additionalData = {
+                        nrKSeF: trigger.dataset.ksefNumber,
+                        isMobile: false,
+                    };
+
+                    if (trigger.dataset.ksefAcquisitionDate) {
+                        additionalData.acDate = trigger.dataset.ksefAcquisitionDate;
+                    }
+
+                    if (trigger.dataset.ksefVerificationUrl) {
+                        additionalData.qrCode = trigger.dataset.ksefVerificationUrl;
+                    }
+
+                    const pdf = await generator.generateInvoice(invoiceFile, additionalData, 'blob');
+                    const url = URL.createObjectURL(pdf);
+                    const download = document.createElement('a');
+                    download.href = url;
+                    download.download = trigger.dataset.ksefPdfFilename || 'Faktura_KSeF.pdf';
+                    document.body.append(download);
+                    download.click();
+                    download.remove();
+                    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                } catch (error) {
+                    alert(error instanceof Error && error.message
+                        ? error.message
+                        : 'Nie udało się pobrać Faktury z KSeF.');
+                } finally {
+                    trigger.removeAttribute('aria-busy');
+                }
+            });
 
             const closeSection = (section) => {
                 if (!section) {
@@ -3221,6 +3518,7 @@
 
                     container.replaceWith(replacement);
                     syncSalesDocumentNumberWidths(replacement);
+                    initializeOrderKsefTooltips(replacement);
 
                     if (openDocumentAfterSubmit) {
                         if (documentWindow) {

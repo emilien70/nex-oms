@@ -7,6 +7,13 @@
     $proformaLocked = $salesDocumentActions['proformaLocked'];
     $invoiceSeries = $salesDocumentActions['invoiceSeries'];
     $proformaSeries = $salesDocumentActions['proformaSeries'];
+    $ksefSeriesEnabled = $salesDocumentActions['ksefSeriesEnabled'];
+    $ksefHasSubmission = $salesDocumentActions['ksefHasSubmission'];
+    $ksefCanSend = $salesDocumentActions['ksefCanSend'];
+    $ksefSubmission = $salesDocumentActions['ksefSubmission'];
+    $ksefPdfDownloadAvailable = $salesDocumentActions['ksefPdfDownloadAvailable'];
+    $ksefVerificationUrl = $salesDocumentActions['ksefVerificationUrl'];
+    $ksefPdfFilename = $salesDocumentActions['ksefPdfFilename'];
 @endphp
 
 <div id="order-sales-document-actions" class="management-sales-document-actions" data-sales-document-actions>
@@ -32,9 +39,33 @@
                     </button>
                 @endunless
             </div>
-            <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-attachment" type="button" title="Wgrywanie dokumentu nie jest jeszcze dostępne" aria-label="Wgrywanie dokumentu nie jest jeszcze dostępne" disabled>
-                <i class="bi bi-paperclip" aria-hidden="true"></i>
-            </button>
+            @if ($ksefHasSubmission)
+                @if ($ksefPdfDownloadAvailable)
+                    <a
+                        class="management-issued-invoice-ksef management-issued-invoice-ksef-reference management-issued-invoice-ksef-download"
+                        href="{{ route('invoices.ksef.submissions.invoice.download', ['invoice' => $issuedInvoice, 'submission' => $ksefSubmission]) }}"
+                        data-order-ksef-reference
+                        data-order-ksef-invoice-pdf
+                        data-ksef-invoice-source-url="{{ route('invoices.ksef.submissions.invoice.download', ['invoice' => $issuedInvoice, 'submission' => $ksefSubmission]) }}"
+                        data-ksef-pdf-generator-src="{{ asset('vendor/ksef-pdf-generator/1.1.31/ksef-fe-invoice-converter.umd.js') }}"
+                        data-ksef-number="{{ $ksefSubmission->ksef_number }}"
+                        data-ksef-acquisition-date="{{ $ksefSubmission->acquisition_date?->format('d.m.Y H:i:s') }}"
+                        data-ksef-verification-url="{{ $ksefVerificationUrl }}"
+                        data-ksef-pdf-filename="{{ $ksefPdfFilename }}"
+                        title="Pobierz PDF Faktury z KSeF"
+                    >KSeF: {{ $issuedInvoice->number }}</a>
+                @else
+                    <span class="management-issued-invoice-ksef management-issued-invoice-ksef-reference" data-order-ksef-reference>KSeF: {{ $issuedInvoice->number }}</span>
+                @endif
+            @elseif ($ksefCanSend)
+                <form method="POST" action="{{ route('invoices.ksef.submissions.first-attempt', $issuedInvoice) }}" class="management-issued-invoice-ksef-form" data-order-ksef-send-form>
+                    @csrf
+                    <input type="hidden" name="return_to" value="order">
+                    <button class="btn btn-sm management-issued-invoice-ksef" type="submit" data-order-ksef-send-trigger data-order-ksef-tooltip data-bs-toggle="modal" data-bs-target="#orderKsefSendConfirmationModal" data-bs-placement="top" data-bs-title="Przeka&#380; do KSeF" title="Przeka&#380; do KSeF" aria-label="Przeka&#380; Faktur&#281; {{ $issuedInvoice->number }} do KSeF">KSeF</button>
+                </form>
+            @elseif ($ksefSeriesEnabled)
+                <button class="btn btn-sm management-issued-invoice-ksef" type="button" aria-label="KSeF" data-sales-document-ksef-label disabled>KSeF</button>
+            @endif
         </div>
         @unless ($issuedInvoice->isFinalized() || $hasCorrections)
             @include('invoices.partials.delete-modal', [

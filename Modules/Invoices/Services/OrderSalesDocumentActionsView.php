@@ -8,9 +8,20 @@ use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefInvoiceVerificationLinkBuilder;
+use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 
 class OrderSalesDocumentActionsView
 {
+    public function __construct(
+        private readonly KsefOperationalEnvironmentPolicy $ksefEnvironments,
+        private readonly KsefInvoiceVerificationLinkBuilder $ksefVerificationLinks,
+    ) {}
+
     /**
      * @return array{
      *     issuedInvoice: ?Invoice,
@@ -19,7 +30,14 @@ class OrderSalesDocumentActionsView
      *     finalizedCorrections: Collection<int, Invoice>,
      *     proformaLocked: bool,
      *     invoiceSeries: Collection<int, InvoiceSeries>,
-     *     proformaSeries: Collection<int, InvoiceSeries>
+     *     proformaSeries: Collection<int, InvoiceSeries>,
+     *     ksefSeriesEnabled: bool,
+     *     ksefHasSubmission: bool,
+     *     ksefCanSend: bool,
+     *     ksefSubmission: ?KsefInvoiceSubmission,
+     *     ksefPdfDownloadAvailable: bool,
+     *     ksefVerificationUrl: ?string,
+     *     ksefPdfFilename: ?string
      * }
      */
     public function data(Order $order): array
@@ -32,6 +50,7 @@ class OrderSalesDocumentActionsView
                 InvoiceDocumentType::Proforma,
                 InvoiceDocumentType::Correction,
             ])
+            ->with('series')
             ->orderBy('issued_at')
             ->orderBy('id')
             ->get()
@@ -39,6 +58,7 @@ class OrderSalesDocumentActionsView
         $corrections = $documents->get(InvoiceDocumentType::Correction->value, collect());
         $issuedInvoice = $documents->get(InvoiceDocumentType::Invoice->value, collect())->first();
         $issuedProforma = $documents->get(InvoiceDocumentType::Proforma->value, collect())->first();
+        $ksefState = $this->ksefState($issuedInvoice);
 
         $series = InvoiceSeries::query()
             ->where('is_active', true)
@@ -69,6 +89,13 @@ class OrderSalesDocumentActionsView
             'proformaLocked' => (bool) $issuedProforma?->isProformaSuperseded(),
             'invoiceSeries' => $series->get(InvoiceDocumentType::Invoice->value, collect()),
             'proformaSeries' => $series->get(InvoiceDocumentType::Proforma->value, collect()),
+            'ksefSeriesEnabled' => $ksefState['seriesEnabled'],
+            'ksefHasSubmission' => $ksefState['hasSubmission'],
+            'ksefCanSend' => $ksefState['canSend'],
+            'ksefSubmission' => $ksefState['submission'],
+            'ksefPdfDownloadAvailable' => $ksefState['pdfDownloadAvailable'],
+            'ksefVerificationUrl' => $ksefState['verificationUrl'],
+            'ksefPdfFilename' => $ksefState['pdfFilename'],
         ];
     }
 
@@ -78,5 +105,75 @@ class OrderSalesDocumentActionsView
             'order' => $order,
             'salesDocumentActions' => $this->data($order),
         ])->render();
+    }
+
+    /** @return array{seriesEnabled: bool, hasSubmission: bool, canSend: bool, submission: ?KsefInvoiceSubmission, pdfDownloadAvailable: bool, verificationUrl: ?string, pdfFilename: ?string} */
+    private function ksefState(?Invoice $invoice): array
+    {
+        $state = [
+            'seriesEnabled' => false,
+            'hasSubmission' => false,
+            'canSend' => false,
+            'submission' => null,
+            'pdfDownloadAvailable' => false,
+            'verificationUrl' => null,
+            'pdfFilename' => null,
+        ];
+
+        if ($invoice === null || $invoice->series === null) {
+            return $state;
+        }
+
+        $settings = KsefSetting::query()
+            ->where('singleton_key', KsefSetting::SINGLETON_KEY)
+            ->first();
+
+        if ($settings !== null) {
+            $state['submission'] = KsefInvoiceSubmission::query()
+                ->where('invoice_id', $invoice->getKey())
+                ->where('environment', $settings->environment->value)
+                ->orderByDesc('attempt_number')
+                ->orderByDesc('id')
+                ->first();
+            $state['hasSubmission'] = $state['submission'] !== null;
+        }
+
+        $state['seriesEnabled'] = KsefSeriesSetting::query()
+            ->where('invoice_series_id', $invoice->invoice_series_id)
+            ->where('is_enabled', true)
+            ->exists();
+
+        $state['canSend'] = $settings !== null
+            && $state['seriesEnabled']
+            && ! $state['hasSubmission']
+            && $invoice->isInvoice()
+            && $invoice->isIssued()
+            && is_string($invoice->number)
+            && trim($invoice->number) !== ''
+            && $invoice->sequence_number !== null
+            && is_string($invoice->numbering_period_key)
+            && trim($invoice->numbering_period_key) !== ''
+            && $settings->is_active
+            && config('ksef.invoice_submission_enabled') === true
+            && $this->ksefEnvironments->allows($settings->environment);
+
+        $submission = $state['submission'];
+        $state['pdfDownloadAvailable'] = $submission?->status === KsefInvoiceSubmissionStatus::Accepted
+            && is_string($submission->ksef_number)
+            && trim($submission->ksef_number) !== '';
+
+        if ($state['pdfDownloadAvailable']) {
+            if ($invoice->issue_date !== null) {
+                $state['verificationUrl'] = $this->ksefVerificationLinks->build(
+                    $submission,
+                    $invoice->issue_date,
+                );
+            }
+
+            $number = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) $invoice->number);
+            $state['pdfFilename'] = 'KSeF_'.trim((string) $number, '_').'.pdf';
+        }
+
+        return $state;
     }
 }

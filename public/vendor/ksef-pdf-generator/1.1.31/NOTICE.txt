@@ -1,0 +1,5 @@
+Official KSeF PDF Generator
+Source: https://github.com/CIRFMF/ksef-pdf-generator
+Release: 1.1.31
+Artifact: ksef-fe-invoice-converter.umd.cjs (renamed to .js for browser delivery)
+License: MIT; see LICENSE in this directory.

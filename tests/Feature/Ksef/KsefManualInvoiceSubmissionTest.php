@@ -100,7 +100,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'invoicingDate' => '2026-08-21T10:00:00Z',
             'acquisitionDate' => '2026-08-21T10:00:01Z',
             'permanentStorageDate' => '2026-08-21T10:00:02Z',
-            'status' => ['code' => 200, 'description' => 'Przyjęta'],
+            'status' => ['code' => 200, 'description' => 'Zaakceptowana'],
             'ksefNumber' => $this->validKsefNumber('9876543210'),
         ];
 
@@ -725,7 +725,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'invoicingDate' => '2026-08-21T10:00:00Z',
             'acquisitionDate' => '2026-08-21T10:00:01Z',
             'permanentStorageDate' => '2026-08-21T10:00:02Z',
-            'status' => ['code' => 200, 'description' => 'Przyjęta'],
+            'status' => ['code' => 200, 'description' => 'Zaakceptowana'],
             'ksefNumber' => $this->validKsefNumber('9876543210'),
         ];
         $fake->upoResponse = KsefUpoFixture::xml([
@@ -763,7 +763,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             'invoicingDate' => '2026-08-21T10:00:00Z',
             'acquisitionDate' => '2026-08-21T10:00:01Z',
             'permanentStorageDate' => '2026-08-21T10:00:02Z',
-            'status' => ['code' => 200, 'description' => 'Przyjęta'],
+            'status' => ['code' => 200, 'description' => 'Zaakceptowana'],
             'ksefNumber' => $this->validKsefNumber('9876543210'),
         ];
 
@@ -1013,7 +1013,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $response = $this->get(route('invoices.edit', $invoice));
 
         $response->assertOk()
-            ->assertSee('Przyjęta')
+            ->assertSee('Zaakceptowana')
             ->assertSee($number)
             ->assertDontSee('action="'.route('invoices.ksef.submissions.store', $invoice).'"', false)
             ->assertDontSee(route('invoices.ksef.submissions.refresh', [

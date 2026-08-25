@@ -115,6 +115,18 @@ class KsefOnlineSessionClient
         );
     }
 
+    public function invoice(
+        KsefEnvironment $environment,
+        string $accessToken,
+        string $ksefNumber,
+    ): KsefRawApiResponse {
+        return $this->http->getRaw(
+            $environment,
+            '/invoices/ksef/'.rawurlencode($ksefNumber),
+            $accessToken,
+        );
+    }
+
     private function requiredString(array $data, string $path, string $safeCode): string
     {
         $value = data_get($data, $path);

@@ -1329,6 +1329,12 @@ Pierwsza próba ręczna wykonuje w jednej lokalnej transakcji `finalize -> autho
 
 Kontrolowany przebieg DEMO z fikcyjną, początkowo niezamkniętą Fakturą potwierdził akcję listy, jedną próbę i jeden invoice POST. Dokument został lokalnie zamknięty, następnie przyjęty, otrzymał numer KSeF oraz jedno podpisane UPO zapisane szyfrowane. UPO pobrano lokalnie byte-for-byte, a drugi odczyt aplikacyjny nie wykonał kolejnego requestu do MF. Edycja i usunięcie po finalizacji zostały zablokowane przez istniejące polityki. Wykonano jeden status GET i jeden zdalny UPO GET; `TEST LIVE REQUESTS: 0`, `PRODUCTION LIVE REQUESTS: 0`, `MONTHLY EXPORT LIVE POST: 0`. Lokalny gate pozostaje `true`, natomiast `.env.example` i domyślna konfiguracja pozostają `false`. Faktura `BLF 1/2026` (id `94`) była w chwili końcowej kontroli już zamknięta i posiadała przyjętą próbę DEMO, dlatego poprawnie pokazywała status KSeF zamiast `WYŚLIJ`; nie wykonano na niej żadnej operacji live. Statusy: `KSeF.6E CLOSED`, `KSeF.6 CLOSED`.
 
+### PDF autorytatywnej Faktury KSeF z karty zamówienia
+
+Dla zaakceptowanego submissionu karta zamówienia pokazuje klikalne `KSeF: <numer OMS>`. Kontrolowana trasa pobiera przez `GET /invoices/ksef/{ksefNumber}` dokładny XML z zamrożonego środowiska submissionu, używa istniejącego access-token managera i wymaga aktywnej integracji, deployment gate oraz środowiska dopuszczonego przez `KsefOperationalEnvironmentPolicy`. SHA-256 Base64 odpowiedzi musi zgadzać się jednocześnie z nagłówkiem `x-ms-meta-hash`, treścią odpowiedzi i hashem zamrożonego payloadu. Operacja nie zapisuje XML ani PDF w bazie.
+
+API KSeF udostępnia autorytatywną Fakturę jako XML, nie jako gotowy PDF. Po pomyślnej kontroli integralności przeglądarka generuje plik PDF z XML przez przypięty oficjalny `@akmf/ksef-fe-invoice-converter` 1.1.31 z repozytorium CIRFMF; generator jest ładowany dopiero po kliknięciu. Do PDF przekazywany jest numer KSeF, data przetworzenia oraz oficjalny link weryfikacyjny KOD I. Statusy inne niż `accepted` pozostają nieklikalne i nie wykonują requestu.
+
 KSeF.2A nie tworzy:
 
 ```text
