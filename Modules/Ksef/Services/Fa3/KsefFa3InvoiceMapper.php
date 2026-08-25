@@ -154,7 +154,7 @@ class KsefFa3InvoiceMapper
                 'name' => (string) $item->name,
                 'unit_name' => (string) $item->unit_name,
                 'quantity' => $this->quantity($item->quantity),
-                'unit_price_net' => $this->decimalValue($item->unit_price_net, 4),
+                'unit_price_net' => $this->money($item->unit_price_net),
                 'total_net' => $net,
                 'fa3_rate' => (string) ($treatment['fa3_rate'] ?? ''),
                 'gtu' => $gtuByItemId[(int) $item->getKey()] ?? null,

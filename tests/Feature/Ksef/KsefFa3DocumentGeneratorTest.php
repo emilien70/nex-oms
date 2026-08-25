@@ -95,6 +95,8 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertSame($invoice->total_gross, $this->value($xpath, '/fa:Faktura/fa:Fa/fa:P_15'));
         $this->assertNotSame($invoice->amount_due, $this->value($xpath, '/fa:Faktura/fa:Fa/fa:P_15'));
         $this->assertSame('Usługa & wdrożenie <NEX> "Pro"', $this->value($xpath, '/fa:Faktura/fa:Fa/fa:FaWiersz/fa:P_7'));
+        $this->assertSame('100.00', $this->value($xpath, '/fa:Faktura/fa:Fa/fa:FaWiersz/fa:P_9A'));
+        $this->assertStringNotContainsString('<P_9A>100.0000</P_9A>', $first->xml);
         $this->assertStringContainsString('&amp;', $first->xml);
         $this->assertStringContainsString('&lt;NEX&gt;', $first->xml);
         $this->assertSame('123456785', $this->value($xpath, '/fa:Faktura/fa:Stopka/fa:Rejestry/fa:REGON'));
