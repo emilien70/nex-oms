@@ -143,6 +143,24 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertSame(5, $xpath->query('//fa:Fa/fa:FaWiersz')->length);
     }
 
+    public function test_line_quantity_omits_insignificant_trailing_zeroes_without_using_float(): void
+    {
+        $invoice = $this->issueInvoice();
+        $item = $invoice->items()->firstOrFail();
+
+        foreach ([
+            '1.0000' => '1',
+            '1.2500' => '1.25',
+            '1.0001' => '1.0001',
+        ] as $stored => $expected) {
+            $item->forceFill(['quantity' => $stored])->saveQuietly();
+
+            $xpath = $this->xpath($this->generate($invoice->fresh('items'))->xml);
+
+            $this->assertSame($expected, $this->value($xpath, '//fa:FaWiersz/fa:P_8B'));
+        }
+    }
+
     public function test_p6_is_emitted_only_when_sale_date_differs_from_issue_date(): void
     {
         $sameDate = $this->issueInvoice();

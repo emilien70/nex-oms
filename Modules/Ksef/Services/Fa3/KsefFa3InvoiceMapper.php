@@ -153,7 +153,7 @@ class KsefFa3InvoiceMapper
                 'position' => $item->position,
                 'name' => (string) $item->name,
                 'unit_name' => (string) $item->unit_name,
-                'quantity' => $this->decimalValue($item->quantity, 4),
+                'quantity' => $this->quantity($item->quantity),
                 'unit_price_net' => $this->decimalValue($item->unit_price_net, 4),
                 'total_net' => $net,
                 'fa3_rate' => (string) ($treatment['fa3_rate'] ?? ''),
@@ -357,6 +357,11 @@ class KsefFa3InvoiceMapper
     private function money(mixed $value): string
     {
         return $this->decimalValue($value, 2);
+    }
+
+    private function quantity(mixed $value): string
+    {
+        return rtrim(rtrim($this->decimalValue($value, 4), '0'), '.');
     }
 
     private function decimalValue(mixed $value, int $scale): string

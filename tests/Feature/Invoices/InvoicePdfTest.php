@@ -217,7 +217,7 @@ class InvoicePdfTest extends TestCase
         $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
 
-        $this->assertStringEndsWith('/invoice-v43.pdf', $newPath);
+        $this->assertStringEndsWith('/invoice-v44.pdf', $newPath);
         $this->assertSame($first, $second);
         Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($newPath);
@@ -231,8 +231,8 @@ class InvoicePdfTest extends TestCase
         $correction->id = 9002;
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
-        $this->assertStringEndsWith('/proforma-v34.pdf', $filenames->storagePath($proforma));
-        $this->assertStringEndsWith('/correction-v43.pdf', $filenames->storagePath($correction));
+        $this->assertStringEndsWith('/proforma-v35.pdf', $filenames->storagePath($proforma));
+        $this->assertStringEndsWith('/correction-v44.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
 
@@ -470,6 +470,36 @@ class InvoicePdfTest extends TestCase
         $this->assertStringNotContainsString('Faktura do faktury pro forma:', $html);
         $this->assertStringNotContainsString('Bank testowy', $html);
         $this->assertStringNotContainsString('12 3456 7890 1234 5678 9012 3456', $html);
+    }
+
+    public function test_invoice_pdf_always_prefixes_seller_nip_with_pl_without_changing_buyer_nip(): void
+    {
+        $invoice = $this->issueInvoice();
+        $correction = $this->createCorrection($invoice);
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $proforma = app(ProformaService::class)->createOrRefresh(
+            $order,
+            $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+            $this->documentContext(),
+        )->invoice;
+
+        foreach ([$invoice, $proforma, $correction] as $document) {
+            $html = app(InvoicePdfRenderer::class)->html($document);
+
+            $this->assertStringContainsString('NIP: PL9876543210', $html);
+            $this->assertStringContainsString('NIP: 1234567890', $html);
+            $this->assertStringNotContainsString('NIP: PL1234567890', $html);
+        }
+
+        $seller = $invoice->seller_snapshot;
+        $seller['tax_id'] = 'pl9876543210';
+        $invoice->update(['seller_snapshot' => $seller]);
+
+        $html = app(InvoicePdfRenderer::class)->html($invoice->refresh());
+
+        $this->assertStringContainsString('NIP: PL9876543210', $html);
+        $this->assertStringNotContainsString('NIP: PLpl9876543210', $html);
     }
 
     public function test_buyer_country_is_formatted_from_snapshot_for_invoice_proforma_and_correction(): void

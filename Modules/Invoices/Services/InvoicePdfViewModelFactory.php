@@ -85,7 +85,12 @@ class InvoicePdfViewModelFactory
             'related_proforma_number' => $invoice->isInvoice()
                 ? $this->text($order['related_documents']['proforma']['number'] ?? null)
                 : null,
-            'seller' => $this->party($seller, includeCountry: false, includeRegon: false),
+            'seller' => $this->party(
+                $seller,
+                includeCountry: false,
+                includeRegon: false,
+                taxIdPrefix: 'PL',
+            ),
             'buyer' => $this->party($invoice->buyer_snapshot),
             'items' => $this->items($invoice->items),
             'tax_rows' => $this->taxRows($invoice->tax_summary_snapshot),
@@ -154,7 +159,12 @@ class InvoicePdfViewModelFactory
             'reason' => $invoice->correction_reason,
             'place_of_issue' => $this->text($invoice->issuer_snapshot['place_of_issue'] ?? null),
             'payment_method' => $this->paymentMethod($invoice),
-            'seller' => $this->party($seller, includeCountry: false, includeRegon: false),
+            'seller' => $this->party(
+                $seller,
+                includeCountry: false,
+                includeRegon: false,
+                taxIdPrefix: 'PL',
+            ),
             'buyer' => $this->party($invoice->buyer_snapshot),
             'buyer_change' => $buyerChange,
             'before_items' => $this->correctionItems($invoice->items, 'correction_before_snapshot'),
@@ -517,9 +527,11 @@ class InvoicePdfViewModelFactory
         array $party,
         bool $includeCountry = true,
         bool $includeRegon = true,
+        ?string $taxIdPrefix = null,
     ): array {
         $name = $this->text($party['company_name'] ?? null) ?: $this->text($party['name'] ?? null);
         $person = $this->text($party['name'] ?? null);
+        $taxId = $this->prefixedTaxId($this->text($party['tax_id'] ?? null), $taxIdPrefix);
         $street = trim(implode(' ', array_filter([
             $this->text($party['street'] ?? null),
             $this->text($party['building_number'] ?? null),
@@ -539,9 +551,20 @@ class InvoicePdfViewModelFactory
                     ? 'REGON: '.$this->text($party['regon'])
                     : null,
                 $this->text($party['bdo'] ?? null) ? 'BDO: '.$this->text($party['bdo']) : null,
-                $this->text($party['tax_id'] ?? null) ? 'NIP: '.$this->text($party['tax_id']) : null,
+                $taxId !== null ? 'NIP: '.$taxId : null,
             ], fn (?string $line): bool => $line !== null && $line !== '')),
         ];
+    }
+
+    private function prefixedTaxId(?string $taxId, ?string $prefix): ?string
+    {
+        if ($taxId === null || $prefix === null) {
+            return $taxId;
+        }
+
+        return str_starts_with(strtoupper($taxId), strtoupper($prefix))
+            ? $prefix.substr($taxId, strlen($prefix))
+            : $prefix.$taxId;
     }
 
     /** @param array<string, mixed> $party */
