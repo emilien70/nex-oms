@@ -38,6 +38,7 @@ class KsefInvoiceSubmission extends Model
         'last_checked_at',
         'next_follow_up_at',
         'follow_up_attempts',
+        'follow_up_action',
         'last_follow_up_at',
         'last_follow_up_error_code',
         'last_follow_up_error_message',

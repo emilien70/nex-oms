@@ -588,10 +588,16 @@ class KsefInvoiceSubmissionService
                 throw $this->invalidState();
             }
 
-            if (in_array($to, [
-                KsefInvoiceSubmissionStatus::Rejected,
-                KsefInvoiceSubmissionStatus::TechnicalFailed,
-            ], true)) {
+            $nextAction = $this->followUp->actionForStatus($to, $managed->upo()->exists());
+            if ($managed->follow_up_action !== $nextAction) {
+                $attributes['follow_up_attempts'] = 0;
+                $attributes['next_follow_up_at'] = $nextAction === null
+                    ? null
+                    : $this->followUp->nextAttemptAt(0);
+            }
+            $attributes['follow_up_action'] = $nextAction;
+
+            if ($nextAction === null) {
                 $attributes['next_follow_up_at'] = null;
             }
 

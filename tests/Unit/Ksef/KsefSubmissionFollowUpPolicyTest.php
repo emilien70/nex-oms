@@ -74,6 +74,25 @@ class KsefSubmissionFollowUpPolicyTest extends TestCase
         ];
     }
 
+    public function test_attempts_are_preserved_only_for_the_same_follow_up_action(): void
+    {
+        $policy = app(KsefSubmissionFollowUpPolicy::class);
+        $submission = new KsefInvoiceSubmission([
+            'follow_up_attempts' => 4,
+            'follow_up_action' => KsefSubmissionFollowUpPolicy::ACTION_STATUS,
+        ]);
+
+        $this->assertSame(4, $policy->attemptsForAction(
+            $submission,
+            KsefSubmissionFollowUpPolicy::ACTION_STATUS,
+        ));
+        $this->assertSame(0, $policy->attemptsForAction(
+            $submission,
+            KsefSubmissionFollowUpPolicy::ACTION_UPO,
+        ));
+        $this->assertSame(0, $policy->attemptsForAction($submission, null));
+    }
+
     public function test_only_explicitly_transient_failures_are_retried(): void
     {
         $policy = app(KsefSubmissionFollowUpPolicy::class);

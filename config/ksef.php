@@ -24,7 +24,7 @@ return [
     'follow_up' => [
         'queue' => 'ksef',
         'dispatch_batch_size' => 20,
-        'unique_for_seconds' => 300,
+        'unique_for_seconds' => 21600,
         'lock_seconds' => 120,
         'backoff_seconds' => [60, 300, 900, 3600],
         'rate_limits' => [

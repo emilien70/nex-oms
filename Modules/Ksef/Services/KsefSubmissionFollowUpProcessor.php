@@ -129,9 +129,10 @@ class KsefSubmissionFollowUpProcessor
                 return null;
             }
 
-            $attempts = $managed->follow_up_attempts + 1;
+            $attempts = $this->policy->attemptsForAction($managed, $action) + 1;
             $managed->forceFill([
                 'follow_up_attempts' => $attempts,
+                'follow_up_action' => $action,
                 'last_follow_up_at' => CarbonImmutable::now(),
                 'next_follow_up_at' => $this->policy->nextAttemptAt($attempts),
             ])->save();

@@ -87,11 +87,14 @@ class KsefInvoiceStatusFollowUpService
                 ->lockForUpdate()
                 ->findOrFail($submission->getKey());
             $action = $this->policy->action($managed, $managed->upo()->exists());
+            $attempts = $this->policy->attemptsForAction($managed, $action);
 
             $managed->forceFill([
+                'follow_up_action' => $action,
+                'follow_up_attempts' => $attempts,
                 'next_follow_up_at' => $action === null
                     ? null
-                    : $this->policy->nextAttemptAt($managed->follow_up_attempts),
+                    : $this->policy->nextAttemptAt($attempts),
                 'last_follow_up_error_code' => null,
                 'last_follow_up_error_message' => null,
             ])->save();
@@ -107,12 +110,15 @@ class KsefInvoiceStatusFollowUpService
                 ->lockForUpdate()
                 ->findOrFail($submission->getKey());
             $action = $this->policy->action($managed, $managed->upo()->exists());
+            $attempts = $this->policy->attemptsForAction($managed, $action);
             $retry = $action !== null && $this->policy->isTransient($exception);
 
             $managed->forceFill([
+                'follow_up_action' => $action,
+                'follow_up_attempts' => $attempts,
                 'next_follow_up_at' => $retry
                     ? $this->policy->nextAttemptAt(
-                        $managed->follow_up_attempts,
+                        $attempts,
                         $exception->retryAfterSeconds,
                     )
                     : null,

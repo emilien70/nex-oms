@@ -17,13 +17,31 @@ class KsefSubmissionFollowUpPolicy
 
     public function action(KsefInvoiceSubmission $submission, bool $hasUpo): ?string
     {
-        return match ($submission->status) {
+        return $this->actionForStatus($submission->status, $hasUpo);
+    }
+
+    public function actionForStatus(
+        KsefInvoiceSubmissionStatus $status,
+        bool $hasUpo,
+    ): ?string {
+        return match ($status) {
             KsefInvoiceSubmissionStatus::Submitted,
             KsefInvoiceSubmissionStatus::Processing => self::ACTION_STATUS,
             KsefInvoiceSubmissionStatus::Accepted => $hasUpo ? null : self::ACTION_UPO,
             KsefInvoiceSubmissionStatus::Uncertain => self::ACTION_RECONCILE,
             default => null,
         };
+    }
+
+    public function attemptsForAction(
+        KsefInvoiceSubmission $submission,
+        ?string $action,
+    ): int {
+        if ($action === null || $submission->follow_up_action !== $action) {
+            return 0;
+        }
+
+        return max(0, $submission->follow_up_attempts);
     }
 
     public function nextAttemptAt(
