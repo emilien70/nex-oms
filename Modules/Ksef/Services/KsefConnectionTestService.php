@@ -13,9 +13,6 @@ class KsefConnectionTestService
     public function __construct(
         private readonly KsefSettingsService $settings,
         private readonly KsefAuthenticationService $authentication,
-        private readonly KsefHttpClient $http,
-        private readonly KsefCurrentTokenResolver $currentTokenResolver,
-        private readonly KsefCertificateOwnerResolver $certificateOwnerResolver,
     ) {}
 
     public function test(): void
@@ -66,85 +63,8 @@ class KsefConnectionTestService
             return;
         }
 
-        $warnings = $pair->systemWarnings;
-
-        try {
-            $permissionResponse = $this->http->post(
-                $settings->environment,
-                '/permissions/query/personal/grants',
-                [
-                    'permissionTypes' => ['InvoiceWrite'],
-                    'permissionState' => 'Active',
-                ],
-                $pair->accessToken,
-                [
-                    'pageOffset' => 0,
-                    'pageSize' => 100,
-                ],
-            );
-            $this->addWarning($warnings, $permissionResponse->systemWarning);
-        } catch (KsefApiException $exception) {
-            $this->addWarning($warnings, $exception->systemWarning);
-            $this->record(
-                $credential,
-                KsefConnectionTestStatus::Error,
-                'Uwierzytelnienie zakończyło się poprawnie, ale nie udało się sprawdzić uprawnień.',
-                systemWarning: $this->joinedWarnings(
-                    $warnings,
-                    $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken),
-                ),
-            );
-
-            return;
-        }
-
-        $permissions = $permissionResponse->data['permissions'] ?? null;
-
-        if (! is_array($permissions)) {
-            $this->record(
-                $credential,
-                KsefConnectionTestStatus::Error,
-                'Uwierzytelnienie zakończyło się poprawnie, ale KSeF zwrócił nieprawidłowe dane uprawnień.',
-                systemWarning: $this->joinedWarnings(
-                    $warnings,
-                    $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken),
-                ),
-            );
-
-            return;
-        }
-
-        $invoiceWrite = collect($permissions)->contains(
-            fn (mixed $permission): bool => is_array($permission)
-                && ($permission['permissionScope'] ?? null) === 'InvoiceWrite',
-        );
-
-        if (! $invoiceWrite) {
-            $resolved = $credential->authentication_method === KsefAuthenticationMethod::Token
-                ? $this->resolveTokenInvoiceWrite(
-                    $credential,
-                    $settings->context_nip,
-                    $pair->accessToken,
-                    $pair->refreshToken,
-                    $warnings,
-                )
-                : $this->resolveCertificateInvoiceWrite(
-                    $credential,
-                    $settings->context_nip,
-                    $pair->accessToken,
-                    $pair->refreshToken,
-                    $warnings,
-                );
-
-            if (! $resolved) {
-                return;
-            }
-
-            $invoiceWrite = true;
-        }
-
         $systemWarning = $this->joinedWarnings(
-            $warnings,
+            $pair->systemWarnings,
             $this->knownSecrets($credential, $pair->accessToken, $pair->refreshToken),
         );
 
@@ -153,8 +73,7 @@ class KsefConnectionTestService
                 $credential,
                 KsefConnectionTestStatus::Warning,
                 'Połączenie z KSeF działa poprawnie, ale system zwrócił ostrzeżenie techniczne.',
-                true,
-                $systemWarning,
+                systemWarning: $systemWarning,
             );
 
             return;
@@ -164,7 +83,6 @@ class KsefConnectionTestService
             $credential,
             KsefConnectionTestStatus::Success,
             'Połączenie z KSeF działa poprawnie.',
-            true,
         );
     }
 
@@ -180,100 +98,13 @@ class KsefConnectionTestService
         return is_string($credential->api_token) && $credential->api_token !== '';
     }
 
-    private function resolveTokenInvoiceWrite(
-        KsefCredential $credential,
-        string $contextNip,
-        string $accessToken,
-        string $refreshToken,
-        array &$warnings,
-    ): bool {
-        $resolution = $this->currentTokenResolver->resolve($credential->environment, $accessToken);
-        $this->addWarning($warnings, $resolution->systemWarning);
-        $systemWarning = $this->joinedWarnings(
-            $warnings,
-            $this->knownSecrets($credential, $accessToken, $refreshToken),
-        );
-
-        if (! $resolution->isResolved()) {
-            $this->record(
-                $credential,
-                KsefConnectionTestStatus::Warning,
-                'Uwierzytelnienie w KSeF działa, ale nie udało się jednoznacznie potwierdzić uprawnienia InvoiceWrite.',
-                null,
-                $systemWarning,
-            );
-
-            return false;
-        }
-
-        if (! $resolution->token->requestsPermission('InvoiceWrite')) {
-            $this->record(
-                $credential,
-                KsefConnectionTestStatus::Warning,
-                'Uwierzytelnienie w KSeF działa, ale bieżący Token KSeF nie posiada uprawnienia InvoiceWrite.',
-                false,
-                $systemWarning,
-            );
-
-            return false;
-        }
-
-        if (! $resolution->token->isStrictNipOwner($contextNip)) {
-            $this->record(
-                $credential,
-                KsefConnectionTestStatus::Warning,
-                'Uwierzytelnienie w KSeF działa i Token posiada InvoiceWrite, ale nie wykryto aktywnego uprawnienia InvoiceWrite w bieżącym kontekście.',
-                false,
-                $systemWarning,
-            );
-
-            return false;
-        }
-
-        return true;
-    }
-
-    private function resolveCertificateInvoiceWrite(
-        KsefCredential $credential,
-        string $contextNip,
-        string $accessToken,
-        string $refreshToken,
-        array &$warnings,
-    ): bool {
-        $certificate = $credential->authentication_certificate;
-        $owner = is_string($certificate)
-            ? $this->certificateOwnerResolver->isStrictNipOwner($certificate, $contextNip)
-            : null;
-        $systemWarning = $this->joinedWarnings(
-            $warnings,
-            $this->knownSecrets($credential, $accessToken, $refreshToken),
-        );
-
-        if ($owner === true) {
-            return true;
-        }
-
-        $this->record(
-            $credential,
-            KsefConnectionTestStatus::Warning,
-            $owner === false
-                ? 'Uwierzytelnienie certyfikatem KSeF działa, ale nie wykryto aktywnego uprawnienia InvoiceWrite w bieżącym kontekście.'
-                : 'Uwierzytelnienie certyfikatem KSeF działa, ale nie udało się jednoznacznie potwierdzić uprawnienia InvoiceWrite.',
-            $owner === false ? false : null,
-            $systemWarning,
-        );
-
-        return false;
-    }
-
     private function record(
         KsefCredential $credential,
         KsefConnectionTestStatus $status,
         string $message,
-        ?bool $invoiceWrite = null,
         ?string $systemWarning = null,
     ): void {
-        DB::transaction(function () use ($credential, $status, $message, $invoiceWrite, $systemWarning): void {
+        DB::transaction(function () use ($credential, $status, $message, $systemWarning): void {
             KsefCredential::query()
                 ->whereKey($credential->getKey())
                 ->lockForUpdate()
@@ -282,7 +113,7 @@ class KsefConnectionTestService
                     'last_tested_at' => now(),
                     'last_test_status' => $status,
                     'last_test_message' => mb_substr($message, 0, 2000),
-                    'last_test_invoice_write' => $invoiceWrite,
+                    'last_test_invoice_write' => null,
                     'last_system_warning' => $systemWarning === null
                         ? null
                         : mb_substr($systemWarning, 0, 4000),
@@ -300,13 +131,6 @@ class KsefConnectionTestService
                 'refresh_token' => null,
                 'refresh_token_valid_until' => null,
             ]);
-    }
-
-    private function addWarning(array &$warnings, ?string $warning): void
-    {
-        if ($warning !== null && ! in_array($warning, $warnings, true)) {
-            $warnings[] = $warning;
-        }
     }
 
     private function joinedWarnings(array $warnings, array $secrets): ?string

@@ -661,7 +661,7 @@
                                                     <form method="POST" action="{{ route('invoices.ksef.submissions.upo.fetch', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-upo-form>
                                                         @csrf
                                                         <input type="hidden" name="download" value="1">
-                                                        <button class="badge text-bg-success invoice-ksef-list-upo" type="submit" data-ksef-list-upo-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefAcceptedTooltip }}" title="{{ $ksefAcceptedTooltip }}">{{ $currentKsefSubmission->status->label() }}</button>
+                                                        <button class="badge text-bg-success invoice-ksef-list-upo" type="submit" data-ksef-list-upo-trigger data-ksef-upo-pdf-generator-src="{{ asset('vendor/ksef-pdf-generator/1.1.31/ksef-fe-invoice-converter.umd.js') }}" data-ksef-upo-pdf-filename="UPO_{{ preg_replace('/[^A-Za-z0-9_-]+/', '_', $ksefAcceptedNumber) }}.pdf" data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefAcceptedTooltip }}" title="{{ $ksefAcceptedTooltip }}">{{ $currentKsefSubmission->status->label() }}</button>
                                                     </form>
                                                 @elseif ($currentKsefSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected)
                                                     @php
@@ -866,6 +866,122 @@
 
                 window.alert(message);
             };
+
+            let ksefUpoPdfGeneratorPromise = null;
+
+            const loadKsefUpoPdfGenerator = (source) => {
+                const loaded = globalThis['ksef-fe-invoice-converter'];
+
+                if (typeof loaded?.generatePDFUPO === 'function') {
+                    return Promise.resolve(loaded);
+                }
+
+                if (!ksefUpoPdfGeneratorPromise) {
+                    ksefUpoPdfGeneratorPromise = new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = source;
+                        script.async = true;
+                        script.dataset.ksefUpoPdfGenerator = 'true';
+                        script.addEventListener('load', () => {
+                            const generator = globalThis['ksef-fe-invoice-converter'];
+
+                            if (typeof generator?.generatePDFUPO === 'function') {
+                                resolve(generator);
+
+                                return;
+                            }
+
+                            reject(new Error('Nie udało się uruchomić generatora PDF UPO.'));
+                        });
+                        script.addEventListener('error', () => {
+                            ksefUpoPdfGeneratorPromise = null;
+                            reject(new Error('Nie udało się załadować generatora PDF UPO.'));
+                        });
+                        document.head.append(script);
+                    });
+                }
+
+                return ksefUpoPdfGeneratorPromise;
+            };
+
+            const ksefUpoDownloadError = async (response) => {
+                try {
+                    const data = await response.json();
+
+                    if (typeof data?.message === 'string' && data.message.trim() !== '') {
+                        return data.message;
+                    }
+                } catch (error) {
+                    // The endpoint may fail before producing a JSON response.
+                }
+
+                return 'Nie udało się pobrać UPO z KSeF.';
+            };
+
+            document.querySelectorAll('[data-ksef-list-upo-form]').forEach((form) => {
+                form.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+
+                    const trigger = form.querySelector('button[type="submit"]');
+
+                    if (!trigger || trigger.getAttribute('aria-busy') === 'true') {
+                        return;
+                    }
+
+                    trigger.setAttribute('aria-busy', 'true');
+                    trigger.disabled = true;
+
+                    try {
+                        const [generator, response] = await Promise.all([
+                            loadKsefUpoPdfGenerator(trigger.dataset.ksefUpoPdfGeneratorSrc),
+                            fetch(form.action, {
+                                method: 'POST',
+                                headers: {
+                                    'Accept': 'application/xml',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                },
+                                body: new FormData(form),
+                            }),
+                        ]);
+
+                        if (!response.ok) {
+                            throw new Error(await ksefUpoDownloadError(response));
+                        }
+
+                        const xml = await response.text();
+
+                        if (xml.trim() === '') {
+                            throw new Error('KSeF zwrócił pusty dokument UPO.');
+                        }
+
+                        const upoFile = new File([xml], 'upo.xml', {
+                            type: 'application/xml',
+                        });
+                        const pdf = await generator.generatePDFUPO(upoFile);
+                        const url = URL.createObjectURL(pdf);
+                        const download = document.createElement('a');
+                        download.href = url;
+                        download.download = trigger.dataset.ksefUpoPdfFilename || 'UPO_KSeF.pdf';
+                        document.body.append(download);
+                        download.click();
+                        download.remove();
+                        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    } catch (error) {
+                        const message = error instanceof Error && error.message
+                            ? error.message
+                            : 'Nie udało się pobrać UPO z KSeF.';
+
+                        if (typeof window.nexOmsShowError === 'function') {
+                            window.nexOmsShowError(message);
+                        } else {
+                            window.alert(message);
+                        }
+                    } finally {
+                        trigger.removeAttribute('aria-busy');
+                        trigger.disabled = false;
+                    }
+                });
+            });
 
             document.querySelectorAll('[data-auto-submit-filter]').forEach((filter) => {
                 filter.addEventListener('change', () => filter.form?.requestSubmit());

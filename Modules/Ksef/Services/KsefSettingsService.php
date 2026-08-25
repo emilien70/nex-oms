@@ -48,6 +48,7 @@ class KsefSettingsService
         'include_order_reference',
         'include_bank_account',
         'include_gtu',
+        'include_seller_vat_prefix',
         'zero_vat_classification',
         'default_split_payment',
     ];
@@ -202,7 +203,6 @@ class KsefSettingsService
                 'last_tested_at',
                 'last_test_status',
                 'last_test_message',
-                'last_test_invoice_write',
                 'last_system_warning',
             ])
             ->keyBy(fn (KsefCredential $credential): string => $credential->environment->value);
@@ -216,7 +216,6 @@ class KsefSettingsService
                     'tested_at' => $credential?->last_tested_at?->format('d.m.Y H:i'),
                     'status' => $credential?->last_test_status?->value,
                     'message' => $credential?->last_test_message,
-                    'invoice_write' => $credential?->last_test_invoice_write,
                     'system_warning' => $credential?->last_system_warning,
                 ]];
             })
@@ -326,6 +325,7 @@ class KsefSettingsService
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
+            'include_seller_vat_prefix' => false,
             'zero_vat_classification' => KsefZeroVatClassification::Wdt,
             'default_split_payment' => false,
             'default_payment_type' => KsefPaymentType::Original,

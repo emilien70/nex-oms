@@ -142,6 +142,26 @@ class KsefInvoiceUpoTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_ajax_pdf_source_failure_returns_safe_json_without_persistence(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $submission = $this->acceptedSubmission($invoice, [
+            'status' => KsefInvoiceSubmissionStatus::Processing,
+        ]);
+
+        $this->withHeader('X-Requested-With', 'XMLHttpRequest')
+            ->post(route('invoices.ksef.submissions.upo.fetch', compact('invoice', 'submission')), [
+                'download' => '1',
+            ])
+            ->assertUnprocessable()
+            ->assertJson([
+                'message' => 'UPO można pobrać wyłącznie dla Faktury przyjętej przez KSeF.',
+            ]);
+
+        $this->assertDatabaseCount('ksef_invoice_upos', 0);
+        Http::assertNothingSent();
+    }
+
     public static function nonAcceptedStatuses(): array
     {
         return collect(KsefInvoiceSubmissionStatus::cases())

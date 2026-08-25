@@ -440,6 +440,7 @@ class KsefFa3OptionalBlocksTest extends TestCase
             'include_order_reference',
             'include_bank_account',
             'include_gtu',
+            'include_seller_vat_prefix',
         ];
     }
 

@@ -18,7 +18,7 @@ class KsefCertificateConnectionTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_certificate_connection_succeeds_with_explicit_invoice_write(): void
+    public function test_certificate_connection_authenticates_without_invoice_write_diagnostics(): void
     {
         $credential = $this->credential(KsefCertificateFixtureFactory::ec(), isActive: false);
         $fake = $this->fakeApi();
@@ -28,7 +28,7 @@ class KsefCertificateConnectionTest extends TestCase
 
         $credential->refresh();
         $this->assertSame(KsefConnectionTestStatus::Success, $credential->last_test_status);
-        $this->assertTrue($credential->last_test_invoice_write);
+        $this->assertNull($credential->last_test_invoice_write);
         $this->assertSame('Połączenie z KSeF działa poprawnie.', $credential->last_test_message);
         $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
         $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
@@ -36,68 +36,18 @@ class KsefCertificateConnectionTest extends TestCase
         $this->assertSame(0, $fake->tokenInitCalls);
         $this->assertSame(0, $fake->publicKeyCalls);
         $this->assertSame(0, $fake->tokenQueryCalls);
+        Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/permissions/query/personal/grants'));
+        Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/tokens'));
 
         $this->get(route('integrations.ksef.edit'))
             ->assertOk()
             ->assertSeeText('Certyfikat KSeF')
             ->assertSee('"status":"success"', false)
-            ->assertSee('"invoice_write":true', false)
+            ->assertDontSee('InvoiceWrite')
+            ->assertDontSee('invoice_write')
             ->assertDontSee(KsefApiFake::AUTHENTICATION_TOKEN)
             ->assertDontSee(KsefApiFake::ACCESS_TOKEN)
             ->assertDontSee(KsefApiFake::REFRESH_TOKEN);
-    }
-
-    public function test_strict_certificate_nip_owner_is_ready_without_tokens_endpoint(): void
-    {
-        $credential = $this->credential(KsefCertificateFixtureFactory::ec(
-            subjectSerialNumber: 'TINPL-1234567890',
-        ));
-        $fake = new KsefApiFake;
-        $fake->permissions = [];
-        $this->fakeApi($fake);
-
-        $this->post(route('integrations.ksef.test-connection'));
-
-        $credential->refresh();
-        $this->assertSame(KsefConnectionTestStatus::Success, $credential->last_test_status);
-        $this->assertTrue($credential->last_test_invoice_write);
-        $this->assertSame(0, $fake->tokenQueryCalls);
-        Http::assertNotSent(fn (Request $request): bool => str_ends_with($request->url(), '/tokens'));
-    }
-
-    public function test_unknown_certificate_owner_is_warning_without_guessing_or_token_query(): void
-    {
-        $credential = $this->credential(KsefCertificateFixtureFactory::ec(
-            subjectSerialNumber: 'PESEL-90010112345',
-        ));
-        $fake = new KsefApiFake;
-        $fake->permissions = [];
-        $this->fakeApi($fake);
-
-        $this->post(route('integrations.ksef.test-connection'));
-
-        $credential->refresh();
-        $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
-        $this->assertNull($credential->last_test_invoice_write);
-        $this->assertStringContainsString('nie udało się jednoznacznie potwierdzić', $credential->last_test_message);
-        $this->assertSame(0, $fake->tokenQueryCalls);
-    }
-
-    public function test_different_certificate_nip_is_not_inferred_as_owner(): void
-    {
-        $credential = $this->credential(KsefCertificateFixtureFactory::ec(
-            subjectSerialNumber: 'NIP-0987654321',
-        ));
-        $fake = new KsefApiFake;
-        $fake->permissions = [];
-        $this->fakeApi($fake);
-
-        $this->post(route('integrations.ksef.test-connection'));
-
-        $credential->refresh();
-        $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
-        $this->assertFalse($credential->last_test_invoice_write);
-        $this->assertSame(0, $fake->tokenQueryCalls);
     }
 
     public function test_missing_certificate_pair_records_error_without_http(): void
@@ -121,7 +71,7 @@ class KsefCertificateConnectionTest extends TestCase
         $this->assertStringContainsString('certyfikat KSeF i klucz prywatny', $credential->last_test_message);
     }
 
-    public function test_certificate_system_warning_is_sanitized_and_keeps_invoice_write_true(): void
+    public function test_certificate_system_warning_is_sanitized(): void
     {
         $credential = $this->credential(KsefCertificateFixtureFactory::ec());
         $fake = new KsefApiFake;
@@ -132,7 +82,7 @@ class KsefCertificateConnectionTest extends TestCase
 
         $credential->refresh();
         $this->assertSame(KsefConnectionTestStatus::Warning, $credential->last_test_status);
-        $this->assertTrue($credential->last_test_invoice_write);
+        $this->assertNull($credential->last_test_invoice_write);
         $this->assertSame('auth [ukryto] code=ABC', $credential->last_system_warning);
         $this->assertStringNotContainsString(KsefApiFake::AUTHENTICATION_TOKEN, $credential->last_test_message);
         $this->get(route('integrations.ksef.edit'))

@@ -13,13 +13,18 @@ use Modules\Ksef\Enums\KsefPaymentType;
 
 class KsefFa3OptionalBlocksResolver
 {
-    public const OPTION_KEYS = [
+    private const VERSION_1_OPTION_KEYS = [
         'include_recipient_data',
         'include_buyer_contact_data',
         'include_additional_information',
         'include_order_reference',
         'include_bank_account',
         'include_gtu',
+    ];
+
+    public const OPTION_KEYS = [
+        ...self::VERSION_1_OPTION_KEYS,
+        'include_seller_vat_prefix',
     ];
 
     private const GTU_CODES = [
@@ -62,7 +67,8 @@ class KsefFa3OptionalBlocksResolver
      *     payment: array<string, mixed>|null,
      *     additional_descriptions: array<int, array{key: string, value: string}>,
      *     transaction_terms: array<string, string>|null,
-     *     gtu_by_item_id: array<int, string>
+     *     gtu_by_item_id: array<int, string>,
+     *     include_seller_vat_prefix: bool|null
      * }
      */
     public function resolve(Invoice $invoice): array
@@ -77,6 +83,7 @@ class KsefFa3OptionalBlocksResolver
                 'additional_descriptions' => [],
                 'transaction_terms' => null,
                 'gtu_by_item_id' => [],
+                'include_seller_vat_prefix' => null,
             ];
         }
 
@@ -98,6 +105,7 @@ class KsefFa3OptionalBlocksResolver
                 ? $this->transactionTerms($invoice->order_snapshot ?? [])
                 : null,
             'gtu_by_item_id' => $options['include_gtu'] ? $this->gtuByItem($items) : [],
+            'include_seller_vat_prefix' => $options['include_seller_vat_prefix'] ?? null,
         ];
     }
 
@@ -116,7 +124,8 @@ class KsefFa3OptionalBlocksResolver
                 'Snapshot opcji dokumentu KSeF jest niekompletny.',
             );
         }
-        if (($snapshot['version'] ?? null) !== 1) {
+        $version = $snapshot['version'] ?? null;
+        if (! in_array($version, [1, 2], true)) {
             throw $this->error(
                 'ksef_fa3_document_snapshot_version_unsupported',
                 'Wersja snapshotu opcji dokumentu KSeF nie jest obsługiwana.',
@@ -133,7 +142,7 @@ class KsefFa3OptionalBlocksResolver
 
         $keys = array_keys($options);
         sort($keys, SORT_STRING);
-        $expectedKeys = self::OPTION_KEYS;
+        $expectedKeys = $version === 1 ? self::VERSION_1_OPTION_KEYS : self::OPTION_KEYS;
         sort($expectedKeys, SORT_STRING);
         if ($keys !== $expectedKeys) {
             throw $this->error(
@@ -142,7 +151,7 @@ class KsefFa3OptionalBlocksResolver
             );
         }
 
-        foreach (self::OPTION_KEYS as $key) {
+        foreach ($expectedKeys as $key) {
             if (! is_bool($options[$key])) {
                 throw $this->error(
                     'ksef_fa3_document_options_invalid',

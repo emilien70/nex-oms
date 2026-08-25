@@ -124,7 +124,7 @@ class KsefInvoiceSubmissionController extends Controller
         Invoice $invoice,
         KsefInvoiceSubmission $submission,
         KsefInvoiceUpoService $upos,
-    ): RedirectResponse|StreamedResponse {
+    ): JsonResponse|RedirectResponse|StreamedResponse {
         abort_unless($submission->invoice_id === $invoice->getKey(), 404);
 
         try {
@@ -136,9 +136,17 @@ class KsefInvoiceSubmissionController extends Controller
 
             return back()->with('success', 'UPO zostało pobrane i bezpiecznie zapisane.');
         } catch (KsefApiException $exception) {
+            if ($request->ajax()) {
+                return response()->json(['message' => $exception->getMessage()], 422);
+            }
+
             return back()->withErrors(['ksef' => $exception->getMessage()]);
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'fetch_upo', $exception, $submission);
+
+            if ($request->ajax()) {
+                return response()->json(['message' => 'Nie udało się pobrać UPO z KSeF.'], 500);
+            }
 
             return back()->withErrors(['ksef' => 'Nie udało się pobrać UPO z KSeF.']);
         }

@@ -422,8 +422,16 @@ class InvoiceListTest extends TestCase
                 'submission' => $acceptedSubmission,
             ]), false)
             ->assertSee('name="download" value="1"', false)
+            ->assertSee('data-ksef-upo-pdf-generator-src=', false)
+            ->assertSee('vendor/ksef-pdf-generator/1.1.31/ksef-fe-invoice-converter.umd.js', false)
+            ->assertSee('data-ksef-upo-pdf-filename="UPO_6282192260-20260821-440DF5800001-5F.pdf"', false)
+            ->assertSee('generator.generatePDFUPO(upoFile)', false)
+            ->assertSee("'X-Requested-With': 'XMLHttpRequest'", false)
             ->assertSee('Przetwarzanie')
             ->assertSee('Nie wysłano');
+        $this->assertFileExists(public_path(
+            'vendor/ksef-pdf-generator/1.1.31/ksef-fe-invoice-converter.umd.js',
+        ));
         $response->viewData('invoices')->getCollection()->each(
             fn (Invoice $invoice) => $this->assertFalse($invoice->relationLoaded('latestKsefSubmission')),
         );

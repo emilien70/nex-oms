@@ -86,7 +86,7 @@ class KsefFa3SemanticSnapshotService
         ];
         if ($initialize && ! array_key_exists('ksef_document', $metadata)) {
             $metadata['ksef_document'] = [
-                'version' => 1,
+                'version' => 2,
                 'options' => [
                     'include_recipient_data' => (bool) $settings->include_recipient_data,
                     'include_buyer_contact_data' => (bool) $settings->include_buyer_contact_data,
@@ -94,6 +94,7 @@ class KsefFa3SemanticSnapshotService
                     'include_order_reference' => (bool) $settings->include_order_reference,
                     'include_bank_account' => (bool) $settings->include_bank_account,
                     'include_gtu' => (bool) $settings->include_gtu,
+                    'include_seller_vat_prefix' => (bool) $settings->include_seller_vat_prefix,
                 ],
             ];
         }

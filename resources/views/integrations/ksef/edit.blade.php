@@ -37,6 +37,7 @@
         'include_order_reference' => 'Przekazuj numer zamówienia',
         'include_bank_account' => 'Przekazuj rachunek bankowy',
         'include_gtu' => 'Przekazuj oznaczenia GTU',
+        'include_seller_vat_prefix' => 'Dodaj prefiks VAT dla sprzedawcy',
     ];
     $oldPaymentMappings = collect(old('mappings', []))
         ->filter(fn ($mapping) => is_array($mapping)
@@ -683,10 +684,6 @@
                                         <strong>Uwierzytelnienie:</strong>
                                         <span data-ksef-status-authentication-method></span>
                                     </div>
-                                    <div class="ksef-connection-status-line" data-ksef-invoice-write-row hidden>
-                                        <strong>InvoiceWrite:</strong>
-                                        <span data-ksef-invoice-write></span>
-                                    </div>
                                     <div class="ksef-connection-status-line" data-ksef-tested-at-row hidden>
                                         <strong>Ostatni test:</strong>
                                         <span data-ksef-tested-at></span>
@@ -809,8 +806,6 @@
             const statusEnvironment = document.querySelector('[data-ksef-status-environment]');
             const statusNip = document.querySelector('[data-ksef-status-nip]');
             const statusAuthenticationMethod = document.querySelector('[data-ksef-status-authentication-method]');
-            const invoiceWriteRow = document.querySelector('[data-ksef-invoice-write-row]');
-            const invoiceWrite = document.querySelector('[data-ksef-invoice-write]');
             const testedAtRow = document.querySelector('[data-ksef-tested-at-row]');
             const testedAt = document.querySelector('[data-ksef-tested-at]');
             const systemWarningRow = document.querySelector('[data-ksef-system-warning-row]');
@@ -822,7 +817,6 @@
                 || !certificateValidUntil || !certificateKey || !certificateFingerprint
                 || !contextNipInput || !authenticationMethodSelect || !testButton || !testHelp
                 || !connectionStatus || !testMessage || !statusEnvironment || !statusNip || !statusAuthenticationMethod
-                || !invoiceWriteRow || !invoiceWrite
                 || !testedAtRow || !testedAt || !systemWarningRow || !systemWarning) {
                 return;
             }
@@ -846,11 +840,6 @@
                 statusEnvironment.textContent = environmentLabels[environmentSelect.value] || '';
                 statusNip.textContent = persistedContextNip || 'Nie skonfigurowano';
                 statusAuthenticationMethod.textContent = authenticationMethodLabels[authenticationMethods[environmentSelect.value]] || '';
-
-                invoiceWriteRow.hidden = !status.status;
-                invoiceWrite.textContent = status.invoice_write === true
-                    ? 'Tak'
-                    : (status.invoice_write === false ? 'Nie wykryto' : 'Nie sprawdzono');
 
                 testedAtRow.hidden = !status.tested_at;
                 testedAt.textContent = status.tested_at || '';

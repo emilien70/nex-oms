@@ -61,7 +61,10 @@ class KsefFa3InvoiceMapper
             generatedAt: DateTimeImmutable::createFromInterface($generatedAt)
                 ->setTimezone(new DateTimeZone('UTC'))
                 ->format('Y-m-d\TH:i:s\Z'),
-            seller: $this->seller($invoice->seller_snapshot ?? [], $hasWdt),
+            seller: $this->seller(
+                $invoice->seller_snapshot ?? [],
+                $optional['include_seller_vat_prefix'] ?? $hasWdt,
+            ),
             buyer: array_filter([
                 ...$this->buyer($invoice->buyer_snapshot ?? []),
                 'contacts' => $optional['buyer_contacts'],
@@ -288,10 +291,10 @@ class KsefFa3InvoiceMapper
     /** @param array<string, mixed> $snapshot
      * @return array<string, mixed>
      */
-    private function seller(array $snapshot, bool $hasWdt): array
+    private function seller(array $snapshot, bool $includeVatPrefix): array
     {
         return [
-            'taxpayer_prefix' => $hasWdt ? 'PL' : null,
+            'taxpayer_prefix' => $includeVatPrefix ? 'PL' : null,
             'nip' => $this->buyerIdentity->normalizePolishNip($snapshot['tax_id'] ?? null) ?? '',
             'name' => trim((string) ($snapshot['name'] ?? '')),
             'address' => $this->address($snapshot),

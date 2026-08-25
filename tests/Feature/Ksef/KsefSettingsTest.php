@@ -46,6 +46,7 @@ class KsefSettingsTest extends TestCase
             ->assertSeeText('WDT')
             ->assertSeeText('Eksport towarów')
             ->assertSeeText('Sprzedaż krajowa 0%')
+            ->assertSeeText('Dodaj prefiks VAT dla sprzedawcy')
             ->assertSeeText('MPP – Mechanizm podzielonej płatności')
             ->assertSeeText('Domyślna wartość dla nowych Faktur VAT')
             ->assertSeeText('NEX-OMS')
@@ -69,6 +70,10 @@ class KsefSettingsTest extends TestCase
             '/<a(?=[^>]*data-ksef-tab="payment-types")(?=[^>]*href="[^"]*tab=payment-types)[^>]*>/s',
             $response->getContent(),
         );
+        $this->assertMatchesRegularExpression(
+            '/Przekazuj oznaczenia GTU.*Dodaj prefiks VAT dla sprzedawcy/s',
+            $response->getContent(),
+        );
 
         $this->assertSame(1, KsefSetting::query()->count());
         $this->assertDatabaseHas('ksef_settings', [
@@ -80,6 +85,7 @@ class KsefSettingsTest extends TestCase
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
+            'include_seller_vat_prefix' => false,
             'zero_vat_classification' => 'wdt',
             'default_split_payment' => false,
             'default_payment_type' => 'original',
@@ -89,8 +95,9 @@ class KsefSettingsTest extends TestCase
         $this->assertFalse($settings->is_active);
         $this->assertSame(KsefZeroVatClassification::Wdt, $settings->zero_vat_classification);
         $this->assertFalse($settings->default_split_payment);
+        $this->assertFalse($settings->include_seller_vat_prefix);
         $this->assertSame(KsefPaymentType::Original, $settings->default_payment_type);
-        $this->assertTrue(Schema::hasColumns('ksef_settings', ['is_active', 'zero_vat_classification', 'default_split_payment', 'default_payment_type']));
+        $this->assertTrue(Schema::hasColumns('ksef_settings', ['is_active', 'zero_vat_classification', 'default_split_payment', 'default_payment_type', 'include_seller_vat_prefix']));
         $this->assertFalse(Schema::hasColumn('ksef_settings', 'include_sale_date'));
         $this->assertTrue(Schema::hasColumns('ksef_credentials', [
             'access_token',
@@ -248,6 +255,7 @@ class KsefSettingsTest extends TestCase
             'include_order_reference' => false,
             'include_bank_account' => false,
             'include_gtu' => false,
+            'include_seller_vat_prefix' => true,
             'zero_vat_classification' => 'export',
             'default_split_payment' => true,
         ]))->assertSessionDoesntHaveErrors();
@@ -262,6 +270,7 @@ class KsefSettingsTest extends TestCase
             'include_order_reference' => false,
             'include_bank_account' => false,
             'include_gtu' => false,
+            'include_seller_vat_prefix' => true,
             'zero_vat_classification' => 'export',
             'default_split_payment' => true,
         ]);
@@ -314,6 +323,21 @@ class KsefSettingsTest extends TestCase
             'default_split_payment' => false,
         ]))->assertSessionDoesntHaveErrors();
         $this->assertFalse(KsefSetting::query()->firstOrFail()->default_split_payment);
+    }
+
+    public function test_seller_vat_prefix_is_persisted_as_a_boolean(): void
+    {
+        Http::preventStrayRequests();
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'include_seller_vat_prefix' => true,
+        ]))->assertSessionDoesntHaveErrors();
+        $this->assertTrue(KsefSetting::query()->firstOrFail()->include_seller_vat_prefix);
+
+        $this->put(route('integrations.ksef.update'), $this->payload([
+            'include_seller_vat_prefix' => false,
+        ]))->assertSessionDoesntHaveErrors();
+        $this->assertFalse(KsefSetting::query()->firstOrFail()->include_seller_vat_prefix);
     }
 
     public function test_invalid_zero_vat_classification_is_rejected_without_partial_update(): void
@@ -424,6 +448,7 @@ class KsefSettingsTest extends TestCase
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
+            'include_seller_vat_prefix' => false,
             'zero_vat_classification' => 'wdt',
             'default_split_payment' => false,
         ], $overrides);

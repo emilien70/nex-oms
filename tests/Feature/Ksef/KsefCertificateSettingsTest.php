@@ -359,6 +359,7 @@ class KsefCertificateSettingsTest extends TestCase
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
+            'include_seller_vat_prefix' => false,
             'zero_vat_classification' => 'wdt',
             'default_split_payment' => false,
         ], $overrides);

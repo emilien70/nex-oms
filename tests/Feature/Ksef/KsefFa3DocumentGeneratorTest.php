@@ -240,14 +240,15 @@ class KsefFa3DocumentGeneratorTest extends TestCase
         $this->assertSame(['0 KR', '0 WDT', '0 EX'], $this->values($xpath, '//fa:FaWiersz/fa:P_12'));
     }
 
-    public function test_frozen_wdt_emits_taxpayer_prefix_before_seller_identity(): void
+    public function test_frozen_seller_vat_prefix_emits_pl_for_domestic_invoice(): void
     {
-        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Wdt])->save();
-        $invoice = $this->issueInvoice(
-            ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
-            [$this->grossItem('WDT', '100.00', '0.00')],
-        );
-        $this->settings()->forceFill(['zero_vat_classification' => KsefZeroVatClassification::Export])->save();
+        $this->settings()->forceFill([
+            'include_seller_vat_prefix' => true,
+        ])->save();
+        $invoice = $this->issueInvoice();
+        $this->settings()->forceFill([
+            'include_seller_vat_prefix' => false,
+        ])->save();
 
         $xpath = $this->xpath($this->generate($invoice)->xml);
 
@@ -256,11 +257,45 @@ class KsefFa3DocumentGeneratorTest extends TestCase
             'PrefiksPodatnika',
             $xpath->query('/fa:Faktura/fa:Podmiot1/*')->item(0)?->localName,
         );
-        $this->assertSame('DE', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:KodUE'));
-        $this->assertSame('123456789', $this->value($xpath, '/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:NrVatUE'));
+        $this->assertSame('9876543210', $this->value($xpath, '/fa:Faktura/fa:Podmiot1/fa:DaneIdentyfikacyjne/fa:NIP'));
+    }
+
+    public function test_wdt_without_frozen_seller_vat_prefix_omits_taxpayer_prefix(): void
+    {
+        $this->settings()->forceFill([
+            'zero_vat_classification' => KsefZeroVatClassification::Wdt,
+            'include_seller_vat_prefix' => false,
+        ])->save();
+        $invoice = $this->issueInvoice(
+            ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            [$this->grossItem('WDT bez prefiksu', '100.00', '0.00')],
+        );
+
+        $xpath = $this->xpath($this->generate($invoice)->xml);
+
+        $this->assertSame(0, $xpath->query('/fa:Faktura/fa:Podmiot1/fa:PrefiksPodatnika')->length);
         $this->assertSame('0 WDT', $this->value($xpath, '//fa:FaWiersz/fa:P_12'));
-        $this->assertSame('100.00', $this->value($xpath, '//fa:Fa/fa:P_13_6_2'));
-        $this->assertSame(0, $xpath->query('//fa:Fa/fa:P_13_6_3')->length);
+    }
+
+    public function test_legacy_version_one_wdt_snapshot_keeps_taxpayer_prefix(): void
+    {
+        $this->settings()->forceFill([
+            'zero_vat_classification' => KsefZeroVatClassification::Wdt,
+            'include_seller_vat_prefix' => false,
+        ])->save();
+        $invoice = $this->issueInvoice(
+            ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            [$this->grossItem('Historyczne WDT', '100.00', '0.00')],
+        );
+        $metadata = $invoice->tax_metadata_snapshot;
+        $metadata['ksef_document']['version'] = 1;
+        unset($metadata['ksef_document']['options']['include_seller_vat_prefix']);
+        $invoice->forceFill(['tax_metadata_snapshot' => $metadata])->saveQuietly();
+
+        $xpath = $this->xpath($this->generate($invoice->fresh())->xml);
+
+        $this->assertSame('PL', $this->value($xpath, '/fa:Faktura/fa:Podmiot1/fa:PrefiksPodatnika'));
+        $this->assertSame('0 WDT', $this->value($xpath, '//fa:FaWiersz/fa:P_12'));
     }
 
     public function test_export_without_wdt_does_not_emit_taxpayer_prefix(): void

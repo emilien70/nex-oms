@@ -64,7 +64,7 @@ class KsefFa3PreparationTest extends TestCase
             'vat_group' => false,
         ], $invoice->buyer_snapshot['subject_flags']);
         $this->assertSame([
-            'version' => 1,
+            'version' => 2,
             'options' => [
                 'include_recipient_data' => false,
                 'include_buyer_contact_data' => false,
@@ -72,6 +72,7 @@ class KsefFa3PreparationTest extends TestCase
                 'include_order_reference' => true,
                 'include_bank_account' => true,
                 'include_gtu' => true,
+                'include_seller_vat_prefix' => false,
             ],
         ], $invoice->tax_metadata_snapshot['ksef_document']);
 
@@ -90,6 +91,7 @@ class KsefFa3PreparationTest extends TestCase
             'include_order_reference' => false,
             'include_bank_account' => false,
             'include_gtu' => false,
+            'include_seller_vat_prefix' => true,
         ])->save();
         $invoice = $this->issueInvoice(['billing_tax_id' => '5260250995']);
         $frozen = $invoice->tax_metadata_snapshot['ksef_document'];
@@ -101,6 +103,7 @@ class KsefFa3PreparationTest extends TestCase
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
+            'include_seller_vat_prefix' => false,
         ])->save();
         $item = $invoice->items->first();
         $invoice = app(InvoiceEditService::class)->updateItem(
@@ -113,6 +116,8 @@ class KsefFa3PreparationTest extends TestCase
         $newInvoice = $this->issueInvoice(['billing_tax_id' => '5260250995']);
         $this->assertNotSame($frozen, $newInvoice->tax_metadata_snapshot['ksef_document']);
         $this->assertTrue($newInvoice->tax_metadata_snapshot['ksef_document']['options']['include_gtu']);
+        $this->assertTrue($frozen['options']['include_seller_vat_prefix']);
+        $this->assertFalse($newInvoice->tax_metadata_snapshot['ksef_document']['options']['include_seller_vat_prefix']);
     }
 
     public function test_zero_vat_and_split_payment_are_frozen_while_new_or_retaxed_lines_use_current_settings(): void
