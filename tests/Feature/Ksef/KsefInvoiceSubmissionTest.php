@@ -5,6 +5,7 @@ namespace Tests\Feature\Ksef;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Modules\Invoices\Enums\InvoiceDocumentType;
@@ -16,6 +17,7 @@ use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefPaymentMethodMapping;
@@ -499,6 +501,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertNull($submission->ksef_number);
 
         $invoice->forceFill(['seller_snapshot' => []])->saveQuietly();
+        Event::fake([KsefInvoiceAccepted::class]);
         $fake->statusResponse = [
             'referenceNumber' => $submission->invoice_reference_number,
             'invoiceHash' => $submission->invoice_hash,
@@ -516,6 +519,19 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertSame('2026-08-19T10:00:01.000000Z', $submission->acquisition_date->toISOString());
         $this->assertSame($xml, $submission->payload_xml);
         $this->assertSame(2, $fake->statusCalls);
+        Event::assertDispatched(KsefInvoiceAccepted::class, function (KsefInvoiceAccepted $event) use ($invoice, $submission): bool {
+            $payload = $event->payload();
+
+            return $event->submission->is($submission)
+                && $payload['order_id'] === $invoice->order_id
+                && $payload['invoice_id'] === $invoice->getKey()
+                && $payload['invoice_number'] === $invoice->number
+                && $payload['submission_id'] === $submission->getKey()
+                && $payload['environment'] === KsefEnvironment::Test->value
+                && $payload['ksef_number'] === $submission->ksef_number
+                && ! array_key_exists('payload_xml', $payload);
+        });
+        Event::assertDispatchedTimes(KsefInvoiceAccepted::class, 1);
     }
 
     #[DataProvider('conservativeStatusCases')]

@@ -149,6 +149,35 @@ class OrderSalesDocumentActionsTest extends TestCase
             ->assertDontSee('data-sales-document-ksef-label', false);
     }
 
+    public function test_automatic_ksef_invoice_marks_management_fragment_for_temporary_ajax_refresh(): void
+    {
+        config()->set('ksef.invoice_submission_enabled', true);
+        $settings = app(KsefSettingsService::class)->get();
+        $settings->forceFill([
+            'is_active' => true,
+            'automatic_submission' => true,
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => '9876543210',
+        ])->save();
+
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries();
+        KsefSeriesSetting::query()->create([
+            'invoice_series_id' => $series->getKey(),
+            'is_enabled' => true,
+        ]);
+        app(InvoiceIssuingService::class)->issue(
+            $order,
+            $series,
+            $this->documentContext(),
+        );
+
+        $html = app(OrderSalesDocumentActionsView::class)->render($order);
+
+        $this->assertStringContainsString('data-ksef-automatic-refresh="1"', $html);
+    }
+
     public function test_order_page_hides_ksef_action_for_an_invoice_series_not_enabled_for_ksef(): void
     {
         config()->set('ksef.invoice_submission_enabled', true);
@@ -172,7 +201,7 @@ class OrderSalesDocumentActionsTest extends TestCase
         $this->assertStringNotContainsString('data-order-ksef-reference', $html);
     }
 
-    public function test_existing_ksef_submission_is_presented_with_the_oms_invoice_number_instead_of_button(): void
+    public function test_pending_ksef_submission_shows_disabled_indicator_while_ajax_refresh_continues(): void
     {
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
@@ -204,8 +233,12 @@ class OrderSalesDocumentActionsTest extends TestCase
 
         $html = app(OrderSalesDocumentActionsView::class)->render($order);
 
-        $this->assertStringContainsString('data-order-ksef-reference', $html);
-        $this->assertStringContainsString('KSeF: '.$invoice->number, $html);
+        $this->assertStringContainsString('data-ksef-automatic-refresh="1"', $html);
+        $this->assertStringContainsString('data-order-ksef-pending', $html);
+        $this->assertStringContainsString('aria-disabled="true"', $html);
+        $this->assertStringContainsString('data-bs-title="Faktura jest przekazywana do KSeF"', $html);
+        $this->assertStringNotContainsString('data-order-ksef-reference', $html);
+        $this->assertStringNotContainsString('KSeF: '.$invoice->number, $html);
         $this->assertStringNotContainsString('data-order-ksef-send-form', $html);
         $this->assertStringNotContainsString('data-order-ksef-send-trigger', $html);
         $this->assertStringNotContainsString('data-sales-document-ksef-label', $html);
@@ -245,6 +278,7 @@ class OrderSalesDocumentActionsTest extends TestCase
         $downloadRoute = route('invoices.ksef.submissions.invoice.download', compact('invoice', 'submission'));
 
         $response->assertOk()
+            ->assertSee('data-ksef-automatic-refresh="0"', false)
             ->assertSee('data-order-ksef-invoice-pdf', false)
             ->assertSee('data-ksef-invoice-source-url="'.$downloadRoute.'"', false)
             ->assertSee('data-ksef-number="'.$submission->ksef_number.'"', false)

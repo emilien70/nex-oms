@@ -16,6 +16,7 @@ use Modules\Integrations\AllegroShipping\Drivers\AllegroShippingDriver;
 use Modules\Integrations\DPD\Drivers\DpdDriver;
 use Modules\Integrations\InPost\Drivers\InPostCourierDriver;
 use Modules\Integrations\InPost\Drivers\InPostLockerDriver;
+use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Shipments\Events\ShipmentCreated;
 use Modules\Shipments\Events\ShipmentCreationFailed;
 use Modules\Shipments\Events\ShipmentStatusChanged;
@@ -69,6 +70,7 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(ShipmentCreated::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentStatusChanged::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentCreationFailed::class, DispatchAutomationEvent::class);
+        Event::listen(KsefInvoiceAccepted::class, DispatchAutomationEvent::class);
 
         View::composer('layouts.app', function ($view): void {
             $statusSettings = OrderStatusSetting::orderedSettings();

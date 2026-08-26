@@ -109,6 +109,44 @@ class AutomaticActionsPageTest extends TestCase
         $this->assertSame(AutomationCatalog::ACTION_CHANGE_STATUS, $rule->actions->first()->action_type);
     }
 
+    public function test_ksef_invoice_accepted_event_can_be_selected_and_saved(): void
+    {
+        $this->get(route('orders.automatic-actions.index'))
+            ->assertOk()
+            ->assertSee('value="ksef.invoice_accepted"', false)
+            ->assertSee('Faktura zaakceptowana w KSeF');
+
+        $this->post(route('orders.automatic-actions.store'), [
+            'name' => 'Po akceptacji Faktury w KSeF',
+            'description' => '',
+            'trigger' => 'ksef.invoice_accepted',
+            'is_active' => '1',
+            'conditions' => [],
+            'actions' => [[
+                'type' => AutomationCatalog::ACTION_CHANGE_STATUS,
+                'configuration' => ['status' => Order::STATUS_SHIPPED],
+                'stop_on_error' => '1',
+            ]],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('automation_rules', [
+            'name' => 'Po akceptacji Faktury w KSeF',
+            'trigger' => 'ksef.invoice_accepted',
+            'is_active' => true,
+        ]);
+
+        $order = $this->order();
+        app(AutomationEngine::class)->evaluate('ksef.invoice_accepted', [
+            'event_id' => (string) Str::uuid(),
+            'event_name' => 'ksef.invoice_accepted',
+            'order_id' => $order->getKey(),
+            'invoice_id' => 123,
+            'submission_id' => 456,
+        ]);
+
+        $this->assertSame(Order::STATUS_SHIPPED, $order->fresh()->status);
+    }
+
     public function test_matching_rule_changes_order_status_and_records_execution(): void
     {
         $rule = AutomationRule::query()->create([

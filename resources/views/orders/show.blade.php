@@ -3151,6 +3151,22 @@
 
             const applyOrderFragments = (state) => {
                 Object.entries(state.fragments || {}).forEach(([name, html]) => {
+                    if (name === 'sales-documents') {
+                        const current = document.querySelector('[data-sales-document-actions]');
+                        const template = document.createElement('template');
+                        template.innerHTML = String(html || '').trim();
+                        const replacement = template.content.firstElementChild;
+
+                        if (current && replacement) {
+                            current.replaceWith(replacement);
+                            syncSalesDocumentNumberWidths(replacement);
+                            initializeOrderKsefTooltips(replacement);
+                            scheduleKsefAutomaticRefresh();
+                        }
+
+                        return;
+                    }
+
                     const target = document.querySelector(fragmentTargets[name]);
                     if (target) {
                         target.innerHTML = html;
@@ -3241,7 +3257,7 @@
                 return state;
             };
 
-            const refreshOrderState = async () => {
+            const refreshOrderState = async (fragments = []) => {
                 if (!orderStateUrl || orderStateRequestRunning || document.hidden) {
                     return;
                 }
@@ -3249,12 +3265,46 @@
                 orderStateRequestRunning = true;
 
                 try {
-                    await fetchOrderState();
+                    await fetchOrderState(fragments);
                 } catch (error) {
                     // A later automation event or returning to this tab will retry the refresh.
                 } finally {
                     orderStateRequestRunning = false;
                 }
+            };
+
+            const ksefAutomaticRefreshMaximumMs = 10 * 60 * 1000;
+            let ksefAutomaticRefreshStartedAt = 0;
+            let ksefAutomaticRefreshTimer = null;
+
+            const scheduleKsefAutomaticRefresh = (reset = false) => {
+                window.clearTimeout(ksefAutomaticRefreshTimer);
+
+                const container = document.querySelector('[data-sales-document-actions]');
+                const pending = container?.dataset.ksefAutomaticRefresh === '1';
+
+                if (!pending) {
+                    ksefAutomaticRefreshStartedAt = 0;
+                    return;
+                }
+
+                if (reset || ksefAutomaticRefreshStartedAt === 0) {
+                    ksefAutomaticRefreshStartedAt = Date.now();
+                }
+
+                const elapsed = Date.now() - ksefAutomaticRefreshStartedAt;
+                if (elapsed >= ksefAutomaticRefreshMaximumMs) {
+                    return;
+                }
+
+                const delay = elapsed < 60000 ? 2000 : 5000;
+                ksefAutomaticRefreshTimer = window.setTimeout(async () => {
+                    if (!document.hidden) {
+                        await refreshOrderState(['sales-documents']);
+                    }
+
+                    scheduleKsefAutomaticRefresh();
+                }, delay);
             };
 
             const clearAjaxErrors = (form) => {
@@ -3519,6 +3569,7 @@
                     container.replaceWith(replacement);
                     syncSalesDocumentNumberWidths(replacement);
                     initializeOrderKsefTooltips(replacement);
+                    scheduleKsefAutomaticRefresh();
 
                     if (openDocumentAfterSubmit) {
                         if (documentWindow) {
@@ -3542,18 +3593,24 @@
 
             if (orderStateUrl) {
                 fetchOrderState(['history', 'shipments']).catch(() => {});
+                scheduleKsefAutomaticRefresh(true);
 
                 document.addEventListener('nexoms:automation-finished', (event) => {
                     if (Number(event.detail?.orderId || 0) === currentOrderId) {
-                        refreshOrderState();
+                        refreshOrderState(['sales-documents', 'history']);
                     }
                 });
 
                 document.addEventListener('visibilitychange', () => {
                     if (!document.hidden) {
-                        refreshOrderState();
+                        refreshOrderState(['sales-documents']);
+                        scheduleKsefAutomaticRefresh();
                     }
                 });
+
+                window.addEventListener('pagehide', () => {
+                    window.clearTimeout(ksefAutomaticRefreshTimer);
+                }, { once: true });
             }
 
             const initialCourierProvider = courierFormHost?.dataset.initialCourierProvider;

@@ -40,6 +40,7 @@ class AutomationCatalog
             'shipment.created' => $this->decode('Utworzono przesy&#322;k&#281;'),
             'shipment.status_changed' => $this->decode('Zmieniono status przesy&#322;ki'),
             'shipment.creation_failed' => $this->decode('Wyst&#261;pi&#322; b&#322;&#261;d tworzenia przesy&#322;ki'),
+            'ksef.invoice_accepted' => 'Faktura zaakceptowana w KSeF',
         ];
     }
 

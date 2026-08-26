@@ -12,6 +12,7 @@ use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionPolicy;
 use Modules\Ksef\Services\KsefInvoiceVerificationLinkBuilder;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 
@@ -20,6 +21,7 @@ class OrderSalesDocumentActionsView
     public function __construct(
         private readonly KsefOperationalEnvironmentPolicy $ksefEnvironments,
         private readonly KsefInvoiceVerificationLinkBuilder $ksefVerificationLinks,
+        private readonly KsefAutomaticInvoiceSubmissionPolicy $automaticSubmissions,
     ) {}
 
     /**
@@ -34,6 +36,7 @@ class OrderSalesDocumentActionsView
      *     ksefSeriesEnabled: bool,
      *     ksefHasSubmission: bool,
      *     ksefCanSend: bool,
+     *     ksefAutomaticRefreshPending: bool,
      *     ksefSubmission: ?KsefInvoiceSubmission,
      *     ksefPdfDownloadAvailable: bool,
      *     ksefVerificationUrl: ?string,
@@ -92,6 +95,10 @@ class OrderSalesDocumentActionsView
             'ksefSeriesEnabled' => $ksefState['seriesEnabled'],
             'ksefHasSubmission' => $ksefState['hasSubmission'],
             'ksefCanSend' => $ksefState['canSend'],
+            'ksefAutomaticRefreshPending' => $issuedInvoice !== null
+                && ($this->automaticSubmissions->snapshotFor($issuedInvoice) !== null
+                    || ($ksefState['submission'] !== null
+                        && ! $ksefState['submission']->status->isTerminal())),
             'ksefSubmission' => $ksefState['submission'],
             'ksefPdfDownloadAvailable' => $ksefState['pdfDownloadAvailable'],
             'ksefVerificationUrl' => $ksefState['verificationUrl'],

@@ -12,10 +12,14 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 
 class OrderStatusController extends Controller
 {
-    public function __construct(private readonly CountryCatalog $countries) {}
+    public function __construct(
+        private readonly CountryCatalog $countries,
+        private readonly OrderSalesDocumentActionsView $salesDocumentActions,
+    ) {}
 
     public function state(Request $request, Order $order): JsonResponse
     {
@@ -134,6 +138,10 @@ class OrderStatusController extends Controller
 
         if ($requested->contains('history')) {
             $fragments['history'] = view('orders.partials.history', compact('order'))->render();
+        }
+
+        if ($requested->contains('sales-documents')) {
+            $fragments['sales-documents'] = $this->salesDocumentActions->render($order);
         }
 
         return $fragments;

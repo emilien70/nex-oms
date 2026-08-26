@@ -5,10 +5,13 @@ namespace Tests\Feature;
 use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Modules\Invoices\Services\InvoiceIssuingService;
+use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
 class OrderStatusPollingTest extends TestCase
 {
+    use CreatesInvoiceStage2CDocuments;
     use RefreshDatabase;
 
     public function test_order_state_endpoint_returns_current_status_for_live_view_updates(): void
@@ -72,6 +75,32 @@ class OrderStatusPollingTest extends TestCase
             ->assertOk()
             ->assertSee('data-order-id="'.$order->id.'"', false)
             ->assertSee('nexoms:automation-finished', false)
+            ->assertSee("refreshOrderState(['sales-documents', 'history'])", false)
+            ->assertSee("refreshOrderState(['sales-documents'])", false)
+            ->assertSee('scheduleKsefAutomaticRefresh', false)
             ->assertDontSee('setInterval(refreshOrderState', false);
+    }
+
+    public function test_order_state_endpoint_returns_sales_document_actions_after_automation_issues_invoice(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries();
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $series,
+            $this->documentContext(),
+        );
+
+        $this->getJson(route('orders.state', [
+            'order' => $order,
+            'fragments' => 'sales-documents',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('fragments.sales-documents', function (string $html) use ($invoice): bool {
+                return str_contains($html, 'id="order-sales-document-actions"')
+                    && str_contains($html, 'management-issued-invoice-actions')
+                    && str_contains($html, e((string) $invoice->number));
+            });
     }
 }

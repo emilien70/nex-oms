@@ -10,13 +10,19 @@
     $ksefSeriesEnabled = $salesDocumentActions['ksefSeriesEnabled'];
     $ksefHasSubmission = $salesDocumentActions['ksefHasSubmission'];
     $ksefCanSend = $salesDocumentActions['ksefCanSend'];
+    $ksefAutomaticRefreshPending = $salesDocumentActions['ksefAutomaticRefreshPending'];
     $ksefSubmission = $salesDocumentActions['ksefSubmission'];
     $ksefPdfDownloadAvailable = $salesDocumentActions['ksefPdfDownloadAvailable'];
     $ksefVerificationUrl = $salesDocumentActions['ksefVerificationUrl'];
     $ksefPdfFilename = $salesDocumentActions['ksefPdfFilename'];
 @endphp
 
-<div id="order-sales-document-actions" class="management-sales-document-actions" data-sales-document-actions>
+<div
+    id="order-sales-document-actions"
+    class="management-sales-document-actions"
+    data-sales-document-actions
+    data-ksef-automatic-refresh="{{ $ksefAutomaticRefreshPending ? '1' : '0' }}"
+>
     <div class="management-invoice-label">Faktura:</div>
     <div class="management-sales-document-error alert alert-danger" data-sales-document-error role="alert" hidden></div>
 
@@ -55,7 +61,17 @@
                         title="Pobierz PDF Faktury z KSeF"
                     >KSeF: {{ $issuedInvoice->number }}</a>
                 @else
-                    <span class="management-issued-invoice-ksef management-issued-invoice-ksef-reference" data-order-ksef-reference>KSeF: {{ $issuedInvoice->number }}</span>
+                    <span
+                        class="btn btn-sm management-issued-invoice-ksef"
+                        role="button"
+                        aria-disabled="true"
+                        tabindex="0"
+                        data-order-ksef-pending
+                        data-order-ksef-tooltip
+                        data-bs-placement="top"
+                        data-bs-title="Faktura jest przekazywana do KSeF"
+                        title="Faktura jest przekazywana do KSeF"
+                    >KSeF</span>
                 @endif
             @elseif ($ksefCanSend)
                 <form method="POST" action="{{ route('invoices.ksef.submissions.first-attempt', $issuedInvoice) }}" class="management-issued-invoice-ksef-form" data-order-ksef-send-form>

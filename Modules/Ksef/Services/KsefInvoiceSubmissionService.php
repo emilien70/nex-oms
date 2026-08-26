@@ -9,6 +9,7 @@ use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefPublicKeyUsage;
+use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
@@ -610,8 +611,13 @@ class KsefInvoiceSubmissionService
             }
 
             $managed->forceFill($attributes + ['status' => $to])->save();
+            $managed->refresh();
 
-            return $managed->refresh();
+            if ($to === KsefInvoiceSubmissionStatus::Accepted) {
+                KsefInvoiceAccepted::dispatch($managed);
+            }
+
+            return $managed;
         }, 3);
     }
 
