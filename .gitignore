@@ -28,3 +28,8 @@ Thumbs.db
 /vlc-log.txt
 /composer-audit.txt
 /.rnd
+/install-nex-shortcut.ps1
+/nex-control.ps1
+/start-oms.ps1
+/status-oms.ps1
+/stop-oms.ps1
