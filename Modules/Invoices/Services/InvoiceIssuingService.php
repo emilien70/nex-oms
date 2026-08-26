@@ -17,6 +17,7 @@ use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\ValueObjects\InvoiceCurrencyConversionContext;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
 use Modules\Invoices\ValueObjects\NbpExchangeRate;
+use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionDispatcher;
 use Modules\Ksef\Services\KsefFa3SemanticSnapshotService;
 
 class InvoiceIssuingService
@@ -28,6 +29,7 @@ class InvoiceIssuingService
         private readonly InvoiceNumberingService $numbering,
         private readonly InvoiceCurrencyConversionService $currencyConversion,
         private readonly KsefFa3SemanticSnapshotService $ksefSemanticSnapshot,
+        private readonly KsefAutomaticInvoiceSubmissionDispatcher $automaticKsefSubmissions,
     ) {}
 
     public function issue(Order $order, InvoiceSeries $series, InvoiceOperationContext $context): Invoice
@@ -130,6 +132,7 @@ class InvoiceIssuingService
                 $operationContext,
                 $supersededProforma,
             );
+            $this->automaticKsefSubmissions->dispatchIfEligible($invoice);
 
             return $invoice->refresh()->load('items');
         }, 3);

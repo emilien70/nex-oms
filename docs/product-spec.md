@@ -1159,9 +1159,9 @@ Podstawowy model faktur ma zapewniać:
 
 NEX-OMS posiada jedną logiczną konfigurację KSeF dla całego systemu. Użytkownik wybiera aktywne środowisko `test`, `demo` albo `production`, natomiast dane uwierzytelniające są technicznie przechowywane osobno dla każdego środowiska. Nie oznacza to wielu integracji. Token jest szyfrowany, nie wraca do HTML ani danych sesji, a puste pole podczas edycji zachowuje dotychczasową wartość.
 
-Konfiguracja obejmuje jedną globalną politykę przyszłego przekazywania dokumentów oraz osobne wskazanie kwalifikujących się serii. Do KSeF można przypisać wyłącznie istniejące, aktywne serie Faktur VAT i Korekt. Pro forma jest wykluczona zarówno w interfejsie, jak i w walidacji backendu.
+Konfiguracja obejmuje jedną globalną politykę przekazywania dokumentów oraz osobne wskazanie kwalifikujących się serii. Do KSeF można przypisać wyłącznie istniejące, aktywne serie Faktur VAT i Korekt. Pro forma jest wykluczona zarówno w interfejsie, jak i w walidacji backendu.
 
-Pole `is_active` jest globalnym przełącznikiem przyszłego workflow dokumentowego KSeF i domyślnie ma wartość `false`. Wyłączona integracja ma blokować przyszłe ręczne i automatyczne przekazywanie dokumentów, ale nie będzie warunkiem testowania credentiali ani połączenia.
+Pole `is_active` jest globalnym przełącznikiem workflow dokumentowego KSeF i domyślnie ma wartość `false`. Wyłączona integracja blokuje ręczne i automatyczne przekazywanie dokumentów, ale nie jest warunkiem testowania credentiali ani połączenia.
 
 Pole `zero_vat_classification` ma wartości `wdt`, `export` albo `domestic` i domyślnie `wdt`. Jest wyłącznie fallbackiem przyszłego buildera FA(3) dla pozycji z numeryczną stawką VAT `0.00`, które nie mają jawnego `InvoiceItem.vat_code`; jawna klasyfikacja pozycji ma pierwszeństwo. Planowane mapowanie wynosi odpowiednio `0 WDT`, `0 EX` i `0 KR`. Wybór `wdt` nie potwierdza spełnienia prawnych warunków WDT.
 
@@ -1286,6 +1286,14 @@ Audyt gotowości KSeF jest prowadzony etapowo i obejmuje:
 - możliwość mapowania do aktualnej struktury KSeF.
 
 Kontrolowany happy path transportu KSeF.4A został pozytywnie zweryfikowany na TEST. Przed udostępnieniem workflow użytkownika lub rolloutem produkcyjnym wymagany jest kolejny audyt aktualnego kontraktu API, danych, triggerów i granic operacyjnych.
+
+## 30.11. Automatyczne przekazywanie nowych Faktur
+
+Włączenie `automatic_submission` powoduje, że nowa Faktura VAT wystawiona centralnie przez `InvoiceIssuingService`, także przez istniejącą akcję Automation, otrzymuje po zatwierdzeniu transakcji trwały job w bazodanowej kolejce `ksef`. Automatyczna wysyłka wymaga jednocześnie deployment gate, aktywnej integracji, środowiska TEST albo DEMO i dokładnie tej serii numeracji włączonej w konfiguracji KSeF. Pro formy, Korekty i PRODUCTION pozostają wyłączone.
+
+Worker przed wykonaniem HTTP ponownie sprawdza całą kwalifikację oraz brak próby w bieżącym środowisku. Korzysta z tego samego bezpiecznego pierwszego wysłania co workflow ręczny: finalizuje i przygotowuje zamrożony submission w lokalnej transakcji, wykonuje najwyżej jeden invoice POST, a następnie jedno natychmiastowe sprawdzenie statusu. Przy wyniku `accepted` pobiera UPO, natomiast stan wymagający dalszych odczytów przekazuje istniejącemu follow-upowi KSeF. Nie ma automatycznej drugiej próby ani ponownego invoice POST.
+
+Zmiana ustawienia nie działa wstecz na wcześniej wystawione Faktury. Trwałość oczekującej pierwszej wysyłki zapewnia istniejąca tabela jobów Laravel, bez dodatkowej tabeli domenowej i bez nowej nazwy kolejki. Wymagany jest działający worker połączenia `database` nasłuchujący kolejki `ksef`; scheduler nadal odpowiada wyłącznie za późniejsze statusy, reconciliation i UPO.
 
 ---
 

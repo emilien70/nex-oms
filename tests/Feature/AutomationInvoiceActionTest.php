@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Modules\Automation\Models\AutomationRule;
 use Modules\Automation\Models\AutomationRun;
@@ -14,6 +15,10 @@ use Modules\Invoices\Enums\InvoiceOperationSource;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceIssuingService;
+use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Jobs\KsefAutomaticInvoiceSubmissionJob;
+use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\KsefSettingsService;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -106,6 +111,41 @@ class AutomationInvoiceActionTest extends TestCase
         $this->assertSame(InvoiceOperationSource::Automation->value, $step->output['source']);
         $this->assertSame(InvoiceOperationSource::Automation->value, $event->payload['source']);
         $this->assertSame($rule->id, $run->automation_rule_id);
+    }
+
+    public function test_automation_issued_invoice_uses_native_automatic_ksef_queue(): void
+    {
+        config()->set('ksef.invoice_submission_enabled', true);
+        Queue::fake([KsefAutomaticInvoiceSubmissionJob::class]);
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $series = $this->createDocumentSeries();
+        $this->createRule($series->id);
+        app(KsefSettingsService::class)->get()->forceFill([
+            'is_active' => true,
+            'automatic_submission' => true,
+            'environment' => KsefEnvironment::Test,
+            'context_nip' => '9876543210',
+        ])->save();
+        KsefSeriesSetting::query()->create([
+            'invoice_series_id' => $series->getKey(),
+            'is_enabled' => true,
+        ]);
+
+        app(AutomationEngine::class)->evaluate('order.status_changed', [
+            'event_id' => (string) Str::uuid(),
+            'event_name' => 'order.status_changed',
+            'order_id' => $order->id,
+            'source' => 'manual',
+        ]);
+
+        $invoice = Invoice::query()->where('order_id', $order->id)->firstOrFail();
+        Queue::assertPushedOn(
+            'ksef',
+            KsefAutomaticInvoiceSubmissionJob::class,
+            fn ($job): bool => $job->invoiceId === $invoice->getKey()
+                && $job->environment === KsefEnvironment::Test->value,
+        );
     }
 
     public function test_execution_rechecks_series_activity(): void

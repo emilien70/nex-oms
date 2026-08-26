@@ -1165,7 +1165,7 @@ integracja dopiero po pełnym sprawdzeniu faktur
 
 Moduł `Modules/Ksef` zawiera fundament konfiguracji KSeF. Tabela `ksef_settings` jest chronionym kluczem unikalnym singletonem dla całego OMS. Aktywne środowisko ma jedną z wartości `test`, `demo` lub `production`. Tabela `ksef_credentials` przechowuje osobny, szyfrowany token dla każdego środowiska; jest to techniczny podział danych uwierzytelniających jednej integracji, a nie model wielu integracji. Dostęp do konfiguracji i zachowanie istniejącego tokenu przy pustej aktualizacji centralizuje `KsefSettingsService`.
 
-`ksef_settings.is_active` jest domyślnie wyłączonym globalnym kill-switchem przyszłego workflow dokumentowego. Nie blokuje konfiguracji ani przyszłego testu credentiali. Tabela `ksef_series_settings` przechowuje kwalifikację istniejących serii do przyszłego przekazywania dokumentów. Backend dopuszcza wyłącznie aktywne serie typu Faktura VAT i Korekta oraz odrzuca Pro formę. Globalne `automatic_submission` określa przyszły tryb automatyczny lub ręczny dla włączonych serii.
+`ksef_settings.is_active` jest domyślnie wyłączonym globalnym kill-switchem workflow dokumentowego. Nie blokuje konfiguracji ani testu credentiali. Tabela `ksef_series_settings` przechowuje kwalifikację istniejących serii do przekazywania dokumentów. Backend dopuszcza wyłącznie aktywne serie typu Faktura VAT i Korekta oraz odrzuca Pro formę. Globalne `automatic_submission` uruchamia automatyczną pierwszą wysyłkę nowych Faktur z włączonych serii; tryb ręczny pozostaje dostępny niezależnie od tej flagi.
 
 Enum `KsefZeroVatClassification` mapuje ustawienie `zero_vat_classification` na `wdt`, `export` albo `domestic`, z domyślnym `wdt`. To przyszły fallback FA(3) wyłącznie dla numerycznego VAT `0.00` bez jawnego `InvoiceItem.vat_code`; jawny kod ma pierwszeństwo. Planowane wartości FA(3) to `0 WDT`, `0 EX` i `0 KR`, przy czym konfiguracja nie stanowi potwierdzenia spełnienia warunków podatkowych WDT. Usunięto transportowe `include_sale_date`: przyszły mapper pobierze datę sprzedaży bezpośrednio z dokumentu.
 
@@ -1352,6 +1352,14 @@ Końcowy kontrolowany test LIVE w środowisku DEMO na dedykowanej fikcyjnej Fakt
 ### KSeF.6F.2 — token validity timezone normalization
 
 `accessToken.validUntil` i `refreshToken.validUntil` są zdalnymi timestampami opisującymi konkretny instant. `APP_TIMEZONE` pozostaje `Europe/Warsaw`; wspólny `KsefTokenValidityNormalizer` zachowuje instant i przed zapisem przelicza go na strefę aplikacji, ponieważ istniejące kolumny bez offsetu oraz cast `immutable_datetime` przechowują i odtwarzają lokalny wall clock. Pełne uwierzytelnianie Tokenem i Certyfikatem korzysta z tego kontraktu przez `KsefTokenPair`, a refresh używa tego samego normalizera. Testy roundtrip DB potwierdzają ponowne użycie świeżego access tokenu po reload modelu oraz poprawne przesunięcia `Europe/Warsaw` latem, zimą i przy zmianie DST.
+
+### KSeF.6G — automatic submission of newly issued invoices
+
+`InvoiceIssuingService` pozostaje centralnym wejściem dla ręcznego wystawiania i istniejącej akcji Automation. Po utworzeniu Faktury dispatcher ocenia deployment gate, `is_active`, `automatic_submission`, bieżące środowisko oraz dokładną serię dokumentu. Dla kwalifikującej się Faktury dispatchuje dopiero po commit trwały `ShouldBeUnique` job na istniejące połączenie `database` i kolejkę `ksef`; nie powstała nowa kolejka, tabela ani migracja. Zmiana ustawienia nie obejmuje historycznych Faktur.
+
+Job ponownie ładuje Fakturę i sprawdza niezmienność środowiska, konfiguracji, serii oraz brak istniejącego submissionu przed jakimkolwiek HTTP. Następnie używa niezmienionego `KsefManualInvoiceSubmissionService::submitFirstAttempt()`, zachowując atomowe `finalize -> authoritative prepare`, jeden invoice POST i brak automatycznego attempt 2 lub resend. Po wysłaniu wykonuje jedno natychmiastowe sprawdzenie statusu przez wspólny follow-up: `accepted` uruchamia idempotentne pobranie UPO, a `submitted`, `processing` lub przejściowy błąd odczytu pozostawiają dalszą pracę istniejącemu schedulerowi KSeF. Restart workera nie gubi oczekującej pierwszej wysyłki, ponieważ job pozostaje w bazie Laravel.
+
+Automatyczna pierwsza wysyłka dotyczy wyłącznie nowych Faktur VAT w TEST lub DEMO. Pro formy, Korekty i PRODUCTION są odrzucane przed HTTP. Job ma `tries = 1`; worker nadal może działać jako osobny proces `queue:work database --queue=ksef --sleep=3 --tries=1 --timeout=60`, a ogólny worker nie wymaga zmiany parametrów. Minutowy scheduler nadal dispatchuje wyłącznie odczytowe follow-upy statusu, reconciliation i UPO.
 
 ### PDF autorytatywnej Faktury KSeF z karty zamówienia
 

@@ -16,6 +16,7 @@ use Modules\Invoices\Services\InvoiceCurrencyConversionService;
 use Modules\Invoices\Services\InvoiceDocumentPreparationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceNumberingService;
+use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionDispatcher;
 use Modules\Ksef\Services\KsefFa3SemanticSnapshotService;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
@@ -150,7 +151,7 @@ class InvoiceIssuingServiceTest extends TestCase
         $order = $this->createDocumentOrder();
         $this->createDocumentItem($order);
         $series = $this->createDocumentSeries();
-        $service = new class(app(InvoiceDocumentPreparationService::class), app(InvoiceNumberingService::class), app(InvoiceCurrencyConversionService::class), app(KsefFa3SemanticSnapshotService::class)) extends InvoiceIssuingService
+        $service = new class(app(InvoiceDocumentPreparationService::class), app(InvoiceNumberingService::class), app(InvoiceCurrencyConversionService::class), app(KsefFa3SemanticSnapshotService::class), app(KsefAutomaticInvoiceSubmissionDispatcher::class)) extends InvoiceIssuingService
         {
             protected function afterNumberAssigned(Invoice $invoice): void
             {

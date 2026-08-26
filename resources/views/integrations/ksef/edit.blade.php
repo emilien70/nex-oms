@@ -717,7 +717,7 @@
                                         </select>
                                         @error($field)<div class="invalid-feedback">{{ $message }}</div>@enderror
                                         @if ($field === 'automatic_submission')
-                                            <div class="ksef-help">Automatyczna transmisja nie jest jeszcze uruchomiona. Obecny workflow wysyłki Faktur jest ręczny.</div>
+                                            <div class="ksef-help">Nowe Faktury z włączonych serii zostaną przekazane przez kolejkę KSeF po wystawieniu.</div>
                                         @endif
                                     </div>
                                 </div>

@@ -21,6 +21,11 @@ return [
     'auth_poll_max_attempts' => 20,
     'access_token_refresh_skew_seconds' => 60,
 
+    'automatic_submission' => [
+        'queue' => 'ksef',
+        'unique_for_seconds' => 21600,
+    ],
+
     'follow_up' => [
         'queue' => 'ksef',
         'dispatch_batch_size' => 20,

@@ -1195,7 +1195,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ]), false);
     }
 
-    public function test_automatic_submission_setting_remains_inert_even_with_enabled_gate(): void
+    public function test_enabling_automatic_submission_does_not_retroactively_submit_existing_invoice(): void
     {
         $invoice = $this->eligibleInvoice(finalize: false);
         app(KsefSettingsService::class)->get()->forceFill(['automatic_submission' => true])->save();
