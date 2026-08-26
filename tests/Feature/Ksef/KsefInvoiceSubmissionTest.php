@@ -117,6 +117,24 @@ class KsefInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_prepare_rejects_expected_context_drift_before_creating_submission(): void
+    {
+        $invoice = $this->eligibleInvoice(contextNip: '5260250995');
+
+        $this->expectKsefError(
+            'ksef_submission_context_changed',
+            fn () => app(KsefInvoiceSubmissionService::class)->prepare(
+                $invoice,
+                KsefEnvironment::Test,
+                true,
+                '9876543210',
+            ),
+        );
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_prepare_rejects_disabled_transport_production_and_unsupported_documents_without_http(): void
     {
         $invoice = $this->eligibleInvoice();

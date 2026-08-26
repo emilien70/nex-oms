@@ -10,6 +10,19 @@ use Modules\Ksef\Models\KsefSetting;
 
 class KsefSubmissionFollowUpDispatcher
 {
+    public function dispatchScheduled(KsefInvoiceSubmission $submission): bool
+    {
+        $managed = KsefInvoiceSubmission::query()->find($submission->getKey());
+        if ($managed === null || $managed->next_follow_up_at === null) {
+            return false;
+        }
+
+        KsefSubmissionFollowUpJob::dispatch((int) $managed->getKey())
+            ->delay($managed->next_follow_up_at);
+
+        return true;
+    }
+
     public function dispatchDue(): int
     {
         if (config('ksef.invoice_submission_enabled') !== true

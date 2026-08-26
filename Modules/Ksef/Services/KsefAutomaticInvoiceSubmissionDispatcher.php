@@ -9,20 +9,27 @@ class KsefAutomaticInvoiceSubmissionDispatcher
 {
     public function __construct(
         private readonly KsefAutomaticInvoiceSubmissionPolicy $policy,
+        private readonly KsefAutomaticInvoiceSubmissionRateLimiter $limiter,
     ) {}
 
     public function dispatchIfEligible(Invoice $invoice): bool
     {
-        $environment = $this->policy->environmentFor($invoice);
+        $snapshot = $this->policy->snapshotFor($invoice);
 
-        if ($environment === null) {
+        if ($snapshot === null) {
             return false;
         }
 
+        $delay = $this->limiter->reserveDelay(
+            $snapshot['environment'],
+            $snapshot['context_nip'],
+        );
+
         KsefAutomaticInvoiceSubmissionJob::dispatch(
             (int) $invoice->getKey(),
-            $environment,
-        )->afterCommit();
+            $snapshot['environment'],
+            $snapshot['context_nip'],
+        )->delay($delay)->afterCommit();
 
         return true;
     }

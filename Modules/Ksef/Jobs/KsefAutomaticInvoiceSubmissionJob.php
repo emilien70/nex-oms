@@ -17,24 +17,38 @@ class KsefAutomaticInvoiceSubmissionJob implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 1;
 
+    public int $timeout;
+
     public int $uniqueFor;
 
     public string $environment;
 
-    public function __construct(public int $invoiceId, KsefEnvironment $environment)
-    {
+    public function __construct(
+        public int $invoiceId,
+        KsefEnvironment $environment,
+        public string $contextNip,
+    ) {
         $this->environment = $environment->value;
+        $this->timeout = max(
+            30,
+            (int) config('ksef.automatic_submission.timeout_seconds', 120),
+        );
         $this->uniqueFor = max(
             60,
             (int) config('ksef.automatic_submission.unique_for_seconds', 21600),
         );
-        $this->onConnection('database');
-        $this->onQueue((string) config('ksef.automatic_submission.queue', 'ksef'));
+        $this->onConnection((string) config('ksef.automatic_submission.connection', 'ksef_submit'));
+        $this->onQueue((string) config('ksef.automatic_submission.queue', 'ksef-submit'));
     }
 
     public function uniqueId(): string
     {
-        return 'ksef-automatic-submission-'.$this->invoiceId.'-'.$this->environment;
+        return implode('-', [
+            'ksef-automatic-submission',
+            $this->invoiceId,
+            $this->environment,
+            hash('sha256', $this->contextNip),
+        ]);
     }
 
     public function handle(KsefAutomaticInvoiceSubmissionProcessor $processor): void
@@ -45,6 +59,6 @@ class KsefAutomaticInvoiceSubmissionJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $processor->handle($this->invoiceId, $environment);
+        $processor->handle($this->invoiceId, $environment, $this->contextNip);
     }
 }

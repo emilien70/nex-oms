@@ -22,8 +22,15 @@ return [
     'access_token_refresh_skew_seconds' => 60,
 
     'automatic_submission' => [
-        'queue' => 'ksef',
+        'connection' => 'ksef_submit',
+        'queue' => 'ksef-submit',
+        'timeout_seconds' => 120,
         'unique_for_seconds' => 21600,
+        'rate_limits' => [
+            'per_second' => 8,
+            'per_minute' => 24,
+            'per_hour' => 96,
+        ],
     ],
 
     'follow_up' => [

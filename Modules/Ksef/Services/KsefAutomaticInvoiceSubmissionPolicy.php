@@ -14,7 +14,8 @@ class KsefAutomaticInvoiceSubmissionPolicy
         private readonly KsefOperationalEnvironmentPolicy $environments,
     ) {}
 
-    public function environmentFor(Invoice $invoice): ?KsefEnvironment
+    /** @return array{environment: KsefEnvironment, context_nip: string}|null */
+    public function snapshotFor(Invoice $invoice): ?array
     {
         if (config('ksef.invoice_submission_enabled') !== true
             || ! $invoice->isInvoice()
@@ -33,6 +34,11 @@ class KsefAutomaticInvoiceSubmissionPolicy
             return null;
         }
 
+        $contextNip = trim((string) $settings->context_nip);
+        if (preg_match('/^\d{10}$/', $contextNip) !== 1) {
+            return null;
+        }
+
         if (! KsefSeriesSetting::query()
             ->where('invoice_series_id', $invoice->invoice_series_id)
             ->where('is_enabled', true)
@@ -47,11 +53,21 @@ class KsefAutomaticInvoiceSubmissionPolicy
             return null;
         }
 
-        return $settings->environment;
+        return [
+            'environment' => $settings->environment,
+            'context_nip' => $contextNip,
+        ];
     }
 
-    public function allows(Invoice $invoice, KsefEnvironment $expectedEnvironment): bool
-    {
-        return $this->environmentFor($invoice) === $expectedEnvironment;
+    public function allows(
+        Invoice $invoice,
+        KsefEnvironment $expectedEnvironment,
+        string $expectedContextNip,
+    ): bool {
+        $snapshot = $this->snapshotFor($invoice);
+
+        return $snapshot !== null
+            && $snapshot['environment'] === $expectedEnvironment
+            && $snapshot['context_nip'] === $expectedContextNip;
     }
 }

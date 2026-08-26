@@ -141,10 +141,11 @@ class AutomationInvoiceActionTest extends TestCase
 
         $invoice = Invoice::query()->where('order_id', $order->id)->firstOrFail();
         Queue::assertPushedOn(
-            'ksef',
+            'ksef-submit',
             KsefAutomaticInvoiceSubmissionJob::class,
             fn ($job): bool => $job->invoiceId === $invoice->getKey()
-                && $job->environment === KsefEnvironment::Test->value,
+                && $job->environment === KsefEnvironment::Test->value
+                && $job->contextNip === '9876543210',
         );
     }
 

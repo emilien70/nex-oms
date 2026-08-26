@@ -40,6 +40,7 @@ class KsefInvoiceSubmissionService
         Invoice $invoice,
         ?KsefEnvironment $expectedEnvironment = null,
         bool $firstAttemptOnly = false,
+        ?string $expectedContextNip = null,
     ): KsefInvoiceSubmission {
         $this->assertTransportEnabled();
 
@@ -47,6 +48,7 @@ class KsefInvoiceSubmissionService
             $invoice,
             $expectedEnvironment,
             $firstAttemptOnly,
+            $expectedContextNip,
         ): KsefInvoiceSubmission {
             $managed = Invoice::query()
                 ->lockForUpdate()
@@ -80,6 +82,12 @@ class KsefInvoiceSubmissionService
             }
             $this->environments->assertAllowed($environment);
             $contextNip = $this->configuredContextNip($settings->context_nip);
+            if ($expectedContextNip !== null && $contextNip !== $expectedContextNip) {
+                throw new KsefApiException(
+                    'Kontekst NIP KSeF zmienił się podczas operacji. Faktura nie została wysłana.',
+                    'ksef_submission_context_changed',
+                );
+            }
 
             $seriesEnabled = KsefSeriesSetting::query()
                 ->where('invoice_series_id', $managed->invoice_series_id)

@@ -25,10 +25,12 @@ class KsefManualInvoiceSubmissionService
     public function submitFirstAttempt(
         Invoice $invoice,
         KsefEnvironment $expectedEnvironment,
+        ?string $expectedContextNip = null,
     ): KsefInvoiceSubmission {
         $submission = DB::transaction(function () use (
             $invoice,
             $expectedEnvironment,
+            $expectedContextNip,
         ): KsefInvoiceSubmission {
             $finalized = $invoice->isFinalized()
                 ? $invoice
@@ -38,6 +40,7 @@ class KsefManualInvoiceSubmissionService
                 $finalized,
                 $expectedEnvironment,
                 true,
+                $expectedContextNip,
             );
         }, 3);
 

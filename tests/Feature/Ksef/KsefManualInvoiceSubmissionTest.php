@@ -6,6 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
@@ -18,6 +19,7 @@ use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Exceptions\KsefApiException;
+use Modules\Ksef\Jobs\KsefSubmissionFollowUpJob;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefInvoiceUpo;
@@ -26,6 +28,7 @@ use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
+use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\KsefOnlineSessionApiFake;
@@ -90,12 +93,15 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
     public function test_first_attempt_can_be_accepted_by_the_single_immediate_status_check(): void
     {
+        Queue::fake();
         Storage::fake('local');
         $invoice = $this->eligibleInvoice();
         $pdfPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         Storage::disk('local')->put($pdfPath, '%PDF-1.7 before KSeF acceptance');
         $this->validAccessToken();
         $fake = $this->fakeOnlineApi();
+        $fake->openResponse['referenceNumber'] = KsefUpoFixture::SESSION_REFERENCE;
+        $fake->sendResponse['referenceNumber'] = KsefUpoFixture::INVOICE_REFERENCE;
         $fake->statusResponse = [
             'invoicingDate' => '2026-08-21T10:00:00Z',
             'acquisitionDate' => '2026-08-21T10:00:01Z',
@@ -114,9 +120,36 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame($fake->statusResponse['ksefNumber'], $submission->ksef_number);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->statusCalls);
-        $this->assertSame(1, $fake->upoCalls);
+        $this->assertSame(0, $fake->upoCalls);
         $this->assertDatabaseCount('ksef_invoice_upos', 0);
+        $this->assertSame('upo', $submission->follow_up_action);
+        $this->assertNotNull($submission->next_follow_up_at);
+        Queue::assertPushedOn('ksef', KsefSubmissionFollowUpJob::class, function ($job) use ($submission): bool {
+            return $job->submissionId === $submission->getKey()
+                && $job->delay?->equalTo($submission->next_follow_up_at) === true;
+        });
         Storage::disk('local')->assertMissing($pdfPath);
+
+        $fake->upoResponse = KsefUpoFixture::xml([
+            'context_nip' => $submission->context_nip,
+            'seller_nip' => $submission->seller_nip,
+            'session_reference' => $submission->session_reference_number,
+            'ksef_number' => $submission->ksef_number,
+            'invoice_number' => $invoice->number,
+            'issue_date' => $invoice->issue_date->format('Y-m-d'),
+            'invoice_hash' => $submission->invoice_hash,
+        ]);
+        $this->travelTo($submission->next_follow_up_at);
+        (new KsefSubmissionFollowUpJob($submission->getKey()))
+            ->handle(app(KsefSubmissionFollowUpProcessor::class));
+
+        $this->assertSame(
+            1,
+            $fake->upoCalls,
+            (string) $submission->refresh()->last_follow_up_error_code,
+        );
+        $this->assertNull($submission->refresh()->last_follow_up_error_code);
+        $this->assertDatabaseCount('ksef_invoice_upos', 1);
     }
 
     public function test_immediate_status_failure_does_not_turn_a_successful_send_into_failure_or_retry(): void
@@ -708,6 +741,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
     public function test_processing_attempt_can_be_refreshed_once_to_accepted(): void
     {
+        Queue::fake();
         $invoice = $this->eligibleInvoice();
         $submission = $this->createSubmission(
             $invoice,
@@ -746,13 +780,23 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
         $this->assertSame($fake->statusResponse['ksefNumber'], $submission->ksef_number);
         $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(0, $fake->upoCalls);
+        $this->assertDatabaseCount('ksef_invoice_upos', 0);
+        $this->assertSame('upo', $submission->follow_up_action);
+        $this->assertNotNull($submission->next_follow_up_at);
+        $this->assertSame(0, $fake->sendCalls);
+
+        $this->travelTo($submission->next_follow_up_at);
+        (new KsefSubmissionFollowUpJob($submission->getKey()))
+            ->handle(app(KsefSubmissionFollowUpProcessor::class));
+
         $this->assertSame(1, $fake->upoCalls);
         $this->assertSame($fake->upoResponse, KsefInvoiceUpo::query()->sole()->payload_xml);
-        $this->assertSame(0, $fake->sendCalls);
     }
 
-    public function test_accepted_status_remains_saved_when_automatic_upo_is_not_yet_available(): void
+    public function test_accepted_status_schedules_upo_without_waiting_for_its_availability(): void
     {
+        Queue::fake();
         $invoice = $this->eligibleInvoice();
         $submission = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Processing);
         $this->validAccessToken();
@@ -770,15 +814,25 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->post(route('invoices.ksef.submissions.refresh', [
             'invoice' => $invoice,
             'submission' => $submission,
-        ]))->assertSessionHasErrors([
-            'ksef' => 'UPO tej Faktury nie jest jeszcze dostępne w KSeF.',
-        ]);
+        ]))->assertSessionHasNoErrors();
 
-        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->refresh()->status);
+        $submission->refresh();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame('upo', $submission->follow_up_action);
+        $this->assertNotNull($submission->next_follow_up_at);
         $this->assertSame(1, $fake->statusCalls);
-        $this->assertSame(1, $fake->upoCalls);
+        $this->assertSame(0, $fake->upoCalls);
         $this->assertSame(0, $fake->sendCalls);
         $this->assertDatabaseCount('ksef_invoice_upos', 0);
+
+        $this->travelTo($submission->next_follow_up_at);
+        (new KsefSubmissionFollowUpJob($submission->getKey()))
+            ->handle(app(KsefSubmissionFollowUpProcessor::class));
+
+        $submission->refresh();
+        $this->assertSame('ksef_upo_not_available', $submission->last_follow_up_error_code);
+        $this->assertNotNull($submission->next_follow_up_at);
+        $this->assertSame(1, $fake->upoCalls);
     }
 
     #[DataProvider('nonRefreshableStatuses')]

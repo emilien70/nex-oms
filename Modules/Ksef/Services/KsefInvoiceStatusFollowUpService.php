@@ -18,6 +18,7 @@ class KsefInvoiceStatusFollowUpService
         private readonly KsefInvoiceUpoService $upos,
         private readonly InvoicePdfStorage $pdfStorage,
         private readonly KsefSubmissionFollowUpPolicy $policy,
+        private readonly KsefSubmissionFollowUpDispatcher $dispatcher,
     ) {}
 
     public function refresh(
@@ -26,11 +27,10 @@ class KsefInvoiceStatusFollowUpService
     ): KsefInvoiceSubmission {
         return $this->withLock($submission, function () use ($invoice, $submission): KsefInvoiceSubmission {
             try {
-                $result = $this->fetchUpoIfAccepted(
-                    $invoice,
-                    $this->submissions->refreshStatus($submission),
-                );
-                $this->synchronizeSchedule($result);
+                $result = $this->submissions->refreshStatus($submission);
+                $this->invalidatePdfIfAccepted($invoice, $result);
+                $result = $this->synchronizeSchedule($result);
+                $this->dispatcher->dispatchScheduled($result);
 
                 return $result;
             } catch (KsefApiException $exception) {
@@ -47,11 +47,10 @@ class KsefInvoiceStatusFollowUpService
     ): KsefInvoiceSubmission {
         return $this->withLock($submission, function () use ($invoice, $submission): KsefInvoiceSubmission {
             try {
-                $result = $this->fetchUpoIfAccepted(
-                    $invoice,
-                    $this->submissions->reconcile($submission),
-                );
-                $this->synchronizeSchedule($result);
+                $result = $this->submissions->reconcile($submission);
+                $this->invalidatePdfIfAccepted($invoice, $result);
+                $result = $this->synchronizeSchedule($result);
+                $this->dispatcher->dispatchScheduled($result);
 
                 return $result;
             } catch (KsefApiException $exception) {
@@ -80,9 +79,9 @@ class KsefInvoiceStatusFollowUpService
         });
     }
 
-    public function synchronizeSchedule(KsefInvoiceSubmission $submission): void
+    public function synchronizeSchedule(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
     {
-        DB::transaction(function () use ($submission): void {
+        return DB::transaction(function () use ($submission): KsefInvoiceSubmission {
             $managed = KsefInvoiceSubmission::query()
                 ->lockForUpdate()
                 ->findOrFail($submission->getKey());
@@ -98,6 +97,8 @@ class KsefInvoiceStatusFollowUpService
                 'last_follow_up_error_code' => null,
                 'last_follow_up_error_message' => null,
             ])->save();
+
+            return $managed->refresh();
         }, 3);
     }
 
@@ -143,16 +144,13 @@ class KsefInvoiceStatusFollowUpService
         }, 3);
     }
 
-    private function fetchUpoIfAccepted(
+    private function invalidatePdfIfAccepted(
         Invoice $invoice,
         KsefInvoiceSubmission $submission,
-    ): KsefInvoiceSubmission {
+    ): void {
         if ($submission->status === KsefInvoiceSubmissionStatus::Accepted) {
             $this->pdfStorage->delete($invoice);
-            $this->upos->fetch($invoice, $submission);
         }
-
-        return $submission;
     }
 
     private function withLock(KsefInvoiceSubmission $submission, callable $operation): mixed

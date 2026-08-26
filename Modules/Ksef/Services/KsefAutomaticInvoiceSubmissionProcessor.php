@@ -16,11 +16,18 @@ class KsefAutomaticInvoiceSubmissionProcessor
         private readonly KsefInvoiceStatusFollowUpService $statusFollowUp,
     ) {}
 
-    public function handle(int $invoiceId, KsefEnvironment $expectedEnvironment): void
-    {
+    public function handle(
+        int $invoiceId,
+        KsefEnvironment $expectedEnvironment,
+        string $expectedContextNip,
+    ): void {
         $invoice = Invoice::query()->find($invoiceId);
 
-        if ($invoice === null || ! $this->policy->allows($invoice, $expectedEnvironment)) {
+        if ($invoice === null || ! $this->policy->allows(
+            $invoice,
+            $expectedEnvironment,
+            $expectedContextNip,
+        )) {
             return;
         }
 
@@ -28,6 +35,7 @@ class KsefAutomaticInvoiceSubmissionProcessor
             $submission = $this->manualSubmissions->submitFirstAttempt(
                 $invoice,
                 $expectedEnvironment,
+                $expectedContextNip,
             );
         } catch (KsefApiException $exception) {
             if ($exception->safeCode === 'ksef_submission_first_attempt_already_exists') {

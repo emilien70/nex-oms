@@ -44,6 +44,15 @@ return [
             'after_commit' => false,
         ],
 
+        'ksef_submit' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => env('KSEF_SUBMIT_QUEUE', 'ksef-submit'),
+            'retry_after' => (int) env('KSEF_SUBMIT_RETRY_AFTER', 240),
+            'after_commit' => false,
+        ],
+
         'beanstalkd' => [
             'driver' => 'beanstalkd',
             'host' => env('BEANSTALKD_QUEUE_HOST', 'localhost'),
