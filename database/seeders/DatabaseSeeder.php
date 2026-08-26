@@ -102,12 +102,12 @@ class DatabaseSeeder extends Seeder
             );
 
             $order->items()->updateOrCreate(
-                ['external_id' => $orderData['external_id'] . '-ITEM-1'],
+                ['external_id' => $orderData['external_id'].'-ITEM-1'],
                 [
                     'product_name' => 'Produkt testowy',
                     'sku' => 'NEX-DEMO-001',
                     'ean' => '5900000000011',
-                    'offer_id' => $orderData['external_id'] . '-OFFER',
+                    'offer_id' => $orderData['external_id'].'-OFFER',
                     'quantity' => 1,
                     'unit_price_gross' => max(0, $order->total_gross - $order->delivery_cost_gross),
                     'total_price_gross' => max(0, $order->total_gross - $order->delivery_cost_gross),

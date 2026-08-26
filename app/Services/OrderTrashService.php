@@ -19,7 +19,7 @@ class OrderTrashService
                     $order->events()->create([
                         'event_type' => 'order_restored',
                         'title' => html_entity_decode('Zam&oacute;wienie przywr&oacute;cone', ENT_QUOTES, 'UTF-8'),
-                        'description' => html_entity_decode('Przywr&oacute;cono zam&oacute;wienie do statusu ', ENT_QUOTES, 'UTF-8') . $order->statusLabel(),
+                        'description' => html_entity_decode('Przywr&oacute;cono zam&oacute;wienie do statusu ', ENT_QUOTES, 'UTF-8').$order->statusLabel(),
                         'payload' => [
                             'status' => $order->status,
                         ],

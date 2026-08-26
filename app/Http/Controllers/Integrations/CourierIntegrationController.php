@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Integrations;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -489,11 +489,11 @@ class CourierIntegrationController extends Controller
             'environment' => ['required', 'in:sandbox,production'],
             'organization_id' => ['required', 'string', 'max:255'],
             'api_secret' => ['nullable', 'string', 'min:8'],
-              'label_format' => ['required', 'in:PDF,ZPL'],
-              'label_type' => ['required', 'in:A4,A6'],
-              'content_description_source' => ['required', 'in:order_id,external_id,customer_login,customer_email,customer_phone'],
-              'reference_number_source' => ['required', 'in:order_id,external_id,customer_login,customer_email,customer_phone'],
-              'default_weight' => ['required', 'numeric', 'gt:0', 'max:1000'],
+            'label_format' => ['required', 'in:PDF,ZPL'],
+            'label_type' => ['required', 'in:A4,A6'],
+            'content_description_source' => ['required', 'in:order_id,external_id,customer_login,customer_email,customer_phone'],
+            'reference_number_source' => ['required', 'in:order_id,external_id,customer_login,customer_email,customer_phone'],
+            'default_weight' => ['required', 'numeric', 'gt:0', 'max:1000'],
             'default_length' => ['required', 'numeric', 'gt:0', 'max:500'],
             'default_width' => ['required', 'numeric', 'gt:0', 'max:500'],
             'default_height' => ['required', 'numeric', 'gt:0', 'max:500'],

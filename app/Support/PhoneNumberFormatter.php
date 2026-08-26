@@ -16,7 +16,7 @@ class PhoneNumberFormatter
         $phone = preg_replace('/[^\d+]+/', '', $phone) ?: '';
 
         if (str_starts_with($phone, '00')) {
-            $phone = '+' . substr($phone, 2);
+            $phone = '+'.substr($phone, 2);
         }
 
         $digits = preg_replace('/\D+/', '', $phone) ?: '';
@@ -28,7 +28,7 @@ class PhoneNumberFormatter
         if (str_starts_with($phone, '+')) {
             return self::formatWithCountryCode($digits, self::countryCodeLength($digits, $originalPhone));
         } elseif (strlen($digits) === 9) {
-            return self::formatWithCountryCode('48' . $digits, 2);
+            return self::formatWithCountryCode('48'.$digits, 2);
         } elseif (str_starts_with($digits, '48')) {
             return self::formatWithCountryCode($digits, 2);
         } elseif (str_starts_with($digits, '49')) {
@@ -63,9 +63,9 @@ class PhoneNumberFormatter
         $subscriberNumber = substr($digits, $countryCodeLength);
 
         if ($subscriberNumber === '') {
-            return '+' . $countryCode;
+            return '+'.$countryCode;
         }
 
-        return '+' . $countryCode . ' ' . trim(chunk_split($subscriberNumber, 3, ' '));
+        return '+'.$countryCode.' '.trim(chunk_split($subscriberNumber, 3, ' '));
     }
 }

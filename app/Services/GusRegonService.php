@@ -72,7 +72,7 @@ class GusRegonService
 
         $value = function (array $names) use ($row): string {
             foreach ($names as $name) {
-                $nodes = $row->xpath('./*[local-name()="' . $name . '"]');
+                $nodes = $row->xpath('./*[local-name()="'.$name.'"]');
                 $value = trim((string) ($nodes[0] ?? ''));
 
                 if ($value !== '') {
@@ -117,8 +117,8 @@ class GusRegonService
     private function request(string $action, string $body, ?string $sid = null): string
     {
         $headers = [
-            'Content-Type' => 'application/soap+xml; charset=utf-8; action="' . self::ACTION_BASE . $action . '"',
-            'SOAPAction' => self::ACTION_BASE . $action,
+            'Content-Type' => 'application/soap+xml; charset=utf-8; action="'.self::ACTION_BASE.$action.'"',
+            'SOAPAction' => self::ACTION_BASE.$action,
         ];
 
         if ($sid) {
@@ -131,7 +131,7 @@ class GusRegonService
             ->post((string) config('services.gus.url'));
 
         if (! $response->successful()) {
-            throw new RuntimeException('GUS zwrocil blad HTTP ' . $response->status() . '.');
+            throw new RuntimeException('GUS zwrocil blad HTTP '.$response->status().'.');
         }
 
         return $response->body();
@@ -160,7 +160,7 @@ XML;
             throw new RuntimeException('GUS zwrocil niepoprawna odpowiedz XML.');
         }
 
-        $nodes = $document->xpath('//*[local-name()="' . $element . '"]');
+        $nodes = $document->xpath('//*[local-name()="'.$element.'"]');
 
         return trim((string) ($nodes[0] ?? ''));
     }

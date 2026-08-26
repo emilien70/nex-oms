@@ -25,8 +25,8 @@ class OrdersTrashTest extends TestCase
             ->assertSee('confirmTrashDeleteModal', false)
             ->assertSee('Usu&#324; trwale', false)
             ->assertDontSee('trash-restore-popover', false)
-            ->assertDontSee('href="' . route('orders.show', $order) . '"', false)
-            ->assertDontSee('formaction="' . route('orders.bulk-status') . '"', false);
+            ->assertDontSee('href="'.route('orders.show', $order).'"', false)
+            ->assertDontSee('formaction="'.route('orders.bulk-status').'"', false);
 
         $this->get(route('orders.show', $order))->assertNotFound();
     }

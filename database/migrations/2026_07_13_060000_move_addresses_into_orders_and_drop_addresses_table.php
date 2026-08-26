@@ -27,7 +27,7 @@ return new class extends Migration
         Schema::table('orders', function (Blueprint $table): void {
             foreach (['shipping', 'billing'] as $prefix) {
                 foreach ($this->orderAddressColumns($prefix) as $column) {
-                    $orderColumn = $prefix . '_' . $column;
+                    $orderColumn = $prefix.'_'.$column;
 
                     if (! Schema::hasColumn('orders', $orderColumn)) {
                         $table->string($orderColumn)->nullable();
@@ -122,7 +122,7 @@ return new class extends Migration
         Schema::table('orders', function (Blueprint $table): void {
             foreach (['shipping', 'billing'] as $prefix) {
                 foreach ($this->orderAddressColumns($prefix) as $column) {
-                    $orderColumn = $prefix . '_' . $column;
+                    $orderColumn = $prefix.'_'.$column;
 
                     if (Schema::hasColumn('orders', $orderColumn)) {
                         $table->dropColumn($orderColumn);
@@ -135,7 +135,7 @@ return new class extends Migration
     private function selectAddressColumns(string $prefix): array
     {
         return array_map(
-            fn (string $column): string => $prefix . '.' . $column . ' as ' . $prefix . '_' . $column,
+            fn (string $column): string => $prefix.'.'.$column.' as '.$prefix.'_'.$column,
             $this->addressColumns
         );
     }
@@ -149,7 +149,7 @@ return new class extends Migration
                 continue;
             }
 
-            $data[$prefix . '_' . $column] = $order->{$prefix . '_' . $column} ?? null;
+            $data[$prefix.'_'.$column] = $order->{$prefix.'_'.$column} ?? null;
         }
 
         return $data;
@@ -159,18 +159,18 @@ return new class extends Migration
     {
         return [
             'type' => $prefix,
-            'name' => $order->{$prefix . '_name'} ?? null,
-            'company_name' => $order->{$prefix . '_company_name'} ?? null,
-            'tax_id' => $order->{$prefix . '_tax_id'} ?? null,
-            'street' => $order->{$prefix . '_street'} ?? null,
-            'building_number' => $order->{$prefix . '_building_number'} ?? null,
-            'apartment_number' => $order->{$prefix . '_apartment_number'} ?? null,
-            'postal_code' => $order->{$prefix . '_postal_code'} ?? null,
-            'city' => $order->{$prefix . '_city'} ?? null,
-            'province' => $order->{$prefix . '_province'} ?? null,
-            'country_code' => $order->{$prefix . '_country_code'} ?? null,
-            'phone' => $order->{$prefix . '_phone'} ?? null,
-            'email' => $order->{$prefix . '_email'} ?? null,
+            'name' => $order->{$prefix.'_name'} ?? null,
+            'company_name' => $order->{$prefix.'_company_name'} ?? null,
+            'tax_id' => $order->{$prefix.'_tax_id'} ?? null,
+            'street' => $order->{$prefix.'_street'} ?? null,
+            'building_number' => $order->{$prefix.'_building_number'} ?? null,
+            'apartment_number' => $order->{$prefix.'_apartment_number'} ?? null,
+            'postal_code' => $order->{$prefix.'_postal_code'} ?? null,
+            'city' => $order->{$prefix.'_city'} ?? null,
+            'province' => $order->{$prefix.'_province'} ?? null,
+            'country_code' => $order->{$prefix.'_country_code'} ?? null,
+            'phone' => $order->{$prefix.'_phone'} ?? null,
+            'email' => $order->{$prefix.'_email'} ?? null,
             'created_at' => now(),
             'updated_at' => now(),
         ];

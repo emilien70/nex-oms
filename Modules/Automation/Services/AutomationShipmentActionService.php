@@ -5,7 +5,6 @@ namespace Modules\Automation\Services;
 use DomainException;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Shipments\Models\CourierAccount;
-use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\CourierDriverRegistry;
 
 class AutomationShipmentActionService

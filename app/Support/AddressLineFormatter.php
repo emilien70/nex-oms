@@ -6,10 +6,10 @@ class AddressLineFormatter
 {
     public static function formatAddressLine(?string $street, ?string $buildingNumber, ?string $apartmentNumber): ?string
     {
-        $line = trim((string) $street . ' ' . (string) $buildingNumber);
+        $line = trim((string) $street.' '.(string) $buildingNumber);
 
         if ($apartmentNumber !== null && trim($apartmentNumber) !== '') {
-            $line .= '/' . trim($apartmentNumber);
+            $line .= '/'.trim($apartmentNumber);
         }
 
         return $line !== '' ? $line : null;
@@ -47,7 +47,7 @@ class AddressLineFormatter
 
     public static function formatPostalCity(?string $postalCode, ?string $city): ?string
     {
-        $line = trim((string) $postalCode . ' ' . (string) $city);
+        $line = trim((string) $postalCode.' '.(string) $city);
 
         return $line !== '' ? $line : null;
     }
