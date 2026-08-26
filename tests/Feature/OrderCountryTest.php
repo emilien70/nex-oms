@@ -28,7 +28,7 @@ class OrderCountryTest extends TestCase
             ->assertSee('Polska')
             ->assertSee("setFormValue(billingForm, 'billing_country_code'", false)
             ->assertSee("setFormValue(shippingForm, 'shipping_country_code'", false)
-            ->assertSee("setBillingValue('billing_country_code', 'PL')", false)
+            ->assertSee("setFormValue(billingForm, 'billing_country_code', company.countryCode || 'PL')", false)
             ->assertDontSee('Kraj: DE')
             ->assertDontSee('Kraj: PL');
     }

@@ -2,46 +2,66 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\GusRegonException;
 use App\Services\GusRegonService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use RuntimeException;
 
 class GusCompanyController extends Controller
 {
     public function show(Request $request, GusRegonService $gus): JsonResponse
     {
-        $nip = preg_replace('/\D+/', '', (string) $request->query('nip'));
+        $nip = preg_replace('/[\s-]+/u', '', trim((string) $request->input('nip')));
 
-        if (strlen($nip) !== 10) {
+        if (! $this->isValidNip($nip)) {
             return response()->json([
-                'message' => 'NIP musi miec 10 cyfr.',
+                'message' => 'Wpisz prawidłowy polski NIP.',
                 'errors' => [
-                    'nip' => ['NIP musi miec 10 cyfr.'],
+                    'nip' => ['Wpisz prawidłowy polski NIP.'],
                 ],
             ], 422);
         }
 
         try {
-            $company = $gus->findCompanyByNip($nip);
-        } catch (RuntimeException $exception) {
+            $companies = $gus->findCompaniesByNip($nip);
+        } catch (GusRegonException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
-            ], str_contains($exception->getMessage(), 'GUS_API_KEY') ? 500 : 502);
+                'code' => $exception->safeCode,
+            ], $exception->httpStatus);
         } catch (\Throwable $exception) {
             report($exception);
 
             return response()->json([
-                'message' => 'Nie udalo sie pobrac danych z GUS.',
+                'message' => 'Nie udało się pobrać danych z GUS.',
+                'code' => 'gus_unexpected_error',
             ], 502);
         }
 
-        if (! $company) {
+        if ($companies === []) {
             return response()->json([
                 'message' => 'Nie znaleziono firmy dla podanego NIP.',
             ], 404);
         }
 
-        return response()->json($company);
+        return response()->json(['companies' => $companies]);
+    }
+
+    private function isValidNip(string $nip): bool
+    {
+        if (preg_match('/^\d{10}$/', $nip) !== 1 || $nip === '0000000000') {
+            return false;
+        }
+
+        $weights = [6, 5, 7, 2, 3, 4, 5, 6, 7];
+        $sum = 0;
+
+        foreach ($weights as $index => $weight) {
+            $sum += ((int) $nip[$index]) * $weight;
+        }
+
+        $checksum = $sum % 11;
+
+        return $checksum !== 10 && $checksum === (int) $nip[9];
     }
 }

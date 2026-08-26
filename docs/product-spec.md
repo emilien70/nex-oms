@@ -198,9 +198,9 @@ Snapshot dokumentu przechowuje zarówno `country_code`, jak i polską `country_n
 
 ## 5.3. GUS/REGON
 
-W przyszłości planowane jest pobieranie danych firmy po NIP z oficjalnego źródła GUS/REGON.
+W sekcji danych do faktury zamówienia można pobrać dane polskiej firmy po prawidłowym NIP z oficjalnej usługi GUS BIR1.1/BIR1.2. Operacja uzupełnia formularz nazwą i strukturalnym adresem, ale nie zapisuje go automatycznie. Przy kilku wpisach użytkownik wybiera właściwy podmiot lub rodzaj działalności. Kraj jest ustawiany jawnie na `PL`.
 
-Nie jest to część pierwszego etapu modułu faktur.
+Klucz GUS pozostaje wyłącznie w konfiguracji serwera. Pobranie danych nie zmienia wystawionych dokumentów. Faktura utworzona po zapisaniu formularza przechowuje dane nabywcy we własnym snapshotcie, a późniejsze zmiany zamówienia lub rejestru REGON nie zmieniają dokumentu historycznego.
 
 ---
 

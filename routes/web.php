@@ -61,7 +61,7 @@ Route::get('/', function () {
     ]);
 });
 
-Route::get('/api/gus/company-by-nip', [GusCompanyController::class, 'show'])->name('gus.company-by-nip');
+Route::post('/api/gus/company-by-nip', [GusCompanyController::class, 'show'])->name('gus.company-by-nip');
 
 Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
 Route::get('/integrations/ksef', [KsefSettingsController::class, 'edit'])->name('integrations.ksef.edit');

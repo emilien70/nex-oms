@@ -39,6 +39,15 @@ class AddressLineFormatterTest extends TestCase
         ], AddressLineFormatter::parseAddressLine('Aleja Jana Pawla II 10/4'));
     }
 
+    public function test_it_parses_building_and_apartment_when_gus_does_not_return_a_street(): void
+    {
+        $this->assertSame([
+            'street' => null,
+            'building_number' => '12A',
+            'apartment_number' => '3',
+        ], AddressLineFormatter::parseAddressLine('12A/3'));
+    }
+
     public function test_it_parses_postal_city_with_multi_word_city(): void
     {
         $this->assertSame([

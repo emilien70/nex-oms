@@ -30,6 +30,14 @@ class AddressLineFormatter
             ];
         }
 
+        if (preg_match('/^(\d[^\s\/]*)(?:\/([^\s]+))?$/u', $addressLine, $matches)) {
+            return [
+                'street' => null,
+                'building_number' => trim($matches[1]),
+                'apartment_number' => isset($matches[2]) ? trim($matches[2]) : null,
+            ];
+        }
+
         if (! preg_match('/^(.+)\s+([^\s\/]+)(?:\/([^\s]+))?$/', $addressLine, $matches)) {
             return [
                 'street' => $addressLine,

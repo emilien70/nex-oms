@@ -1876,6 +1876,14 @@ Formularz używa standardowego żądania POST. Przy jednej aktywnej serii link p
 
 `InvoicePdfViewModelFactory` formatuje gotową linię miejscowości Nabywcy, np. `32-545 Psary, Polska`, dla Faktury VAT, Pro formy i Korekty. Starszy snapshot bez `country_name` może rozwiązać prawidłowy `country_code` podczas renderowania bez zapisu do bazy. Kraj Sprzedawcy i Odbiorcy nie został dodany do wydruku. Ta zmiana nie wpływa na VAT, OSS, sposób płatności ani snapshot powiązania Faktury z Pro formą.
 
+## 34.1. Pobieranie danych z GUS BIR
+
+`GusRegonService` komunikuje się z oficjalnym endpointem BIR1.1/BIR1.2 przez SOAP 1.2 transportowany klientem Laravel HTTP. Klucz użytkownika jest pobierany wyłącznie z `services.gus.key`, nie jest przekazywany do przeglądarki ani zapisywany w bazie. Każde wyszukanie wykonuje kontrolowaną sekwencję `Zaloguj`, `DaneSzukajPodmioty` i `Wyloguj`; identyfikator sesji jest przekazywany wymaganym nagłówkiem HTTP `sid`.
+
+Endpoint aplikacji przyjmuje chronione CSRF żądanie `POST`, normalizuje i sprawdza sumę kontrolną polskiego NIP, a następnie zwraca wyłącznie strukturalne dane znalezionych podmiotów. Odpowiedzi błędów GUS, SOAP Fault i puste wyniki są zamieniane na bezpieczne kody i komunikaty aplikacji. Pusty wynik jest rozróżniany metodą diagnostyczną `GetValue`. Dane z rejestru są traktowane jako niezaufany tekst i nie są wstawiane do DOM jako HTML.
+
+GUS uzupełnia formularz danych do faktury w zamówieniu, lecz go nie zapisuje. Wiele wyników wymaga jawnego wyboru użytkownika. Po zapisie istniejący `InvoiceSnapshotBuilder` kopiuje dane do `buyer_snapshot`; integracja GUS nie aktualizuje automatycznie wystawionych ani zamkniętych dokumentów.
+
 ---
 
 # 35. Zakazy architektoniczne

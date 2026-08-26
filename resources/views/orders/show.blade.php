@@ -1056,6 +1056,18 @@
             min-height: 14px;
         }
 
+        .billing-gus-results {
+            align-items: center;
+            display: grid;
+            gap: 6px;
+            grid-template-columns: minmax(0, 1fr) auto;
+            margin-top: 6px;
+        }
+
+        .billing-gus-results[hidden] {
+            display: none;
+        }
+
         .inline-actions {
             border-top: 1px solid #eef0f3;
             display: flex;
@@ -1989,6 +2001,7 @@
                     <form method="POST" action="{{ route('orders.sections.billing-address', $order) }}" class="inline-section-edit" data-billing-form data-gus-lookup-url="{{ route('gus.company-by-nip') }}" data-order-ajax-form>
                         @csrf
                         @method('PATCH')
+                        <input type="hidden" name="billing_province" value="{{ old('billing_province', $billingAddress?->province) }}">
                         <div class="row g-2">
                             <div class="col-12"><label class="form-label">Imi&#281; i Nazwisko</label><input type="text" name="billing_name" class="form-control form-control-sm" value="{{ old('billing_name', $billingAddress?->name) }}"></div>
                             <div class="col-12"><label class="form-label">Firma</label><input type="text" name="billing_company_name" class="form-control form-control-sm" value="{{ old('billing_company_name', $billingAddress?->company_name) }}"></div>
@@ -2015,6 +2028,10 @@
                                         <button type="button" class="btn btn-sm billing-gus-button" data-gus-lookup-button aria-label="Pobierz dane z GUS po NIP" title="Pobierz dane z GUS po NIP">GUS</button>
                                     </div>
                                     <div class="billing-gus-message text-danger" data-gus-message aria-live="polite"></div>
+                                    <div class="billing-gus-results" data-gus-results hidden>
+                                        <select class="form-select form-select-sm" data-gus-results-select aria-label="Wybierz dane firmy z GUS"></select>
+                                        <button type="button" class="btn btn-sm btn-light border" data-gus-result-use>Wybierz</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2426,6 +2443,10 @@
             const gusLookupButton = document.querySelector('[data-gus-lookup-button]');
             const gusNipInput = document.querySelector('[data-gus-nip-input]');
             const gusMessage = document.querySelector('[data-gus-message]');
+            const gusResults = document.querySelector('[data-gus-results]');
+            const gusResultsSelect = document.querySelector('[data-gus-results-select]');
+            const gusResultUseButton = document.querySelector('[data-gus-result-use]');
+            let gusCompanies = [];
 
             const setGusMessage = (message, isError = true) => {
                 if (!gusMessage) {
@@ -2449,6 +2470,18 @@
                 return apartmentNumber ? `${base}/${apartmentNumber}` : base;
             };
 
+            const hideGusResults = () => {
+                gusCompanies = [];
+
+                if (gusResults) {
+                    gusResults.hidden = true;
+                }
+
+                if (gusResultsSelect) {
+                    gusResultsSelect.replaceChildren();
+                }
+            };
+
             const getFormValue = (form, name) => {
                 return form?.querySelector(`[name="${name}"]`)?.value || '';
             };
@@ -2463,15 +2496,38 @@
                 input.value = String(value || '').trim();
             };
 
-            const setBillingValue = (name, value) => {
-                const input = billingForm?.querySelector(`[name="${name}"]`);
-                const cleanValue = String(value || '').trim();
+            const applyGusCompany = (company) => {
+                setFormValue(billingForm, 'billing_name', '');
+                setFormValue(billingForm, 'billing_company_name', company.name);
+                setFormValue(billingForm, 'billing_tax_id', company.nip || gusNipInput?.value);
+                setFormValue(billingForm, 'billing_address_line', formatGusAddressLine(company));
+                setFormValue(billingForm, 'billing_postal_code', company.postalCode);
+                setFormValue(billingForm, 'billing_city', company.city);
+                setFormValue(billingForm, 'billing_province', company.province);
+                setFormValue(billingForm, 'billing_country_code', company.countryCode || 'PL');
+                hideGusResults();
+                setGusMessage('Dane z GUS uzupełniły formularz. Kliknij Zapisz, aby je zapisać.', false);
+            };
 
-                if (!input || cleanValue === '') {
+            const gusCompanyLabel = (company) => {
+                const address = [formatGusAddressLine(company), company.postalCode, company.city]
+                    .filter(Boolean)
+                    .join(', ');
+                const regon = company.regon ? `REGON ${company.regon}` : '';
+                const ended = company.endedAt ? `zakończona ${company.endedAt}` : '';
+                const details = [regon, address, ended].filter(Boolean).join(' · ');
+
+                return details ? `${company.name} — ${details}` : company.name;
+            };
+
+            const showGusResults = (companies) => {
+                if (!gusResults || !gusResultsSelect) {
                     return;
                 }
 
-                input.value = cleanValue;
+                gusCompanies = companies;
+                gusResultsSelect.replaceChildren(...companies.map((company, index) => new Option(gusCompanyLabel(company), String(index))));
+                gusResults.hidden = false;
             };
 
             if (copyShippingToBillingButton && billingForm && shippingForm) {
@@ -2492,6 +2548,7 @@
                     setFormValue(billingForm, 'billing_city', getFormValue(shippingForm, 'shipping_city'));
                     setFormValue(billingForm, 'billing_country_code', getFormValue(shippingForm, 'shipping_country_code'));
                     setFormValue(billingForm, 'billing_tax_id', '');
+                    hideGusResults();
                     setGusMessage('');
                 });
             }
@@ -2515,13 +2572,27 @@
             }
 
             if (billingForm && gusLookupButton && gusNipInput) {
+                gusNipInput.addEventListener('input', () => {
+                    hideGusResults();
+                    setGusMessage('');
+                });
+
+                gusResultUseButton?.addEventListener('click', () => {
+                    const company = gusCompanies[Number(gusResultsSelect?.value || 0)];
+
+                    if (company) {
+                        applyGusCompany(company);
+                    }
+                });
+
                 gusLookupButton.addEventListener('click', async () => {
                     const nip = gusNipInput.value.replace(/[\s-]+/g, '').replace(/\D+/g, '');
 
+                    hideGusResults();
                     setGusMessage('');
 
                     if (nip.length !== 10) {
-                        setGusMessage('NIP musi miec 10 cyfr.');
+                        setGusMessage('NIP musi mieć 10 cyfr.');
                         gusNipInput.focus();
                         return;
                     }
@@ -2532,30 +2603,35 @@
 
                     try {
                         const url = new URL(billingForm.dataset.gusLookupUrl, window.location.origin);
-                        url.searchParams.set('nip', nip);
+                        const csrfToken = billingForm.querySelector('input[name="_token"]')?.value || '';
 
                         const response = await fetch(url.toString(), {
+                            method: 'POST',
                             headers: {
                                 'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
                             },
+                            body: JSON.stringify({ nip }),
                         });
                         const payload = await response.json().catch(() => ({}));
 
                         if (!response.ok) {
-                            throw new Error(payload.message || 'Nie udalo sie pobrac danych z GUS.');
+                            throw new Error(payload.message || 'Nie udało się pobrać danych z GUS.');
                         }
 
-                        const addressLine = formatGusAddressLine(payload);
+                        const companies = Array.isArray(payload.companies) ? payload.companies : [];
 
-                        setBillingValue('billing_company_name', payload.name);
-                        setBillingValue('billing_tax_id', payload.nip || nip);
-                        setBillingValue('billing_address_line', addressLine);
-                        setBillingValue('billing_postal_code', payload.postalCode);
-                        setBillingValue('billing_city', payload.city);
-                        setBillingValue('billing_country_code', 'PL');
-                        setGusMessage('Dane z GUS uzupelnily formularz. Kliknij Zapisz, aby je zapisac.', false);
+                        if (companies.length === 1) {
+                            applyGusCompany(companies[0]);
+                        } else if (companies.length > 1) {
+                            showGusResults(companies);
+                            setGusMessage('GUS zwrócił kilka wpisów. Wybierz właściwe dane firmy.', false);
+                        } else {
+                            throw new Error('Nie znaleziono firmy dla podanego NIP.');
+                        }
                     } catch (error) {
-                        setGusMessage(error.message || 'Nie udalo sie pobrac danych z GUS.');
+                        setGusMessage(error.message || 'Nie udało się pobrać danych z GUS.');
                     } finally {
                         gusLookupButton.disabled = false;
                         gusLookupButton.textContent = originalButtonText;
