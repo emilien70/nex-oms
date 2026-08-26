@@ -13,6 +13,7 @@ final class KsefAuthenticationCompletionService
 {
     public function __construct(
         private readonly KsefHttpClient $http,
+        private readonly KsefTokenValidityNormalizer $validity,
     ) {}
 
     public function complete(
@@ -193,7 +194,7 @@ final class KsefAuthenticationCompletionService
         }
 
         try {
-            return CarbonImmutable::parse($value)->utc();
+            return $this->validity->parseRemote($value);
         } catch (Throwable) {
             throw new KsefApiException(
                 'KSeF zwrócił nieprawidłową datę ważności tokenu.',

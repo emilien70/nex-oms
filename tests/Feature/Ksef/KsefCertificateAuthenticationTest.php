@@ -27,6 +27,16 @@ class KsefCertificateAuthenticationTest extends TestCase
         $credential = $this->credential($fixture);
         $fake = $this->fakeApi();
         $fake->statusCodes = [100, 200];
+        $fake->redeemResponse = [
+            'accessToken' => [
+                'token' => KsefApiFake::ACCESS_TOKEN,
+                'validUntil' => '2026-08-26T10:00:00Z',
+            ],
+            'refreshToken' => [
+                'token' => KsefApiFake::REFRESH_TOKEN,
+                'validUntil' => '2027-01-15T10:00:00Z',
+            ],
+        ];
 
         $pair = app(KsefCertificateAuthenticationService::class)->authenticate(
             $credential,
@@ -58,6 +68,16 @@ class KsefCertificateAuthenticationTest extends TestCase
         $credential->refresh();
         $this->assertSame(KsefApiFake::ACCESS_TOKEN, $credential->access_token);
         $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
+        $this->assertSame('2026-08-26 10:00:00', $credential->access_token_valid_until->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2027-01-15 10:00:00', $credential->refresh_token_valid_until->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame(
+            '2026-08-26 12:00:00',
+            DB::table('ksef_credentials')->where('id', $credential->getKey())->value('access_token_valid_until'),
+        );
+        $this->assertSame(
+            '2027-01-15 11:00:00',
+            DB::table('ksef_credentials')->where('id', $credential->getKey())->value('refresh_token_valid_until'),
+        );
         $stored = json_encode(
             DB::table('ksef_credentials')->where('id', $credential->getKey())->first(),
             JSON_THROW_ON_ERROR,

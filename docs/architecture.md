@@ -1349,6 +1349,10 @@ Nullable `follow_up_action` jest wyłącznie techniczną metadaną o wartościac
 
 Końcowy kontrolowany test LIVE w środowisku DEMO na dedykowanej fikcyjnej Fakturze `KSEF-DEMO-E2E-003 5/2026` (id `124`) wykonał dokładnie jeden invoice POST. MF od razu zwróciło status `Accepted`, numer KSeF oraz dostępne UPO, dlatego natychmiastowa ścieżka wykonała jeden status GET i jeden UPO GET, zapisała jedno UPO i zakończyła rekord bez `next_follow_up_at`; worker nie musiał obsługiwać tej próby. Nie wykonano attempt 2, reconciliation, eksportu miesięcznego ani requestów LIVE do TEST lub PRODUCTION. Kolejka `ksef` oraz zbiór zaplanowanych follow-upów pozostały puste, a kolejny PDF zawierał numer KSeF, datę przetworzenia, status `Zaakceptowana` i kod QR.
 
+### KSeF.6F.2 — token validity timezone normalization
+
+`accessToken.validUntil` i `refreshToken.validUntil` są zdalnymi timestampami opisującymi konkretny instant. `APP_TIMEZONE` pozostaje `Europe/Warsaw`; wspólny `KsefTokenValidityNormalizer` zachowuje instant i przed zapisem przelicza go na strefę aplikacji, ponieważ istniejące kolumny bez offsetu oraz cast `immutable_datetime` przechowują i odtwarzają lokalny wall clock. Pełne uwierzytelnianie Tokenem i Certyfikatem korzysta z tego kontraktu przez `KsefTokenPair`, a refresh używa tego samego normalizera. Testy roundtrip DB potwierdzają ponowne użycie świeżego access tokenu po reload modelu oraz poprawne przesunięcia `Europe/Warsaw` latem, zimą i przy zmianie DST.
+
 ### PDF autorytatywnej Faktury KSeF z karty zamówienia
 
 Dla zaakceptowanego submissionu karta zamówienia pokazuje klikalne `KSeF: <numer OMS>`. Kontrolowana trasa pobiera przez `GET /invoices/ksef/{ksefNumber}` dokładny XML z zamrożonego środowiska submissionu, używa istniejącego access-token managera i wymaga aktywnej integracji, deployment gate oraz środowiska dopuszczonego przez `KsefOperationalEnvironmentPolicy`. SHA-256 Base64 odpowiedzi musi zgadzać się jednocześnie z nagłówkiem `x-ms-meta-hash`, treścią odpowiedzi i hashem zamrożonego payloadu. Operacja nie zapisuje XML ani PDF w bazie.

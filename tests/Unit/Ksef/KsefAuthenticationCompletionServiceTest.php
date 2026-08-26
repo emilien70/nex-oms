@@ -21,11 +21,11 @@ class KsefAuthenticationCompletionServiceTest extends TestCase
         $fake->redeemResponse = [
             'accessToken' => [
                 'token' => $accessToken,
-                'validUntil' => now()->addMinutes(15)->toIso8601String(),
+                'validUntil' => '2026-08-26T10:00:00Z',
             ],
             'refreshToken' => [
                 'token' => $refreshToken,
-                'validUntil' => now()->addDays(7)->toIso8601String(),
+                'validUntil' => '2027-01-15T10:00:00Z',
             ],
         ];
         $fake->warnings['/auth/token/redeem'] = 'redeem '.$accessToken.' '.$refreshToken.' code=REDEEM';
@@ -50,6 +50,9 @@ class KsefAuthenticationCompletionServiceTest extends TestCase
         ];
         $this->assertSame($expected, $pair->systemWarnings);
         $this->assertSame($expected, $warnings);
+        $this->assertSame('Europe/Warsaw', $pair->accessTokenValidUntil->getTimezone()->getName());
+        $this->assertSame('2026-08-26 10:00:00', $pair->accessTokenValidUntil->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2027-01-15 10:00:00', $pair->refreshTokenValidUntil->utc()->format('Y-m-d H:i:s'));
         $this->assertSame(1, $fake->redeemCalls);
         $serialized = json_encode([$pair->systemWarnings, $warnings], JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString($authenticationToken, $serialized);

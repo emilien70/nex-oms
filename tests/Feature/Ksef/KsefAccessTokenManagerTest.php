@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Ksef;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -11,6 +13,7 @@ use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Services\KsefAccessTokenManager;
 use Modules\Ksef\Services\KsefSettingsService;
+use Modules\Ksef\Services\KsefTokenValidityNormalizer;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\KsefApiFake;
 use Tests\Support\KsefCertificateFixtureFactory;
@@ -38,6 +41,47 @@ class KsefAccessTokenManagerTest extends TestCase
 
         $this->assertSame('VALID_ACCESS_TOKEN', $token);
         Http::assertNothingSent();
+    }
+
+    public function test_remote_access_validity_survives_database_roundtrip_and_is_reused_without_http(): void
+    {
+        Http::preventStrayRequests();
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 11:00:00 Europe/Warsaw'));
+
+        try {
+            $credential = $this->credential();
+            $validity = app(KsefTokenValidityNormalizer::class);
+            $credential->forceFill([
+                'access_token' => 'ROUNDTRIP_ACCESS_TOKEN',
+                'access_token_valid_until' => $validity->parseRemote('2026-08-26T10:00:00Z'),
+                'refresh_token' => 'ROUNDTRIP_REFRESH_TOKEN',
+                'refresh_token_valid_until' => $validity->parseRemote('2026-08-27T10:00:00Z'),
+            ])->save();
+            $credentialId = $credential->getKey();
+            unset($credential);
+
+            $reloaded = KsefCredential::query()->findOrFail($credentialId);
+
+            $this->assertSame(
+                '2026-08-26 12:00:00',
+                DB::table('ksef_credentials')->where('id', $credentialId)->value('access_token_valid_until'),
+            );
+            $this->assertSame('Europe/Warsaw', $reloaded->access_token_valid_until->getTimezone()->getName());
+            $this->assertSame(
+                '2026-08-26 10:00:00',
+                $reloaded->access_token_valid_until->utc()->format('Y-m-d H:i:s'),
+            );
+            $this->assertSame(
+                'ROUNDTRIP_ACCESS_TOKEN',
+                app(KsefAccessTokenManager::class)->getValidAccessToken(
+                    KsefEnvironment::Test,
+                    '1234567890',
+                ),
+            );
+            Http::assertNothingSent();
+        } finally {
+            $this->travelBack();
+        }
     }
 
     #[DataProvider('credentialSeparationCases')]
@@ -154,6 +198,45 @@ class KsefAccessTokenManagerTest extends TestCase
             && $request->hasHeader('Authorization', 'Bearer VALID_REFRESH_TOKEN'));
     }
 
+    public function test_refreshed_access_token_is_reused_after_reload_without_another_refresh(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 12:00:00 Europe/Warsaw'));
+
+        try {
+            $fake = new KsefApiFake;
+            Http::preventStrayRequests();
+            Http::fake(fn (Request $request) => $fake($request));
+            $credential = $this->credential();
+            $credential->forceFill([
+                'access_token' => 'EXPIRED_ACCESS_TOKEN',
+                'access_token_valid_until' => now()->subMinute(),
+                'refresh_token' => 'VALID_REFRESH_TOKEN',
+                'refresh_token_valid_until' => now()->addDay(),
+            ])->save();
+
+            $manager = app(KsefAccessTokenManager::class);
+            $first = $manager->getValidAccessToken(KsefEnvironment::Test, '1234567890');
+            $credentialId = $credential->getKey();
+            unset($credential);
+            $reloaded = KsefCredential::query()->findOrFail($credentialId);
+
+            $this->assertSame('NEW_'.KsefApiFake::ACCESS_TOKEN, $first);
+            $this->assertSame(1, $fake->refreshCalls);
+            $this->assertSame(
+                '2026-08-26 10:15:00',
+                $reloaded->access_token_valid_until->utc()->format('Y-m-d H:i:s'),
+            );
+            $this->assertSame(
+                $first,
+                $manager->getValidAccessToken(KsefEnvironment::Test, '1234567890'),
+            );
+            $this->assertSame(1, $fake->refreshCalls);
+            Http::assertSentCount(1);
+        } finally {
+            $this->travelBack();
+        }
+    }
+
     public function test_expired_refresh_token_uses_a_fresh_full_authentication_flow(): void
     {
         config()->set('ksef.auth_poll_interval_ms', 0);
@@ -171,6 +254,12 @@ class KsefAccessTokenManagerTest extends TestCase
         $token = app(KsefAccessTokenManager::class)->getValidAccessToken(KsefEnvironment::Test);
 
         $this->assertSame(KsefApiFake::ACCESS_TOKEN, $token);
+        $this->assertSame(0, $fake->refreshCalls);
+        $this->assertSame(1, $fake->redeemCalls);
+        $this->assertSame(
+            $token,
+            app(KsefAccessTokenManager::class)->getValidAccessToken(KsefEnvironment::Test),
+        );
         $this->assertSame(0, $fake->refreshCalls);
         $this->assertSame(1, $fake->redeemCalls);
         $credential->refresh();
@@ -244,6 +333,12 @@ class KsefAccessTokenManagerTest extends TestCase
         $this->assertSame(0, $fake->tokenInitCalls);
         $this->assertSame(0, $fake->publicKeyCalls);
         $this->assertSame(1, $fake->redeemCalls);
+        $this->assertSame(
+            $token,
+            app(KsefAccessTokenManager::class)->getValidAccessToken(KsefEnvironment::Test),
+        );
+        $this->assertSame(0, $fake->refreshCalls);
+        $this->assertSame(1, $fake->xadesInitCalls);
         $credential->refresh();
         $this->assertSame(KsefApiFake::REFRESH_TOKEN, $credential->refresh_token);
     }

@@ -15,6 +15,7 @@ class KsefAccessTokenManager
         private readonly KsefHttpClient $http,
         private readonly KsefAuthenticationService $authentication,
         private readonly KsefSettingsService $settings,
+        private readonly KsefTokenValidityNormalizer $validity,
     ) {}
 
     public function getValidAccessToken(
@@ -99,7 +100,7 @@ class KsefAccessTokenManager
         }
 
         try {
-            $validUntil = CarbonImmutable::parse($validUntil)->utc();
+            $validUntil = $this->validity->parseRemote($validUntil);
         } catch (Throwable) {
             throw new KsefApiException(
                 'KSeF zwrócił nieprawidłową datę ważności odświeżonego tokenu.',
