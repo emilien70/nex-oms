@@ -26,11 +26,6 @@ return [
         'queue' => 'ksef-submit',
         'timeout_seconds' => 120,
         'unique_for_seconds' => 21600,
-        'rate_limits' => [
-            'per_second' => 8,
-            'per_minute' => 24,
-            'per_hour' => 96,
-        ],
     ],
 
     'follow_up' => [

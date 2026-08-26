@@ -17,13 +17,13 @@ use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Jobs\KsefAutomaticInvoiceSubmissionJob;
 use Modules\Ksef\Jobs\KsefSubmissionFollowUpJob;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionProcessor;
-use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionRateLimiter;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -55,6 +55,7 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
             return $job->invoiceId === $invoice->getKey()
                 && $job->environment === KsefEnvironment::Test->value
                 && $job->contextNip === '9876543210'
+                && $job->delay === null
                 && $job->afterCommit === true;
         });
 
@@ -180,30 +181,155 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         ];
     }
 
-    public function test_first_submission_limiter_reserves_delayed_slots_per_environment_and_context(): void
+    public function test_thirty_invoice_backlog_is_immediately_due_and_each_invoice_is_submitted_once(): void
     {
-        config()->set('ksef.automatic_submission.rate_limits', [
-            'per_second' => 1,
-            'per_minute' => 1,
-            'per_hour' => 1,
-        ]);
-        $limiter = app(KsefAutomaticInvoiceSubmissionRateLimiter::class);
-
-        $this->assertSame(0, $limiter->reserveDelay(KsefEnvironment::Test, '1111111111'));
-        $this->assertSame(3600, $limiter->reserveDelay(KsefEnvironment::Test, '1111111111'));
-        $this->assertSame(0, $limiter->reserveDelay(KsefEnvironment::Demo, '1111111111'));
-        $this->assertSame(0, $limiter->reserveDelay(KsefEnvironment::Test, '2222222222'));
-
         Queue::fake();
-        $this->issueInvoice();
-        $this->issueInvoice();
+        $invoices = collect(range(1, 30))
+            ->map(fn (): Invoice => $this->issueInvoice());
         $jobs = Queue::pushed(KsefAutomaticInvoiceSubmissionJob::class)->values();
 
-        $this->assertCount(2, $jobs);
-        $this->assertSame(0, $jobs[0]->delay);
-        $this->assertSame(3600, $jobs[1]->delay);
+        $this->assertCount(30, $jobs);
+        $this->assertTrue($jobs->every(fn (KsefAutomaticInvoiceSubmissionJob $job): bool => $job->delay === null));
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
+
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+
+        $invoices->each(fn (Invoice $invoice) => $this->runJob($invoice));
+
+        $submissions = KsefInvoiceSubmission::query()->get();
+        $this->assertCount(30, $submissions);
+        $this->assertTrue($submissions->every(
+            fn (KsefInvoiceSubmission $submission): bool => $submission->attempt_number === 1,
+        ));
+        $this->assertCount(30, $submissions->pluck('invoice_id')->unique());
+        $this->assertSame(30, $fake->sendCalls);
+        $this->assertSame(30, $fake->statusCalls);
+        $this->assertSame(0, $fake->upoCalls);
+    }
+
+    #[DataProvider('automaticFirstSendRateLimitStages')]
+    public function test_rate_limit_before_or_on_invoice_post_never_triggers_automatic_resend(
+        string $failurePath,
+        int $expectedPublicKeyCalls,
+        int $expectedOpenCalls,
+        int $expectedSendCalls,
+    ): void {
+        Queue::fake();
+        $invoice = $this->issueInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->failures[$failurePath] = [
+            'status' => 429,
+            'body' => [],
+            'headers' => ['Retry-After' => '600'],
+        ];
+
+        try {
+            $this->runJob($invoice);
+            $this->fail('Expected KSeF rate limit failure.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('rate_limited', $exception->safeCode);
+            $this->assertSame(600, $exception->retryAfterSeconds);
+        }
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $this->assertSame(KsefInvoiceSubmissionStatus::TechnicalFailed, $submission->status);
+        $this->assertSame(1, $submission->attempt_number);
+        $this->assertSame($expectedPublicKeyCalls, $fake->publicKeyCalls);
+        $this->assertSame($expectedOpenCalls, $fake->openCalls);
+        $this->assertSame($expectedSendCalls, $fake->sendCalls);
+        $this->assertSame(0, $fake->closeCalls);
+        $this->assertSame(0, $fake->statusCalls);
+
+        $this->runJob($invoice);
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame($expectedPublicKeyCalls, $fake->publicKeyCalls);
+        $this->assertSame($expectedOpenCalls, $fake->openCalls);
+        $this->assertSame($expectedSendCalls, $fake->sendCalls);
+    }
+
+    public static function automaticFirstSendRateLimitStages(): array
+    {
+        return [
+            'public key' => ['/security/public-key-certificates', 1, 0, 0],
+            'open session' => ['/sessions/online', 1, 1, 0],
+            'invoice post' => [
+                '/sessions/online/'.KsefUpoFixture::SESSION_REFERENCE.'/invoices',
+                1,
+                1,
+                1,
+            ],
+        ];
+    }
+
+    public function test_close_rate_limit_preserves_sent_submission_without_duplicate_invoice_post(): void
+    {
+        Queue::fake();
+        $invoice = $this->issueInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->failures['/close'] = [
+            'status' => 429,
+            'body' => [],
+            'headers' => ['Retry-After' => '600'],
+        ];
+
+        $this->runJob($invoice);
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
+        $this->assertSame('rate_limited', $submission->session_close_error_code);
+        $this->assertSame(1, $submission->attempt_number);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->closeCalls);
+        $this->assertSame(1, $fake->statusCalls);
+
+        $this->runJob($invoice);
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->closeCalls);
+        $this->assertSame(1, $fake->statusCalls);
+    }
+
+    public function test_immediate_status_rate_limit_uses_retry_after_without_duplicate_invoice_post(): void
+    {
+        Queue::fake();
+        $invoice = $this->issueInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->failures[
+            '/sessions/'.KsefUpoFixture::SESSION_REFERENCE
+            .'/invoices/'.KsefUpoFixture::INVOICE_REFERENCE
+        ] = [
+            'status' => 429,
+            'body' => [],
+            'headers' => ['Retry-After' => '600'],
+        ];
+
+        $this->runJob($invoice);
+
+        $submission = KsefInvoiceSubmission::query()->sole();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame('rate_limited', $submission->last_follow_up_error_code);
+        $this->assertGreaterThanOrEqual(
+            now()->addSeconds(600)->timestamp,
+            $submission->next_follow_up_at?->timestamp,
+        );
+        $this->assertSame(1, $submission->attempt_number);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->closeCalls);
+        $this->assertSame(1, $fake->statusCalls);
+
+        $this->runJob($invoice);
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(1, $fake->closeCalls);
+        $this->assertSame(1, $fake->statusCalls);
     }
 
     public function test_invoice_can_be_edited_before_worker_and_current_version_is_frozen_for_ksef(): void
