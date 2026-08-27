@@ -101,22 +101,13 @@ class OrderPaymentStateService
     public function afterTotalRecalculation(Order $order, string $newTotalGross): array
     {
         $newTotal = $this->total($newTotalGross);
-        $currentTotal = $this->total((string) ($order->total_gross ?? '0'));
         $currentPaid = $this->paid((string) ($order->paid_amount ?? '0'));
 
         $this->assertSupportedStatus((string) $order->payment_status);
-
-        $wasFullyPaid = $order->payment_status === self::STATUS_PAID
-            && $this->decimal->compare($currentPaid, $currentTotal) === 0;
-
-        if ($wasFullyPaid) {
-            return $this->explicit($newTotal, $newTotal, self::STATUS_PAID);
-        }
-
         $this->assertNotOverpaid($currentPaid, $newTotal);
 
         if ($this->decimal->compare($newTotal, '0.00') === 0) {
-            return $this->explicit($newTotal, $currentPaid, self::STATUS_UNPAID);
+            return $this->explicit($newTotal, $currentPaid, (string) $order->payment_status);
         }
 
         $status = $this->decimal->compare($currentPaid, $newTotal) === 0
