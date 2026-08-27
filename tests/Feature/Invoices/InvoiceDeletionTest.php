@@ -46,6 +46,8 @@ class InvoiceDeletionTest extends TestCase
             ->assertJsonPath('redirect_url', route('orders.show', $order))
             ->assertJsonStructure(['html', 'redirect_url']);
         $this->assertStringContainsString('WYSTAW FAKTUR', $response->json('html'));
+        $this->assertStringNotContainsString('data-sales-document-delete-form', $response->json('html'));
+        $this->assertStringNotContainsString('id="deleteSalesDocumentModal"', $response->json('html'));
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
         $this->assertDatabaseMissing('invoice_items', ['invoice_id' => $invoice->getKey()]);
         $this->assertDatabaseMissing('order_document_slots', ['invoice_id' => $invoice->getKey()]);

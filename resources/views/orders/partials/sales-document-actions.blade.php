@@ -40,7 +40,21 @@
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                 </a>
                 @unless ($issuedInvoice->isFinalized() || $hasCorrections)
-                    <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" data-bs-toggle="modal" data-bs-target="#deleteInvoiceFromOrderModal" title="Usuń Fakturę VAT" aria-label="Usuń Fakturę VAT">
+                    <button
+                        class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete"
+                        type="button"
+                        data-bs-toggle="modal"
+                        data-bs-target="#deleteSalesDocumentModal"
+                        data-sales-document-delete-trigger
+                        data-document-id="{{ $issuedInvoice->getKey() }}"
+                        data-document-type="{{ $issuedInvoice->document_type->value }}"
+                        data-document-number="{{ $issuedInvoice->number }}"
+                        data-delete-url="{{ route('invoices.destroy', $issuedInvoice) }}"
+                        data-expected-lock-version="{{ $issuedInvoice->lock_version }}"
+                        data-return-to="order"
+                        title="Usuń Fakturę VAT"
+                        aria-label="Usuń Fakturę VAT"
+                    >
                         <i class="bi bi-x-lg" aria-hidden="true"></i>
                     </button>
                 @endunless
@@ -83,14 +97,6 @@
                 <button class="btn btn-sm management-issued-invoice-ksef" type="button" aria-label="KSeF" data-sales-document-ksef-label disabled>KSeF</button>
             @endif
         </div>
-        @unless ($issuedInvoice->isFinalized() || $hasCorrections)
-            @include('invoices.partials.delete-modal', [
-                'invoice' => $issuedInvoice,
-                'modalId' => 'deleteInvoiceFromOrderModal',
-                'ajax' => true,
-                'returnTo' => 'order',
-            ])
-        @endunless
     @else
         @if ($invoiceSeries->count() === 1)
             <form method="POST" action="{{ route('orders.invoice.store', $order) }}" class="management-document-action management-invoice-button" data-sales-document-form>
@@ -125,17 +131,25 @@
                         <input type="hidden" name="invoice_series_id" value="{{ $issuedProforma->invoice_series_id }}">
                         <button class="btn btn-sm btn-outline-secondary" type="submit" title="Odśwież Pro formę i otwórz PDF" aria-label="Odśwież Pro formę i otwórz PDF">{{ $issuedProforma->number }}</button>
                     </form>
-                    <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" data-bs-toggle="modal" data-bs-target="#deleteProformaFromOrderModal" title="Usuń Pro formę" aria-label="Usuń Pro formę">
+                    <button
+                        class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete"
+                        type="button"
+                        data-bs-toggle="modal"
+                        data-bs-target="#deleteSalesDocumentModal"
+                        data-sales-document-delete-trigger
+                        data-document-id="{{ $issuedProforma->getKey() }}"
+                        data-document-type="{{ $issuedProforma->document_type->value }}"
+                        data-document-number="{{ $issuedProforma->number }}"
+                        data-delete-url="{{ route('invoices.destroy', $issuedProforma) }}"
+                        data-expected-lock-version="{{ $issuedProforma->lock_version }}"
+                        data-return-to="order"
+                        title="Usuń Pro formę"
+                        aria-label="Usuń Pro formę"
+                    >
                         <i class="bi bi-x-lg" aria-hidden="true"></i>
                     </button>
                 </div>
             </div>
-            @include('invoices.partials.delete-modal', [
-                'invoice' => $issuedProforma,
-                'modalId' => 'deleteProformaFromOrderModal',
-                'ajax' => true,
-                'returnTo' => 'order',
-            ])
         @elseif (! $proformaLocked && $proformaSeries->count() === 1)
             <form method="POST" action="{{ route('orders.proforma.store', $order) }}" class="management-document-action management-proforma-button" data-sales-document-form>
                 @csrf
@@ -199,7 +213,21 @@
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.corrections.edit', ['correction' => $issuedCorrection, 'return_to' => 'order']) }}" title="Edytuj Korekt&#281;" aria-label="Edytuj Korekt&#281;">
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                 </a>
-                <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete" type="button" data-bs-toggle="modal" data-bs-target="#deleteCorrectionFromOrderModal" title="Usu&#324; Korekt&#281;" aria-label="Usu&#324; Korekt&#281;">
+                <button
+                    class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete"
+                    type="button"
+                    data-bs-toggle="modal"
+                    data-bs-target="#deleteSalesDocumentModal"
+                    data-sales-document-delete-trigger
+                    data-document-id="{{ $issuedCorrection->getKey() }}"
+                    data-document-type="{{ $issuedCorrection->document_type->value }}"
+                    data-document-number="{{ $issuedCorrection->number }}"
+                    data-delete-url="{{ route('invoices.destroy', $issuedCorrection) }}"
+                    data-expected-lock-version="{{ $issuedCorrection->lock_version }}"
+                    data-return-to="order"
+                    title="Usu&#324; Korekt&#281;"
+                    aria-label="Usu&#324; Korekt&#281;"
+                >
                     <i class="bi bi-x-lg" aria-hidden="true"></i>
                 </button>
             </div>
@@ -207,11 +235,5 @@
                 <i class="bi bi-paperclip" aria-hidden="true"></i>
             </button>
         </div>
-        @include('invoices.partials.delete-modal', [
-            'invoice' => $issuedCorrection,
-            'modalId' => 'deleteCorrectionFromOrderModal',
-            'ajax' => true,
-            'returnTo' => 'order',
-        ])
     @endif
 </div>

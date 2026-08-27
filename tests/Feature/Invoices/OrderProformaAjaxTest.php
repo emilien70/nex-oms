@@ -33,7 +33,10 @@ class OrderProformaAjaxTest extends TestCase
         $this->assertStringContainsString('data-open-document-after-submit', $html);
         $this->assertStringContainsString('Odśwież Pro formę i otwórz PDF', $html);
         $this->assertStringContainsString(route('invoices.destroy', $response->json('document.id')), $html);
-        $this->assertStringContainsString('data-sales-document-delete-form', $html);
+        $this->assertStringContainsString('data-sales-document-delete-trigger', $html);
+        $this->assertStringContainsString('data-bs-target="#deleteSalesDocumentModal"', $html);
+        $this->assertStringNotContainsString('data-sales-document-delete-form', $html);
+        $this->assertStringNotContainsString('id="deleteSalesDocumentModal"', $html);
         $this->assertStringContainsString('Usuń Pro formę', $html);
         $this->assertStringNotContainsString('Wersja', $html);
         $response->assertSessionMissing('success');

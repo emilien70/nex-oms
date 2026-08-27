@@ -2192,6 +2192,8 @@
         </div>
     </div>
 
+    @include('orders.partials.sales-document-delete-modal')
+
     <div class="nex-card">
         <div class="nex-card-header">
             <h2 class="nex-card-title">Historia</h2>
@@ -2249,7 +2251,79 @@
 
             const ksefSendModalElement = document.querySelector('[data-order-ksef-send-modal]');
             const ksefSendConfirmButton = document.querySelector('[data-order-ksef-send-confirm]');
+            const salesDocumentDeleteModalElement = document.querySelector('[data-sales-document-delete-modal]');
+            const salesDocumentDeleteForm = salesDocumentDeleteModalElement?.querySelector('[data-sales-document-delete-form]');
+            const salesDocumentDeleteTitle = salesDocumentDeleteModalElement?.querySelector('[data-sales-document-delete-title]');
+            const salesDocumentDeleteQuestion = salesDocumentDeleteModalElement?.querySelector('[data-sales-document-delete-question]');
+            const salesDocumentDeleteError = salesDocumentDeleteModalElement?.querySelector('[data-sales-document-delete-error]');
+            const salesDocumentDeleteLockVersion = salesDocumentDeleteModalElement?.querySelector('[data-sales-document-delete-lock-version]');
             let pendingKsefSendForm = null;
+            let ksefSendInteractionActive = false;
+            let salesDocumentDeleteInteractionActive = false;
+            let salesDocumentMutationActive = false;
+            let deferredSalesDocumentHtml = null;
+
+            const salesDocumentInteractionActive = () => (
+                ksefSendInteractionActive
+                || salesDocumentDeleteInteractionActive
+                || salesDocumentMutationActive
+            );
+
+            const documentDeleteLabels = {
+                invoice: {
+                    title: 'Usuwanie Faktury VAT',
+                    name: 'fakturę',
+                },
+                proforma: {
+                    title: 'Usuwanie Pro formy',
+                    name: 'Pro formę',
+                },
+                correction: {
+                    title: 'Usuwanie Korekty',
+                    name: 'Korektę',
+                },
+            };
+
+            const clearSalesDocumentDeleteError = () => {
+                if (!salesDocumentDeleteError) {
+                    return;
+                }
+
+                salesDocumentDeleteError.textContent = '';
+                salesDocumentDeleteError.hidden = true;
+            };
+
+            document.addEventListener('click', (event) => {
+                const trigger = event.target.closest('[data-sales-document-delete-trigger]');
+
+                if (!trigger || !salesDocumentDeleteForm) {
+                    return;
+                }
+
+                const labels = documentDeleteLabels[trigger.dataset.documentType] || {
+                    title: 'Usuwanie dokumentu sprzedaży',
+                    name: 'dokument',
+                };
+                const documentNumber = trigger.dataset.documentNumber || '';
+
+                salesDocumentDeleteForm.action = trigger.dataset.deleteUrl || '';
+                salesDocumentDeleteForm.dataset.documentId = trigger.dataset.documentId || '';
+                salesDocumentDeleteForm.dataset.documentType = trigger.dataset.documentType || '';
+                salesDocumentDeleteLockVersion.value = trigger.dataset.expectedLockVersion || '';
+                salesDocumentDeleteTitle.textContent = labels.title;
+                salesDocumentDeleteQuestion.textContent = `Czy na pewno chcesz usunąć ${labels.name} „${documentNumber}”? Tej operacji nie można cofnąć.`;
+                clearSalesDocumentDeleteError();
+            });
+
+            const waitForModalHidden = (modal) => new Promise((resolve) => {
+                if (!modal || typeof bootstrap === 'undefined' || !modal.classList.contains('show')) {
+                    resolve();
+                    return;
+                }
+
+                modal.addEventListener('hidden.bs.modal', resolve, { once: true });
+                bootstrap.Modal.getOrCreateInstance(modal).hide();
+            });
 
             document.addEventListener('submit', (event) => {
                 const form = event.target.closest('[data-order-ksef-send-form]');
@@ -2260,6 +2334,10 @@
 
                 event.preventDefault();
                 pendingKsefSendForm = form;
+            });
+
+            ksefSendModalElement?.addEventListener('show.bs.modal', () => {
+                ksefSendInteractionActive = true;
             });
 
             ksefSendConfirmButton?.addEventListener('click', () => {
@@ -2274,8 +2352,20 @@
             });
 
             ksefSendModalElement?.addEventListener('hidden.bs.modal', () => {
+                ksefSendInteractionActive = false;
                 pendingKsefSendForm = null;
                 ksefSendConfirmButton.disabled = false;
+                flushDeferredSalesDocumentRefresh();
+            });
+
+            salesDocumentDeleteModalElement?.addEventListener('show.bs.modal', () => {
+                salesDocumentDeleteInteractionActive = true;
+            });
+
+            salesDocumentDeleteModalElement?.addEventListener('hidden.bs.modal', () => {
+                salesDocumentDeleteInteractionActive = false;
+                clearSalesDocumentDeleteError();
+                flushDeferredSalesDocumentRefresh();
             });
 
             let ksefPdfGeneratorPromise = null;
@@ -3225,19 +3315,53 @@
                 });
             };
 
+            const disposeOrderKsefTooltips = (root) => {
+                if (typeof bootstrap === 'undefined') {
+                    return;
+                }
+
+                root.querySelectorAll('[data-order-ksef-tooltip]').forEach((element) => {
+                    bootstrap.Tooltip.getInstance(element)?.dispose();
+                });
+            };
+
+            const replaceSalesDocumentActions = (html) => {
+                const current = document.querySelector('[data-sales-document-actions]');
+                const template = document.createElement('template');
+                template.innerHTML = String(html || '').trim();
+                const replacement = template.content.firstElementChild;
+
+                if (!current || !replacement) {
+                    return false;
+                }
+
+                deferredSalesDocumentHtml = null;
+                disposeOrderKsefTooltips(current);
+                current.replaceWith(replacement);
+                syncSalesDocumentNumberWidths(replacement);
+                initializeOrderKsefTooltips(replacement);
+                scheduleKsefAutomaticRefresh();
+
+                return true;
+            };
+
+            function flushDeferredSalesDocumentRefresh() {
+                if (salesDocumentInteractionActive() || deferredSalesDocumentHtml === null) {
+                    return;
+                }
+
+                const html = deferredSalesDocumentHtml;
+                deferredSalesDocumentHtml = null;
+                replaceSalesDocumentActions(html);
+            }
+
             const applyOrderFragments = (state) => {
                 Object.entries(state.fragments || {}).forEach(([name, html]) => {
                     if (name === 'sales-documents') {
-                        const current = document.querySelector('[data-sales-document-actions]');
-                        const template = document.createElement('template');
-                        template.innerHTML = String(html || '').trim();
-                        const replacement = template.content.firstElementChild;
-
-                        if (current && replacement) {
-                            current.replaceWith(replacement);
-                            syncSalesDocumentNumberWidths(replacement);
-                            initializeOrderKsefTooltips(replacement);
-                            scheduleKsefAutomaticRefresh();
+                        if (salesDocumentInteractionActive()) {
+                            deferredSalesDocumentHtml = String(html || '');
+                        } else {
+                            replaceSalesDocumentActions(html);
                         }
 
                         return;
@@ -3573,24 +3697,20 @@
                 }
 
                 event.preventDefault();
-                const container = form.closest('[data-sales-document-actions]');
-                const errorBox = container?.querySelector('[data-sales-document-error]');
-                const actions = Array.from(container?.querySelectorAll('button') || []);
                 const openDocumentAfterSubmit = form.hasAttribute('data-open-document-after-submit');
                 const deletesDocument = form.hasAttribute('data-sales-document-delete-form');
                 const deleteModal = deletesDocument ? form.closest('.modal') : null;
+                const container = deletesDocument
+                    ? document.querySelector('[data-sales-document-actions]')
+                    : form.closest('[data-sales-document-actions]');
+                const errorBox = deletesDocument
+                    ? salesDocumentDeleteError
+                    : container?.querySelector('[data-sales-document-error]');
+                const actions = Array.from(new Set([
+                    ...(container?.querySelectorAll('button') || []),
+                    ...form.querySelectorAll('button'),
+                ]));
                 const documentWindow = openDocumentAfterSubmit ? window.open('about:blank', '_blank') : null;
-
-                const closeDeleteModal = () => {
-                    if (!deletesDocument) {
-                        return;
-                    }
-
-                    bootstrap.Modal.getInstance(deleteModal)?.hide();
-                    document.querySelectorAll('.modal-backdrop').forEach((backdrop) => backdrop.remove());
-                    document.body.classList.remove('modal-open');
-                    document.body.style.removeProperty('padding-right');
-                };
 
                 if (!container) {
                     documentWindow?.close();
@@ -3607,6 +3727,7 @@
                 }
 
                 actions.forEach((action) => { action.disabled = true; });
+                salesDocumentMutationActive = true;
 
                 try {
                     const response = await fetch(form.action, {
@@ -3640,12 +3761,11 @@
                         throw new Error('Nie udało się odświeżyć akcji dokumentów.');
                     }
 
-                    closeDeleteModal();
+                    if (deletesDocument) {
+                        await waitForModalHidden(deleteModal);
+                    }
 
-                    container.replaceWith(replacement);
-                    syncSalesDocumentNumberWidths(replacement);
-                    initializeOrderKsefTooltips(replacement);
-                    scheduleKsefAutomaticRefresh();
+                    replaceSalesDocumentActions(payload.html);
 
                     if (openDocumentAfterSubmit) {
                         if (documentWindow) {
@@ -3656,14 +3776,15 @@
                     }
                 } catch (error) {
                     documentWindow?.close();
-                    closeDeleteModal();
 
                     if (errorBox) {
                         errorBox.textContent = error.message || 'Nie udało się wykonać operacji na dokumencie. Spróbuj ponownie.';
                         errorBox.hidden = false;
                     }
-
+                } finally {
+                    salesDocumentMutationActive = false;
                     actions.forEach((action) => { action.disabled = false; });
+                    flushDeferredSalesDocumentRefresh();
                 }
             });
 

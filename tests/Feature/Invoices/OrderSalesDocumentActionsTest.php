@@ -90,6 +90,49 @@ class OrderSalesDocumentActionsTest extends TestCase
         $this->assertSame(1, substr_count($template, "@include('orders.partials.sales-document-actions'"));
     }
 
+    public function test_order_page_keeps_one_shared_delete_modal_outside_the_replaceable_fragment(): void
+    {
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+
+        $fragment = app(OrderSalesDocumentActionsView::class)->render($order);
+        $response = $this->get(route('orders.show', $order))->assertOk();
+        $page = $response->getContent();
+
+        $this->assertStringContainsString('data-sales-document-delete-trigger', $fragment);
+        $this->assertStringContainsString('data-document-id="'.$invoice->getKey().'"', $fragment);
+        $this->assertStringContainsString('data-document-type="invoice"', $fragment);
+        $this->assertStringContainsString('data-document-number="'.$invoice->number.'"', $fragment);
+        $this->assertStringContainsString('data-delete-url="'.route('invoices.destroy', $invoice).'"', $fragment);
+        $this->assertStringContainsString('data-expected-lock-version="'.$invoice->lock_version.'"', $fragment);
+        $this->assertStringContainsString('data-return-to="order"', $fragment);
+        $this->assertStringContainsString('data-bs-target="#deleteSalesDocumentModal"', $fragment);
+        $this->assertStringNotContainsString('data-sales-document-delete-form', $fragment);
+        $this->assertStringNotContainsString('id="deleteSalesDocumentModal"', $fragment);
+
+        $this->assertSame(1, substr_count($page, 'id="deleteSalesDocumentModal"'));
+        $this->assertSame(1, substr_count(
+            $page,
+            '<form method="POST" action="" data-sales-document-form data-sales-document-delete-form>',
+        ));
+        $this->assertSame(1, substr_count($page, 'id="orderKsefSendConfirmationModal"'));
+        $this->assertGreaterThan(
+            strpos($page, 'id="order-sales-document-actions"'),
+            strpos($page, 'id="deleteSalesDocumentModal"'),
+        );
+        $this->assertStringContainsString('salesDocumentInteractionActive()', $page);
+        $this->assertStringContainsString('deferredSalesDocumentHtml', $page);
+        $this->assertStringContainsString("modal.addEventListener('hidden.bs.modal'", $page);
+        $this->assertStringContainsString('flushDeferredSalesDocumentRefresh()', $page);
+        $this->assertStringNotContainsString("document.querySelectorAll('.modal-backdrop')", $page);
+        $this->assertStringNotContainsString("document.body.classList.remove('modal-open')", $page);
+    }
+
     public function test_proforma_number_is_visible_until_invoice_is_issued(): void
     {
         $order = $this->createDocumentOrder();
@@ -338,7 +381,8 @@ class OrderSalesDocumentActionsTest extends TestCase
             'correction' => $correction,
             'return_to' => 'order',
         ]), $html);
-        $this->assertStringContainsString('data-bs-target="#deleteCorrectionFromOrderModal"', $html);
+        $this->assertStringContainsString('data-bs-target="#deleteSalesDocumentModal"', $html);
+        $this->assertStringContainsString('data-document-type="correction"', $html);
         $this->assertStringContainsString(route('invoices.destroy', $correction), $html);
         $this->assertSame(2, substr_count($html, 'data-sales-document-number'));
     }
@@ -363,8 +407,8 @@ class OrderSalesDocumentActionsTest extends TestCase
         $this->assertStringContainsString($second->number, $html);
         $this->assertStringContainsString('Otwórz zamkniętą Korektę', $html);
         $this->assertStringContainsString('Edytuj Korekt', $html);
-        $this->assertSame(1, substr_count($html, 'data-bs-target="#deleteCorrectionFromOrderModal"'));
-        $this->assertStringNotContainsString('data-bs-target="#deleteCorrectionFromOrderModal-'.$first->getKey().'"', $html);
+        $this->assertSame(1, substr_count($html, 'data-bs-target="#deleteSalesDocumentModal"'));
+        $this->assertStringNotContainsString('data-document-id="'.$first->getKey().'"', $html);
     }
 
     private function issueBuyerCorrection(Invoice $invoice, InvoiceSeries $series, string $buyerName): Invoice
