@@ -1011,6 +1011,63 @@
             margin-top: 5px;
         }
 
+        .automation-activity-steps {
+            display: grid;
+            gap: 6px;
+            margin-top: 7px;
+        }
+
+        .automation-activity-step {
+            min-width: 0;
+        }
+
+        .automation-activity-step-label {
+            color: #172033;
+            font-size: 12px;
+            line-height: 1.3;
+        }
+
+        .automation-activity-step-status {
+            color: #718096;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.3;
+            margin-left: 15px;
+            margin-top: 1px;
+        }
+
+        .automation-activity-step-status.is-completed {
+            color: #198754;
+        }
+
+        .automation-activity-step-status.is-failed {
+            color: #dc3545;
+        }
+
+        .automation-activity-step-status.is-skipped {
+            color: #d97706;
+        }
+
+        .automation-activity-step-status.is-running {
+            color: #0d6efd;
+        }
+
+        .automation-activity-step-status.is-queued {
+            color: #718096;
+        }
+
+        .automation-activity-step-status.is-waiting {
+            color: #a86e00;
+        }
+
+        .automation-activity-step-details {
+            color: #b4232f;
+            font-size: 11px;
+            line-height: 1.35;
+            margin-left: 15px;
+            margin-top: 1px;
+        }
+
         .automation-activity-details {
             color: #b4232f;
             display: -webkit-box;
@@ -1741,10 +1798,52 @@
 
                     content.appendChild(meta);
 
-                    const message = document.createElement('div');
-                    message.className = 'automation-activity-message';
-                    message.textContent = activity.message;
-                    content.appendChild(message);
+                    const steps = Array.isArray(activity.steps) ? activity.steps : [];
+
+                    if (steps.length >= 2) {
+                        const stepList = document.createElement('div');
+                        stepList.className = 'automation-activity-steps';
+
+                        steps.forEach((step, index) => {
+                            const stepItem = document.createElement('div');
+                            stepItem.className = 'automation-activity-step';
+
+                            const stepLabel = document.createElement('div');
+                            stepLabel.className = 'automation-activity-step-label';
+                            stepLabel.textContent = `${step.position || index + 1}. ${step.label || step.action_type || ''}`;
+                            stepItem.appendChild(stepLabel);
+
+                            const presentationStatus = [
+                                'completed',
+                                'failed',
+                                'skipped',
+                                'running',
+                                'queued',
+                                'waiting',
+                            ].includes(step.status) ? step.status : 'queued';
+                            const stepStatus = document.createElement('div');
+                            stepStatus.className = `automation-activity-step-status is-${presentationStatus}`;
+                            stepStatus.textContent = step.status_label;
+                            stepItem.appendChild(stepStatus);
+
+                            if (step.details) {
+                                const stepDetails = document.createElement('div');
+                                stepDetails.className = 'automation-activity-step-details';
+                                stepDetails.textContent = step.details;
+                                stepDetails.title = step.details;
+                                stepItem.appendChild(stepDetails);
+                            }
+
+                            stepList.appendChild(stepItem);
+                        });
+
+                        content.appendChild(stepList);
+                    } else {
+                        const message = document.createElement('div');
+                        message.className = 'automation-activity-message';
+                        message.textContent = activity.message;
+                        content.appendChild(message);
+                    }
 
                     if (activity.details) {
                         const details = document.createElement('div');

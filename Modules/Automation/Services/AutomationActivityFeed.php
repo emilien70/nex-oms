@@ -3,6 +3,7 @@
 namespace Modules\Automation\Services;
 
 use App\Models\OrderStatusSetting;
+use Illuminate\Support\Collection;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Automation\Models\AutomationRunStep;
 
@@ -11,6 +12,8 @@ class AutomationActivityFeed
     private const RECENT_SECONDS = 60;
 
     private const MAX_ITEMS = 12;
+
+    public function __construct(private readonly AutomationCatalog $catalog) {}
 
     public function recent(): array
     {
@@ -55,6 +58,16 @@ class AutomationActivityFeed
             AutomationRun::STATUS_COMPLETED_WITH_ERRORS,
             AutomationRun::STATUS_FAILED,
         ], true);
+        $steps = $this->steps($run, $actions);
+        $details = $isError ? ($run->error_message ?: $failedStep?->error_message) : null;
+
+        if (
+            $totalSteps > 1
+            && $details !== null
+            && collect($steps)->contains(fn (array $step): bool => $step['details'] === $details)
+        ) {
+            $details = null;
+        }
 
         return [
             'id' => $run->id,
@@ -67,7 +80,8 @@ class AutomationActivityFeed
             'status_label' => $this->statusLabel($run->status),
             'tone' => $this->tone($run->status),
             'message' => $this->message($run, $actionType, is_array($configuration) ? $configuration : []),
-            'details' => $isError ? ($run->error_message ?: $failedStep?->error_message) : null,
+            'details' => $details,
+            'steps' => $steps,
             'is_terminal' => $run->isFinished(),
             'can_dismiss' => ! in_array($run->status, [
                 AutomationRun::STATUS_QUEUED,
@@ -80,6 +94,118 @@ class AutomationActivityFeed
             ],
             'updated_at' => $run->updated_at?->toIso8601String(),
         ];
+    }
+
+    private function steps(AutomationRun $run, Collection $actions): array
+    {
+        $stepsByPosition = $run->steps->keyBy('position');
+        $failedPosition = $run->steps->firstWhere('status', 'failed')?->position;
+        $waitingPosition = $this->waitingStepPosition($run);
+
+        return $actions
+            ->values()
+            ->map(function (mixed $action, int $position) use (
+                $run,
+                $stepsByPosition,
+                $failedPosition,
+                $waitingPosition,
+            ): array {
+                $action = is_array($action) ? $action : [];
+                /** @var AutomationRunStep|null $step */
+                $step = $stepsByPosition->get($position);
+                $actionType = (string) ($action['type'] ?? $step?->action_type ?? '');
+                $configuration = $action['configuration'] ?? $step?->configuration ?? [];
+                $configuration = is_array($configuration) ? $configuration : [];
+                $status = $this->stepStatus(
+                    $run,
+                    $step,
+                    $position,
+                    $failedPosition,
+                    $waitingPosition,
+                );
+
+                return [
+                    'position' => $position + 1,
+                    'action_type' => $actionType,
+                    'label' => $this->catalog->actionSummary($actionType, $configuration),
+                    'status' => $status,
+                    'status_label' => $this->stepStatusLabel($status, $configuration),
+                    'tone' => $this->stepTone($status),
+                    'details' => $status === 'failed' && filled($step?->error_message)
+                        ? $step->error_message
+                        : null,
+                ];
+            })
+            ->all();
+    }
+
+    private function waitingStepPosition(AutomationRun $run): ?int
+    {
+        if ($run->status !== AutomationRun::STATUS_WAITING) {
+            return null;
+        }
+
+        $waitingStep = $run->steps->last(fn (AutomationRunStep $step): bool => (
+            $step->status === 'completed'
+            && $step->action_type === AutomationCatalog::ACTION_DELAY
+            && filled(data_get($step->output, 'resume_at'))
+        ));
+
+        return $waitingStep?->position;
+    }
+
+    private function stepStatus(
+        AutomationRun $run,
+        ?AutomationRunStep $step,
+        int $position,
+        ?int $failedPosition,
+        ?int $waitingPosition,
+    ): string {
+        if ($position === $waitingPosition) {
+            return 'waiting';
+        }
+
+        if ($step) {
+            return match ($step->status) {
+                'completed', 'failed', 'running', 'queued' => $step->status,
+                default => 'queued',
+            };
+        }
+
+        if (
+            $run->status === AutomationRun::STATUS_FAILED
+            && $failedPosition !== null
+            && $position > $failedPosition
+        ) {
+            return 'skipped';
+        }
+
+        return 'queued';
+    }
+
+    private function stepStatusLabel(string $status, array $configuration): string
+    {
+        return match ($status) {
+            'completed' => $this->decode('&#10003; Wykonano'),
+            'failed' => $this->decode('&#10005; B&#322;&#261;d'),
+            'skipped' => $this->decode('&#8212; Pomini&#281;to'),
+            'running' => $this->decode('&#10227; Wykonywanie'),
+            'waiting' => $this->decode('&#9719; Oczekiwanie').' '
+                .max(1, min(86400, (int) ($configuration['minutes'] ?? 1))).' min',
+            default => $this->decode('&#8230; Oczekuje'),
+        };
+    }
+
+    private function stepTone(string $status): string
+    {
+        return match ($status) {
+            'completed' => 'success',
+            'failed' => 'error',
+            'skipped' => 'skipped',
+            'running' => 'progress',
+            'waiting' => 'waiting',
+            default => 'queued',
+        };
     }
 
     private function currentStep(AutomationRun $run): ?AutomationRunStep
