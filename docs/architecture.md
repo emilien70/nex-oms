@@ -240,6 +240,8 @@ Odpowiada za:
 
 Zamówienie jest źródłem danych wejściowych do pierwszego wystawienia dokumentu.
 
+`OrderPaymentStateService` jest centralnym kontraktem relacji `total_gross`, `paid_amount` i `payment_status`. Obsługuje dokładne wartości dziesiętne, utrzymuje dwa trwałe statusy `unpaid`/`paid`, synchronizuje stan po zmianie wpłaty lub sumy i odrzuca sprzeczne jawne dane wejściowe. `InvoiceSnapshotBuilder` wyłącznie waliduje ten stan przed snapshotem i nigdy nie naprawia zamówienia.
+
 Po wystawieniu faktury nie jest źródłem prawdy dla dokumentu historycznego.
 
 ## 5.2. Invoices

@@ -51,7 +51,6 @@ class KsefFa3OptionalBlocksResolver
     private const PAYMENT_STATUSES = [
         'unpaid',
         'paid',
-        'refunded',
     ];
 
     public function __construct(

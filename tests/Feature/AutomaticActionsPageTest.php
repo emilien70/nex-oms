@@ -31,6 +31,16 @@ class AutomaticActionsPageTest extends TestCase
             ->assertRedirect(route('orders.automatic-actions.index'));
     }
 
+    public function test_refunded_payment_state_is_not_available_for_automation_rules(): void
+    {
+        $options = app(AutomationCatalog::class)->conditionDefinitions()['payment_state']['options'];
+
+        $this->assertSame(['unpaid', 'partial', 'paid'], array_keys($options));
+        $this->get(route('orders.automatic-actions.index'))
+            ->assertOk()
+            ->assertDontSee('value="refunded"', false);
+    }
+
     public function test_rule_can_be_created_with_conditions_and_ordered_actions(): void
     {
         $response = $this->post(route('orders.automatic-actions.store'), [

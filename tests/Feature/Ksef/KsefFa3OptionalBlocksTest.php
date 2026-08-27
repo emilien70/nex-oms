@@ -204,16 +204,16 @@ class KsefFa3OptionalBlocksTest extends TestCase
             ['unpaid', '100.00', null],
             ['refunded', '100.00', '2026-07-21 11:00:00'],
         ] as [$status, $paidAmount, $paidAt]) {
-            $invoice = $this->issueInvoice(order: [
-                'payment_status' => $status,
-                'paid_amount' => $paidAmount,
-                'paid_at' => $paidAt,
-                'billing_tax_id' => '5260250995',
-            ]);
+            $invoice = $this->issueInvoice(order: ['billing_tax_id' => '5260250995']);
+            $snapshot = $invoice->payment_snapshot;
+            $snapshot['payment_status'] = $status;
+            $snapshot['paid_amount'] = $paidAmount;
+            $snapshot['paid_at'] = $paidAt;
+            $invoice->forceFill(['payment_snapshot' => $snapshot])->saveQuietly();
 
             $exception = $this->expectDomainError(
                 'ksef_fa3_payment_snapshot_invalid',
-                fn () => $this->generate($invoice),
+                fn () => $this->generate($invoice->fresh()),
             );
 
             $this->assertStringNotContainsString('5260250995', $exception->getMessage());
@@ -407,6 +407,7 @@ class KsefFa3OptionalBlocksTest extends TestCase
         $orderModel = $this->createDocumentOrder(array_merge([
             'external_id' => 'FA3-OPTIONAL-'.uniqid(),
             'billing_tax_id' => '5260250995',
+            'total_gross' => '100.00',
             'delivery_cost_gross' => '0.00',
         ], $order));
         $this->createDocumentItem($orderModel, array_merge([

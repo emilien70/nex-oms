@@ -3,13 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\OrderCurrencyException;
+use App\Exceptions\OrderPaymentStateException;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
 use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
+use App\Services\OrderPaymentStateService;
 use App\Services\OrderTotalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
@@ -27,6 +30,7 @@ class OrderMetaController extends Controller
         Request $request,
         Order $order,
         InvoiceDecimalCalculator $decimal,
+        OrderPaymentStateService $paymentStates,
     ): JsonResponse|RedirectResponse {
         $this->normalizeDecimalFields($request, ['paid_amount']);
         $maximum = $decimal->max((string) ($order->total_gross ?? '0'), '0.00');
@@ -49,18 +53,28 @@ class OrderMetaController extends Controller
             ],
         ]);
 
-        $order->update([
-            'paid_amount' => $validated['paid_amount'],
-        ]);
+        try {
+            DB::transaction(function () use ($order, $validated, $paymentStates): void {
+                $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
+                $paymentState = $paymentStates->forPaidAmountUpdate(
+                    $managedOrder,
+                    $validated['paid_amount'],
+                );
 
-        $order->events()->create([
-            'event_type' => 'paid_amount_updated',
-            'title' => html_entity_decode('Wp&#322;ata zaktualizowana', ENT_QUOTES, 'UTF-8'),
-            'description' => html_entity_decode('Zaktualizowano kwot&#281; wp&#322;aty', ENT_QUOTES, 'UTF-8'),
-            'payload' => [
-                'paid_amount' => $order->paid_amount,
-            ],
-        ]);
+                $managedOrder->update($paymentState);
+
+                $managedOrder->events()->create([
+                    'event_type' => 'paid_amount_updated',
+                    'title' => html_entity_decode('Wp&#322;ata zaktualizowana', ENT_QUOTES, 'UTF-8'),
+                    'description' => html_entity_decode('Zaktualizowano kwot&#281; wp&#322;aty', ENT_QUOTES, 'UTF-8'),
+                    'payload' => [
+                        'paid_amount' => $managedOrder->paid_amount,
+                    ],
+                ]);
+            });
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
+        }
 
         return $this->orderMutationResponse($request, ['order-info', 'history'], back());
     }
@@ -71,6 +85,8 @@ class OrderMetaController extends Controller
             $totalGross = $orderTotalService->recalculate($order);
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['total_gross' => $exception->getMessage()]);
         }

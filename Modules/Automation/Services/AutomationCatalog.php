@@ -77,7 +77,6 @@ class AutomationCatalog
                     'unpaid' => $this->decode('Nieop&#322;acone'),
                     'partial' => $this->decode('Cz&#281;&#347;ciowo op&#322;acone'),
                     'paid' => $this->decode('Op&#322;acone'),
-                    'refunded' => $this->decode('Zwr&oacute;cone'),
                 ],
             ],
             'shipping_method' => [

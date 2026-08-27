@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\OrderCurrencyException;
+use App\Exceptions\OrderPaymentStateException;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
 use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
 use App\Models\OrderStatusSetting;
 use App\Rules\ValidCurrencyCode;
 use App\Services\OrderCurrencyService;
+use App\Services\OrderPaymentStateService;
 use App\Services\OrderStatusService;
 use App\Services\OrderTotalService;
 use App\Services\OrderTrackingLookupService;
@@ -192,7 +194,10 @@ class OrdersController extends Controller
                 $order->currency = $orderCurrencyService->currencyForOrder($order, $validated['currency']);
                 $order->save();
                 $this->syncItems($order, $validated['items'] ?? [], $orderTotalService);
-                $orderTotalService->recalculate($order);
+                $orderTotalService->recalculate($order, [
+                    'payment_status' => $validated['payment_status'] ?? OrderPaymentStateService::STATUS_UNPAID,
+                    'paid_amount' => (string) ($validated['paid_amount'] ?? '0'),
+                ]);
 
                 $order->events()->create([
                     'event_type' => 'order_created',
@@ -208,6 +213,8 @@ class OrdersController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['items' => $exception->getMessage()]);
         }
@@ -342,12 +349,13 @@ class OrdersController extends Controller
     public function duplicate(
         Order $order,
         OrderTotalService $orderTotalService,
+        OrderPaymentStateService $paymentStates,
         InvoiceFinancialValueValidator $financial,
     ): RedirectResponse {
         $order->load(['items']);
 
         try {
-            $newOrder = DB::transaction(function () use ($order, $orderTotalService, $financial): Order {
+            $newOrder = DB::transaction(function () use ($order, $orderTotalService, $paymentStates, $financial): Order {
                 $orderData = $order->only([
                     'source',
                     'status',
@@ -385,6 +393,12 @@ class OrdersController extends Controller
                     $orderData['delivery_cost_gross'],
                     'Koszt wysyłki przekracza maksymalną obsługiwaną wartość.',
                 );
+                $paymentState = $paymentStates->explicit(
+                    $orderData['total_gross'],
+                    $orderData['paid_amount'],
+                    (string) $orderData['payment_status'],
+                );
+                $orderData = [...$orderData, ...$paymentState];
 
                 $newOrder = Order::create($orderData + [
                     'external_id' => null,
@@ -776,7 +790,10 @@ class OrdersController extends Controller
 
                 $managedOrder->items()->delete();
                 $this->syncItems($managedOrder, $validated['items'] ?? [], $orderTotalService);
-                $orderTotalService->recalculate($managedOrder);
+                $orderTotalService->recalculate($managedOrder, [
+                    'payment_status' => $validated['payment_status'] ?? OrderPaymentStateService::STATUS_UNPAID,
+                    'paid_amount' => (string) ($validated['paid_amount'] ?? '0'),
+                ]);
 
                 $managedOrder->events()->create([
                     'event_type' => 'order_updated',
@@ -790,6 +807,8 @@ class OrdersController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['items' => $exception->getMessage()]);
         }
@@ -875,7 +894,7 @@ class OrdersController extends Controller
             'pickup_point_address' => ['nullable', 'string', 'max:255'],
             'pickup_point_postal_code' => ['nullable', 'string', 'max:255'],
             'pickup_point_city' => ['nullable', 'string', 'max:255'],
-            'payment_status' => ['nullable', 'string', 'in:unpaid,paid,refunded'],
+            'payment_status' => ['nullable', 'string', Rule::in(OrderPaymentStateService::STATUSES)],
             'payment_method' => ['nullable', 'string', 'max:255'],
             'paid_at' => ['nullable', 'date'],
             'items' => ['nullable', 'array'],
@@ -1080,7 +1099,6 @@ class OrdersController extends Controller
         return [
             'unpaid' => html_entity_decode('Nieop&#322;acone', ENT_QUOTES, 'UTF-8'),
             'paid' => html_entity_decode('Op&#322;acone', ENT_QUOTES, 'UTF-8'),
-            'refunded' => html_entity_decode('Zwr&oacute;cone', ENT_QUOTES, 'UTF-8'),
         ];
     }
 }

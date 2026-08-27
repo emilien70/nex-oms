@@ -135,6 +135,8 @@ Zamówienie powinno przechowywać lub udostępniać:
 - numery seryjne,
 - powiązane dokumenty sprzedaży.
 
+Aktywny model płatności zamówienia używa wyłącznie statusów `unpaid` i `paid`. Dla dodatniej wartości zamówienia `paid` oznacza pełną wpłatę równą `total_gross`, natomiast brak albo częściowa wpłata pozostaje `unpaid`; status `refunded` nie należy do modelu. Zmiana kwoty zamówienia, statusu lub `paid_amount` musi zachować tę relację, a nadpłata jest odrzucana bez częściowego zapisu.
+
 ## 4.3. Interfejs zamówienia
 
 Interfejs ma być prosty i zwarty.

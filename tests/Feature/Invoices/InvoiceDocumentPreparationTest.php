@@ -54,7 +54,8 @@ class InvoiceDocumentPreparationTest extends TestCase
     public function test_preparation_builds_snapshots_items_shipping_tax_totals_and_payment_without_float(): void
     {
         $order = $this->createDocumentOrder([
-            'paid_amount' => '999.00',
+            'payment_status' => 'paid',
+            'paid_amount' => '123.00',
             'currency' => 'eur',
             'shipping_country_code' => 'DE',
         ]);

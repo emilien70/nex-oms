@@ -48,10 +48,6 @@ class AutomationConditionEvaluator
 
     private function paymentState(Order $order): string
     {
-        if ($order->payment_status === 'refunded') {
-            return 'refunded';
-        }
-
         $total = (float) $order->total_gross;
         $paid = (float) $order->paid_amount;
 

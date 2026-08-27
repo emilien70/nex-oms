@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\OrderCurrencyException;
+use App\Exceptions\OrderPaymentStateException;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
 use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
 use App\Rules\ValidCurrencyCode;
 use App\Services\OrderCurrencyService;
+use App\Services\OrderPaymentStateService;
 use App\Services\OrderTotalService;
 use App\Support\AddressLineFormatter;
 use App\Support\CountryCatalog;
@@ -81,6 +83,8 @@ class OrderSectionController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['delivery_cost_gross' => $exception->getMessage()]);
         }
@@ -130,6 +134,7 @@ class OrderSectionController extends Controller
         Request $request,
         Order $order,
         OrderCurrencyService $orderCurrencyService,
+        OrderPaymentStateService $paymentStates,
     ): RedirectResponse {
         $this->normalizeDecimalFields($request, ['total_gross', 'delivery_cost_gross']);
         $request->merge([
@@ -156,7 +161,7 @@ class OrderSectionController extends Controller
                 'regex:/^\d+(?:\.\d{1,2})?$/',
                 $this->orderMoneyRule('Koszt wysyłki przekracza maksymalną obsługiwaną wartość.'),
             ],
-            'payment_status' => ['required', 'string', 'in:unpaid,paid,refunded'],
+            'payment_status' => ['required', 'string', Rule::in(OrderPaymentStateService::STATUSES)],
             'payment_method' => ['nullable', 'string', 'max:255'],
             'paid_at' => ['nullable', 'date'],
         ], [
@@ -164,21 +169,29 @@ class OrderSectionController extends Controller
         ]);
 
         try {
-            DB::transaction(function () use ($order, $validated, $orderCurrencyService): void {
+            DB::transaction(function () use ($order, $validated, $orderCurrencyService, $paymentStates): void {
                 $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
                 $currency = $orderCurrencyService->currencyForPaymentUpdate($managedOrder, $validated['currency']);
+                $totalGross = (string) ($validated['total_gross'] ?? $managedOrder->total_gross ?? '0');
+                $paymentState = $paymentStates->forQuickUpdate(
+                    $managedOrder,
+                    $totalGross,
+                    $validated['payment_status'],
+                );
 
                 $managedOrder->update([
                     'currency' => $currency,
-                    'total_gross' => $validated['total_gross'] ?? 0,
-                    'delivery_cost_gross' => $validated['delivery_cost_gross'] ?? 0,
-                    'payment_status' => $validated['payment_status'],
+                    'total_gross' => $totalGross,
+                    'delivery_cost_gross' => $validated['delivery_cost_gross'] ?? $managedOrder->delivery_cost_gross ?? 0,
+                    ...$paymentState,
                     'payment_method' => $validated['payment_method'] ?? null,
                     'paid_at' => $validated['paid_at'] ?? null,
                 ]);
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['payment_status' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['total_gross' => $exception->getMessage()]);
         }
@@ -240,6 +253,8 @@ class OrderSectionController extends Controller
                     html_entity_decode('Zaktualizowano produkty w zam&oacute;wieniu', ENT_QUOTES, 'UTF-8')
                 );
             });
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['items' => $exception->getMessage()]);
         }

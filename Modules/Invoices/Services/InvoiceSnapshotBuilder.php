@@ -3,6 +3,7 @@
 namespace Modules\Invoices\Services;
 
 use App\Models\Order;
+use App\Services\OrderPaymentStateService;
 use App\Support\CountryCatalog;
 use BackedEnum;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
@@ -11,7 +12,10 @@ use Modules\Invoices\ValueObjects\InvoiceOperationContext;
 
 class InvoiceSnapshotBuilder
 {
-    public function __construct(private readonly CountryCatalog $countries) {}
+    public function __construct(
+        private readonly CountryCatalog $countries,
+        private readonly OrderPaymentStateService $paymentStates,
+    ) {}
 
     /**
      * @param  array{issue_date: string, sale_date: string, payment_due_date: ?string, issued_at: mixed}  $dates
@@ -28,6 +32,17 @@ class InvoiceSnapshotBuilder
         array $items,
         string $additionalInformation,
     ): array {
+        $this->paymentStates->explicit(
+            (string) ($order->total_gross ?? '0'),
+            (string) ($order->paid_amount ?? '0'),
+            (string) $order->payment_status,
+        );
+        $this->paymentStates->explicit(
+            (string) $totals['total_gross'],
+            (string) $totals['paid_amount'],
+            (string) $order->payment_status,
+        );
+
         $seller = $this->sellerSnapshot($series);
         $buyer = $this->buyerSnapshot($order);
         $recipient = $this->recipientSnapshot($order);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\OrderCurrencyException;
+use App\Exceptions\OrderPaymentStateException;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
 use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
@@ -87,6 +88,8 @@ class OrderProductController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['unit_price_gross' => $exception->getMessage()]);
         }
@@ -145,6 +148,8 @@ class OrderProductController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['unit_price_gross' => $exception->getMessage()]);
         }
@@ -177,6 +182,8 @@ class OrderProductController extends Controller
             });
         } catch (OrderCurrencyException $exception) {
             throw ValidationException::withMessages(['currency' => $exception->getMessage()]);
+        } catch (OrderPaymentStateException $exception) {
+            throw ValidationException::withMessages(['paid_amount' => $exception->getMessage()]);
         } catch (InvoiceDomainException $exception) {
             throw ValidationException::withMessages(['products' => $exception->getMessage()]);
         }

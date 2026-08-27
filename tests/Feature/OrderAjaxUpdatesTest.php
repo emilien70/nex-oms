@@ -122,20 +122,25 @@ class OrderAjaxUpdatesTest extends TestCase
 
         $this->assertSame('60.00', $order->fresh()->total_gross);
 
+        $this->patchJson(route('orders.paid-amount.update', $order), [
+            'paid_amount' => 0,
+        ])->assertOk();
+
         $this->deleteJson(route('order-items.destroy', $orderItem))
             ->assertOk()
             ->assertJsonPath('refresh.1', 'order-info');
 
         $order->refresh();
         $this->assertSame('0.00', $order->total_gross);
-        $this->assertSame('40.00', $order->paid_amount);
+        $this->assertSame('0.00', $order->paid_amount);
+        $this->assertSame('unpaid', $order->payment_status);
 
         $orderInfo = $this->getJson(route('orders.state', $order).'?fragments=order-info')
             ->assertOk()
             ->json('fragments.order-info');
 
-        $this->assertStringContainsString('bg-danger', $orderInfo);
-        $this->assertStringContainsString('40,00 PLN', $orderInfo);
+        $this->assertStringContainsString('bg-secondary', $orderInfo);
+        $this->assertStringContainsString('0,00 PLN', $orderInfo);
     }
 
     public function test_first_eur_product_refreshes_currency_fields_fragments_and_next_product_form(): void

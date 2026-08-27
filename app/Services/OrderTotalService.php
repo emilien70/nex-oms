@@ -16,6 +16,7 @@ class OrderTotalService
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly CurrencyCatalog $currencies,
         private readonly InvoiceFinancialValueValidator $financial,
+        private readonly OrderPaymentStateService $paymentStates,
     ) {}
 
     public function lineTotal(string $unitPriceGross, int $quantity): string
@@ -38,7 +39,10 @@ class OrderTotalService
         ), 'Wartość pozycji przekracza maksymalny obsługiwany zakres.');
     }
 
-    public function recalculate(Order $order): string
+    /**
+     * @param  array{payment_status: string, paid_amount: string}|null  $explicitPaymentState
+     */
+    public function recalculate(Order $order, ?array $explicitPaymentState = null): string
     {
         $orderCurrency = $this->currencies->normalize($order->currency);
         $itemsTotal = '0.00';
@@ -81,9 +85,17 @@ class OrderTotalService
             $totalGross,
             'Wartość zamówienia przekracza maksymalny obsługiwany zakres.',
         );
+        $paymentState = $explicitPaymentState === null
+            ? $this->paymentStates->afterTotalRecalculation($order, $totalGross)
+            : $this->paymentStates->explicit(
+                $totalGross,
+                $explicitPaymentState['paid_amount'],
+                $explicitPaymentState['payment_status'],
+            );
 
         $order->update([
             'total_gross' => $totalGross,
+            ...$paymentState,
         ]);
 
         return $totalGross;
