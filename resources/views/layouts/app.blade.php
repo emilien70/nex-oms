@@ -1373,11 +1373,47 @@
                 </div>
             @endif
 
-            @if ($errors->any())
+            @php
+                $ksefError = session('ksef_error');
+                $genericErrors = is_array($ksefError)
+                    ? collect($errors->getMessages())->except('ksef')->flatten()->all()
+                    : $errors->all();
+            @endphp
+
+            @if (is_array($ksefError))
+                <div class="alert alert-danger alert-dismissible fade show" role="alert" data-ksef-error>
+                    <div class="fw-semibold mb-2">{{ $ksefError['title'] ?? 'Nie udało się wykonać operacji KSeF' }}</div>
+                    <div><span class="fw-semibold">Etap:</span> {{ $ksefError['stage'] ?? 'Operacja KSeF' }}</div>
+                    <div>
+                        <span class="fw-semibold">{{ $ksefError['code_label'] ?? 'Kod' }}:</span>
+                        {{ $ksefError['code'] ?? 'ksef_operation_failed' }}
+                    </div>
+                    @if (is_int($ksefError['http_status'] ?? null))
+                        <div><span class="fw-semibold">HTTP:</span> {{ $ksefError['http_status'] }}</div>
+                    @endif
+                    @if (is_string($ksefError['reason_code'] ?? null) && $ksefError['reason_code'] !== '')
+                        <div><span class="fw-semibold">Kod KSeF:</span> {{ $ksefError['reason_code'] }}</div>
+                    @endif
+                    <div class="mt-2">{{ $ksefError['message'] ?? 'Nie udało się wykonać operacji KSeF.' }}</div>
+                    @if (is_array($ksefError['details'] ?? null) && $ksefError['details'] !== [])
+                        <div class="fw-semibold mt-2">Szczegóły:</div>
+                        <ul class="mb-0">
+                            @foreach ($ksefError['details'] as $detail)
+                                @if (is_string($detail) && $detail !== '')
+                                    <li>{{ $detail }}</li>
+                                @endif
+                            @endforeach
+                        </ul>
+                    @endif
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Zamknij"></button>
+                </div>
+            @endif
+
+            @if ($genericErrors !== [])
                 <div class="alert alert-danger alert-dismissible fade show" role="alert">
                     <div class="fw-semibold mb-1">Nie uda&#322;o si&#281; zapisa&#263; zmian.</div>
                     <ul class="mb-0">
-                        @foreach ($errors->all() as $error)
+                        @foreach ($genericErrors as $error)
                             <li>{{ $error }}</li>
                         @endforeach
                     </ul>

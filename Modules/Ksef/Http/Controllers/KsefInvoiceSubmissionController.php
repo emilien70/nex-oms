@@ -18,11 +18,16 @@ use Modules\Ksef\Services\KsefInvoiceStatusFollowUpService;
 use Modules\Ksef\Services\KsefInvoiceUpoService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
+use Modules\Ksef\Services\KsefUserErrorPresenter;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 class KsefInvoiceSubmissionController extends Controller
 {
+    public function __construct(
+        private readonly KsefUserErrorPresenter $userErrors,
+    ) {}
+
     public function firstAttempt(
         Request $request,
         Invoice $invoice,
@@ -43,11 +48,19 @@ class KsefInvoiceSubmissionController extends Controller
 
             return redirect($redirectUrl);
         } catch (KsefApiException|InvoiceDomainException $exception) {
-            return redirect($redirectUrl)->withErrors(['ksef' => $exception->getMessage()]);
+            return $this->errorRedirect(
+                redirect($redirectUrl),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE,
+            );
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'first_attempt', $exception);
 
-            return redirect($redirectUrl)->withErrors(['ksef' => 'Nie udało się wykonać operacji KSeF.']);
+            return $this->errorRedirect(
+                redirect($redirectUrl),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE,
+            );
         }
     }
 
@@ -66,11 +79,19 @@ class KsefInvoiceSubmissionController extends Controller
                 "Faktura została przekazana do KSeF {$environment}. Sprawdź status, aby potwierdzić przyjęcie.",
             );
         } catch (KsefApiException|InvoiceDomainException $exception) {
-            return back()->withErrors(['ksef' => $exception->getMessage()]);
+            return $this->errorRedirect(
+                back(),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE,
+            );
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'send', $exception);
 
-            return back()->withErrors(['ksef' => 'Nie udało się wykonać operacji KSeF.']);
+            return $this->errorRedirect(
+                back(),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE,
+            );
         }
     }
 
@@ -86,11 +107,19 @@ class KsefInvoiceSubmissionController extends Controller
 
             return back()->with('success', 'Wynik transmisji KSeF został sprawdzony.');
         } catch (KsefApiException $exception) {
-            return back()->withErrors(['ksef' => $exception->getMessage()]);
+            return $this->errorRedirect(
+                back(),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_RECONCILE,
+            );
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'reconcile', $exception);
 
-            return back()->withErrors(['ksef' => 'Nie udało się wykonać operacji KSeF.']);
+            return $this->errorRedirect(
+                back(),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_RECONCILE,
+            );
         }
     }
 
@@ -111,11 +140,19 @@ class KsefInvoiceSubmissionController extends Controller
 
             return back()->with('success', 'Status KSeF został odświeżony.');
         } catch (KsefApiException $exception) {
-            return back()->withErrors(['ksef' => $exception->getMessage()]);
+            return $this->errorRedirect(
+                back(),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_REFRESH,
+            );
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'refresh', $exception);
 
-            return back()->withErrors(['ksef' => 'Nie udało się wykonać operacji KSeF.']);
+            return $this->errorRedirect(
+                back(),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_REFRESH,
+            );
         }
     }
 
@@ -140,7 +177,11 @@ class KsefInvoiceSubmissionController extends Controller
                 return response()->json(['message' => $exception->getMessage()], 422);
             }
 
-            return back()->withErrors(['ksef' => $exception->getMessage()]);
+            return $this->errorRedirect(
+                back(),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_FETCH_UPO,
+            );
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'fetch_upo', $exception, $submission);
 
@@ -148,7 +189,11 @@ class KsefInvoiceSubmissionController extends Controller
                 return response()->json(['message' => 'Nie udało się pobrać UPO z KSeF.'], 500);
             }
 
-            return back()->withErrors(['ksef' => 'Nie udało się pobrać UPO z KSeF.']);
+            return $this->errorRedirect(
+                back(),
+                $exception,
+                KsefUserErrorPresenter::OPERATION_FETCH_UPO,
+            );
         }
     }
 
@@ -219,6 +264,18 @@ class KsefInvoiceSubmissionController extends Controller
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'post_send_status', $exception, $submission);
         }
+    }
+
+    private function errorRedirect(
+        RedirectResponse $response,
+        Throwable $exception,
+        string $operation,
+    ): RedirectResponse {
+        $error = $this->userErrors->present($exception, $operation);
+
+        return $response
+            ->withErrors(['ksef' => $error['message']])
+            ->with('ksef_error', $error);
     }
 
     private function logUnexpected(

@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\MessageBag;
+use Illuminate\Support\ViewErrorBag;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
@@ -30,6 +32,7 @@ use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\Support\KsefUpoFixture;
@@ -283,6 +286,149 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertNull($invoice->fresh()->finalized_at);
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
+    }
+
+    public function test_missing_items_show_a_dedicated_ksef_error_without_generic_form_alert(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $invoice->items()->delete();
+        $metadata = $invoice->tax_metadata_snapshot;
+        $metadata['ksef_tax']['line_treatments'] = [];
+        $invoice->forceFill(['tax_metadata_snapshot' => $metadata])->saveQuietly();
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors('ksef')
+            ->assertSessionHas('ksef_error', function (array $error): bool {
+                return $error['title'] === 'Nie udało się przekazać Faktury do KSeF'
+                    && $error['stage'] === 'Przygotowanie dokumentu FA(3)'
+                    && $error['code'] === 'ksef_fa3_items_missing'
+                    && $error['message'] === 'Faktura nie zawiera żadnych pozycji.'
+                    && $error['details'] === [
+                        'Aby przygotować dokument FA(3), Faktura musi zawierać co najmniej jedną pozycję.',
+                    ];
+            });
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSee('data-ksef-error', false)
+            ->assertSeeText('Nie udało się przekazać Faktury do KSeF')
+            ->assertSeeText('Przygotowanie dokumentu FA(3)')
+            ->assertSeeText('ksef_fa3_items_missing')
+            ->assertSeeText('Faktura nie zawiera żadnych pozycji.')
+            ->assertSeeText('Aby przygotować dokument FA(3), Faktura musi zawierać co najmniej jedną pozycję.')
+            ->assertDontSee('Nie uda&#322;o si&#281; zapisa&#263; zmian.', false);
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_manual_api_failure_exposes_only_classified_api_diagnostics(): void
+    {
+        $invoice = $this->eligibleInvoice(finalize: false);
+        $this->mock(KsefManualInvoiceSubmissionService::class, function ($mock): void {
+            $mock->shouldReceive('submitFirstAttempt')
+                ->once()
+                ->andThrow(new KsefApiException(
+                    'KSeF odrzucił Fakturę podczas weryfikacji.',
+                    'invoice_submit_rejected',
+                    400,
+                    '21170',
+                    systemWarning: 'SECRET_API_SYSTEM_WARNING',
+                ));
+        });
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHasErrors('ksef')
+            ->assertSessionHas('ksef_error', fn (array $error): bool => (
+                $error['stage'] === 'Komunikacja z KSeF'
+                && $error['code_label'] === 'Kod NEX'
+                && $error['code'] === 'invoice_submit_rejected'
+                && $error['http_status'] === 400
+                && $error['reason_code'] === '21170'
+                && ! str_contains(json_encode($error, JSON_THROW_ON_ERROR), 'SECRET_API_SYSTEM_WARNING')
+            ));
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSeeText('Komunikacja z KSeF')
+            ->assertSeeText('Kod NEX')
+            ->assertSeeText('invoice_submit_rejected')
+            ->assertSeeText('HTTP')
+            ->assertSeeText('400')
+            ->assertSeeText('Kod KSeF')
+            ->assertSeeText('21170')
+            ->assertDontSeeText('SECRET_API_SYSTEM_WARNING')
+            ->assertDontSee('Nie uda&#322;o si&#281; zapisa&#263; zmian.', false);
+        Http::assertNothingSent();
+    }
+
+    public function test_unexpected_manual_failure_never_exposes_technical_message(): void
+    {
+        $invoice = $this->eligibleInvoice(finalize: false);
+        $this->mock(KsefManualInvoiceSubmissionService::class, function ($mock): void {
+            $mock->shouldReceive('submitFirstAttempt')
+                ->once()
+                ->andThrow(new RuntimeException('SECRET_DATABASE_OR_STACK_DETAIL'));
+        });
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHasErrors('ksef')
+            ->assertSessionHas('ksef_error', fn (array $error): bool => (
+                $error['code'] === 'ksef_operation_failed'
+                && $error['message'] === 'Nie udało się wykonać operacji KSeF.'
+                && ! str_contains(json_encode($error, JSON_THROW_ON_ERROR), 'SECRET_DATABASE_OR_STACK_DETAIL')
+            ));
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSeeText('Nie udało się wykonać operacji KSeF.')
+            ->assertDontSeeText('SECRET_DATABASE_OR_STACK_DETAIL')
+            ->assertDontSee('Nie uda&#322;o si&#281; zapisa&#263; zmian.', false);
+        Http::assertNothingSent();
+    }
+
+    public function test_dedicated_ksef_error_is_escaped_by_blade(): void
+    {
+        $invoice = $this->eligibleInvoice(finalize: false);
+        $this->mock(KsefManualInvoiceSubmissionService::class, function ($mock): void {
+            $mock->shouldReceive('submitFirstAttempt')
+                ->once()
+                ->andThrow(new InvoiceDomainException(
+                    'ksef_fa3_tax_snapshot_invalid',
+                    '<script>SECRET_SCRIPT_MARKER</script>',
+                    [
+                        'invoice_item' => [
+                            'position' => 1,
+                            'name' => '<img src=x onerror=SECRET_ITEM_MARKER>',
+                        ],
+                    ],
+                ));
+        });
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $invoice))
+            ->assertSessionHasErrors('ksef');
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSee('&lt;script&gt;SECRET_SCRIPT_MARKER&lt;/script&gt;', false)
+            ->assertSee('&lt;img src=x onerror=SECRET_ITEM_MARKER&gt;', false)
+            ->assertDontSee('<script>SECRET_SCRIPT_MARKER</script>', false)
+            ->assertDontSee('<img src=x onerror=SECRET_ITEM_MARKER>', false);
+        Http::assertNothingSent();
+    }
+
+    public function test_ordinary_validation_errors_keep_the_generic_form_alert(): void
+    {
+        $errors = (new ViewErrorBag)
+            ->put('default', new MessageBag([
+                'name' => 'Pole nazwa jest wymagane.',
+            ]));
+
+        $this->view('layouts.app', compact('errors'))
+            ->assertSee('Nie uda&#322;o si&#281; zapisa&#263; zmian.', false)
+            ->assertSeeText('Pole nazwa jest wymagane.')
+            ->assertDontSee('data-ksef-error', false);
     }
 
     public function test_first_attempt_authoritative_prepare_failure_rolls_back_finalization_and_submission(): void

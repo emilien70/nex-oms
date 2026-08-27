@@ -222,10 +222,14 @@ class KsefFa3PreparationTest extends TestCase
         );
         $this->assertSame('unsupported', $invoice->tax_metadata_snapshot['ksef_tax']['line_treatments'][0]['status']);
         $this->assertSame('unsupported_percentage', $invoice->tax_metadata_snapshot['ksef_tax']['line_treatments'][0]['reason']);
-        $this->expectDomainError(
+        $rateError = $this->expectDomainError(
             'ksef_fa3_unsupported_vat_rate',
             fn () => $this->eligibility($invoice, KsefFa3EligibilityMode::Preflight),
         );
+        $this->assertSame('unsupported_vat_rate', $rateError->metadata()['reason']);
+        $this->assertSame(1, $rateError->metadata()['invoice_item']['position']);
+        $this->assertSame($invoice->items->first()->name, $rateError->metadata()['invoice_item']['name']);
+        $this->assertSame('6.00', $rateError->metadata()['vat_rate']);
 
         $item = $invoice->items->first();
         $invoice = app(InvoiceEditService::class)->updateItem(
@@ -236,10 +240,13 @@ class KsefFa3PreparationTest extends TestCase
         $treatment = $this->treatmentFor($invoice, $item->getKey());
         $this->assertSame('unsupported_vat_code', $treatment['reason']);
         $this->assertSame('ZW', $treatment['vat_code']);
-        $this->expectDomainError(
+        $codeError = $this->expectDomainError(
             'ksef_fa3_unsupported_vat_code',
             fn () => $this->eligibility($invoice, KsefFa3EligibilityMode::Preflight),
         );
+        $this->assertSame('unsupported_vat_code', $codeError->metadata()['reason']);
+        $this->assertSame(1, $codeError->metadata()['invoice_item']['position']);
+        $this->assertSame('ZW', $codeError->metadata()['vat_code']);
     }
 
     public function test_each_supported_standard_vat_rate_has_an_exact_fa3_mapping(): void
@@ -429,10 +436,12 @@ class KsefFa3PreparationTest extends TestCase
         $metadata = $empty->tax_metadata_snapshot;
         $metadata['ksef_tax']['line_treatments'] = [];
         $empty->forceFill(['tax_metadata_snapshot' => $metadata])->saveQuietly();
-        $this->expectDomainError(
+        $emptyError = $this->expectDomainError(
             'ksef_fa3_items_missing',
             fn () => $this->eligibility($empty->fresh(), KsefFa3EligibilityMode::Preflight),
         );
+        $this->assertSame('Faktura nie zawiera żadnych pozycji.', $emptyError->getMessage());
+        $this->assertSame(['item_count' => 0], $emptyError->metadata());
 
         $corrupted = $this->issueInvoice(['billing_tax_id' => '5260250995']);
         $corrupted = $this->tamperFirstTreatment($corrupted, ['fa3_rate' => '5']);
@@ -686,6 +695,54 @@ class KsefFa3PreparationTest extends TestCase
             );
             $this->assertNull($incompleteSeller->fresh()->finalized_at);
         }
+    }
+
+    public function test_incomplete_party_errors_identify_only_known_missing_and_invalid_fields(): void
+    {
+        Http::preventStrayRequests();
+        $sellerInvoice = $this->issueInvoice(['billing_tax_id' => '5260250995']);
+        $seller = $sellerInvoice->seller_snapshot;
+        $seller['tax_id'] = null;
+        $seller['country_code'] = 'DE';
+        $seller['street'] = null;
+        $seller['building_number'] = null;
+        $seller['apartment_number'] = null;
+        $sellerInvoice->forceFill(['seller_snapshot' => $seller])->saveQuietly();
+
+        $sellerError = $this->expectDomainError(
+            'ksef_fa3_seller_incomplete',
+            fn () => $this->eligibility($sellerInvoice->fresh(), KsefFa3EligibilityMode::Preflight),
+        );
+
+        $this->assertSame(
+            ['seller.tax_id', 'seller.address'],
+            $sellerError->metadata()['missing_fields'],
+        );
+        $this->assertSame(
+            ['seller.country_code'],
+            $sellerError->metadata()['invalid_fields'],
+        );
+
+        $buyerInvoice = $this->issueInvoice(['billing_tax_id' => '5260250995']);
+        $buyer = $buyerInvoice->buyer_snapshot;
+        $buyer['name'] = null;
+        $buyer['company_name'] = null;
+        $buyer['country_code'] = null;
+        $buyer['street'] = null;
+        $buyer['building_number'] = null;
+        $buyer['apartment_number'] = null;
+        $buyerInvoice->forceFill(['buyer_snapshot' => $buyer])->saveQuietly();
+
+        $buyerError = $this->expectDomainError(
+            'ksef_fa3_buyer_incomplete',
+            fn () => $this->eligibility($buyerInvoice->fresh(), KsefFa3EligibilityMode::Preflight),
+        );
+
+        $this->assertSame(
+            ['buyer.name', 'buyer.country_code', 'buyer.address'],
+            $buyerError->metadata()['missing_fields'],
+        );
+        $this->assertSame([], $buyerError->metadata()['invalid_fields']);
     }
 
     public function test_historical_missing_or_unknown_semantic_snapshot_is_not_backfilled(): void

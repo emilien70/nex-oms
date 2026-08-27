@@ -6,6 +6,7 @@ use App\Support\CountryCatalog;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Models\InvoiceItem;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3OptionalBlocksResolver;
@@ -60,6 +61,7 @@ class KsefFa3EligibilityValidator
     {
         $name = trim((string) ($seller['name'] ?? ''));
         $country = strtoupper(trim((string) ($seller['country_code'] ?? '')));
+        $taxId = $this->optionalString($seller['tax_id'] ?? null);
         $nip = $this->buyerIdentity->normalizePolishNip($seller['tax_id'] ?? null);
         $addressLine = trim(implode(' ', array_filter([
             $seller['street'] ?? null,
@@ -68,9 +70,24 @@ class KsefFa3EligibilityValidator
         ], static fn (mixed $value): bool => is_string($value) && trim($value) !== '')));
 
         if ($name === '' || $country !== 'PL' || $nip === null || $addressLine === '') {
+            $missingFields = array_values(array_filter([
+                $name === '' ? 'seller.name' : null,
+                $country === '' ? 'seller.country_code' : null,
+                $taxId === null ? 'seller.tax_id' : null,
+                $addressLine === '' ? 'seller.address' : null,
+            ]));
+            $invalidFields = array_values(array_filter([
+                $country !== '' && $country !== 'PL' ? 'seller.country_code' : null,
+                $taxId !== null && $nip === null ? 'seller.tax_id' : null,
+            ]));
+
             throw $this->error(
                 'ksef_fa3_seller_incomplete',
                 'Snapshot sprzedawcy nie zawiera kompletnych danych wymaganych dla FA(3).',
+                [
+                    'missing_fields' => $missingFields,
+                    'invalid_fields' => $invalidFields,
+                ],
             );
         }
     }
@@ -102,11 +119,25 @@ class KsefFa3EligibilityValidator
         $country = $this->countries->normalize(
             is_string($buyer['country_code'] ?? null) ? $buyer['country_code'] : null,
         );
+        $addressLine = $this->addressLine($buyer);
 
-        if ($name === null || ! $this->countries->exists($country) || $this->addressLine($buyer) === '') {
+        if ($name === null || ! $this->countries->exists($country) || $addressLine === '') {
+            $missingFields = array_values(array_filter([
+                $name === null ? 'buyer.name' : null,
+                $country === null ? 'buyer.country_code' : null,
+                $addressLine === '' ? 'buyer.address' : null,
+            ]));
+            $invalidFields = $country !== null && ! $this->countries->exists($country)
+                ? ['buyer.country_code']
+                : [];
+
             throw $this->error(
                 'ksef_fa3_buyer_incomplete',
                 'Snapshot nabywcy nie zawiera nazwy i adresu wymaganych dla zwykłej Faktury FA(3).',
+                [
+                    'missing_fields' => $missingFields,
+                    'invalid_fields' => $invalidFields,
+                ],
             );
         }
 
@@ -200,35 +231,60 @@ class KsefFa3EligibilityValidator
         if ($items->isEmpty()) {
             throw $this->error(
                 'ksef_fa3_items_missing',
-                'Faktura nie zawiera pozycji wymaganych do przygotowania FA(3).',
+                'Faktura nie zawiera żadnych pozycji.',
+                ['item_count' => 0],
             );
         }
 
         if ($treatments->count() !== $items->count()) {
+            /** @var InvoiceItem|null $missingItem */
+            $missingItem = $items->first(
+                fn (InvoiceItem $item): bool => ! $treatments->has($item->getKey()),
+            );
+
             throw $this->error(
                 'ksef_fa3_tax_snapshot_invalid',
                 'Snapshot semantyki podatkowej KSeF nie odpowiada pozycjom Faktury.',
+                $missingItem !== null
+                    ? $this->itemMetadata($missingItem, 'tax_treatment_missing')
+                    : [
+                        'reason' => 'tax_treatment_count_mismatch',
+                        'item_count' => $items->count(),
+                        'treatment_count' => $treatments->count(),
+                    ],
             );
         }
 
         foreach ($items as $item) {
             $treatment = $treatments->get($item->getKey());
-            if (! is_array($treatment)
-                || ! $this->taxTreatments->isCanonical($item, $treatment)) {
+            if (! is_array($treatment)) {
                 throw $this->error(
                     'ksef_fa3_tax_snapshot_invalid',
                     'Snapshot semantyki podatkowej KSeF nie odpowiada pozycjom Faktury.',
+                    $this->itemMetadata($item, 'tax_treatment_missing'),
+                );
+            }
+
+            if (! $this->taxTreatments->isCanonical($item, $treatment)) {
+                throw $this->error(
+                    'ksef_fa3_tax_snapshot_invalid',
+                    'Snapshot semantyki podatkowej KSeF nie odpowiada pozycjom Faktury.',
+                    $this->itemMetadata($item, 'tax_treatment_inconsistent'),
                 );
             }
 
             if (($treatment['status'] ?? null) !== 'resolved') {
                 $reason = ($treatment['reason'] ?? null) === 'unsupported_vat_code'
+                    ? 'unsupported_vat_code'
+                    : 'unsupported_vat_rate';
+                $errorCode = $reason === 'unsupported_vat_code'
                     ? 'ksef_fa3_unsupported_vat_code'
                     : 'ksef_fa3_unsupported_vat_rate';
 
                 throw $this->error(
-                    $reason,
+                    $errorCode,
                     'Faktura zawiera stawkę lub kod VAT nieobsługiwany przez aktualny profil FA(3).',
+                    $this->itemMetadata($item, $reason, $treatment),
                 );
             }
         }
@@ -250,8 +306,33 @@ class KsefFa3EligibilityValidator
             && ($annotations['margin_scheme'] ?? null) === false;
     }
 
-    private function error(string $code, string $message): InvoiceDomainException
+    /**
+     * @param  array<string, mixed>  $treatment
+     * @return array<string, mixed>
+     */
+    private function itemMetadata(
+        InvoiceItem $item,
+        string $reason,
+        array $treatment = [],
+    ): array {
+        $vatRate = $treatment['vat_rate'] ?? $item->vat_rate;
+        $vatCode = $treatment['vat_code'] ?? $item->vat_code;
+
+        return array_filter([
+            'invoice_item' => [
+                'id' => $item->getKey(),
+                'position' => $item->position,
+                'name' => (string) $item->name,
+            ],
+            'reason' => $reason,
+            'vat_rate' => is_string($vatRate) && trim($vatRate) !== '' ? trim($vatRate) : null,
+            'vat_code' => is_string($vatCode) && trim($vatCode) !== '' ? trim($vatCode) : null,
+        ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    /** @param array<string, mixed> $metadata */
+    private function error(string $code, string $message, array $metadata = []): InvoiceDomainException
     {
-        return new InvoiceDomainException($code, $message);
+        return new InvoiceDomainException($code, $message, $metadata);
     }
 }
