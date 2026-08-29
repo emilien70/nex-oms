@@ -9,6 +9,8 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceItem;
+use Modules\Invoices\Services\CorrectionTotalsCalculator;
+use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionMapper;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -44,8 +46,10 @@ class KsefFa3CorrectionMapperTest extends TestCase
         $this->assertSame(1, $data->changedLines[0]->logicalPosition);
         $this->assertSame('1.0000', $data->changedLines[0]->before['quantity']);
         $this->assertSame('2.0000', $data->changedLines[0]->after['quantity']);
-        $this->assertSame('0.00', $data->differenceTotals['gross']);
-        $this->assertSame([], $data->differenceTotals['taxSummary']);
+        $this->assertSame('100.00', $data->differenceTotals['net']);
+        $this->assertSame('23.00', $data->differenceTotals['vat']);
+        $this->assertSame('123.00', $data->differenceTotals['gross']);
+        $this->assertSame('123.00', $data->differenceTotals['taxSummary'][0]['gross']);
     }
 
     public function test_reason_is_the_saved_label_and_is_not_reinterpreted_as_an_enum_value(): void
@@ -187,7 +191,12 @@ class KsefFa3CorrectionMapperTest extends TestCase
         ];
 
         $data = app(KsefFa3CorrectionMapper::class)->map(
-            $this->correction($root, [], buyerBefore: $before, buyerAfter: $after),
+            $this->correction(
+                $root,
+                [[$this->lineSnapshot(), $this->lineSnapshot()]],
+                buyerBefore: $before,
+                buyerAfter: $after,
+            ),
         );
 
         $this->assertSame($before, $data->buyerBefore);
@@ -257,19 +266,14 @@ class KsefFa3CorrectionMapperTest extends TestCase
     {
         $correction = $this->correction(
             $this->rootInvoice(),
-            [[$this->lineSnapshot(), $this->lineSnapshot(overrides: ['total_gross' => '100.00'])]],
-            difference: [
-                'net' => '-18.70',
-                'vat' => '-4.30',
-                'gross' => '-23.00',
-                'tax_summary_snapshot' => [[
-                    'vat_rate' => '23.00',
-                    'vat_code' => null,
-                    'net' => '-18.70',
-                    'vat' => '-4.30',
-                    'gross' => '-23.00',
-                ]],
-            ],
+            [[
+                $this->lineSnapshot(),
+                $this->lineSnapshot(overrides: [
+                    'total_net' => '81.30',
+                    'total_vat' => '18.70',
+                    'total_gross' => '100.00',
+                ]),
+            ]],
         );
 
         $data = app(KsefFa3CorrectionMapper::class)->map($correction);
@@ -292,6 +296,268 @@ class KsefFa3CorrectionMapperTest extends TestCase
 
         $this->assertDomainError(
             'ksef_fa3_correction_totals_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_recomputed_totals_reject_coordinated_difference_and_document_tampering(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[
+                $this->lineSnapshot(),
+                $this->lineSnapshot(overrides: [
+                    'quantity' => '2.0000',
+                    'total_net' => '200.00',
+                    'total_vat' => '46.00',
+                    'total_gross' => '246.00',
+                ]),
+            ]],
+        );
+        $snapshot = $correction->correction_totals_snapshot;
+        $snapshot['difference']['gross'] = '0.00';
+        $correction->forceFill([
+            'correction_totals_snapshot' => $snapshot,
+            'total_gross' => '0.00',
+        ])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_totals_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_tampered_before_aggregate_fails_closed(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[$this->lineSnapshot(), $this->lineSnapshot(overrides: ['name' => 'Zmiana'])]],
+        );
+        $snapshot = $correction->correction_totals_snapshot;
+        $snapshot['before']['gross'] = '122.99';
+        $correction->forceFill(['correction_totals_snapshot' => $snapshot])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_totals_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_tampered_after_aggregate_fails_closed(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[$this->lineSnapshot(), $this->lineSnapshot(overrides: ['name' => 'Zmiana'])]],
+        );
+        $snapshot = $correction->correction_totals_snapshot;
+        $snapshot['after']['gross'] = '122.99';
+        $correction->forceFill(['correction_totals_snapshot' => $snapshot])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_totals_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_tampered_tax_summary_fails_closed(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[
+                $this->lineSnapshot(),
+                $this->lineSnapshot(overrides: [
+                    'quantity' => '2.0000',
+                    'total_net' => '200.00',
+                    'total_vat' => '46.00',
+                    'total_gross' => '246.00',
+                ]),
+            ]],
+        );
+        $snapshot = $correction->correction_totals_snapshot;
+        $snapshot['difference']['tax_summary_snapshot'][0]['vat'] = '22.99';
+        $correction->forceFill(['correction_totals_snapshot' => $snapshot])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_totals_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_wrong_totals_snapshot_type_fails_closed(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[$this->lineSnapshot(), $this->lineSnapshot(overrides: ['name' => 'Zmiana'])]],
+        );
+        $snapshot = $correction->correction_totals_snapshot;
+        $snapshot['before']['tax_summary_snapshot'] = 'invalid';
+        $correction->forceFill(['correction_totals_snapshot' => $snapshot])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_totals_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_tax_summary_order_and_equivalent_decimals_are_accepted(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [
+                [
+                    $this->lineSnapshot(),
+                    $this->lineSnapshot(overrides: [
+                        'quantity' => '2.0000',
+                        'total_net' => '200.00',
+                        'total_vat' => '46.00',
+                        'total_gross' => '246.00',
+                    ]),
+                ],
+                [
+                    $this->lineSnapshot(position: 2, overrides: [
+                        'unit_price_gross' => '108.0000',
+                        'total_net' => '100.00',
+                        'total_vat' => '8.00',
+                        'total_gross' => '108.00',
+                        'vat_rate' => '8.00',
+                    ]),
+                    $this->lineSnapshot(position: 2, overrides: [
+                        'quantity' => '2.0000',
+                        'unit_price_gross' => '108.0000',
+                        'total_net' => '200.00',
+                        'total_vat' => '16.00',
+                        'total_gross' => '216.00',
+                        'vat_rate' => '8.00',
+                    ]),
+                ],
+            ],
+        );
+        $snapshot = $correction->correction_totals_snapshot;
+        foreach (['before', 'after', 'difference'] as $state) {
+            foreach (['net', 'vat', 'gross'] as $component) {
+                $snapshot[$state][$component] = $this->equivalentDecimal($snapshot[$state][$component]);
+            }
+            $snapshot[$state]['tax_summary_snapshot'] = array_reverse($snapshot[$state]['tax_summary_snapshot']);
+            foreach ($snapshot[$state]['tax_summary_snapshot'] as &$group) {
+                foreach (['vat_rate', 'net', 'vat', 'gross'] as $component) {
+                    if (is_string($group[$component] ?? null)) {
+                        $group[$component] = $this->equivalentDecimal($group[$component]);
+                    }
+                }
+            }
+            unset($group);
+        }
+        $correction->forceFill(['correction_totals_snapshot' => $snapshot])->saveQuietly();
+
+        $data = app(KsefFa3CorrectionMapper::class)->map($correction->refresh());
+
+        $this->assertSame('200.00', $data->differenceTotals['net']);
+        $this->assertSame('31.00', $data->differenceTotals['vat']);
+        $this->assertSame('231.00', $data->differenceTotals['gross']);
+        $this->assertCount(2, $data->differenceTotals['taxSummary']);
+    }
+
+    public function test_tampered_line_quantity_difference_fails_closed(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[
+                $this->lineSnapshot(),
+                $this->lineSnapshot(overrides: [
+                    'quantity' => '2.0000',
+                    'total_net' => '200.00',
+                    'total_vat' => '46.00',
+                    'total_gross' => '246.00',
+                ]),
+            ]],
+        );
+        $item = $correction->items->firstOrFail();
+        $difference = $item->correction_difference_snapshot;
+        $difference['quantity'] = '0.0000';
+        $item->forceFill(['correction_difference_snapshot' => $difference])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_line_snapshot_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_tampered_line_total_difference_fails_closed(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[
+                $this->lineSnapshot(),
+                $this->lineSnapshot(overrides: [
+                    'quantity' => '2.0000',
+                    'total_net' => '200.00',
+                    'total_vat' => '46.00',
+                    'total_gross' => '246.00',
+                ]),
+            ]],
+        );
+        $item = $correction->items->firstOrFail();
+        $difference = $item->correction_difference_snapshot;
+        $difference['total_gross'] = '122.99';
+        $item->forceFill(['correction_difference_snapshot' => $difference])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_line_snapshot_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_tampered_line_after_field_fails_closed(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[$this->lineSnapshot(), $this->lineSnapshot(overrides: ['name' => 'Zmiana'])]],
+        );
+        $item = $correction->items->firstOrFail();
+        $difference = $item->correction_difference_snapshot;
+        $difference['vat_rate'] = '8.00';
+        $item->forceFill(['correction_difference_snapshot' => $difference])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_line_snapshot_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_missing_line_difference_field_fails_closed(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [[$this->lineSnapshot(), $this->lineSnapshot(overrides: ['name' => 'Zmiana'])]],
+        );
+        $item = $correction->items->firstOrFail();
+        $difference = $item->correction_difference_snapshot;
+        unset($difference['quantity']);
+        $item->forceFill(['correction_difference_snapshot' => $difference])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_line_snapshot_invalid',
+            fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
+        );
+    }
+
+    public function test_unchanged_lines_are_also_subject_to_difference_validation(): void
+    {
+        $correction = $this->correction(
+            $this->rootInvoice(),
+            [
+                [$this->lineSnapshot(), $this->lineSnapshot(overrides: ['name' => 'Zmiana'])],
+                [$this->lineSnapshot(position: 2), $this->lineSnapshot(position: 2)],
+            ],
+        );
+        $item = $correction->items->firstWhere('position', 2);
+        $this->assertInstanceOf(InvoiceItem::class, $item);
+        $difference = $item->correction_difference_snapshot;
+        $difference['quantity'] = '1.0000';
+        $item->forceFill(['correction_difference_snapshot' => $difference])->saveQuietly();
+
+        $this->assertDomainError(
+            'ksef_fa3_correction_line_snapshot_invalid',
             fn () => app(KsefFa3CorrectionMapper::class)->map($correction->refresh()),
         );
     }
@@ -390,7 +656,6 @@ class KsefFa3CorrectionMapperTest extends TestCase
      * @param  array<int, array{0: array<string, mixed>, 1: array<string, mixed>}>  $lines
      * @param  array<string, mixed>|null  $buyerBefore
      * @param  array<string, mixed>|null  $buyerAfter
-     * @param  array<string, mixed>|null  $difference
      */
     private function correction(
         Invoice $root,
@@ -399,17 +664,18 @@ class KsefFa3CorrectionMapperTest extends TestCase
         ?array $buyerBefore = null,
         ?array $buyerAfter = null,
         ?Invoice $previousCorrection = null,
-        ?array $difference = null,
         string $number = 'KOR/1/2026',
     ): Invoice {
         $buyerBefore ??= $root->buyer_snapshot;
         $buyerAfter ??= $buyerBefore;
-        $difference ??= [
-            'net' => '0.00',
-            'vat' => '0.00',
-            'gross' => '0.00',
-            'tax_summary_snapshot' => [],
-        ];
+        $totals = app(CorrectionTotalsCalculator::class)->calculate(array_map(
+            static fn (array $line): array => [
+                'correction_before_snapshot' => $line[0],
+                'correction_after_snapshot' => $line[1],
+            ],
+            $lines,
+        ));
+        $difference = $totals['difference'];
         $correction = Invoice::query()->create([
             'order_id' => $root->order_id,
             'invoice_series_id' => $this->createDocumentSeries(InvoiceDocumentType::Correction)->getKey(),
@@ -427,8 +693,8 @@ class KsefFa3CorrectionMapperTest extends TestCase
                     'number' => $root->number,
                     'issue_date' => $root->issue_date?->toDateString(),
                 ],
-                'before' => [],
-                'after' => [],
+                'before' => $totals['before'],
+                'after' => $totals['after'],
                 'difference' => $difference,
             ],
             'buyer_snapshot' => $buyerAfter,
@@ -476,8 +742,34 @@ class KsefFa3CorrectionMapperTest extends TestCase
             'vat_code' => $after['vat_code'],
             'correction_before_snapshot' => $before,
             'correction_after_snapshot' => $after,
-            'correction_difference_snapshot' => ['position' => $after['position']],
+            'correction_difference_snapshot' => $this->lineDifference($before, $after),
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $after
+     * @return array<string, mixed>
+     */
+    private function lineDifference(array $before, array $after): array
+    {
+        $decimal = app(InvoiceDecimalCalculator::class);
+
+        return array_replace($after, [
+            'quantity' => $decimal->subtract((string) $after['quantity'], (string) $before['quantity'], 4),
+            'unit_price_net' => $decimal->subtract((string) $after['unit_price_net'], (string) $before['unit_price_net'], 4),
+            'unit_price_gross' => $decimal->subtract((string) $after['unit_price_gross'], (string) $before['unit_price_gross'], 4),
+            'total_net' => $decimal->subtract((string) $after['total_net'], (string) $before['total_net']),
+            'total_vat' => $decimal->subtract((string) $after['total_vat'], (string) $before['total_vat']),
+            'total_gross' => $decimal->subtract((string) $after['total_gross'], (string) $before['total_gross']),
+        ]);
+    }
+
+    private function equivalentDecimal(string $value): string
+    {
+        $value = rtrim(rtrim($value, '0'), '.');
+
+        return $value === '' || $value === '-' ? '0' : $value;
     }
 
     /** @param array<string, mixed> $overrides

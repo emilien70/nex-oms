@@ -6,7 +6,9 @@ use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceItem;
+use Modules\Invoices\Services\CorrectionTotalsCalculator;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
+use Modules\Invoices\Services\InvoiceTaxIdentityNormalizer;
 use Modules\Ksef\ValueObjects\Fa3\KsefFa3CorrectionData;
 use Modules\Ksef\ValueObjects\Fa3\KsefFa3CorrectionLine;
 use Modules\Ksef\ValueObjects\Fa3\KsefFa3CorrectionRootInvoice;
@@ -38,6 +40,8 @@ class KsefFa3CorrectionMapper
 
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
+        private readonly CorrectionTotalsCalculator $correctionTotals,
+        private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
     ) {}
 
     public function map(Invoice $correction): KsefFa3CorrectionData
@@ -62,6 +66,12 @@ class KsefFa3CorrectionMapper
         }
 
         $buyerChanged = $this->canonicalBuyer($buyerBefore) !== $this->canonicalBuyer($buyerAfter);
+        $items = $correction->items()
+            ->orderBy('position')
+            ->orderBy('id')
+            ->get()
+            ->all();
+        $lineData = $this->lineData($items);
 
         return new KsefFa3CorrectionData(
             kind: 'KOR',
@@ -71,8 +81,8 @@ class KsefFa3CorrectionMapper
             buyerBefore: $buyerChanged ? $buyerBefore : null,
             buyerAfter: $buyerAfter,
             buyerLinkId: $buyerChanged ? 'NB/01' : null,
-            changedLines: $this->changedLines($correction),
-            differenceTotals: $this->differenceTotals($correction),
+            changedLines: $lineData['changedLines'],
+            differenceTotals: $this->differenceTotals($correction, $lineData['calculatorItems']),
         );
     }
 
@@ -102,40 +112,93 @@ class KsefFa3CorrectionMapper
         );
     }
 
-    /** @return array<int, KsefFa3CorrectionLine> */
-    private function changedLines(Invoice $correction): array
+    /**
+     * @param  array<int, InvoiceItem>  $items
+     * @return array{
+     *     changedLines: array<int, KsefFa3CorrectionLine>,
+     *     calculatorItems: array<int, array{correction_before_snapshot: array<string, mixed>, correction_after_snapshot: array<string, mixed>}>
+     * }
+     */
+    private function lineData(array $items): array
     {
-        return $correction->items()
-            ->orderBy('position')
-            ->orderBy('id')
-            ->get()
-            ->map(function (InvoiceItem $item): ?KsefFa3CorrectionLine {
-                $before = $item->correction_before_snapshot;
-                $after = $item->correction_after_snapshot;
-                $difference = $item->correction_difference_snapshot;
+        $changedLines = [];
+        $calculatorItems = [];
 
-                if (! is_array($before) || ! is_array($after) || ! is_array($difference)) {
-                    throw $this->documentInvalid();
-                }
+        foreach ($items as $item) {
+            $snapshots = $this->validatedLineSnapshots($item);
+            $calculatorItems[] = [
+                'correction_before_snapshot' => $snapshots['before'],
+                'correction_after_snapshot' => $snapshots['after'],
+            ];
 
-                if ($this->canonicalLine($before) === $this->canonicalLine($after)) {
-                    return null;
-                }
+            if ($snapshots['canonicalBefore'] === $snapshots['canonicalAfter']) {
+                continue;
+            }
 
-                $position = (int) ($after['position'] ?? $item->position);
-                if ($position < 1) {
-                    throw $this->documentInvalid();
-                }
+            $changedLines[] = new KsefFa3CorrectionLine(
+                logicalPosition: $snapshots['afterPosition'],
+                before: $snapshots['before'],
+                after: $snapshots['after'],
+            );
+        }
 
-                return new KsefFa3CorrectionLine(
-                    logicalPosition: $position,
-                    before: $before,
-                    after: $after,
-                );
-            })
-            ->filter()
-            ->values()
-            ->all();
+        return [
+            'changedLines' => $changedLines,
+            'calculatorItems' => $calculatorItems,
+        ];
+    }
+
+    /**
+     * @return array{
+     *     before: array<string, mixed>,
+     *     after: array<string, mixed>,
+     *     canonicalBefore: array<string, mixed>,
+     *     canonicalAfter: array<string, mixed>,
+     *     afterPosition: int
+     * }
+     */
+    private function validatedLineSnapshots(InvoiceItem $item): array
+    {
+        $reason = 'missing_snapshot';
+
+        try {
+            $before = $item->correction_before_snapshot;
+            $after = $item->correction_after_snapshot;
+            $difference = $item->correction_difference_snapshot;
+
+            if (! is_array($before) || ! is_array($after) || ! is_array($difference)) {
+                throw new UnexpectedValueException('Missing correction line snapshot.');
+            }
+
+            $reason = 'before_snapshot_invalid';
+            $this->linePosition($before);
+            $canonicalBefore = $this->canonicalLine($before);
+            $reason = 'after_snapshot_invalid';
+            $afterPosition = $this->linePosition($after);
+            $canonicalAfter = $this->canonicalLine($after);
+            $reason = 'difference_snapshot_invalid';
+            $differencePosition = $this->linePosition($difference);
+            $canonicalDifference = $this->canonicalLine($difference);
+
+            $reason = 'difference_mismatch';
+            $this->assertLineDifference(
+                $canonicalBefore,
+                $canonicalAfter,
+                $canonicalDifference,
+                $afterPosition,
+                $differencePosition,
+            );
+
+            return [
+                'before' => $before,
+                'after' => $after,
+                'canonicalBefore' => $canonicalBefore,
+                'canonicalAfter' => $canonicalAfter,
+                'afterPosition' => $afterPosition,
+            ];
+        } catch (Throwable $exception) {
+            throw $this->lineSnapshotInvalid($item, $reason, $exception);
+        }
     }
 
     /** @param array<string, mixed> $buyer
@@ -160,56 +223,88 @@ class KsefFa3CorrectionMapper
      */
     private function canonicalLine(array $snapshot): array
     {
-        try {
-            $canonical = [
-                'line_type' => $this->optionalString($snapshot['line_type'] ?? null),
-                'name' => $this->optionalString($snapshot['name'] ?? null),
-                'description' => $this->optionalString($snapshot['description'] ?? null),
-                'unit_name' => $this->optionalString($snapshot['unit_name'] ?? null),
-            ];
+        $canonical = [
+            'line_type' => $this->lineString($snapshot, 'line_type'),
+            'name' => $this->lineString($snapshot, 'name'),
+            'description' => $this->lineString($snapshot, 'description'),
+            'unit_name' => $this->lineString($snapshot, 'unit_name'),
+        ];
 
-            foreach (self::LINE_DECIMAL_SCALES as $field => $scale) {
-                if (! array_key_exists($field, $snapshot)
-                    || (! is_string($snapshot[$field]) && ! is_int($snapshot[$field]))) {
-                    throw new UnexpectedValueException('Missing correction line decimal.');
-                }
+        foreach (self::LINE_DECIMAL_SCALES as $field => $scale) {
+            $canonical[$field] = $this->lineDecimal($snapshot, $field, $scale);
+        }
 
-                $canonical[$field] = $this->decimal->normalize($snapshot[$field], $scale);
+        $vatRate = $this->lineString($snapshot, 'vat_rate');
+        $canonical['vat_rate'] = $vatRate === null
+            ? null
+            : $this->decimal->normalize($vatRate, 2);
+        $vatCode = $this->lineString($snapshot, 'vat_code');
+        $canonical['vat_code'] = $vatCode !== null ? strtoupper($vatCode) : null;
+
+        return $canonical;
+    }
+
+    /**
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $after
+     * @param  array<string, mixed>  $difference
+     */
+    private function assertLineDifference(
+        array $before,
+        array $after,
+        array $difference,
+        int $afterPosition,
+        int $differencePosition,
+    ): void {
+        if ($differencePosition !== $afterPosition) {
+            throw new UnexpectedValueException('Correction line position mismatch.');
+        }
+
+        foreach (self::LINE_DECIMAL_SCALES as $field => $scale) {
+            $expected = $this->decimal->subtract($after[$field], $before[$field], $scale);
+            if ($this->decimal->compare($difference[$field], $expected, $scale) !== 0) {
+                throw new UnexpectedValueException('Correction line decimal difference mismatch.');
             }
+        }
 
-            $vatRate = $snapshot['vat_rate'] ?? null;
-            $canonical['vat_rate'] = $vatRate === null || $vatRate === ''
-                ? null
-                : $this->decimal->normalize((string) $vatRate, 2);
-            $vatCode = $this->optionalString($snapshot['vat_code'] ?? null);
-            $canonical['vat_code'] = $vatCode !== null ? strtoupper($vatCode) : null;
-
-            return $canonical;
-        } catch (Throwable $exception) {
-            throw $this->documentInvalid($exception);
+        foreach (['line_type', 'name', 'description', 'unit_name', 'vat_rate', 'vat_code'] as $field) {
+            if ($difference[$field] !== $after[$field]) {
+                throw new UnexpectedValueException('Correction line after-state field mismatch.');
+            }
         }
     }
 
-    /** @return array{net: string, vat: string, gross: string, taxSummary: array<int, mixed>} */
-    private function differenceTotals(Invoice $correction): array
+    /**
+     * @param  array<int, array{correction_before_snapshot: array<string, mixed>, correction_after_snapshot: array<string, mixed>}>  $items
+     * @return array{net: string, vat: string, gross: string, taxSummary: array<int, mixed>}
+     */
+    private function differenceTotals(Invoice $correction, array $items): array
     {
         try {
-            $difference = data_get($correction->correction_totals_snapshot, 'difference');
-            if (! is_array($difference)
-                || ! is_array($difference['tax_summary_snapshot'] ?? null)) {
-                throw new UnexpectedValueException('Missing correction difference totals.');
+            $stored = $correction->correction_totals_snapshot;
+            if (! is_array($stored)) {
+                throw new UnexpectedValueException('Missing correction totals snapshot.');
             }
 
-            $result = [];
+            $recomputed = $this->correctionTotals->calculate($items);
+            foreach (['before', 'after', 'difference'] as $state) {
+                $storedState = $stored[$state] ?? null;
+                $recomputedState = $recomputed[$state] ?? null;
+                if (! is_array($storedState) || ! is_array($recomputedState)) {
+                    throw new UnexpectedValueException('Missing correction totals state.');
+                }
+
+                $this->assertTotalsStateMatches($storedState, $recomputedState);
+            }
+
+            $difference = $stored['difference'];
+            $result = $this->normalizedTotals($difference);
             foreach (['net' => 'total_net', 'vat' => 'total_vat', 'gross' => 'total_gross'] as $key => $attribute) {
-                $value = $difference[$key] ?? null;
                 $documentValue = $correction->getAttribute($attribute);
-                if ((! is_string($value) && ! is_int($value))
-                    || (! is_string($documentValue) && ! is_int($documentValue))) {
+                if (! is_string($documentValue) && ! is_int($documentValue)) {
                     throw new UnexpectedValueException('Invalid correction difference total.');
                 }
 
-                $result[$key] = $this->decimal->normalize($value, 2);
                 if ($this->decimal->compare($result[$key], (string) $documentValue) !== 0) {
                     throw new UnexpectedValueException('Correction difference total mismatch.');
                 }
@@ -229,6 +324,134 @@ class KsefFa3CorrectionMapper
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $stored
+     * @param  array<string, mixed>  $recomputed
+     */
+    private function assertTotalsStateMatches(array $stored, array $recomputed): void
+    {
+        if ($this->normalizedTotals($stored) !== $this->normalizedTotals($recomputed)) {
+            throw new UnexpectedValueException('Correction totals mismatch.');
+        }
+
+        $storedSummary = $stored['tax_summary_snapshot'] ?? null;
+        $recomputedSummary = $recomputed['tax_summary_snapshot'] ?? null;
+        if (! is_array($storedSummary) || ! is_array($recomputedSummary)
+            || $this->canonicalTaxSummary($storedSummary) !== $this->canonicalTaxSummary($recomputedSummary)) {
+            throw new UnexpectedValueException('Correction tax summary mismatch.');
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $totals
+     * @return array{net: string, vat: string, gross: string}
+     */
+    private function normalizedTotals(array $totals): array
+    {
+        $normalized = [];
+
+        foreach (['net', 'vat', 'gross'] as $component) {
+            $value = $totals[$component] ?? null;
+            if (! is_string($value) && ! is_int($value)) {
+                throw new UnexpectedValueException('Invalid correction total.');
+            }
+
+            $normalized[$component] = $this->decimal->normalize($value, 2);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<int, mixed>  $summary
+     * @return array<string, array{vat_rate: ?string, vat_code: ?string, net: string, vat: string, gross: string}>
+     */
+    private function canonicalTaxSummary(array $summary): array
+    {
+        $canonical = [];
+
+        foreach ($summary as $group) {
+            if (! is_array($group)
+                || ! array_key_exists('vat_rate', $group)
+                || ! array_key_exists('vat_code', $group)) {
+                throw new UnexpectedValueException('Invalid correction tax group.');
+            }
+
+            foreach (['vat_rate', 'vat_code'] as $field) {
+                $value = $group[$field];
+                if ($value !== null && ! is_string($value) && ! is_int($value)) {
+                    throw new UnexpectedValueException('Invalid correction tax group identity.');
+                }
+            }
+
+            $identity = $this->taxIdentity->normalize($group['vat_rate'], $group['vat_code']);
+            $key = $this->taxIdentity->key($identity);
+            if ($key === null || array_key_exists($key, $canonical)) {
+                throw new UnexpectedValueException('Invalid correction tax group identity.');
+            }
+
+            $canonical[$key] = [
+                ...$identity,
+                ...$this->normalizedTotals($group),
+            ];
+        }
+
+        ksort($canonical, SORT_STRING);
+
+        return $canonical;
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    private function linePosition(array $snapshot): int
+    {
+        $value = $this->lineValue($snapshot, 'position');
+        if (! is_string($value) && ! is_int($value)) {
+            throw new UnexpectedValueException('Invalid correction line position.');
+        }
+
+        $position = filter_var($value, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+
+        if ($position === false) {
+            throw new UnexpectedValueException('Invalid correction line position.');
+        }
+
+        return $position;
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    private function lineDecimal(array $snapshot, string $field, int $scale): string
+    {
+        $value = $this->lineValue($snapshot, $field);
+        if (! is_string($value) && ! is_int($value)) {
+            throw new UnexpectedValueException('Invalid correction line decimal.');
+        }
+
+        return $this->decimal->normalize($value, $scale);
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    private function lineString(array $snapshot, string $field): ?string
+    {
+        $value = $this->lineValue($snapshot, $field);
+        if ($value !== null && ! is_string($value) && ! is_int($value)) {
+            throw new UnexpectedValueException('Invalid correction line text.');
+        }
+
+        return $this->optionalString($value);
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    private function lineValue(array $snapshot, string $field): mixed
+    {
+        if (! array_key_exists($field, $snapshot)) {
+            throw new UnexpectedValueException('Missing correction line field.');
+        }
+
+        return $snapshot[$field];
+    }
+
     private function optionalString(mixed $value): ?string
     {
         if (! is_string($value) && ! is_int($value)) {
@@ -246,6 +469,22 @@ class KsefFa3CorrectionMapper
             'ksef_fa3_correction_document_invalid',
             'Dokument nie zawiera kompletnego kontraktu danych Korekty FA(3).',
             [],
+            $previous,
+        );
+    }
+
+    private function lineSnapshotInvalid(
+        InvoiceItem $item,
+        string $reason,
+        ?Throwable $previous = null,
+    ): InvoiceDomainException {
+        return new InvoiceDomainException(
+            'ksef_fa3_correction_line_snapshot_invalid',
+            'Snapshot różnicy pozycji Korekty jest niekompletny lub niespójny.',
+            [
+                'position' => (int) $item->position,
+                'reason' => $reason,
+            ],
             $previous,
         );
     }
