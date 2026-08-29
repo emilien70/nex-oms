@@ -208,7 +208,9 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         $this->assertSame('0.00', $correction->total_gross);
         $this->assertSame([], $correction->tax_summary_snapshot);
         $this->assertSame([], $correction->correction_totals_snapshot['difference']['tax_summary_snapshot']);
-        $this->assertSame([], $correction->tax_metadata_snapshot);
+        $this->assertArrayHasKey('ksef_correction', $correction->tax_metadata_snapshot);
+        $this->assertArrayNotHasKey('currency_conversion', $correction->tax_metadata_snapshot);
+        $this->assertArrayNotHasKey('converted_tax_summary', $correction->tax_metadata_snapshot);
         $document = app(InvoicePdfViewModelFactory::class)->make($correction->fresh('items'));
         $html = app(InvoicePdfRenderer::class)->html($correction->fresh('items'));
         $this->assertNotNull($document['buyer_change']);
@@ -400,7 +402,9 @@ class InvoiceForeignCurrencyCorrectionTest extends TestCase
         $this->assertSame('-4.30', $correction->total_vat);
         $this->assertSame('-23.00', $correction->total_gross);
         $this->assertSame($correction->correction_totals_snapshot['difference']['tax_summary_snapshot'], $correction->tax_summary_snapshot);
-        $this->assertSame([], $correction->tax_metadata_snapshot);
+        $this->assertArrayHasKey('ksef_correction', $correction->tax_metadata_snapshot);
+        $this->assertArrayNotHasKey('currency_conversion', $correction->tax_metadata_snapshot);
+        $this->assertArrayNotHasKey('converted_tax_summary', $correction->tax_metadata_snapshot);
     }
 
     public function test_second_foreign_correction_uses_effective_after_state_and_root_historical_rate(): void

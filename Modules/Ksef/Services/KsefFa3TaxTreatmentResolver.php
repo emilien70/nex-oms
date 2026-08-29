@@ -44,11 +44,20 @@ class KsefFa3TaxTreatmentResolver
             ]);
         }
 
-        $base = [
+        return [
             'invoice_item_id' => $item->getKey(),
             'position' => $item->position,
-            'tax_identity' => $identityKey,
-        ];
+        ] + $this->resolveSnapshot($item->vat_rate, $item->vat_code, $zeroClassification);
+    }
+
+    /** @return array<string, mixed> */
+    public function resolveSnapshot(
+        mixed $vatRate,
+        mixed $vatCode,
+        KsefZeroVatClassification $zeroClassification,
+    ): array {
+        $identity = $this->taxIdentity->normalize($vatRate, $vatCode);
+        $identityKey = $this->taxIdentity->key($identity);
 
         $zeroTreatment = match ($zeroClassification) {
             KsefZeroVatClassification::Wdt => 'wdt',
@@ -56,7 +65,9 @@ class KsefFa3TaxTreatmentResolver
             KsefZeroVatClassification::Domestic => 'domestic_zero',
         };
 
-        return $base + $this->canonicalSemantics($identity, $zeroTreatment);
+        return [
+            'tax_identity' => $identityKey,
+        ] + $this->canonicalSemantics($identity, $zeroTreatment);
     }
 
     /** @param array<string, mixed> $treatment */

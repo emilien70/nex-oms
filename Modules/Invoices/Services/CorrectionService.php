@@ -17,6 +17,7 @@ use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\ValueObjects\CorrectionChainState;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
+use Modules\Ksef\Services\KsefFa3CorrectionSemanticSnapshotService;
 
 class CorrectionService
 {
@@ -36,6 +37,7 @@ class CorrectionService
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
         private readonly InvoiceFinancialValueValidator $financial,
         private readonly InvoiceMutationPolicy $mutationPolicy,
+        private readonly KsefFa3CorrectionSemanticSnapshotService $ksefSemanticSnapshot,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -98,6 +100,15 @@ class CorrectionService
                 $issueDate->toDateString(),
             );
             $sourceTotals = data_get($managed->correction_totals_snapshot, 'source_invoice');
+            $taxMetadata = $this->currencyConversion->metadataFor(
+                $source,
+                $differenceTotals['tax_summary_snapshot'],
+                $this->correctionTotals->isMonetary($differenceTotals),
+            );
+            $currentKsefSemantics = data_get($managed->tax_metadata_snapshot, 'ksef_correction');
+            if (is_array($currentKsefSemantics)) {
+                $taxMetadata['ksef_correction'] = $currentKsefSemantics;
+            }
 
             $documentAttributes = [
                 'issue_date' => $issueDate->toDateString(),
@@ -119,11 +130,7 @@ class CorrectionService
                 'issuer_snapshot' => $resolvedSources['issuer_snapshot'],
                 'payment_snapshot' => $resolvedSources['payment_snapshot'],
                 'tax_summary_snapshot' => $differenceTotals['tax_summary_snapshot'],
-                'tax_metadata_snapshot' => $this->currencyConversion->metadataFor(
-                    $source,
-                    $differenceTotals['tax_summary_snapshot'],
-                    $this->correctionTotals->isMonetary($differenceTotals),
-                ),
+                'tax_metadata_snapshot' => $taxMetadata,
                 'additional_information_text' => trim((string) ($data['additional_information'] ?? '')),
                 'total_net' => $differenceTotals['net'],
                 'total_vat' => $differenceTotals['vat'],
@@ -142,6 +149,7 @@ class CorrectionService
 
             $managed->items()->delete();
             $managed->items()->createMany($itemAttributes);
+            $this->ksefSemanticSnapshot->refresh($managed);
             DB::afterCommit(fn () => $this->pdfStorage->delete($managed));
 
             return $managed->refresh()->load(['items', 'correctedInvoice', 'previousCorrection']);
@@ -295,6 +303,7 @@ class CorrectionService
             $correction->issued_at = $context->occurredAt;
             $correction->save();
             $slot->update(['invoice_id' => $correction->getKey()]);
+            $this->ksefSemanticSnapshot->initialize($correction);
 
             $event = $managedOrder->events()->make([
                 'event_type' => 'correction_issued',
