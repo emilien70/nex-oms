@@ -7,6 +7,7 @@ use DateTimeInterface;
 use DateTimeZone;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\CorrectionTotalsCalculator;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Invoices\Services\InvoiceTaxIdentityNormalizer;
 use Modules\Ksef\Services\KsefFa3BuyerIdentityResolver;
@@ -28,6 +29,7 @@ final class KsefFa3CorrectionDocumentMapper
 
     public function __construct(
         private readonly KsefFa3CorrectionMapper $corrections,
+        private readonly CorrectionTotalsCalculator $correctionTotals,
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceTaxIdentityNormalizer $taxIdentity,
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
@@ -156,7 +158,13 @@ final class KsefFa3CorrectionDocumentMapper
         }
 
         $currency = strtoupper(trim((string) $correction->currency));
-        if ($currency !== 'PLN' && $this->isMonetary($mapped->differenceTotals)) {
+        $difference = [
+            'net' => $mapped->differenceTotals['net'],
+            'vat' => $mapped->differenceTotals['vat'],
+            'gross' => $mapped->differenceTotals['gross'],
+            'tax_summary_snapshot' => $mapped->differenceTotals['taxSummary'],
+        ];
+        if ($currency !== 'PLN' && $this->correctionTotals->isMonetary($difference)) {
             $this->addConvertedVat($correction, $buckets, $mapped->differenceTotals['taxSummary']);
         }
 
@@ -334,14 +342,6 @@ final class KsefFa3CorrectionDocumentMapper
         } catch (Throwable $exception) {
             throw $this->financialError($exception);
         }
-    }
-
-    /** @param array<string, mixed> $totals */
-    private function isMonetary(array $totals): bool
-    {
-        return $this->decimal->compare($totals['net'], '0.00') !== 0
-            || $this->decimal->compare($totals['vat'], '0.00') !== 0
-            || $this->decimal->compare($totals['gross'], '0.00') !== 0;
     }
 
     /** @return array<string, bool> */

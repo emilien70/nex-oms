@@ -5,6 +5,7 @@ namespace Tests\Feature\Ksef;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Services\CorrectionTotalsCalculator;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Models\KsefCredential;
@@ -306,6 +307,70 @@ class KsefFa3CorrectionDocumentGeneratorTest extends TestCase
         $this->assertSame('EUR', $this->ksefValue($buyerXpath, '//fa:Fa/fa:KodWaluty'));
         $this->assertSame('0.00', $this->ksefValue($buyerXpath, '//fa:Fa/fa:P_15'));
         $this->assertSame(0, $buyerXpath->query('//fa:P_14_1W|//fa:P_14_2W|//fa:P_14_3W')->length);
+        Http::assertNothingSent();
+    }
+
+    public function test_foreign_zero_aggregate_with_nonzero_tax_groups_uses_frozen_converted_vat(): void
+    {
+        $this->ksefSettings();
+        $root = $this->makeKsefForeign($this->issueKsefRoot([
+            ['unit_price_gross' => '123.00', 'vat_rate' => '23.00'],
+            ['unit_price_gross' => '648.00', 'vat_rate' => '8.00'],
+        ]));
+        $this->acceptKsefDocument($root);
+        $items = $this->submittedKsefItems($root);
+        $items[0]['unit_price_gross'] = '246.00';
+        $items[1]['quantity'] = 0;
+        $items[] = $this->addedKsefItem(3, '525.00', '5');
+        $correction = $this->issueKsefCorrection($root, $items);
+        $difference = [
+            'net' => $correction->total_net,
+            'vat' => $correction->total_vat,
+            'gross' => $correction->total_gross,
+            'tax_summary_snapshot' => $correction->tax_summary_snapshot,
+        ];
+
+        $this->assertSame('0.00', $correction->total_net);
+        $this->assertSame('0.00', $correction->total_vat);
+        $this->assertSame('0.00', $correction->total_gross);
+        $this->assertTrue(app(CorrectionTotalsCalculator::class)->isMonetary($difference));
+        $this->assertIsArray(data_get($correction->tax_metadata_snapshot, 'currency_conversion'));
+        $differenceGroups = collect($correction->tax_summary_snapshot)->keyBy('vat_rate');
+        $this->assertSame(['100.00', '23.00', '123.00'], array_values(array_intersect_key(
+            $differenceGroups->get('23.00'),
+            array_flip(['net', 'vat', 'gross']),
+        )));
+        $this->assertSame(['-600.00', '-48.00', '-648.00'], array_values(array_intersect_key(
+            $differenceGroups->get('8.00'),
+            array_flip(['net', 'vat', 'gross']),
+        )));
+        $this->assertSame(['500.00', '25.00', '525.00'], array_values(array_intersect_key(
+            $differenceGroups->get('5.00'),
+            array_flip(['net', 'vat', 'gross']),
+        )));
+        $this->assertIsArray(data_get($correction->tax_metadata_snapshot, 'converted_tax_summary'));
+        $convertedGroups = collect(data_get($correction->tax_metadata_snapshot, 'converted_tax_summary.groups'))
+            ->keyBy('vat_rate');
+        $this->assertCount(3, $convertedGroups);
+
+        $xpath = $this->ksefXpath($this->generateKsefCorrection($correction)->xml);
+
+        $this->assertSame('EUR', $this->ksefValue($xpath, '//fa:Fa/fa:KodWaluty'));
+        $this->assertSame('0.00', $this->ksefValue($xpath, '//fa:Fa/fa:P_15'));
+        foreach (['23.00' => '1', '8.00' => '2', '5.00' => '3'] as $rate => $bucket) {
+            $this->assertSame(
+                $convertedGroups->get($rate)['vat'],
+                $this->ksefValue($xpath, '//fa:Fa/fa:P_14_'.$bucket.'W'),
+            );
+        }
+
+        $metadata = $correction->tax_metadata_snapshot;
+        unset($metadata['currency_conversion'], $metadata['converted_tax_summary']);
+        $correction->forceFill(['tax_metadata_snapshot' => $metadata])->saveQuietly();
+        $this->expectDomainError(
+            'ksef_fa3_correction_currency_snapshot_missing',
+            fn () => $this->generateKsefCorrection($correction->fresh()),
+        );
         Http::assertNothingSent();
     }
 
