@@ -73,22 +73,32 @@ class KsefFa3TaxTreatmentResolver
     /** @param array<string, mixed> $treatment */
     public function isCanonical(InvoiceItem $item, array $treatment): bool
     {
-        $identity = $this->taxIdentity->normalize($item->vat_rate, $item->vat_code);
-        $identityKey = $this->taxIdentity->key($identity);
-        $zeroTreatment = is_string($treatment['treatment'] ?? null)
-            ? $treatment['treatment']
+        $semantics = $treatment;
+        unset($semantics['invoice_item_id'], $semantics['position']);
+
+        return ($treatment['invoice_item_id'] ?? null) === $item->getKey()
+            && ($treatment['position'] ?? null) === $item->position
+            && $this->isCanonicalSnapshot($item->vat_rate, $item->vat_code, $semantics);
+    }
+
+    /** @param array<string, mixed> $semantics */
+    public function isCanonicalSnapshot(
+        mixed $vatRate,
+        mixed $vatCode,
+        array $semantics,
+    ): bool {
+        $identity = $this->taxIdentity->normalize($vatRate, $vatCode);
+        $zeroTreatment = is_string($semantics['treatment'] ?? null)
+            ? $semantics['treatment']
             : null;
-        $semantics = $this->canonicalSemantics($identity, $zeroTreatment);
         $expected = [
-            'invoice_item_id' => $item->getKey(),
-            'position' => $item->position,
-            'tax_identity' => $identityKey,
-        ] + $semantics;
+            'tax_identity' => $this->taxIdentity->key($identity),
+        ] + $this->canonicalSemantics($identity, $zeroTreatment);
 
         ksort($expected);
-        ksort($treatment);
+        ksort($semantics);
 
-        return $treatment === $expected;
+        return $semantics === $expected;
     }
 
     /** @param array<string, mixed>|null $existing */
