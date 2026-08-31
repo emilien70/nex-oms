@@ -24,6 +24,8 @@ use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionProcessor;
+use Modules\Ksef\Services\KsefInvoiceProvenanceService;
+use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -129,6 +131,33 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
 
         $this->assertFalse($invoice->refresh()->isFinalized());
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_outside_production_provenance_blocks_automatic_attempt_without_http(): void
+    {
+        Queue::fake();
+        $this->allowProductionEnvironment();
+        $invoice = $this->issueInvoice(environment: KsefEnvironment::Production);
+        app(KsefInvoiceProvenanceService::class)
+            ->markOutsideKsef($invoice, KsefEnvironment::Production);
+
+        try {
+            $this->runJob($invoice, KsefEnvironment::Production);
+            $this->fail('Outside-KSeF provenance should block the automatic attempt.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame(
+                'ksef_submission_blocked_by_outside_ksef_provenance',
+                $exception->safeCode,
+            );
+        }
+
+        $this->assertFalse($invoice->refresh()->isFinalized());
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        $this->assertDatabaseHas('ksef_invoice_provenances', [
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Production->value,
+        ]);
         Http::assertNothingSent();
     }
 
@@ -567,6 +596,22 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
             'refresh_token' => 'FAKE_AUTOMATIC_REFRESH_TOKEN',
             'refresh_token_valid_until' => now()->addDay(),
         ]);
+    }
+
+    private function allowProductionEnvironment(): void
+    {
+        $this->app->instance(
+            KsefOperationalEnvironmentPolicy::class,
+            new class extends KsefOperationalEnvironmentPolicy
+            {
+                public function allows(KsefEnvironment $environment): bool
+                {
+                    return true;
+                }
+
+                public function assertAllowed(KsefEnvironment $environment): void {}
+            },
+        );
     }
 
     private function fakeOnlineApi(): KsefOnlineSessionApiFake

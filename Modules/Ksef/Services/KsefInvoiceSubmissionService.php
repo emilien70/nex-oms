@@ -7,10 +7,12 @@ use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
+use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefPublicKeyUsage;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
+use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
@@ -88,6 +90,19 @@ class KsefInvoiceSubmissionService
                 throw new KsefApiException(
                     'Kontekst NIP KSeF zmienił się podczas operacji. Faktura nie została wysłana.',
                     'ksef_submission_context_changed',
+                );
+            }
+
+            $outsideProvenance = KsefInvoiceProvenance::query()
+                ->where('invoice_id', $managed->getKey())
+                ->where('environment', $environment->value)
+                ->where('provenance', KsefInvoiceProvenanceType::OutsideKsef->value)
+                ->lockForUpdate()
+                ->first(['id']);
+            if ($outsideProvenance !== null) {
+                throw new KsefApiException(
+                    'Faktura została jawnie oznaczona jako wystawiona poza KSeF w aktywnym środowisku i nie może zostać przekazana do KSeF.',
+                    'ksef_submission_blocked_by_outside_ksef_provenance',
                 );
             }
 

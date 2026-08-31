@@ -23,6 +23,9 @@ use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\Services\InvoicePdfStorage;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Invoices\Services\ProformaService;
+use Modules\Invoices\ValueObjects\InvoiceDeletionFacts;
+use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Services\KsefInvoiceProvenanceService;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -84,6 +87,89 @@ class InvoiceDeletionTest extends TestCase
             ->assertSessionMissing('success');
 
         $this->assertDatabaseMissing('invoices', ['id' => $invoice->getKey()]);
+    }
+
+    public function test_invoice_with_any_environment_provenance_cannot_be_deleted(): void
+    {
+        foreach (KsefEnvironment::cases() as $environment) {
+            [, , $invoice] = $this->issuedInvoice();
+            $provenance = app(KsefInvoiceProvenanceService::class)
+                ->markOutsideKsef($invoice, $environment);
+
+            $this->expectInvoiceError(
+                'invoice_delete_blocked_by_ksef_provenance',
+                fn () => app(InvoiceDeletionService::class)->delete(
+                    $invoice,
+                    $invoice->lock_version,
+                    $this->documentContext(),
+                ),
+            );
+
+            $this->assertDatabaseHas('invoices', ['id' => $invoice->getKey()]);
+            $this->assertDatabaseHas('ksef_invoice_provenances', [
+                'id' => $provenance->getKey(),
+                'invoice_id' => $invoice->getKey(),
+                'environment' => $environment->value,
+            ]);
+        }
+    }
+
+    public function test_deletion_policy_blocks_provenance_without_precomputed_facts(): void
+    {
+        [, , $invoice] = $this->issuedInvoice();
+        app(KsefInvoiceProvenanceService::class)
+            ->markOutsideKsef($invoice, KsefEnvironment::Demo);
+
+        $this->expectInvoiceError(
+            'invoice_delete_blocked_by_ksef_provenance',
+            fn () => app(InvoiceDeletionPolicy::class)->assertDeletable(
+                $invoice,
+                null,
+                $invoice->lock_version,
+            ),
+        );
+    }
+
+    public function test_deletion_policy_uses_provenance_fact_and_preserves_submission_priority(): void
+    {
+        [, , $invoice] = $this->issuedInvoice();
+        $policy = app(InvoiceDeletionPolicy::class);
+        $provenanceFacts = new InvoiceDeletionFacts(
+            seriesExists: true,
+            orderExists: true,
+            hasCorrection: false,
+            hasOtherCorrection: false,
+            hasKsefSubmission: false,
+            hasKsefProvenance: true,
+        );
+
+        $this->expectInvoiceError(
+            'invoice_delete_blocked_by_ksef_provenance',
+            fn () => $policy->assertDeletable(
+                $invoice,
+                null,
+                $invoice->lock_version,
+                $provenanceFacts,
+            ),
+        );
+
+        $submissionAndProvenanceFacts = new InvoiceDeletionFacts(
+            seriesExists: true,
+            orderExists: true,
+            hasCorrection: false,
+            hasOtherCorrection: false,
+            hasKsefSubmission: true,
+            hasKsefProvenance: true,
+        );
+        $this->expectInvoiceError(
+            'invoice_delete_blocked_by_ksef_submission',
+            fn () => $policy->assertDeletable(
+                $invoice,
+                null,
+                $invoice->lock_version,
+                $submissionAndProvenanceFacts,
+            ),
+        );
     }
 
     public function test_invoice_deleted_from_editor_returns_to_the_full_invoice_list_context(): void
@@ -251,7 +337,8 @@ class InvoiceDeletionTest extends TestCase
                 return str_contains($sql, 'select exists')
                     && (str_contains($sql, 'from invoice_series')
                         || str_contains($sql, 'from orders')
-                        || str_contains($sql, 'corrected_invoice_id'));
+                        || str_contains($sql, 'corrected_invoice_id')
+                        || str_contains($sql, 'from ksef_invoice_provenances'));
             }));
             $this->assertSame(1, $this->countQueriesMatching($queries, static function (string $sql): bool {
                 return str_starts_with($sql, 'select')
@@ -271,6 +358,11 @@ class InvoiceDeletionTest extends TestCase
             $this->assertSame(1, $this->countQueriesMatching($queries, static function (string $sql): bool {
                 return str_starts_with($sql, 'select')
                     && str_contains($sql, 'superseded_by_invoice_id')
+                    && str_contains($sql, ' in (');
+            }));
+            $this->assertSame(1, $this->countQueriesMatching($queries, static function (string $sql): bool {
+                return str_starts_with($sql, 'select')
+                    && str_contains($sql, 'from ksef_invoice_provenances')
                     && str_contains($sql, ' in (');
             }));
         }
@@ -512,6 +604,35 @@ class InvoiceDeletionTest extends TestCase
         $this->assertDatabaseHas('invoices', ['id' => $blocked->getKey()]);
         $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $deletable->getKey()]);
         $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $blocked->getKey()]);
+        $this->assertSame(2, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
+    }
+
+    public function test_bulk_deletion_keeps_every_selected_invoice_when_one_has_ksef_provenance(): void
+    {
+        $series = $this->createDocumentSeries();
+        $deletable = $this->issueForNewOrder($series);
+        $blocked = $this->issueForNewOrder($series);
+        $provenance = app(KsefInvoiceProvenanceService::class)
+            ->markOutsideKsef($blocked, KsefEnvironment::Production);
+
+        $this->from(route('invoices.index'))
+            ->delete(route('invoices.bulk-delete'), [
+                'selection' => $this->deleteSelection([
+                    $deletable->getKey() => $deletable->lock_version,
+                    $blocked->getKey() => $blocked->lock_version,
+                ]),
+            ])
+            ->assertRedirect(route('invoices.index'))
+            ->assertSessionHasErrors([
+                'invoice_ids' => 'Nie można usunąć Faktury, ponieważ została oznaczona jako wystawiona poza KSeF.',
+            ]);
+
+        $this->assertDatabaseHas('invoices', ['id' => $deletable->getKey()]);
+        $this->assertDatabaseHas('invoices', ['id' => $blocked->getKey()]);
+        $this->assertDatabaseHas('ksef_invoice_provenances', [
+            'id' => $provenance->getKey(),
+            'invoice_id' => $blocked->getKey(),
+        ]);
         $this->assertSame(2, InvoiceNumberCounter::query()->firstOrFail()->last_sequence_number);
     }
 
@@ -916,6 +1037,18 @@ class InvoiceDeletionTest extends TestCase
         $withoutIdentifierQuotes = str_replace(['`', '"', '[', ']'], '', $sql);
 
         return strtolower(trim((string) preg_replace('/\s+/', ' ', $withoutIdentifierQuotes)));
+    }
+
+    private function expectInvoiceError(string $code, callable $operation): InvoiceDomainException
+    {
+        try {
+            $operation();
+            $this->fail('Expected invoice error '.$code.'.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame($code, $exception->errorCode());
+
+            return $exception;
+        }
     }
 
     /** @param array<int, mixed> $lockVersions */

@@ -47,6 +47,14 @@ class InvoiceDeletionPolicy
             );
         }
 
+        if ($invoice->isInvoice()
+            && ($facts?->hasKsefProvenance ?? $invoice->ksefProvenances()->exists())) {
+            throw new InvoiceDomainException(
+                'invoice_delete_blocked_by_ksef_provenance',
+                'Nie można usunąć Faktury, ponieważ została oznaczona jako wystawiona poza KSeF.',
+            );
+        }
+
         $this->mutationPolicy->assertContentMutable($invoice);
 
         if ($invoice->lock_version !== $expectedLockVersion) {

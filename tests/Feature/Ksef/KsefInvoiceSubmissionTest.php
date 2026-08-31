@@ -22,7 +22,10 @@ use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefPaymentMethodMapping;
 use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
+use Modules\Ksef\Services\KsefInvoiceProvenanceService;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
+use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Modules\Ksef\Services\KsefSettingsService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
@@ -134,6 +137,80 @@ class KsefInvoiceSubmissionTest extends TestCase
         );
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_production_outside_provenance_blocks_prepare_before_xml_generation(): void
+    {
+        $this->allowProductionEnvironment();
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Production);
+        app(KsefInvoiceProvenanceService::class)
+            ->markOutsideKsef($invoice, KsefEnvironment::Production);
+        $this->mock(KsefFa3DocumentGenerator::class, function ($mock): void {
+            $mock->shouldNotReceive('generate');
+        });
+
+        $this->expectKsefError(
+            'ksef_submission_blocked_by_outside_ksef_provenance',
+            fn () => app(KsefInvoiceSubmissionService::class)->prepare($invoice),
+        );
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        $this->assertDatabaseHas('ksef_invoice_provenances', [
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Production->value,
+            'provenance' => 'outside_ksef',
+        ]);
+        Http::assertNothingSent();
+    }
+
+    public function test_production_prepare_blocks_later_outside_provenance_mark(): void
+    {
+        $this->allowProductionEnvironment();
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Production);
+
+        $submission = app(KsefInvoiceSubmissionService::class)->prepare($invoice);
+
+        $this->expectInvoiceError(
+            'ksef_invoice_provenance_submission_history_exists',
+            fn () => app(KsefInvoiceProvenanceService::class)
+                ->markOutsideKsef($invoice, KsefEnvironment::Production),
+        );
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Preparing, $submission->status);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_production_outside_provenance_does_not_block_demo_prepare(): void
+    {
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Demo);
+        app(KsefInvoiceProvenanceService::class)
+            ->markOutsideKsef($invoice, KsefEnvironment::Production);
+
+        $submission = app(KsefInvoiceSubmissionService::class)->prepare($invoice);
+
+        $this->assertSame(KsefEnvironment::Demo, $submission->environment);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Preparing, $submission->status);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 1);
+        Http::assertNothingSent();
+    }
+
+    public function test_demo_outside_provenance_does_not_block_production_prepare(): void
+    {
+        $this->allowProductionEnvironment();
+        $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Production);
+        app(KsefInvoiceProvenanceService::class)
+            ->markOutsideKsef($invoice, KsefEnvironment::Demo);
+
+        $submission = app(KsefInvoiceSubmissionService::class)->prepare($invoice);
+
+        $this->assertSame(KsefEnvironment::Production, $submission->environment);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Preparing, $submission->status);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 1);
         Http::assertNothingSent();
     }
 
@@ -1155,6 +1232,22 @@ class KsefInvoiceSubmissionTest extends TestCase
             'refresh_token' => 'FAKE_VALID_SUBMISSION_REFRESH_TOKEN',
             'refresh_token_valid_until' => now()->addDay(),
         ]);
+    }
+
+    private function allowProductionEnvironment(): void
+    {
+        $this->app->instance(
+            KsefOperationalEnvironmentPolicy::class,
+            new class extends KsefOperationalEnvironmentPolicy
+            {
+                public function allows(KsefEnvironment $environment): bool
+                {
+                    return true;
+                }
+
+                public function assertAllowed(KsefEnvironment $environment): void {}
+            },
+        );
     }
 
     private function fakeOnlineApi(): KsefOnlineSessionApiFake

@@ -27,6 +27,7 @@ use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefInvoiceUpo;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
+use Modules\Ksef\Services\KsefInvoiceProvenanceService;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
@@ -448,6 +449,32 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $this->assertNull($invoice->fresh()->finalized_at);
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_first_attempt_rejects_outside_provenance_and_rolls_back_finalization(): void
+    {
+        $invoice = $this->eligibleInvoice(finalize: false);
+        app(KsefInvoiceProvenanceService::class)
+            ->markOutsideKsef($invoice, KsefEnvironment::Test);
+
+        try {
+            app(KsefManualInvoiceSubmissionService::class)
+                ->submitFirstAttempt($invoice, KsefEnvironment::Test, '9876543210');
+            $this->fail('Outside-KSeF provenance should block the first attempt.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame(
+                'ksef_submission_blocked_by_outside_ksef_provenance',
+                $exception->safeCode,
+            );
+        }
+
+        $this->assertNull($invoice->fresh()->finalized_at);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        $this->assertDatabaseHas('ksef_invoice_provenances', [
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Test->value,
+        ]);
         Http::assertNothingSent();
     }
 
