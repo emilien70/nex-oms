@@ -26,6 +26,7 @@ use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\KsefFa3CorrectionEligibilityValidator;
+use Modules\Ksef\Services\KsefInvoiceProvenanceService;
 use Modules\Ksef\Services\KsefSettingsService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
@@ -58,6 +59,43 @@ class KsefFa3CorrectionEligibilityValidatorTest extends TestCase
         $correction = app(InvoiceFinalizationService::class)->finalize($correction);
         $this->assertEligible($correction, $settings, KsefFa3EligibilityMode::Authoritative);
         $this->assertSame($root->getKey(), $correction->corrected_invoice_id);
+    }
+
+    public function test_explicit_outside_root_preserves_preflight_and_authoritative_finalization_rules(): void
+    {
+        $settings = $this->settings(KsefEnvironment::Production);
+        $root = $this->issueRoot();
+        $this->markOutside($root, KsefEnvironment::Production);
+        $correction = $this->issueFinancialCorrection($root);
+
+        $this->assertEligible($correction, $settings, KsefFa3EligibilityMode::Preflight);
+        $this->expectDomainError(
+            'ksef_fa3_correction_document_not_finalized',
+            fn () => $this->assertEligible($correction, $settings, KsefFa3EligibilityMode::Authoritative),
+        );
+
+        $correction = app(InvoiceFinalizationService::class)->finalize($correction);
+        $this->assertEligible($correction, $settings, KsefFa3EligibilityMode::Authoritative);
+    }
+
+    public function test_outside_wrong_environment_and_unknown_root_fail_closed(): void
+    {
+        $settings = $this->settings(KsefEnvironment::Production);
+        $wrongEnvironmentRoot = $this->issueRoot();
+        $this->markOutside($wrongEnvironmentRoot, KsefEnvironment::Demo);
+        $wrongEnvironment = $this->issueFinancialCorrection($wrongEnvironmentRoot);
+
+        $this->expectDomainError(
+            'ksef_fa3_correction_source_ksef_unresolved',
+            fn () => $this->assertEligible($wrongEnvironment, $settings),
+        );
+
+        $unknownRoot = $this->issueRoot();
+        $unknown = $this->issueFinancialCorrection($unknownRoot);
+        $this->expectDomainError(
+            'ksef_fa3_correction_source_ksef_unresolved',
+            fn () => $this->assertEligible($unknown, $settings),
+        );
     }
 
     public function test_only_an_issued_correction_is_supported(): void
@@ -755,6 +793,11 @@ class KsefFa3CorrectionEligibilityValidatorTest extends TestCase
             'invoice_size' => strlen('<Faktura/>'),
             'ksef_number' => $this->validKsefNumber(self::SELLER_NIP, '0100001AF629'),
         ]);
+    }
+
+    private function markOutside(Invoice $invoice, KsefEnvironment $environment): void
+    {
+        app(KsefInvoiceProvenanceService::class)->markOutsideKsef($invoice, $environment);
     }
 
     private function validKsefNumber(string $sellerNip, string $reference): string

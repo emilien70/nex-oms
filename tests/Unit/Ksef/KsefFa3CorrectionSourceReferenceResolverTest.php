@@ -11,9 +11,13 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefFa3CorrectionRootReferenceType;
+use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionSourceReferenceResolver;
+use Modules\Ksef\Services\KsefInvoiceProvenanceService;
 use Modules\Ksef\ValueObjects\Fa3\KsefFa3CorrectionSourceReference;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
@@ -43,8 +47,10 @@ class KsefFa3CorrectionSourceReferenceResolverTest extends TestCase
         $this->assertSame($root->getKey(), $reference->rootInvoiceId);
         $this->assertSame('FV/100/2026', $reference->rootInvoiceNumber);
         $this->assertSame('2026-08-20', $reference->correctedInvoiceIssueDate);
+        $this->assertSame(KsefFa3CorrectionRootReferenceType::Ksef, $reference->rootReferenceType);
         $this->assertSame($rootSubmission->getKey(), $reference->rootSubmissionId);
         $this->assertSame($rootSubmission->ksef_number, $reference->rootKsefNumber);
+        $this->assertNull($reference->rootProvenanceId);
         $this->assertSame([], $reference->precedingCorrections);
         $this->assertDatabaseMissing('ksef_invoice_submissions', ['invoice_id' => $target->getKey()]);
     }
@@ -330,6 +336,119 @@ class KsefFa3CorrectionSourceReferenceResolverTest extends TestCase
         );
     }
 
+    public function test_it_resolves_an_explicit_outside_production_root(): void
+    {
+        $root = $this->rootInvoice();
+        $provenance = $this->markOutside($root, KsefEnvironment::Production);
+        [$target] = $this->correctionChain($root, 1);
+
+        $reference = $this->resolve($target, KsefEnvironment::Production);
+
+        $this->assertSame(KsefFa3CorrectionRootReferenceType::OutsideKsef, $reference->rootReferenceType);
+        $this->assertSame($provenance->getKey(), $reference->rootProvenanceId);
+        $this->assertNull($reference->rootSubmissionId);
+        $this->assertNull($reference->rootKsefNumber);
+        $this->assertSame('FV/100/2026', $reference->rootInvoiceNumber);
+        $this->assertSame('2026-08-20', $reference->correctedInvoiceIssueDate);
+        $this->assertSame([], $reference->precedingCorrections);
+    }
+
+    public function test_outside_provenance_never_falls_back_across_environments(): void
+    {
+        $root = $this->rootInvoice();
+        $this->markOutside($root, KsefEnvironment::Demo);
+        [$target] = $this->correctionChain($root, 1);
+
+        $this->expectDomainError(
+            'ksef_fa3_correction_source_ksef_unresolved',
+            fn () => $this->resolve($target, KsefEnvironment::Production),
+        );
+    }
+
+    public function test_outside_production_ignores_accepted_demo(): void
+    {
+        $root = $this->rootInvoice();
+        $provenance = $this->markOutside($root, KsefEnvironment::Production);
+        $this->submission($root, KsefEnvironment::Demo, KsefInvoiceSubmissionStatus::Accepted);
+        [$target] = $this->correctionChain($root, 1);
+
+        $reference = $this->resolve($target, KsefEnvironment::Production);
+
+        $this->assertSame(KsefFa3CorrectionRootReferenceType::OutsideKsef, $reference->rootReferenceType);
+        $this->assertSame($provenance->getKey(), $reference->rootProvenanceId);
+    }
+
+    public function test_accepted_production_ignores_outside_demo(): void
+    {
+        $root = $this->rootInvoice();
+        $this->markOutside($root, KsefEnvironment::Demo);
+        $accepted = $this->submission(
+            $root,
+            KsefEnvironment::Production,
+            KsefInvoiceSubmissionStatus::Accepted,
+        );
+        [$target] = $this->correctionChain($root, 1);
+
+        $reference = $this->resolve($target, KsefEnvironment::Production);
+
+        $this->assertSame(KsefFa3CorrectionRootReferenceType::Ksef, $reference->rootReferenceType);
+        $this->assertSame($accepted->getKey(), $reference->rootSubmissionId);
+        $this->assertNull($reference->rootProvenanceId);
+    }
+
+    #[DataProvider('conflictingSubmissionStatusProvider')]
+    public function test_any_same_environment_submission_conflicts_with_outside_provenance(
+        KsefInvoiceSubmissionStatus $status,
+    ): void {
+        $root = $this->rootInvoice();
+        $this->directOutside($root, KsefEnvironment::Production);
+        $this->submission($root, KsefEnvironment::Production, $status);
+        [$target] = $this->correctionChain($root, 1);
+
+        $exception = $this->expectDomainError(
+            'ksef_fa3_correction_source_provenance_conflict',
+            fn () => $this->resolve($target, KsefEnvironment::Production),
+        );
+
+        $this->assertSame('submission_history_exists', $exception->metadata()['reason']);
+        $this->assertSame([$status->value], $exception->metadata()['submission_statuses']);
+    }
+
+    public function test_second_correction_of_outside_root_still_requires_accepted_previous_correction(): void
+    {
+        $root = $this->rootInvoice();
+        $this->markOutside($root, KsefEnvironment::Production);
+        [$first, $target] = $this->correctionChain($root, 2);
+        $firstSubmission = $this->submission(
+            $first,
+            KsefEnvironment::Production,
+            KsefInvoiceSubmissionStatus::Accepted,
+        );
+
+        $reference = $this->resolve($target, KsefEnvironment::Production);
+
+        $this->assertSame(KsefFa3CorrectionRootReferenceType::OutsideKsef, $reference->rootReferenceType);
+        $this->assertSame([[
+            'correction_id' => $first->getKey(),
+            'submission_id' => $firstSubmission->getKey(),
+            'ksef_number' => $firstSubmission->ksef_number,
+        ]], $reference->precedingCorrections);
+    }
+
+    public function test_outside_root_does_not_fill_a_previous_correction_gap(): void
+    {
+        $root = $this->rootInvoice();
+        $this->markOutside($root, KsefEnvironment::Production);
+        [$first, $target] = $this->correctionChain($root, 2);
+
+        $exception = $this->expectDomainError(
+            'ksef_fa3_correction_previous_ksef_not_accepted',
+            fn () => $this->resolve($target, KsefEnvironment::Production),
+        );
+
+        $this->assertSame($first->getKey(), $exception->metadata()['previous_correction_id']);
+    }
+
     public static function nonProductionEnvironmentProvider(): array
     {
         return [
@@ -340,11 +459,23 @@ class KsefFa3CorrectionSourceReferenceResolverTest extends TestCase
 
     public static function nonAcceptedStatusProvider(): array
     {
-        return [
-            'processing' => [KsefInvoiceSubmissionStatus::Processing],
-            'rejected' => [KsefInvoiceSubmissionStatus::Rejected],
-            'uncertain' => [KsefInvoiceSubmissionStatus::Uncertain],
-        ];
+        $statuses = array_filter(
+            KsefInvoiceSubmissionStatus::cases(),
+            static fn (KsefInvoiceSubmissionStatus $status): bool => $status !== KsefInvoiceSubmissionStatus::Accepted,
+        );
+
+        return array_combine(
+            array_map(static fn (KsefInvoiceSubmissionStatus $status): string => $status->value, $statuses),
+            array_map(static fn (KsefInvoiceSubmissionStatus $status): array => [$status], $statuses),
+        );
+    }
+
+    public static function conflictingSubmissionStatusProvider(): array
+    {
+        return array_combine(
+            array_map(static fn (KsefInvoiceSubmissionStatus $status): string => $status->value, KsefInvoiceSubmissionStatus::cases()),
+            array_map(static fn (KsefInvoiceSubmissionStatus $status): array => [$status], KsefInvoiceSubmissionStatus::cases()),
+        );
     }
 
     public static function invalidRootReferenceProvider(): array
@@ -461,6 +592,25 @@ class KsefFa3CorrectionSourceReferenceResolverTest extends TestCase
                 ? $this->validKsefNumber(self::SELLER_NIP, '0100001AF629')
                 : null,
         ], $attributes));
+    }
+
+    private function markOutside(
+        Invoice $invoice,
+        KsefEnvironment $environment,
+    ): KsefInvoiceProvenance {
+        return app(KsefInvoiceProvenanceService::class)->markOutsideKsef($invoice, $environment);
+    }
+
+    private function directOutside(
+        Invoice $invoice,
+        KsefEnvironment $environment,
+    ): KsefInvoiceProvenance {
+        return KsefInvoiceProvenance::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => $environment,
+            'provenance' => KsefInvoiceProvenanceType::OutsideKsef,
+            'recorded_at' => now(),
+        ]);
     }
 
     private function resolve(

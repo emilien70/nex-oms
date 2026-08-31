@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 
 class Invoice extends Model
@@ -147,6 +148,11 @@ class Invoice extends Model
     public function ksefSubmissions(): HasMany
     {
         return $this->hasMany(KsefInvoiceSubmission::class);
+    }
+
+    public function ksefProvenances(): HasMany
+    {
+        return $this->hasMany(KsefInvoiceProvenance::class);
     }
 
     public function latestKsefSubmission(): HasOne

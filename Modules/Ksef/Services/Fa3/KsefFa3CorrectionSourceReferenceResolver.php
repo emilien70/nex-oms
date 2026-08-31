@@ -9,7 +9,10 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefFa3CorrectionRootReferenceType;
+use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefFa3BuyerIdentityResolver;
 use Modules\Ksef\Services\KsefNumberValidator;
@@ -59,10 +62,9 @@ final class KsefFa3CorrectionSourceReferenceResolver
             throw $this->sourceInvalid($correction);
         }
 
-        $rootSubmission = $this->acceptedSubmission(
+        $rootReference = $this->rootReference(
             $root,
             $environment,
-            'root',
             $rootSellerNip,
         );
 
@@ -85,15 +87,75 @@ final class KsefFa3CorrectionSourceReferenceResolver
             ->values()
             ->all();
 
-        return new KsefFa3CorrectionSourceReference(
+        if ($rootReference['type'] === KsefFa3CorrectionRootReferenceType::OutsideKsef) {
+            return KsefFa3CorrectionSourceReference::outsideKsef(
+                environment: $environment,
+                rootInvoiceId: (int) $root->getKey(),
+                rootInvoiceNumber: $rootNumber,
+                correctedInvoiceIssueDate: $rootIssueDate,
+                rootProvenanceId: (int) $rootReference['provenance']->getKey(),
+                precedingCorrections: $precedingCorrections,
+            );
+        }
+
+        return KsefFa3CorrectionSourceReference::ksef(
             environment: $environment,
             rootInvoiceId: (int) $root->getKey(),
             rootInvoiceNumber: $rootNumber,
             correctedInvoiceIssueDate: $rootIssueDate,
-            rootSubmissionId: (int) $rootSubmission->getKey(),
-            rootKsefNumber: trim((string) $rootSubmission->ksef_number),
+            rootSubmissionId: (int) $rootReference['submission']->getKey(),
+            rootKsefNumber: trim((string) $rootReference['submission']->ksef_number),
             precedingCorrections: $precedingCorrections,
         );
+    }
+
+    /**
+     * @return array{
+     *     type: KsefFa3CorrectionRootReferenceType,
+     *     submission: KsefInvoiceSubmission|null,
+     *     provenance: KsefInvoiceProvenance|null
+     * }
+     */
+    private function rootReference(
+        Invoice $root,
+        KsefEnvironment $environment,
+        string $rootSellerNip,
+    ): array {
+        $provenances = KsefInvoiceProvenance::query()
+            ->where('invoice_id', $root->getKey())
+            ->where('environment', $environment->value)
+            ->orderBy('id')
+            ->get();
+        $submissions = KsefInvoiceSubmission::query()
+            ->where('invoice_id', $root->getKey())
+            ->where('environment', $environment->value)
+            ->orderBy('id')
+            ->get(['id', 'environment', 'status']);
+
+        if ($provenances->isNotEmpty()) {
+            if ($provenances->count() !== 1
+                || $provenances->first()->provenance !== KsefInvoiceProvenanceType::OutsideKsef
+                || $submissions->isNotEmpty()) {
+                throw $this->provenanceConflict($root, $environment, $submissions);
+            }
+
+            return [
+                'type' => KsefFa3CorrectionRootReferenceType::OutsideKsef,
+                'submission' => null,
+                'provenance' => $provenances->first(),
+            ];
+        }
+
+        return [
+            'type' => KsefFa3CorrectionRootReferenceType::Ksef,
+            'submission' => $this->acceptedSubmission(
+                $root,
+                $environment,
+                'root',
+                $rootSellerNip,
+            ),
+            'provenance' => null,
+        ];
     }
 
     private function acceptedSubmission(
@@ -233,6 +295,26 @@ final class KsefFa3CorrectionSourceReferenceResolver
                         'previous_correction_number' => $document->number,
                     ]),
                 ...$metadata,
+            ],
+        );
+    }
+
+    /** @param Collection<int, KsefInvoiceSubmission> $submissions */
+    private function provenanceConflict(
+        Invoice $root,
+        KsefEnvironment $environment,
+        Collection $submissions,
+    ): InvoiceDomainException {
+        return new InvoiceDomainException(
+            'ksef_fa3_correction_source_provenance_conflict',
+            'Jawne pochodzenie Faktury pierwotnej jest sprzeczne z jej historią KSeF.',
+            [
+                'environment' => $environment->value,
+                'root_invoice_id' => (int) $root->getKey(),
+                'reason' => $submissions->isNotEmpty()
+                    ? 'submission_history_exists'
+                    : 'provenance_invalid',
+                'submission_statuses' => $this->submissionStatuses($submissions),
             ],
         );
     }
