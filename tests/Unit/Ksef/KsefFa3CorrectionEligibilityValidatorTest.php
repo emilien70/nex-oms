@@ -559,6 +559,24 @@ class KsefFa3CorrectionEligibilityValidatorTest extends TestCase
         );
     }
 
+    public function test_seller_nip_formatting_is_ignored_but_business_data_change_fails_closed(): void
+    {
+        [, $correction, $settings] = $this->financialScenario();
+        $seller = $correction->seller_snapshot;
+        $seller['tax_id'] = 'PL 987-654-32-10';
+        $correction->forceFill(['seller_snapshot' => $seller])->saveQuietly();
+
+        $this->assertEligible($correction->refresh(), $settings);
+
+        $seller['name'] = 'Inny sprzedawca z tym samym NIP';
+        $seller['street'] = 'Inna ulica';
+        $correction->forceFill(['seller_snapshot' => $seller])->saveQuietly();
+        $this->expectDomainError(
+            'ksef_fa3_correction_seller_change_not_supported',
+            fn () => $this->assertEligible($correction->refresh(), $settings),
+        );
+    }
+
     public function test_foreign_monetary_and_buyer_only_corrections_use_only_frozen_data(): void
     {
         $settings = $this->settings();

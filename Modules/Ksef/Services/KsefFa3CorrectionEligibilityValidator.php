@@ -446,6 +446,30 @@ final class KsefFa3CorrectionEligibilityValidator
                 'Sprzedawca Korekty nie odpowiada sprzedawcy Faktury pierwotnej.',
             );
         }
+
+        if ($this->canonicalSeller($seller) !== $this->canonicalSeller($root->seller_snapshot ?? [])) {
+            throw $this->error(
+                'ksef_fa3_correction_seller_change_not_supported',
+                'Zmiana danych sprzedawcy nie jest obsługiwana przez profil Korekty FA(3).',
+            );
+        }
+    }
+
+    /** @param array<string, mixed> $seller
+     * @return array<string, string|null>
+     */
+    private function canonicalSeller(array $seller): array
+    {
+        return [
+            'name' => $this->optionalString($seller['name'] ?? null),
+            'tax_id' => $this->buyerIdentity->normalizePolishNip($seller['tax_id'] ?? null),
+            'street' => $this->optionalString($seller['street'] ?? null),
+            'building_number' => $this->optionalString($seller['building_number'] ?? null),
+            'apartment_number' => $this->optionalString($seller['apartment_number'] ?? null),
+            'postal_code' => $this->optionalString($seller['postal_code'] ?? null),
+            'city' => $this->optionalString($seller['city'] ?? null),
+            'country_code' => strtoupper((string) $this->optionalString($seller['country_code'] ?? null)),
+        ];
     }
 
     private function assertCurrency(
