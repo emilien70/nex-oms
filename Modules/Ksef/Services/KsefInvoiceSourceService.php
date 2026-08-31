@@ -22,7 +22,7 @@ class KsefInvoiceSourceService
         KsefInvoiceSubmission $submission,
     ): KsefRawApiResponse {
         $this->assertOwnership($invoice, $submission);
-        $this->assertInvoice($invoice);
+        $this->assertSupportedDocument($invoice);
         $this->assertTransportEnabled();
         $this->assertIntegrationActive();
 
@@ -72,11 +72,11 @@ class KsefInvoiceSourceService
         }
     }
 
-    private function assertInvoice(Invoice $invoice): void
+    private function assertSupportedDocument(Invoice $invoice): void
     {
-        if (! $invoice->isInvoice()) {
+        if (! $invoice->isInvoice() && ! $invoice->isCorrection()) {
             throw new KsefApiException(
-                'Dokument z KSeF można pobrać wyłącznie dla Faktury VAT.',
+                'Dokument z KSeF można pobrać wyłącznie dla Faktury VAT albo Korekty.',
                 'ksef_invoice_document_type_invalid',
             );
         }
@@ -84,7 +84,7 @@ class KsefInvoiceSourceService
 
     private function assertEligible(Invoice $invoice, KsefInvoiceSubmission $submission): void
     {
-        $this->assertInvoice($invoice);
+        $this->assertSupportedDocument($invoice);
 
         if ($submission->status !== KsefInvoiceSubmissionStatus::Accepted) {
             throw new KsefApiException(

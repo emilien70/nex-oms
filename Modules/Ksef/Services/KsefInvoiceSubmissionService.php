@@ -16,6 +16,7 @@ use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionDocumentGenerator;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\ValueObjects\KsefOnlineSessionEncryptionData;
 use Throwable;
@@ -28,6 +29,7 @@ class KsefInvoiceSubmissionService
 
     public function __construct(
         private readonly KsefFa3DocumentGenerator $generator,
+        private readonly KsefFa3CorrectionDocumentGenerator $correctionGenerator,
         private readonly KsefAccessTokenManager $accessTokens,
         private readonly KsefOnlineSessionClient $onlineSession,
         private readonly KsefPublicKeyResolver $publicKeys,
@@ -46,22 +48,71 @@ class KsefInvoiceSubmissionService
         bool $firstAttemptOnly = false,
         ?string $expectedContextNip = null,
     ): KsefInvoiceSubmission {
-        $this->assertTransportEnabled();
-
-        return DB::transaction(function () use (
+        return $this->prepareDocument(
             $invoice,
             $expectedEnvironment,
             $firstAttemptOnly,
             $expectedContextNip,
+            correction: false,
+        );
+    }
+
+    public function prepareCorrection(
+        Invoice $correction,
+        ?KsefEnvironment $expectedEnvironment = null,
+        bool $firstAttemptOnly = false,
+        ?string $expectedContextNip = null,
+    ): KsefInvoiceSubmission {
+        return $this->prepareDocument(
+            $correction,
+            $expectedEnvironment,
+            $firstAttemptOnly,
+            $expectedContextNip,
+            correction: true,
+        );
+    }
+
+    private function prepareDocument(
+        Invoice $document,
+        ?KsefEnvironment $expectedEnvironment,
+        bool $firstAttemptOnly,
+        ?string $expectedContextNip,
+        bool $correction,
+    ): KsefInvoiceSubmission {
+        $this->assertTransportEnabled();
+
+        return DB::transaction(function () use (
+            $document,
+            $expectedEnvironment,
+            $firstAttemptOnly,
+            $expectedContextNip,
+            $correction,
         ): KsefInvoiceSubmission {
             $managed = Invoice::query()
                 ->lockForUpdate()
-                ->findOrFail($invoice->getKey());
+                ->findOrFail($document->getKey());
 
-            if (! $managed->isInvoice()) {
+            if (($correction && ! $managed->isCorrection())
+                || (! $correction && ! $managed->isInvoice())) {
                 throw new KsefApiException(
-                    'Do KSeF można przekazać wyłącznie Fakturę VAT.',
+                    $correction
+                        ? 'Za pomocą tej operacji można przekazać do KSeF wyłącznie Korektę.'
+                        : 'Do KSeF można przekazać wyłącznie Fakturę VAT.',
                     'ksef_submission_document_type_invalid',
+                );
+            }
+
+            if ($correction && ! $managed->isIssued()) {
+                throw new KsefApiException(
+                    'Do przygotowania Korekty FA(3) kwalifikuje się wyłącznie wystawiona Korekta.',
+                    'ksef_fa3_correction_document_not_supported',
+                );
+            }
+
+            if ($correction && ! $managed->isFinalized()) {
+                throw new KsefApiException(
+                    'Korekta musi zostać zamknięta przed utworzeniem autorytatywnego dokumentu FA(3).',
+                    'ksef_fa3_correction_document_not_finalized',
                 );
             }
 
@@ -93,17 +144,19 @@ class KsefInvoiceSubmissionService
                 );
             }
 
-            $outsideProvenance = KsefInvoiceProvenance::query()
-                ->where('invoice_id', $managed->getKey())
-                ->where('environment', $environment->value)
-                ->where('provenance', KsefInvoiceProvenanceType::OutsideKsef->value)
-                ->lockForUpdate()
-                ->first(['id']);
-            if ($outsideProvenance !== null) {
-                throw new KsefApiException(
-                    'Faktura została jawnie oznaczona jako wystawiona poza KSeF w aktywnym środowisku i nie może zostać przekazana do KSeF.',
-                    'ksef_submission_blocked_by_outside_ksef_provenance',
-                );
+            if (! $correction) {
+                $outsideProvenance = KsefInvoiceProvenance::query()
+                    ->where('invoice_id', $managed->getKey())
+                    ->where('environment', $environment->value)
+                    ->where('provenance', KsefInvoiceProvenanceType::OutsideKsef->value)
+                    ->lockForUpdate()
+                    ->first(['id']);
+                if ($outsideProvenance !== null) {
+                    throw new KsefApiException(
+                        'Faktura została jawnie oznaczona jako wystawiona poza KSeF w aktywnym środowisku i nie może zostać przekazana do KSeF.',
+                        'ksef_submission_blocked_by_outside_ksef_provenance',
+                    );
+                }
             }
 
             $seriesEnabled = KsefSeriesSetting::query()
@@ -114,7 +167,9 @@ class KsefInvoiceSubmissionService
 
             if (! $seriesEnabled) {
                 throw new KsefApiException(
-                    'Seria numeracji Faktury nie jest włączona do KSeF.',
+                    $correction
+                        ? 'Seria numeracji Korekty nie jest włączona do KSeF.'
+                        : 'Seria numeracji Faktury nie jest włączona do KSeF.',
                     'ksef_submission_series_disabled',
                 );
             }
@@ -126,7 +181,9 @@ class KsefInvoiceSubmissionService
                 ->get(['id', 'status']);
             if ($firstAttemptOnly && $history->isNotEmpty()) {
                 throw new KsefApiException(
-                    'Faktura posiada już próbę przekazania do KSeF w aktywnym środowisku.',
+                    $correction
+                        ? 'Korekta posiada już próbę przekazania do KSeF w aktywnym środowisku.'
+                        : 'Faktura posiada już próbę przekazania do KSeF w aktywnym środowisku.',
                     'ksef_submission_first_attempt_already_exists',
                 );
             }
@@ -137,11 +194,17 @@ class KsefInvoiceSubmissionService
                 ->where('environment', $environment->value)
                 ->max('attempt_number')) + 1;
             $generatedAt = CarbonImmutable::now('UTC');
-            $generated = $this->generator->generate(
-                $managed,
-                $generatedAt,
-                KsefFa3EligibilityMode::Authoritative,
-            );
+            $generated = $correction
+                ? $this->correctionGenerator->generate(
+                    $managed,
+                    $generatedAt,
+                    KsefFa3EligibilityMode::Authoritative,
+                )
+                : $this->generator->generate(
+                    $managed,
+                    $generatedAt,
+                    KsefFa3EligibilityMode::Authoritative,
+                );
             $sellerNip = $this->frozenSellerNip($managed);
 
             return KsefInvoiceSubmission::query()->create([
@@ -629,7 +692,8 @@ class KsefInvoiceSubmissionService
             $managed->forceFill($attributes + ['status' => $to])->save();
             $managed->refresh();
 
-            if ($to === KsefInvoiceSubmissionStatus::Accepted) {
+            if ($to === KsefInvoiceSubmissionStatus::Accepted
+                && $managed->invoice()->first()?->isInvoice() === true) {
                 KsefInvoiceAccepted::dispatch($managed);
             }
 

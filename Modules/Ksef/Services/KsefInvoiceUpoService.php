@@ -26,7 +26,7 @@ class KsefInvoiceUpoService
         KsefInvoiceSubmission $submission,
     ): KsefInvoiceUpo {
         $this->assertOwnership($invoice, $submission);
-        $this->assertInvoice($invoice);
+        $this->assertSupportedDocument($invoice);
 
         $existing = $this->findExisting($submission);
         if ($existing !== null) {
@@ -115,7 +115,7 @@ class KsefInvoiceUpoService
         KsefInvoiceSubmission $submission,
     ): ?KsefInvoiceUpo {
         $this->assertOwnership($invoice, $submission);
-        $this->assertInvoice($invoice);
+        $this->assertSupportedDocument($invoice);
 
         return $this->findExisting($submission);
     }
@@ -139,11 +139,11 @@ class KsefInvoiceUpoService
         }
     }
 
-    private function assertInvoice(Invoice $invoice): void
+    private function assertSupportedDocument(Invoice $invoice): void
     {
-        if (! $invoice->isInvoice()) {
+        if (! $invoice->isInvoice() && ! $invoice->isCorrection()) {
             throw new KsefApiException(
-                'UPO KSeF jest w tym etapie dostępne wyłącznie dla Faktury VAT.',
+                'UPO KSeF jest dostępne wyłącznie dla Faktury VAT albo Korekty.',
                 'ksef_upo_document_type_invalid',
             );
         }
@@ -151,7 +151,7 @@ class KsefInvoiceUpoService
 
     private function assertEligible(Invoice $invoice, KsefInvoiceSubmission $submission): void
     {
-        $this->assertInvoice($invoice);
+        $this->assertSupportedDocument($invoice);
 
         if ($submission->status !== KsefInvoiceSubmissionStatus::Accepted) {
             throw new KsefApiException(
