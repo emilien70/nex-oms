@@ -17,5 +17,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->dontFlash([
             'api_token',
             'authentication_private_key_passphrase',
+            'offline_private_key_passphrase',
         ]);
     })->create();

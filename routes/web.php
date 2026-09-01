@@ -35,6 +35,7 @@ use Modules\Invoices\Http\Controllers\OrderProformaController;
 use Modules\Ksef\Http\Controllers\KsefConnectionTestController;
 use Modules\Ksef\Http\Controllers\KsefInvoiceSubmissionController;
 use Modules\Ksef\Http\Controllers\KsefMonthlyInvoiceExportController;
+use Modules\Ksef\Http\Controllers\KsefOfflineCertificateController;
 use Modules\Ksef\Http\Controllers\KsefPaymentTypeSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSeriesSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSettingsController;
@@ -70,6 +71,9 @@ Route::post('/integrations/ksef/test-connection', KsefConnectionTestController::
 Route::post('/integrations/ksef/export', KsefMonthlyInvoiceExportController::class)->name('integrations.ksef.export');
 Route::put('/integrations/ksef/series', [KsefSeriesSettingsController::class, 'update'])->name('integrations.ksef.series.update');
 Route::put('/integrations/ksef/payment-types', [KsefPaymentTypeSettingsController::class, 'update'])->name('integrations.ksef.payment-types.update');
+Route::post('/integrations/ksef/offline-certificates', [KsefOfflineCertificateController::class, 'store'])->name('integrations.ksef.offline-certificates.store');
+Route::put('/integrations/ksef/offline-certificates/{offlineCertificate}/preferred', [KsefOfflineCertificateController::class, 'prefer'])->name('integrations.ksef.offline-certificates.prefer');
+Route::delete('/integrations/ksef/offline-certificates/{offlineCertificate}', [KsefOfflineCertificateController::class, 'destroy'])->name('integrations.ksef.offline-certificates.destroy');
 Route::get('/integrations/couriers', [CourierIntegrationController::class, 'index'])->name('integrations.couriers.index');
 Route::get('/integrations/couriers/inpost-lockers', [CourierIntegrationController::class, 'editInPostLockers'])->name('integrations.couriers.inpost-lockers.edit');
 Route::put('/integrations/couriers/inpost-lockers', [CourierIntegrationController::class, 'updateInPostLockers'])->name('integrations.couriers.inpost-lockers.update');

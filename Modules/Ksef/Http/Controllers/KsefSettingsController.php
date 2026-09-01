@@ -13,6 +13,7 @@ use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Http\Requests\UpdateKsefSettingsRequest;
 use Modules\Ksef\Services\KsefCertificateMaterialService;
 use Modules\Ksef\Services\KsefMonthlyExportPeriod;
+use Modules\Ksef\Services\KsefOfflineCertificateService;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Modules\Ksef\Services\KsefPaymentMethodMappingService;
 use Modules\Ksef\Services\KsefSettingsService;
@@ -25,11 +26,13 @@ class KsefSettingsController extends Controller
         KsefPaymentMethodMappingService $paymentMappings,
         KsefMonthlyExportPeriod $exportPeriods,
         KsefOperationalEnvironmentPolicy $operationalEnvironments,
+        KsefOfflineCertificateService $offlineCertificates,
     ): View {
         $activeTab = match ($request->query('tab')) {
             'export' => 'export',
             'series' => 'series',
             'payment-types' => 'payment-types',
+            'offline-certificates' => 'offline-certificates',
             default => 'connection',
         };
         $settings = $settingsService->get();
@@ -52,6 +55,9 @@ class KsefSettingsController extends Controller
             'monthlyExportPeriods' => $exportPeriods->options(),
             'monthlyExportGateEnabled' => config('ksef.invoice_submission_enabled') === true,
             'monthlyExportEnvironmentAllowed' => $operationalEnvironments->allows($settings->environment),
+            'offlineCertificates' => $activeTab === 'offline-certificates'
+                ? $offlineCertificates->forConfiguration()
+                : collect(),
             'activeTab' => $activeTab,
         ]);
     }

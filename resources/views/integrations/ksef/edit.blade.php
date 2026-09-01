@@ -262,6 +262,44 @@
             text-align: center;
         }
 
+        .ksef-offline-table {
+            font-size: 12px;
+            margin: 0;
+        }
+
+        .ksef-offline-table th {
+            background: #f8fafc;
+            color: #4b5563;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 10px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .ksef-offline-table td {
+            border-color: #e2e8f0;
+            color: #374151;
+            padding: 10px;
+            vertical-align: middle;
+        }
+
+        .ksef-offline-fingerprint {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 10px;
+            overflow-wrap: anywhere;
+        }
+
+        .ksef-offline-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .ksef-offline-actions form {
+            margin: 0;
+        }
+
         .ksef-payment-intro {
             color: #596273;
             font-size: 13px;
@@ -344,6 +382,11 @@
                     href="{{ route('integrations.ksef.edit', ['tab' => 'payment-types']) }}"
                     data-ksef-tab="payment-types"
                 >Typy płatności</a>
+                <a
+                    class="ksef-tab {{ $activeTab === 'offline-certificates' ? 'is-active' : '' }}"
+                    href="{{ route('integrations.ksef.edit', ['tab' => 'offline-certificates']) }}"
+                    data-ksef-tab="offline-certificates"
+                >Certyfikaty Offline</a>
             </nav>
 
             <div class="ksef-content">
@@ -351,6 +394,10 @@
                     <div class="ksef-errors" role="alert">
                         {{ $errors->first() }}
                     </div>
+                @endif
+
+                @if (session('status'))
+                    <div class="ksef-environment-notice mb-3" role="status">{{ session('status') }}</div>
                 @endif
 
                 @if ($activeTab === 'export')
@@ -442,6 +489,119 @@
                             <button class="btn btn-primary" type="submit">Zapisz</button>
                         </div>
                     </form>
+                @elseif ($activeTab === 'offline-certificates')
+                    <form class="ksef-form" method="POST" action="{{ route('integrations.ksef.offline-certificates.store') }}" enctype="multipart/form-data" data-ksef-offline-certificate-form>
+                        @csrf
+
+                        <section class="ksef-section" aria-labelledby="ksef-offline-import-heading">
+                            <h2 class="ksef-section-title" id="ksef-offline-import-heading">Import certyfikatu Offline</h2>
+
+                            <div class="ksef-field">
+                                <label for="ksef-offline-environment">Środowisko</label>
+                                <div class="ksef-control">
+                                    <select class="form-select @error('environment') is-invalid @enderror" id="ksef-offline-environment" name="environment" required>
+                                        @foreach ($environmentOptions as $environment)
+                                            <option value="{{ $environment->value }}" @selected(old('environment', $settings->environment->value) === $environment->value)>{{ $environment->label() }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('environment')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-field">
+                                <label for="ksef-offline-label">Nazwa</label>
+                                <div class="ksef-control">
+                                    <input class="form-control @error('label') is-invalid @enderror" id="ksef-offline-label" name="label" type="text" maxlength="120" value="{{ old('label') }}">
+                                    @error('label')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-field">
+                                <label for="ksef-offline-certificate">Certyfikat Offline</label>
+                                <div class="ksef-control">
+                                    <input class="form-control @error('offline_certificate') is-invalid @enderror" id="ksef-offline-certificate" name="offline_certificate" type="file" accept=".pem,.crt,.cer" required>
+                                    @error('offline_certificate')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-field">
+                                <label for="ksef-offline-private-key">Klucz prywatny</label>
+                                <div class="ksef-control">
+                                    <input class="form-control @error('offline_private_key') is-invalid @enderror" id="ksef-offline-private-key" name="offline_private_key" type="file" accept=".pem,.key" required>
+                                    @error('offline_private_key')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+
+                            <div class="ksef-field">
+                                <label for="ksef-offline-private-key-passphrase">Hasło klucza</label>
+                                <div class="ksef-control">
+                                    <input class="form-control @error('offline_private_key_passphrase') is-invalid @enderror" id="ksef-offline-private-key-passphrase" name="offline_private_key_passphrase" type="password" maxlength="1024" autocomplete="new-password">
+                                    <div class="ksef-help">Hasło jest używane tylko podczas importu i nie jest zapisywane.</div>
+                                    @error('offline_private_key_passphrase')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+                        </section>
+
+                        <div class="ksef-form-actions">
+                            <button class="btn btn-primary" type="submit">Importuj</button>
+                        </div>
+                    </form>
+
+                    <section class="ksef-section mt-4" aria-labelledby="ksef-offline-list-heading">
+                        <h2 class="ksef-section-title" id="ksef-offline-list-heading">Lokalne certyfikaty Offline</h2>
+                        <p class="ksef-payment-intro">Preferowany certyfikat jest lokalnym wyborem do przyszłego podpisywania Offline. Nie jest statusem certyfikatu w KSeF.</p>
+
+                        @if ($offlineCertificates->isEmpty())
+                            <div class="ksef-series-empty">Brak lokalnych certyfikatów Offline.</div>
+                        @else
+                            <div class="table-responsive">
+                                <table class="table ksef-offline-table">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Nazwa</th>
+                                            <th scope="col">Środowisko</th>
+                                            <th scope="col">Serial</th>
+                                            <th scope="col">Klucz</th>
+                                            <th scope="col">Ważność</th>
+                                            <th scope="col">Fingerprint SHA-256</th>
+                                            <th scope="col">Preferowany</th>
+                                            <th scope="col">Akcje</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($offlineCertificates as $certificate)
+                                            <tr data-ksef-offline-certificate="{{ $certificate->getKey() }}">
+                                                <td>{{ $certificate->label ?: 'Bez nazwy' }}</td>
+                                                <td>{{ $certificate->environment->label() }}</td>
+                                                <td>{{ $certificate->certificate_serial_number }}</td>
+                                                <td>{{ $certificate->key_type->label($certificate->key_size, $certificate->curve) }}</td>
+                                                <td>{{ $certificate->valid_from->format('d.m.Y') }} – {{ $certificate->valid_until->format('d.m.Y') }}</td>
+                                                <td class="ksef-offline-fingerprint">{{ $certificate->fingerprintForDisplay() }}</td>
+                                                <td>{{ $certificate->preferredSelection === null ? 'Nie' : 'Tak' }}</td>
+                                                <td>
+                                                    <div class="ksef-offline-actions">
+                                                        @if ($certificate->preferredSelection === null)
+                                                            <form method="POST" action="{{ route('integrations.ksef.offline-certificates.prefer', $certificate) }}">
+                                                                @csrf
+                                                                @method('PUT')
+                                                                <input type="hidden" name="environment" value="{{ $certificate->environment->value }}">
+                                                                <button class="btn btn-sm btn-outline-primary" type="submit">Ustaw jako używany</button>
+                                                            </form>
+                                                        @endif
+                                                        <form method="POST" action="{{ route('integrations.ksef.offline-certificates.destroy', $certificate) }}" onsubmit="return confirm('Usunąć lokalny certyfikat Offline? Nie unieważni to certyfikatu w KSeF.');">
+                                                            @csrf
+                                                            @method('DELETE')
+                                                            <button class="btn btn-sm btn-outline-danger" type="submit">Usuń lokalnie</button>
+                                                        </form>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </section>
                 @elseif ($activeTab === 'payment-types')
                     <form class="ksef-form" method="POST" action="{{ route('integrations.ksef.payment-types.update') }}" data-ksef-payment-types-form>
                         @csrf

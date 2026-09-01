@@ -28,6 +28,30 @@ final class KsefCertificateFixtureFactory
         ], 'digitalSignature', $passphrase, $subjectSerialNumber);
     }
 
+    public static function offlineRsa(
+        int $serial = 0x08F20A5D352AE590,
+        ?string $passphrase = null,
+        int $bits = 2048,
+        string $keyUsage = 'nonRepudiation',
+    ): array {
+        return self::create([
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+            'private_key_bits' => $bits,
+        ], $keyUsage, $passphrase, serial: $serial);
+    }
+
+    public static function offlineEc(
+        int $serial = 0x08F20A5D352AE591,
+        ?string $passphrase = null,
+        string $curve = 'prime256v1',
+        string $keyUsage = 'nonRepudiation',
+    ): array {
+        return self::create([
+            'private_key_type' => OPENSSL_KEYTYPE_EC,
+            'curve_name' => $curve,
+        ], $keyUsage, $passphrase, serial: $serial);
+    }
+
     public static function certificateDer(string $certificatePem): string
     {
         $base64 = preg_replace(
@@ -49,6 +73,7 @@ final class KsefCertificateFixtureFactory
         string $keyUsage,
         ?string $passphrase,
         ?string $subjectSerialNumber = null,
+        int $serial = 0,
     ): array {
         $configPath = tempnam(sys_get_temp_dir(), 'nex-ksef-openssl-');
 
@@ -88,7 +113,7 @@ final class KsefCertificateFixtureFactory
                 throw new RuntimeException('Could not generate test CSR.');
             }
 
-            $certificate = openssl_csr_sign($csr, null, $privateKey, 30, $options);
+            $certificate = openssl_csr_sign($csr, null, $privateKey, 30, $options, $serial);
 
             if (! $certificate instanceof OpenSSLCertificate) {
                 throw new RuntimeException('Could not generate test certificate.');
@@ -116,6 +141,7 @@ final class KsefCertificateFixtureFactory
                 'private_key' => $privateKeyPem,
                 'valid_from' => $parsed['validFrom_time_t'],
                 'valid_until' => $parsed['validTo_time_t'],
+                'serial' => strtoupper((string) ($parsed['serialNumberHex'] ?? '')),
             ];
         } finally {
             @unlink($configPath);
@@ -124,6 +150,8 @@ final class KsefCertificateFixtureFactory
 
     private static function configuration(string $keyUsage): string
     {
+        $keyUsageExtension = $keyUsage === '' ? '' : "keyUsage = critical,{$keyUsage}";
+
         return <<<INI
 [ req ]
 distinguished_name = req_distinguished_name
@@ -136,7 +164,7 @@ C = PL
 
 [ v3_req ]
 basicConstraints = critical,CA:FALSE
-keyUsage = critical,{$keyUsage}
+{$keyUsageExtension}
 INI;
     }
 }
