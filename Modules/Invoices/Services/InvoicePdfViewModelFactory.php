@@ -9,8 +9,7 @@ use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
-use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
-use Modules\Ksef\Services\KsefInvoiceVerificationLinkBuilder;
+use Modules\Ksef\Services\KsefPdfDocumentPresenter;
 
 class InvoicePdfViewModelFactory
 {
@@ -33,7 +32,7 @@ class InvoicePdfViewModelFactory
         private readonly InvoicePdfCurrencyConversionPresenter $currencyConversion,
         private readonly CorrectionTotalsCalculator $correctionTotals,
         private readonly CorrectionCurrencyConversionService $correctionCurrencyConversion,
-        private readonly KsefInvoiceVerificationLinkBuilder $ksefVerificationLinks,
+        private readonly KsefPdfDocumentPresenter $ksef,
     ) {}
 
     /** @return array<string, mixed> */
@@ -43,10 +42,6 @@ class InvoicePdfViewModelFactory
         $relations = $invoice->isCorrection()
             ? ['items', 'correctedInvoice']
             : ['items'];
-
-        if ($invoice->isInvoice()) {
-            $relations[] = 'latestAcceptedKsefSubmission';
-        }
 
         $invoice->loadMissing($relations);
 
@@ -81,7 +76,7 @@ class InvoicePdfViewModelFactory
             'payment_identifier' => $this->text($payment['payment_identifier'] ?? null),
             'order_number' => $this->text($order['external_id'] ?? null)
                 ?: $this->text($invoice->order_reference_snapshot),
-            'ksef' => $this->ksef($invoice),
+            'ksef' => $this->ksef->present($invoice),
             'related_proforma_number' => $invoice->isInvoice()
                 ? $this->text($order['related_documents']['proforma']['number'] ?? null)
                 : null,
@@ -103,32 +98,6 @@ class InvoicePdfViewModelFactory
             'additional_information' => $this->text($invoice->additional_information_text),
             'seller_bank_name' => $this->text($seller['bank_name'] ?? null),
             'seller_bank_account' => $this->text($seller['bank_account'] ?? null),
-        ];
-    }
-
-    /** @return array{number: string, processed_at: ?string, status: string, verification_url: ?string}|null */
-    private function ksef(Invoice $invoice): ?array
-    {
-        if (! $invoice->isInvoice()) {
-            return null;
-        }
-
-        $submission = $invoice->latestAcceptedKsefSubmission;
-        $number = $this->text($submission?->ksef_number);
-
-        if ($submission?->status !== KsefInvoiceSubmissionStatus::Accepted || $number === null) {
-            return null;
-        }
-
-        $verificationUrl = $invoice->issue_date !== null
-            ? $this->ksefVerificationLinks->build($submission, $invoice->issue_date)
-            : null;
-
-        return [
-            'number' => $number,
-            'processed_at' => $submission->acquisition_date?->format('d.m.Y H:i:s'),
-            'status' => $submission->status->label(),
-            'verification_url' => $verificationUrl,
         ];
     }
 
@@ -159,6 +128,7 @@ class InvoicePdfViewModelFactory
             'reason' => $invoice->correction_reason,
             'place_of_issue' => $this->text($invoice->issuer_snapshot['place_of_issue'] ?? null),
             'payment_method' => $this->paymentMethod($invoice),
+            'ksef' => $this->ksef->present($invoice),
             'seller' => $this->party(
                 $seller,
                 includeCountry: false,

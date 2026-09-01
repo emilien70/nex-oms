@@ -6,11 +6,11 @@ use Modules\Invoices\Models\Invoice;
 
 class InvoicePdfFilenameGenerator
 {
-    private const INVOICE_LAYOUT_VERSION = 'v44';
+    private const INVOICE_LAYOUT_VERSION = 'v45';
 
     private const PROFORMA_LAYOUT_VERSION = 'v35';
 
-    private const CORRECTION_LAYOUT_VERSION = 'v44';
+    private const CORRECTION_LAYOUT_VERSION = 'v45';
 
     private const FALLBACK_LAYOUT_VERSION = 'v33';
 

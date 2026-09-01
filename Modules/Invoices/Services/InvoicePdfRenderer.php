@@ -58,7 +58,7 @@ class InvoicePdfRenderer
     private function renderDocuments(Collection $invoices, string $title): string
     {
         try {
-            $pdf = new \TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
+            $pdf = $this->createPdf();
             $pdf->SetCreator('');
             $pdf->SetAuthor('');
             $pdf->SetTitle($title);
@@ -119,6 +119,12 @@ class InvoicePdfRenderer
     }
 
     /** @param array<string, mixed> $document */
+    protected function createPdf(): \TCPDF
+    {
+        return new \TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
+    }
+
+    /** @param array<string, mixed> $document */
     private function writeKsefQr(\TCPDF $pdf, array $document): void
     {
         $url = $document['ksef']['verification_url'] ?? null;
@@ -134,9 +140,21 @@ class InvoicePdfRenderer
         $blockHeight = 45.0;
         $y = $pdf->GetY() + 4.0;
 
-        if (($y + $blockHeight) > ($pdf->getPageHeight() - 12.0)) {
+        $movedToNewPage = ($y + $blockHeight) > ($pdf->getPageHeight() - 12.0);
+
+        if ($movedToNewPage) {
             $pdf->AddPage('P', 'A4');
             $y = 12.0;
+
+            $documentType = $document['type'] === InvoiceDocumentType::Correction->value
+                ? 'Faktura korygująca'
+                : 'Faktura VAT';
+            $pdf->SetFont($this->fonts->body(), '', 9);
+            $pdf->SetXY($x, $y);
+            $pdf->Cell(120.0, 5.0, $documentType.' '.$document['number'], 0, 1, 'L');
+            $pdf->SetX($x);
+            $pdf->Cell(120.0, 5.0, 'Weryfikacja KSeF', 0, 1, 'L');
+            $y = $pdf->GetY() + 2.0;
         }
 
         $pdf->SetFont($this->fonts->body(), '', 7);
@@ -145,7 +163,7 @@ class InvoicePdfRenderer
 
         $qrX = $x + (($blockWidth - $qrSize) / 2);
         $qrY = $pdf->GetY() + 1.0;
-        $pdf->write2DBarcode($url, 'QRCODE,M', $qrX, $qrY, $qrSize, $qrSize, [
+        $this->writeQrCode($pdf, $url, $qrX, $qrY, $qrSize, [
             'border' => false,
             'padding' => 'auto',
             'fgcolor' => [0, 0, 0],
@@ -157,5 +175,17 @@ class InvoicePdfRenderer
         $pdf->SetXY($x, $qrY + $qrSize + 1.0);
         $pdf->MultiCell($blockWidth, 3.0, $number, 0, 'C', false, 1, $x, '', true);
         $pdf->SetY(max($pdf->GetY(), $y + $blockHeight));
+    }
+
+    /** @param array<string, mixed> $style */
+    protected function writeQrCode(
+        \TCPDF $pdf,
+        string $payload,
+        float $x,
+        float $y,
+        float $size,
+        array $style,
+    ): void {
+        $pdf->write2DBarcode($payload, 'QRCODE,M', $x, $y, $size, $size, $style);
     }
 }

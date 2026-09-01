@@ -17,6 +17,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
+use Modules\Invoices\Services\InvoicePdfViewModelFactory;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
@@ -111,6 +112,16 @@ class KsefSubmissionFollowUpTest extends TestCase
         $this->assertSame(2, $fake->statusCalls);
         $this->assertSame(0, $fake->upoCalls);
         Storage::disk('local')->assertMissing($pdfPath);
+
+        $finalPdf = $this->get(route('invoices.pdf', $invoice->fresh()))
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('https://qr-test.ksef.mf.gov.pl/invoice/', $finalPdf);
+        $this->assertSame(
+            $submission->ksef_number,
+            app(InvoicePdfViewModelFactory::class)->make($invoice->fresh())['ksef']['number'],
+        );
+        Storage::disk('local')->assertExists($pdfPath);
 
         $this->travelTo($submission->next_follow_up_at);
         $this->runJob($submission);

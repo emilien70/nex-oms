@@ -6,6 +6,7 @@
 </head>
 <body>
     @include('invoices.pdf.partials.header')
+    @include('invoices.pdf.partials.ksef-notice')
 
     <table cellpadding="0" cellspacing="0" width="100%">
         <tr>
@@ -21,6 +22,7 @@
                 <table class="meta-table" cellpadding="2" cellspacing="0" width="100%">
                     <tr><td width="42%">Miejsce wystawienia:</td><td width="58%" align="center">{{ $document['place_of_issue'] ?: '-' }}</td></tr>
                     <tr><td>Sposób płatności:</td><td align="center">{{ $document['payment_method'] ?: '-' }}</td></tr>
+                    @include('invoices.pdf.partials.ksef-meta-rows')
                 </table>
             </td>
         </tr>

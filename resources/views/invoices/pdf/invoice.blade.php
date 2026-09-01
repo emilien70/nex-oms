@@ -6,6 +6,7 @@
 </head>
 <body>
     @include('invoices.pdf.partials.header')
+    @include('invoices.pdf.partials.ksef-notice')
 
     <table cellpadding="0" cellspacing="0" width="100%">
         <tr>
@@ -27,11 +28,7 @@
                         <td align="center">{{ $document['payment_method'] ?: '-' }}</td>
                     </tr>
                     <tr><td>Numer zamówienia:</td><td align="center">{{ $document['order_number'] ?: '-' }}</td></tr>
-                    @if ($document['ksef'])
-                        <tr><td>Numer KSeF:</td><td align="center" class="ksef-meta-value">{{ $document['ksef']['number'] }}</td></tr>
-                        <tr><td>Data przetworzenia w KSeF:</td><td align="center">{{ $document['ksef']['processed_at'] ?: '-' }}</td></tr>
-                        <tr><td>Status KSeF:</td><td align="center">{{ $document['ksef']['status'] }}</td></tr>
-                    @endif
+                    @include('invoices.pdf.partials.ksef-meta-rows')
                 </table>
             </td>
         </tr>

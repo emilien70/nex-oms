@@ -14,6 +14,7 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
+use Modules\Invoices\Services\InvoicePdfViewModelFactory;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
@@ -496,6 +497,16 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         $this->assertNull($accepted->safe_error_code);
         $this->assertSame('upo', $accepted->follow_up_action);
         Storage::disk('local')->assertMissing($pdfPath);
+
+        $finalPdf = $this->get(route('invoices.pdf', $correction->fresh()))
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('https://qr-test.ksef.mf.gov.pl/invoice/', $finalPdf);
+        $this->assertSame(
+            $accepted->ksef_number,
+            app(InvoicePdfViewModelFactory::class)->make($correction->fresh())['ksef']['number'],
+        );
+        Storage::disk('local')->assertExists($pdfPath);
         Event::assertNotDispatched(KsefInvoiceAccepted::class);
         $this->assertSame(2, $fake->statusCalls);
     }

@@ -12,6 +12,8 @@
     .section-label { font-weight: bold; }
     .meta-table td { border-bottom: 1px solid #c9c9c9; padding: 3px 4px; }
     .meta-table .ksef-meta-value { font-size: 7.5pt; line-height: 1.25; }
+    .ksef-test-mark { background-color: #fff3cd; border: 1px solid #d39e00; color: #5f4500; font-size: 9pt; font-weight: bold; padding: 5px; text-align: center; }
+    .ksef-preview-warning { background-color: #fff3cd; border: 1px solid #d39e00; color: #4b3900; font-size: 8.5pt; font-weight: bold; padding: 6px; text-align: center; }
     .party-title { border-right: 1px solid #c7c7c7; font-size: 8.5pt; font-weight: normal; padding: 2px 7px 2px 5px; vertical-align: top; }
     .party-details { padding: 2px 5px; vertical-align: top; }
     .items { border-collapse: collapse; width: 100%; }

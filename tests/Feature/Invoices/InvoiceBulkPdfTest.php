@@ -3,6 +3,7 @@
 namespace Tests\Feature\Invoices;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
@@ -12,9 +13,16 @@ use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\InvoiceBulkPdfService;
 use Modules\Invoices\Services\InvoiceIssuingService;
+use Modules\Invoices\Services\InvoicePdfFontResolver;
 use Modules\Invoices\Services\InvoicePdfRenderer;
+use Modules\Invoices\Services\InvoicePdfViewModelFactory;
 use Modules\Invoices\Services\ProformaService;
+use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefSetting;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
+use Tests\Support\KsefUpoFixture;
 use Tests\TestCase;
 
 class InvoiceBulkPdfTest extends TestCase
@@ -257,6 +265,76 @@ class InvoiceBulkPdfTest extends TestCase
         $this->assertSame($invoice->number, $this->pdfMetadataTitle($contents));
     }
 
+    public function test_bulk_invoice_qr_payloads_keep_each_documents_own_date_and_hash(): void
+    {
+        Http::preventStrayRequests();
+        $this->configureKsefEnvironment(KsefEnvironment::Demo);
+        $series = $this->createDocumentSeries();
+        $firstOrder = $this->createDocumentOrder();
+        $this->createDocumentItem($firstOrder);
+        $first = app(InvoiceIssuingService::class)->issue(
+            $firstOrder,
+            $series,
+            $this->documentContext('2026-08-01 10:00:00'),
+        );
+        $secondOrder = $this->createDocumentOrder();
+        $this->createDocumentItem($secondOrder);
+        $second = app(InvoiceIssuingService::class)->issue(
+            $secondOrder,
+            $series,
+            $this->documentContext('2026-08-02 10:00:00'),
+        );
+        $firstPayload = '<Faktura>BULK FIRST</Faktura>';
+        $secondPayload = '<Faktura>BULK SECOND</Faktura>';
+        $this->acceptedSubmission($first, KsefEnvironment::Demo, $firstPayload);
+        $this->acceptedSubmission($second, KsefEnvironment::Demo, $secondPayload);
+        $renderer = $this->recordingRenderer();
+
+        $renderer->renderMany(collect([$second->fresh(), $first->fresh()]), InvoiceDocumentType::Invoice);
+
+        $this->assertSame([
+            $this->verificationUrl($second, KsefEnvironment::Demo, $secondPayload),
+            $this->verificationUrl($first, KsefEnvironment::Demo, $firstPayload),
+        ], $renderer->qrPayloads);
+        Http::assertNothingSent();
+    }
+
+    public function test_bulk_correction_qr_payloads_are_isolated_and_proformas_never_emit_qr(): void
+    {
+        Http::preventStrayRequests();
+        $this->configureKsefEnvironment(KsefEnvironment::Test);
+        $series = InvoiceSeries::query()
+            ->where('system_key', InvoiceSeriesSystemKey::Correction)
+            ->firstOrFail();
+        $first = $this->issueCorrectionForBulkPdf($series, 'Pierwsza Korekta KSeF', '2026-08-05 10:00:00');
+        $second = $this->issueCorrectionForBulkPdf($series, 'Druga Korekta KSeF', '2026-08-06 10:00:00');
+        $firstPayload = '<Faktura>BULK CORRECTION FIRST</Faktura>';
+        $secondPayload = '<Faktura>BULK CORRECTION SECOND</Faktura>';
+        $this->acceptedSubmission($first, KsefEnvironment::Test, $firstPayload);
+        $this->acceptedSubmission($second, KsefEnvironment::Test, $secondPayload);
+        $renderer = $this->recordingRenderer();
+
+        $renderer->renderMany(collect([$first->fresh(), $second->fresh()]), InvoiceDocumentType::Correction);
+
+        $this->assertSame([
+            $this->verificationUrl($first, KsefEnvironment::Test, $firstPayload),
+            $this->verificationUrl($second, KsefEnvironment::Test, $secondPayload),
+        ], $renderer->qrPayloads);
+
+        $proformaOrder = $this->createDocumentOrder();
+        $this->createDocumentItem($proformaOrder);
+        $proforma = app(ProformaService::class)->createOrRefresh(
+            $proformaOrder,
+            $this->createDocumentSeries(InvoiceDocumentType::Proforma),
+            $this->documentContext(),
+        )->invoice;
+        $proformaRenderer = $this->recordingRenderer();
+        $proformaRenderer->renderMany(collect([$proforma]), InvoiceDocumentType::Proforma);
+
+        $this->assertSame([], $proformaRenderer->qrPayloads);
+        Http::assertNothingSent();
+    }
+
     /** @param array<int, mixed> $invoiceIds */
     private function printSelection(array $invoiceIds): string
     {
@@ -312,5 +390,71 @@ class InvoiceBulkPdfTest extends TestCase
             ],
             $this->documentContext($occurredAt),
         );
+    }
+
+    private function configureKsefEnvironment(KsefEnvironment $environment): void
+    {
+        KsefSetting::query()->updateOrCreate(
+            ['singleton_key' => KsefSetting::SINGLETON_KEY],
+            ['environment' => $environment],
+        );
+    }
+
+    private function acceptedSubmission(
+        Invoice $document,
+        KsefEnvironment $environment,
+        string $payload,
+    ): KsefInvoiceSubmission {
+        return KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $document->getKey(),
+            'environment' => $environment,
+            'context_nip' => KsefUpoFixture::CONTEXT_NIP,
+            'seller_nip' => KsefUpoFixture::SELLER_NIP,
+            'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now()->subMinute(),
+            'payload_xml' => $payload,
+            'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
+            'invoice_size' => strlen($payload),
+            'ksef_status_code' => 200,
+            'ksef_number' => KsefUpoFixture::ksefNumber(),
+            'acquisition_date' => '2026-08-24 09:51:15',
+            'last_checked_at' => '2026-08-24 09:51:15',
+        ]);
+    }
+
+    private function verificationUrl(
+        Invoice $document,
+        KsefEnvironment $environment,
+        string $payload,
+    ): string {
+        $hash = rtrim(strtr(base64_encode(hash('sha256', $payload, true)), '+/', '-_'), '=');
+
+        return config('ksef.qr_base_urls.'.$environment->value)
+            .'/invoice/'.KsefUpoFixture::SELLER_NIP
+            .'/'.$document->issue_date->format('d-m-Y')
+            .'/'.$hash;
+    }
+
+    private function recordingRenderer(): InvoicePdfRenderer
+    {
+        return new class(app(InvoicePdfViewModelFactory::class), app(InvoicePdfFontResolver::class)) extends InvoicePdfRenderer
+        {
+            /** @var array<int, string> */
+            public array $qrPayloads = [];
+
+            /** @param array<string, mixed> $style */
+            protected function writeQrCode(
+                \TCPDF $pdf,
+                string $payload,
+                float $x,
+                float $y,
+                float $size,
+                array $style,
+            ): void {
+                $this->qrPayloads[] = $payload;
+            }
+        };
     }
 }
