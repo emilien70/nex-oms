@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Services\KsefFa3CorrectionFinalizationGate;
 use Modules\Ksef\Services\KsefFa3FinalizationGate;
 
 class InvoiceFinalizationService
@@ -14,6 +15,7 @@ class InvoiceFinalizationService
     public function __construct(
         private readonly CorrectionSourceStateService $sourceState,
         private readonly KsefFa3FinalizationGate $ksefGate,
+        private readonly KsefFa3CorrectionFinalizationGate $ksefCorrectionGate,
     ) {}
 
     public function finalize(Invoice $document): Invoice
@@ -72,6 +74,7 @@ class InvoiceFinalizationService
             );
         }
 
+        $this->ksefCorrectionGate->assertCorrectionCanFinalize($managed);
         $managed->finalized_at = now(config('app.timezone'));
         $managed->save();
         $chain->slot->delete();

@@ -9,6 +9,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\OrderDocumentSlot;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefFa3CorrectionRootReferenceType;
@@ -598,6 +599,10 @@ class KsefFa3CorrectionSourceReferenceResolverTest extends TestCase
         Invoice $invoice,
         KsefEnvironment $environment,
     ): KsefInvoiceProvenance {
+        if (! $invoice->isFinalized()) {
+            $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
+        }
+
         return app(KsefInvoiceProvenanceService::class)->markOutsideKsef($invoice, $environment);
     }
 

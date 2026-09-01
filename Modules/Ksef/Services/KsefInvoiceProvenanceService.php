@@ -36,6 +36,14 @@ final class KsefInvoiceProvenanceService
                 );
             }
 
+            if (! $managed->isFinalized()) {
+                throw new InvoiceDomainException(
+                    'ksef_invoice_provenance_document_not_finalized',
+                    'Przed oznaczeniem Faktury jako wystawionej poza KSeF należy ją najpierw zamknąć.',
+                    ['invoice_id' => $managed->getKey()],
+                );
+            }
+
             $submissions = KsefInvoiceSubmission::query()
                 ->where('invoice_id', $managed->getKey())
                 ->where('environment', $environment->value)

@@ -48,6 +48,7 @@ class InvoiceController
         $isInvoiceList = $documentType === InvoiceDocumentType::Invoice;
         $isProformaList = $documentType === InvoiceDocumentType::Proforma;
         $isCorrectionList = $documentType === InvoiceDocumentType::Correction;
+        $showKsefColumn = $isInvoiceList || $isCorrectionList;
         $relations = [
             'series:id,name',
             'order:id',
@@ -67,7 +68,7 @@ class InvoiceController
 
         $perPage = (int) ($filters['per_page'] ?? 25);
         $invoices = $query->paginate($perPage)->withQueryString();
-        $ksefListData = $isInvoiceList
+        $ksefListData = $showKsefColumn
             ? $this->ksefListData($invoices->getCollection())
             : $this->emptyKsefListData();
         $series = InvoiceSeries::query()
@@ -119,6 +120,8 @@ class InvoiceController
             'isInvoiceList' => $isInvoiceList,
             'isProformaList' => $isProformaList,
             'isCorrectionList' => $isCorrectionList,
+            'showKsefColumn' => $showKsefColumn,
+            'tableColumnCount' => 7 + (int) $isInvoiceList + (int) $showKsefColumn,
             'pageTitle' => match ($documentType) {
                 InvoiceDocumentType::Invoice => 'Faktury',
                 InvoiceDocumentType::Proforma => 'Faktury pro forma',

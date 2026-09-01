@@ -17,6 +17,7 @@ use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\InvoiceDeletionPolicy;
 use Modules\Invoices\Services\InvoiceDeletionService;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceNumberingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
@@ -93,6 +94,7 @@ class InvoiceDeletionTest extends TestCase
     {
         foreach (KsefEnvironment::cases() as $environment) {
             [, , $invoice] = $this->issuedInvoice();
+            $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
             $provenance = app(KsefInvoiceProvenanceService::class)
                 ->markOutsideKsef($invoice, $environment);
 
@@ -117,6 +119,7 @@ class InvoiceDeletionTest extends TestCase
     public function test_deletion_policy_blocks_provenance_without_precomputed_facts(): void
     {
         [, , $invoice] = $this->issuedInvoice();
+        $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
         app(KsefInvoiceProvenanceService::class)
             ->markOutsideKsef($invoice, KsefEnvironment::Demo);
 
@@ -612,6 +615,7 @@ class InvoiceDeletionTest extends TestCase
         $series = $this->createDocumentSeries();
         $deletable = $this->issueForNewOrder($series);
         $blocked = $this->issueForNewOrder($series);
+        $blocked = app(InvoiceFinalizationService::class)->finalize($blocked);
         $provenance = app(KsefInvoiceProvenanceService::class)
             ->markOutsideKsef($blocked, KsefEnvironment::Production);
 

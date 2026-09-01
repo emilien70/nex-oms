@@ -48,6 +48,13 @@ class InvoiceEditabilityPolicy
             );
         }
 
+        if ($invoice->ksefProvenances()->exists()) {
+            throw new InvoiceDomainException(
+                'invoice_edit_blocked_by_ksef_provenance',
+                'Nie można edytować Faktury oznaczonej jako wystawiona poza KSeF.',
+            );
+        }
+
         $slot = OrderDocumentSlot::query()
             ->where('order_id', $invoice->order_id)
             ->where('document_type', InvoiceDocumentType::Invoice)

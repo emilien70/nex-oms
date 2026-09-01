@@ -201,6 +201,10 @@ trait CreatesKsefFa3CorrectionScenarios
 
     protected function markKsefOutside(Invoice $invoice, KsefEnvironment $environment): void
     {
+        if (! $invoice->isFinalized()) {
+            $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
+        }
+
         app(KsefInvoiceProvenanceService::class)->markOutsideKsef($invoice, $environment);
     }
 

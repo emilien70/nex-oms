@@ -13,6 +13,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceItem;
 use Modules\Invoices\Services\InvoiceEditService;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -139,6 +140,7 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         Queue::fake();
         $this->allowProductionEnvironment();
         $invoice = $this->issueInvoice(environment: KsefEnvironment::Production);
+        $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
         app(KsefInvoiceProvenanceService::class)
             ->markOutsideKsef($invoice, KsefEnvironment::Production);
 
@@ -152,7 +154,7 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
             );
         }
 
-        $this->assertFalse($invoice->refresh()->isFinalized());
+        $this->assertTrue($invoice->refresh()->isFinalized());
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         $this->assertDatabaseHas('ksef_invoice_provenances', [
             'invoice_id' => $invoice->getKey(),

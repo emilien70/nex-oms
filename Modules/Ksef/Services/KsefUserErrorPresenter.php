@@ -10,6 +10,8 @@ class KsefUserErrorPresenter
 {
     public const OPERATION_SUBMIT_INVOICE = 'submit_invoice';
 
+    public const OPERATION_SUBMIT_CORRECTION = 'submit_correction';
+
     public const OPERATION_RECONCILE = 'reconcile';
 
     public const OPERATION_REFRESH = 'refresh';
@@ -90,6 +92,7 @@ class KsefUserErrorPresenter
     {
         return match ($operation) {
             self::OPERATION_SUBMIT_INVOICE => 'Nie udało się przekazać Faktury do KSeF',
+            self::OPERATION_SUBMIT_CORRECTION => 'Nie udało się przekazać Korekty do KSeF',
             self::OPERATION_RECONCILE => 'Nie udało się sprawdzić transmisji KSeF',
             self::OPERATION_REFRESH => 'Nie udało się odświeżyć statusu KSeF',
             self::OPERATION_FETCH_UPO => 'Nie udało się pobrać UPO z KSeF',
@@ -100,6 +103,14 @@ class KsefUserErrorPresenter
     private function domainStage(string $code): string
     {
         return match (true) {
+            str_starts_with($code, 'ksef_fa3_correction_source_'),
+            str_starts_with($code, 'ksef_fa3_correction_previous_') => 'Dokument korygowany / referencje KSeF',
+            str_starts_with($code, 'ksef_fa3_correction_buyer_') => 'Dane nabywcy Korekty',
+            str_starts_with($code, 'ksef_fa3_correction_seller_') => 'Dane sprzedawcy Korekty',
+            str_starts_with($code, 'ksef_fa3_correction_currency_') => 'Przeliczenie waluty Korekty',
+            str_starts_with($code, 'ksef_fa3_correction_tax_'),
+            str_starts_with($code, 'ksef_fa3_correction_unsupported_vat_') => 'Dane podatkowe Korekty',
+            str_starts_with($code, 'ksef_fa3_correction_annotation') => 'Adnotacje Korekty',
             str_starts_with($code, 'ksef_fa3_seller_') => 'Dane sprzedawcy',
             $code === 'ksef_fa3_buyer_incomplete' => 'Dane nabywcy',
             str_starts_with($code, 'ksef_fa3_buyer_') => 'Dane nabywcy / identyfikacja podatkowa',

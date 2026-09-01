@@ -11,6 +11,8 @@ use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\InvoiceEditabilityPolicy;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
@@ -73,6 +75,35 @@ class KsefInvoiceProvenanceServiceTest extends TestCase
         $this->assertSame($first->getKey(), $second->getKey());
         $this->assertTrue($recordedAt->equalTo($second->recorded_at));
         $this->assertSame(1, KsefInvoiceProvenance::query()->count());
+    }
+
+    public function test_unfinalized_invoice_cannot_be_marked_as_outside_ksef(): void
+    {
+        $invoice = $this->invoice(finalize: false);
+
+        $this->expectDomainError(
+            'ksef_invoice_provenance_document_not_finalized',
+            fn () => $this->mark($invoice, KsefEnvironment::Production),
+        );
+
+        $this->assertDatabaseCount('ksef_invoice_provenances', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_legacy_unfinalized_invoice_with_provenance_is_not_editable(): void
+    {
+        $invoice = $this->invoice(finalize: false);
+        KsefInvoiceProvenance::query()->create([
+            'invoice_id' => $invoice->getKey(),
+            'environment' => KsefEnvironment::Demo,
+            'provenance' => KsefInvoiceProvenanceType::OutsideKsef,
+            'recorded_at' => now(),
+        ]);
+
+        $this->expectDomainError(
+            'invoice_edit_blocked_by_ksef_provenance',
+            fn () => app(InvoiceEditabilityPolicy::class)->assertEditable($invoice),
+        );
     }
 
     #[DataProvider('invalidDocumentProvider')]
@@ -172,7 +203,7 @@ class KsefInvoiceProvenanceServiceTest extends TestCase
         ];
     }
 
-    private function invoice(): Invoice
+    private function invoice(bool $finalize = true): Invoice
     {
         $order = $this->createDocumentOrder([
             'external_id' => 'KSEF-PROVENANCE-'.uniqid(),
@@ -185,11 +216,15 @@ class KsefInvoiceProvenanceServiceTest extends TestCase
             'total_price_gross' => '123.00',
         ]);
 
-        return app(InvoiceIssuingService::class)->issue(
+        $invoice = app(InvoiceIssuingService::class)->issue(
             $order,
             $this->createDocumentSeries(attributes: ['include_shipping' => false]),
             $this->documentContext('2026-08-30 10:00:00'),
         );
+
+        return $finalize
+            ? app(InvoiceFinalizationService::class)->finalize($invoice)
+            : $invoice;
     }
 
     private function submission(

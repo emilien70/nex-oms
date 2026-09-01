@@ -452,9 +452,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_first_attempt_rejects_outside_provenance_and_rolls_back_finalization(): void
+    public function test_first_attempt_rejects_finalized_invoice_with_outside_provenance(): void
     {
         $invoice = $this->eligibleInvoice(finalize: false);
+        $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
         app(KsefInvoiceProvenanceService::class)
             ->markOutsideKsef($invoice, KsefEnvironment::Test);
 
@@ -469,7 +470,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             );
         }
 
-        $this->assertNull($invoice->fresh()->finalized_at);
+        $this->assertNotNull($invoice->fresh()->finalized_at);
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         $this->assertDatabaseHas('ksef_invoice_provenances', [
             'invoice_id' => $invoice->getKey(),
@@ -848,12 +849,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    #[DataProvider('unsupportedDocumentTypes')]
-    public function test_proforma_and_correction_cannot_use_manual_send_route(
-        InvoiceDocumentType $documentType,
-    ): void {
+    public function test_proforma_cannot_use_manual_send_route(): void
+    {
         $invoice = $this->eligibleInvoice();
-        $invoice->forceFill(['document_type' => $documentType])->saveQuietly();
+        $invoice->forceFill(['document_type' => InvoiceDocumentType::Proforma])->saveQuietly();
 
         $this->post(route('invoices.ksef.submissions.store', $invoice))
             ->assertSessionHasErrors('ksef');
@@ -862,14 +861,6 @@ class KsefManualInvoiceSubmissionTest extends TestCase
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
-    }
-
-    public static function unsupportedDocumentTypes(): array
-    {
-        return [
-            'proforma' => [InvoiceDocumentType::Proforma],
-            'correction' => [InvoiceDocumentType::Correction],
-        ];
     }
 
     public function test_submitted_attempt_can_be_refreshed_once_to_processing(): void

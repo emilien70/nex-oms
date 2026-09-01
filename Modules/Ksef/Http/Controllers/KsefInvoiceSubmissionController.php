@@ -16,6 +16,7 @@ use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefInvoiceSourceService;
 use Modules\Ksef\Services\KsefInvoiceStatusFollowUpService;
 use Modules\Ksef\Services\KsefInvoiceUpoService;
+use Modules\Ksef\Services\KsefManualCorrectionSubmissionService;
 use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefUserErrorPresenter;
@@ -31,19 +32,33 @@ class KsefInvoiceSubmissionController extends Controller
     public function firstAttempt(
         Request $request,
         Invoice $invoice,
-        KsefManualInvoiceSubmissionService $manualSubmissions,
+        KsefManualInvoiceSubmissionService $manualInvoices,
+        KsefManualCorrectionSubmissionService $manualCorrections,
         KsefSettingsService $settings,
         KsefInvoiceStatusFollowUpService $statusFollowUp,
     ): RedirectResponse {
         $returnContext = InvoiceReturnContext::fromRequest(
             $request,
-            InvoiceReturnContext::INVOICES,
+            $this->defaultReturnContext($invoice),
         );
         $redirectUrl = $returnContext->url((int) ($invoice->order_id ?? 0));
+        $operation = $this->submitOperation($invoice);
 
         try {
-            $expectedEnvironment = $settings->getExisting()->environment;
-            $submission = $manualSubmissions->submitFirstAttempt($invoice, $expectedEnvironment);
+            $settingsSnapshot = $settings->getExisting();
+            $submission = match (true) {
+                $invoice->isInvoice() => $manualInvoices->submitFirstAttempt(
+                    $invoice,
+                    $settingsSnapshot->environment,
+                    $settingsSnapshot->context_nip,
+                ),
+                $invoice->isCorrection() => $manualCorrections->submitFirstAttempt(
+                    $invoice,
+                    $settingsSnapshot->environment,
+                    $settingsSnapshot->context_nip,
+                ),
+                default => throw $this->unsupportedDocument(),
+            };
             $this->refreshStatusOnce($invoice, $submission, $statusFollowUp);
 
             return redirect($redirectUrl);
@@ -51,7 +66,7 @@ class KsefInvoiceSubmissionController extends Controller
             return $this->errorRedirect(
                 redirect($redirectUrl),
                 $exception,
-                KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE,
+                $operation,
             );
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'first_attempt', $exception);
@@ -59,38 +74,59 @@ class KsefInvoiceSubmissionController extends Controller
             return $this->errorRedirect(
                 redirect($redirectUrl),
                 $exception,
-                KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE,
+                $operation,
             );
         }
     }
 
     public function store(
+        Request $request,
         Invoice $invoice,
-        KsefManualInvoiceSubmissionService $manualSubmissions,
+        KsefManualInvoiceSubmissionService $manualInvoices,
+        KsefManualCorrectionSubmissionService $manualCorrections,
+        KsefSettingsService $settings,
         KsefInvoiceStatusFollowUpService $statusFollowUp,
     ): RedirectResponse {
+        $returnContext = InvoiceReturnContext::fromRequest(
+            $request,
+            $this->defaultReturnContext($invoice),
+        );
+        $redirectUrl = $returnContext->url((int) ($invoice->order_id ?? 0));
+        $operation = $this->submitOperation($invoice);
+        $response = $invoice->isCorrection() ? redirect($redirectUrl) : back();
+
         try {
-            $submission = $manualSubmissions->submit($invoice);
+            $settingsSnapshot = $settings->getExisting();
+            $submission = match (true) {
+                $invoice->isInvoice() => $manualInvoices->submit($invoice),
+                $invoice->isCorrection() => $manualCorrections->submit(
+                    $invoice,
+                    $settingsSnapshot->environment,
+                    $settingsSnapshot->context_nip,
+                ),
+                default => throw $this->unsupportedDocument(),
+            };
             $this->refreshStatusOnce($invoice, $submission, $statusFollowUp);
             $environment = strtoupper($submission->environment->value);
+            $documentName = $invoice->isCorrection() ? 'Korekta' : 'Faktura';
 
-            return back()->with(
+            return $response->with(
                 'success',
-                "Faktura została przekazana do KSeF {$environment}. Sprawdź status, aby potwierdzić przyjęcie.",
+                "{$documentName} została przekazana do KSeF {$environment}. Sprawdź status, aby potwierdzić przyjęcie.",
             );
         } catch (KsefApiException|InvoiceDomainException $exception) {
             return $this->errorRedirect(
-                back(),
+                $response,
                 $exception,
-                KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE,
+                $operation,
             );
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'send', $exception);
 
             return $this->errorRedirect(
-                back(),
+                $response,
                 $exception,
-                KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE,
+                $operation,
             );
         }
     }
@@ -264,6 +300,28 @@ class KsefInvoiceSubmissionController extends Controller
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'post_send_status', $exception, $submission);
         }
+    }
+
+    private function defaultReturnContext(Invoice $document): string
+    {
+        return $document->isCorrection()
+            ? InvoiceReturnContext::CORRECTIONS
+            : InvoiceReturnContext::INVOICES;
+    }
+
+    private function submitOperation(Invoice $document): string
+    {
+        return $document->isCorrection()
+            ? KsefUserErrorPresenter::OPERATION_SUBMIT_CORRECTION
+            : KsefUserErrorPresenter::OPERATION_SUBMIT_INVOICE;
+    }
+
+    private function unsupportedDocument(): KsefApiException
+    {
+        return new KsefApiException(
+            'Do KSeF można przekazać wyłącznie Fakturę VAT albo Korektę.',
+            'ksef_submission_document_type_invalid',
+        );
     }
 
     private function errorRedirect(

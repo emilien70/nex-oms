@@ -55,6 +55,192 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         Http::preventStrayRequests();
     }
 
+    public function test_correction_list_first_attempt_uses_existing_route_and_preserves_return_context(): void
+    {
+        Event::fake([KsefInvoiceAccepted::class]);
+        $this->configure(KsefEnvironment::Test);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, KsefEnvironment::Test);
+        $correction = $this->issueKsefFinancialCorrection($root);
+        $this->validAccessToken(KsefEnvironment::Test);
+        $fake = $this->fakeOnlineApi();
+        $returnQuery = 'page=2&sort=buyer&direction=asc&per_page=50';
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $correction), [
+            'return_to' => 'corrections',
+            'return_query' => $returnQuery,
+        ])->assertRedirect(route('invoices.corrections.index', [
+            'page' => 2,
+            'sort' => 'buyer',
+            'direction' => 'asc',
+            'per_page' => 50,
+        ]));
+
+        $submission = KsefInvoiceSubmission::query()
+            ->where('invoice_id', $correction->getKey())
+            ->sole();
+        $this->assertTrue($correction->fresh()->isFinalized());
+        $this->assertDatabaseMissing('order_document_slots', ['invoice_id' => $correction->getKey()]);
+        $this->assertStringContainsString('<RodzajFaktury>KOR</RodzajFaktury>', $submission->payload_xml);
+        $this->assertSame(1, $fake->sendCalls);
+        Event::assertNotDispatched(KsefInvoiceAccepted::class);
+    }
+
+    public function test_correction_list_first_attempt_returns_structured_error_and_rolls_back_failed_prepare(): void
+    {
+        $this->configure(KsefEnvironment::Test);
+        $root = $this->issueKsefRoot();
+        $correction = $this->issueKsefFinancialCorrection($root);
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $correction), [
+            'return_to' => 'corrections',
+        ])->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHas('ksef_error', fn (array $error): bool => $error['title'] === 'Nie udało się przekazać Korekty do KSeF'
+                && $error['stage'] === 'Dokument korygowany / referencje KSeF'
+                && $error['code'] === 'ksef_fa3_correction_source_ksef_unresolved');
+
+        $this->assertNull($correction->fresh()->finalized_at);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $correction->getKey()]);
+        $this->assertDatabaseMissing('ksef_invoice_submissions', ['invoice_id' => $correction->getKey()]);
+        Http::assertNothingSent();
+    }
+
+    public function test_rejected_correction_route_creates_a_new_attempt_without_mutating_history(): void
+    {
+        $this->configure(KsefEnvironment::Test);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, KsefEnvironment::Test);
+        $correction = $this->finalizeKsefCorrection($this->issueKsefFinancialCorrection($root));
+        $previous = $this->createSubmission(
+            $correction,
+            KsefEnvironment::Test,
+            KsefInvoiceSubmissionStatus::Rejected,
+        );
+        $this->validAccessToken(KsefEnvironment::Test);
+        $fake = $this->fakeOnlineApi();
+
+        $this->post(route('invoices.ksef.submissions.store', $correction), [
+            'return_to' => 'corrections',
+        ])->assertRedirect(route('invoices.corrections.index'));
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Rejected, $previous->fresh()->status);
+        $latest = KsefInvoiceSubmission::query()
+            ->where('invoice_id', $correction->getKey())
+            ->orderByDesc('attempt_number')
+            ->firstOrFail();
+        $this->assertSame(2, $latest->attempt_number);
+        $this->assertSame(1, $fake->sendCalls);
+    }
+
+    public function test_uncertain_correction_cannot_be_retried_through_store_route(): void
+    {
+        $this->configure(KsefEnvironment::Test);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, KsefEnvironment::Test);
+        $correction = $this->finalizeKsefCorrection($this->issueKsefFinancialCorrection($root));
+        $this->createSubmission(
+            $correction,
+            KsefEnvironment::Test,
+            KsefInvoiceSubmissionStatus::Uncertain,
+        );
+
+        $this->post(route('invoices.ksef.submissions.store', $correction), [
+            'return_to' => 'corrections',
+        ])->assertRedirect(route('invoices.corrections.index'))
+            ->assertSessionHas('ksef_error', fn (array $error): bool => $error['code'] === 'ksef_submission_reconciliation_required');
+
+        $this->assertSame(1, KsefInvoiceSubmission::query()
+            ->where('invoice_id', $correction->getKey())
+            ->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_uncertain_correction_reconcile_route_checks_status_without_resend(): void
+    {
+        $this->configure(KsefEnvironment::Test);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, KsefEnvironment::Test);
+        $correction = $this->finalizeKsefCorrection($this->issueKsefFinancialCorrection($root));
+        $submission = $this->createSubmission(
+            $correction,
+            KsefEnvironment::Test,
+            KsefInvoiceSubmissionStatus::Uncertain,
+        );
+        $this->validAccessToken(KsefEnvironment::Test);
+        $fake = $this->fakeOnlineApi();
+        $fake->statusResponse = $this->processingStatus($submission);
+
+        $this->post(route('invoices.ksef.submissions.reconcile', [
+            'invoice' => $correction,
+            'submission' => $submission,
+        ]))->assertSessionHas('success', 'Wynik transmisji KSeF został sprawdzony.');
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->fresh()->status);
+        $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(0, $fake->sendCalls);
+    }
+
+    public function test_accepted_correction_upo_route_stores_valid_upo_and_enforces_ownership(): void
+    {
+        [$correction, $submission] = $this->acceptedCorrectionFixture();
+        $otherRoot = $this->issueKsefRoot();
+        $otherCorrection = $this->issueKsefFinancialCorrection($otherRoot);
+        $this->validAccessToken(KsefEnvironment::Test);
+        $upoXml = $this->upoXml($correction, $submission);
+        Http::fake(['*' => Http::response($upoXml, 200, [
+            'Content-Type' => 'application/xml',
+            'x-ms-meta-hash' => $this->hash($upoXml),
+        ])]);
+
+        $this->post(route('invoices.ksef.submissions.upo.fetch', [
+            'invoice' => $correction,
+            'submission' => $submission,
+        ]))->assertSessionHas('success', 'UPO zostało pobrane i bezpiecznie zapisane.');
+
+        $this->assertDatabaseHas('ksef_invoice_upos', [
+            'ksef_invoice_submission_id' => $submission->getKey(),
+        ]);
+        $this->post(route('invoices.ksef.submissions.upo.fetch', [
+            'invoice' => $otherCorrection,
+            'submission' => $submission,
+        ]))->assertNotFound();
+    }
+
+    public function test_correction_routes_reject_a_submission_owned_by_another_correction(): void
+    {
+        $this->configure(KsefEnvironment::Test);
+        $firstRoot = $this->issueKsefRoot();
+        $this->acceptKsefDocument($firstRoot, KsefEnvironment::Test);
+        $firstCorrection = $this->finalizeKsefCorrection(
+            $this->issueKsefFinancialCorrection($firstRoot),
+        );
+        $secondRoot = $this->issueKsefRoot();
+        $this->acceptKsefDocument($secondRoot, KsefEnvironment::Test);
+        $secondCorrection = $this->finalizeKsefCorrection(
+            $this->issueKsefFinancialCorrection($secondRoot),
+        );
+        $submission = $this->createSubmission(
+            $secondCorrection,
+            KsefEnvironment::Test,
+            KsefInvoiceSubmissionStatus::Uncertain,
+        );
+
+        $this->post(route('invoices.ksef.submissions.refresh', [
+            'invoice' => $firstCorrection,
+            'submission' => $submission,
+        ]))->assertNotFound();
+        $this->post(route('invoices.ksef.submissions.reconcile', [
+            'invoice' => $firstCorrection,
+            'submission' => $submission,
+        ]))->assertNotFound();
+        $this->get(route('invoices.ksef.submissions.invoice.download', [
+            'invoice' => $firstCorrection,
+            'submission' => $submission,
+        ]))->assertNotFound();
+
+        Http::assertNothingSent();
+    }
+
     public function test_first_manual_correction_send_atomically_finalizes_prepares_and_reuses_transport(): void
     {
         $this->allowProductionEnvironment();

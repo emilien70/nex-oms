@@ -180,6 +180,7 @@ class InvoiceListTest extends TestCase
             ->assertSee(route('invoices.destroy', $first), false)
             ->assertDontSee(route('invoices.edit', $first), false)
             ->assertDontSee(route('invoices.ksef.submissions.first-attempt', $first), false)
+            ->assertDontSee('>KSeF</th>', false)
             ->assertDontSee('KOREKTA')
             ->assertSee('ZAZNACZ WSZYSTKO')
             ->assertSee('DRUKUJ ZAZNACZONE')
@@ -479,7 +480,9 @@ class InvoiceListTest extends TestCase
                 'invoice' => $invoice,
                 'return_to' => 'invoices',
             ]), false)
-            ->assertDontSee('data-ksef-list-send-trigger', false)
+            ->assertSee(route('invoices.ksef.submissions.store', $invoice), false)
+            ->assertSee('data-ksef-confirm-question="Czy ponownie przekazać Fakturę do KSeF 2.0?"', false)
+            ->assertSee('>Ponów</button>', false)
             ->assertDontSee('data-ksef-list-upo-trigger', false);
     }
 
@@ -537,7 +540,7 @@ class InvoiceListTest extends TestCase
             ->assertSee('data-ksef-list-send-modal', false)
             ->assertSee('class="modal-dialog invoice-ksef-confirm-dialog"', false)
             ->assertDontSee('modal-dialog-centered')
-            ->assertSee('Czy przekazać fakturę do KSeF 2.0?')
+            ->assertSee('data-ksef-confirm-question="Czy przekazać Fakturę do KSeF 2.0?"', false)
             ->assertSee('data-ksef-list-send-confirm', false)
             ->assertSee('>Tak</button>', false)
             ->assertSee('>Anuluj</button>', false)

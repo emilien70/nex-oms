@@ -94,6 +94,29 @@ class KsefUserErrorPresenterTest extends TestCase
         $this->assertStringNotContainsString('9182', json_encode($error, JSON_THROW_ON_ERROR));
     }
 
+    public function test_it_presents_correction_errors_with_document_aware_title_and_stages(): void
+    {
+        $cases = [
+            'ksef_fa3_correction_source_ksef_unresolved' => 'Dokument korygowany / referencje KSeF',
+            'ksef_fa3_correction_buyer_snapshot_invalid' => 'Dane nabywcy Korekty',
+            'ksef_fa3_correction_seller_mismatch' => 'Dane sprzedawcy Korekty',
+            'ksef_fa3_correction_currency_snapshot_missing' => 'Przeliczenie waluty Korekty',
+            'ksef_fa3_correction_unsupported_vat_rate' => 'Dane podatkowe Korekty',
+            'ksef_fa3_correction_annotations_unresolved' => 'Adnotacje Korekty',
+        ];
+
+        foreach ($cases as $code => $stage) {
+            $error = $this->presenter()->present(
+                new InvoiceDomainException($code, 'Bezpieczny komunikat Korekty.'),
+                KsefUserErrorPresenter::OPERATION_SUBMIT_CORRECTION,
+            );
+
+            $this->assertSame('Nie udało się przekazać Korekty do KSeF', $error['title']);
+            $this->assertSame($stage, $error['stage']);
+            $this->assertSame($code, $error['code']);
+        }
+    }
+
     public function test_it_presents_only_classified_ksef_api_diagnostics(): void
     {
         $error = $this->presenter()->present(

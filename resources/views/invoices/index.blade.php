@@ -567,6 +567,8 @@
                         <col style="width: 105px;">
                         @if ($isInvoiceList)
                             <col style="width: 105px;">
+                        @endif
+                        @if ($showKsefColumn)
                             <col style="width: 120px;">
                         @endif
                         <col style="width: 128px;">
@@ -581,6 +583,8 @@
                             <th class="text-end">Data</th>
                             @if ($isInvoiceList)
                                 <th class="text-center">Korekta</th>
+                            @endif
+                            @if ($showKsefColumn)
                                 <th class="text-center">KSeF</th>
                             @endif
                             <th class="text-end">Akcje</th>
@@ -602,10 +606,10 @@
                                 $currentCorrection = $isInvoiceList
                                     ? $invoice->corrections->first(fn ($correction) => ! $correction->isFinalized())
                                     : null;
-                                $currentKsefSubmission = $isInvoiceList
+                                $currentKsefSubmission = $showKsefColumn
                                     ? $currentKsefSubmissions->get($invoice->getKey())
                                     : null;
-                                $ksefListDocumentReady = $invoice->isInvoice()
+                                $ksefListDocumentReady = ($invoice->isInvoice() || $invoice->isCorrection())
                                     && $invoice->isIssued()
                                     && is_string($invoice->number)
                                     && trim($invoice->number) !== ''
@@ -613,11 +617,19 @@
                                     && is_string($invoice->numbering_period_key)
                                     && trim($invoice->numbering_period_key) !== ''
                                     && $invoice->series !== null;
-                                $ksefListCanSend = $isInvoiceList
+                                $ksefListCanSend = $showKsefColumn
                                     && $currentKsefSubmission === null
                                     && $ksefListDocumentReady
                                     && $ksefListSendConfigured
                                     && in_array((int) $invoice->invoice_series_id, $ksefEnabledSeriesIds, true);
+                                $ksefListCanRetry = $showKsefColumn
+                                    && $currentKsefSubmission?->status->allowsNewAttempt() === true
+                                    && $invoice->isFinalized()
+                                    && $ksefListDocumentReady
+                                    && $ksefListSendConfigured
+                                    && in_array((int) $invoice->invoice_series_id, $ksefEnabledSeriesIds, true);
+                                $ksefDocumentLabel = $invoice->isCorrection() ? 'Korekta' : 'Faktura';
+                                $ksefDocumentObjectLabel = $invoice->isCorrection() ? 'Korektę' : 'Fakturę';
                                 $documentEditRouteParameters = match (true) {
                                     $isCorrectionList => ['correction' => $invoice, ...$returnContext->parameters()],
                                     $isInvoiceList => ['invoice' => $invoice, ...$returnContext->parameters()],
@@ -649,6 +661,8 @@
                                             <button class="invoice-correction-button" type="button" data-bs-toggle="modal" data-bs-target="#invoiceListCorrectionSeriesModal" data-correction-url="{{ route('invoices.corrections.create', $invoice) }}">KOREKTA</button>
                                         @endif
                                     </td>
+                                @endif
+                                @if ($showKsefColumn)
                                     <td class="text-center">
                                         <div class="invoice-ksef-list-cell">
                                             @if ($currentKsefSubmission)
@@ -657,15 +671,31 @@
                                                         $ksefAcceptedAt = $currentKsefSubmission->acquisition_date?->format('d.m.Y H:i:s') ?? '—';
                                                         $ksefAcceptedNumber = trim((string) $currentKsefSubmission->ksef_number) ?: '—';
                                                         $ksefAcceptedTooltip = $currentKsefSubmission->upo
-                                                            ? "Faktura została zautoryzowana przez KSeF dnia {$ksefAcceptedAt} pod numerem {$ksefAcceptedNumber}"
-                                                            : 'Faktura została przyjęta. NEX automatycznie oczekuje na UPO. Kliknij, aby spróbować pobrać teraz.';
+                                                            ? "{$ksefDocumentLabel} została zautoryzowana przez KSeF dnia {$ksefAcceptedAt} pod numerem {$ksefAcceptedNumber}"
+                                                            : "{$ksefDocumentLabel} została przyjęta. NEX automatycznie oczekuje na UPO. Kliknij, aby spróbować pobrać teraz.";
                                                     @endphp
                                                     <form method="POST" action="{{ route('invoices.ksef.submissions.upo.fetch', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-upo-form>
                                                         @csrf
                                                         <input type="hidden" name="download" value="1">
+                                                        <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                                                        <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
                                                         <button class="badge text-bg-success invoice-ksef-list-upo" type="submit" data-ksef-list-upo-trigger data-ksef-upo-pdf-generator-src="{{ asset('vendor/ksef-pdf-generator/1.1.31/ksef-fe-invoice-converter.umd.js') }}" data-ksef-upo-pdf-filename="UPO_{{ preg_replace('/[^A-Za-z0-9_-]+/', '_', $ksefAcceptedNumber) }}.pdf" data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefAcceptedTooltip }}" title="{{ $ksefAcceptedTooltip }}">{{ $currentKsefSubmission->status->label() }}</button>
                                                     </form>
-                                                @elseif ($currentKsefSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected)
+                                                @elseif ($currentKsefSubmission->status->allowsStatusRefresh())
+                                                    <form method="POST" action="{{ route('invoices.ksef.submissions.refresh', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-refresh-form>
+                                                        @csrf
+                                                        <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                                                        <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+                                                        <button class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }} invoice-ksef-list-refresh" type="submit" data-ksef-list-refresh-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Status jest sprawdzany automatycznie. Kliknij, aby sprawdzić teraz." title="Status jest sprawdzany automatycznie. Kliknij, aby sprawdzić teraz." aria-label="Sprawdź status {{ $ksefDocumentLabel }} {{ $invoice->number }} w KSeF">{{ $currentKsefSubmission->status->label() }}</button>
+                                                    </form>
+                                                @elseif ($currentKsefSubmission->status->requiresReconciliation())
+                                                    <form method="POST" action="{{ route('invoices.ksef.submissions.reconcile', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-reconcile-form>
+                                                        @csrf
+                                                        <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                                                        <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+                                                        <button class="badge text-bg-warning invoice-ksef-list-refresh" type="submit" data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Nie można potwierdzić wyniku wysyłki. Kliknij, aby ustalić wynik bez ponownego wysyłania dokumentu." title="Nie można potwierdzić wyniku wysyłki. Kliknij, aby ustalić wynik bez ponownego wysyłania dokumentu." aria-label="Ustal wynik transmisji {{ $ksefDocumentLabel }} {{ $invoice->number }} w KSeF">Stan niepewny</button>
+                                                    </form>
+                                                @elseif (in_array($currentKsefSubmission->status, [\Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected, \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::TechnicalFailed], true))
                                                     @php
                                                         $ksefRejectedResult = $currentKsefSubmission->ksef_status_code !== null
                                                             ? 'Kod KSeF: '.$currentKsefSubmission->ksef_status_code
@@ -677,25 +707,30 @@
 
                                                         $ksefRejectedResult = $ksefRejectedResult !== '' ? $ksefRejectedResult : '—';
                                                     @endphp
-                                                    <a class="badge text-bg-danger invoice-ksef-list-rejected" href="{{ route('invoices.edit', $documentEditRouteParameters) }}" data-ksef-list-rejected-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefRejectedResult }}" title="{{ $ksefRejectedResult }}" aria-label="Otwórz odrzuconą Fakturę {{ $invoice->number }}">Odrzucona</a>
-                                                @elseif ($currentKsefSubmission->status->allowsStatusRefresh())
-                                                    <form method="POST" action="{{ route('invoices.ksef.submissions.refresh', ['invoice' => $invoice, 'submission' => $currentKsefSubmission]) }}" data-ksef-list-refresh-form>
-                                                        @csrf
-                                                        <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
-                                                        <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
-                                                        <button class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }} invoice-ksef-list-refresh" type="submit" data-ksef-list-refresh-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Status jest sprawdzany automatycznie. Kliknij, aby sprawdzić teraz." title="Status jest sprawdzany automatycznie. Kliknij, aby sprawdzić teraz." aria-label="Sprawdź status Faktury {{ $invoice->number }} w KSeF">{{ $currentKsefSubmission->status->label() }}</button>
-                                                    </form>
+                                                    @if ($documentEditRouteName !== null)
+                                                        <a class="badge text-bg-danger invoice-ksef-list-rejected" href="{{ route($documentEditRouteName, $documentEditRouteParameters) }}" data-ksef-list-rejected-trigger data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefRejectedResult }}" title="{{ $ksefRejectedResult }}" aria-label="Otwórz {{ $ksefDocumentLabel }} {{ $invoice->number }}">{{ $currentKsefSubmission->status->label() }}</a>
+                                                    @else
+                                                        <span class="badge text-bg-danger" data-ksef-status-tooltip data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ $ksefRejectedResult }}" title="{{ $ksefRejectedResult }}">{{ $currentKsefSubmission->status->label() }}</span>
+                                                    @endif
                                                 @else
                                                     <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-list-status>
                                                         {{ $currentKsefSubmission->status->label() }}
                                                     </span>
                                                 @endif
+                                                @if ($ksefListCanRetry)
+                                                    <form method="POST" action="{{ route('invoices.ksef.submissions.store', $invoice) }}" data-ksef-list-send-form data-ksef-confirm-question="Czy ponownie przekazać {{ $ksefDocumentObjectLabel }} do KSeF 2.0?">
+                                                        @csrf
+                                                        <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                                                        <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+                                                        <button class="badge text-bg-secondary invoice-ksef-list-send" type="submit" data-ksef-list-send-trigger data-ksef-status-tooltip data-bs-toggle="modal" data-bs-target="#invoiceKsefSendConfirmationModal" data-bs-placement="top" data-bs-title="Utwórz nową próbę przekazania do KSeF" title="Utwórz nową próbę przekazania do KSeF" aria-label="Ponów przekazanie {{ $ksefDocumentLabel }} {{ $invoice->number }} do KSeF">Ponów</button>
+                                                    </form>
+                                                @endif
                                             @elseif ($ksefListCanSend)
-                                                <form method="POST" action="{{ route('invoices.ksef.submissions.first-attempt', $invoice) }}" data-ksef-list-send-form>
+                                                <form method="POST" action="{{ route('invoices.ksef.submissions.first-attempt', $invoice) }}" data-ksef-list-send-form data-ksef-confirm-question="Czy przekazać {{ $ksefDocumentObjectLabel }} do KSeF 2.0?">
                                                     @csrf
                                                     <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
                                                     <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
-                                                    <button class="badge text-bg-secondary invoice-ksef-list-send" type="submit" data-ksef-list-send-trigger data-ksef-status-tooltip data-bs-toggle="modal" data-bs-target="#invoiceKsefSendConfirmationModal" data-bs-placement="top" data-bs-title="Faktura nieprzekazana - przekaż do KSeF" title="Faktura nieprzekazana - przekaż do KSeF" aria-label="Faktura {{ $invoice->number }} nieprzekazana - przekaż do KSeF">Nie wysłano</button>
+                                                    <button class="badge text-bg-secondary invoice-ksef-list-send" type="submit" data-ksef-list-send-trigger data-ksef-status-tooltip data-bs-toggle="modal" data-bs-target="#invoiceKsefSendConfirmationModal" data-bs-placement="top" data-bs-title="{{ $ksefDocumentLabel }} nieprzekazana - przekaż do KSeF" title="{{ $ksefDocumentLabel }} nieprzekazana - przekaż do KSeF" aria-label="{{ $ksefDocumentLabel }} {{ $invoice->number }} nieprzekazana - przekaż do KSeF">Nie wysłano</button>
                                                 </form>
                                             @else
                                                 <span class="badge text-bg-secondary" data-ksef-list-status>Nie wysłano</span>
@@ -721,7 +756,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td class="invoice-empty" colspan="{{ $isInvoiceList ? 9 : 7 }}">Nie znaleziono {{ $documentNamePlural }} spełniających wybrane kryteria.</td></tr>
+                            <tr><td class="invoice-empty" colspan="{{ $tableColumnCount }}">Nie znaleziono {{ $documentNamePlural }} spełniających wybrane kryteria.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -793,12 +828,15 @@
             'returnContext' => $returnContext,
         ])
 
+    @endif
+
+    @if ($showKsefColumn)
         <div class="modal fade" id="invoiceKsefSendConfirmationModal" tabindex="-1" aria-labelledby="invoiceKsefSendConfirmationQuestion" aria-hidden="true" data-ksef-list-send-modal>
             <div class="modal-dialog invoice-ksef-confirm-dialog">
                 <div class="modal-content invoice-ksef-confirm-content">
                     <div class="modal-body invoice-ksef-confirm-body">
                         <i class="bi bi-exclamation-triangle invoice-ksef-confirm-icon" aria-hidden="true"></i>
-                        <h2 class="invoice-ksef-confirm-question" id="invoiceKsefSendConfirmationQuestion">Czy przekazać fakturę do KSeF 2.0?</h2>
+                        <h2 class="invoice-ksef-confirm-question" id="invoiceKsefSendConfirmationQuestion" data-ksef-list-send-question>Czy przekazać dokument do KSeF 2.0?</h2>
                         <div class="invoice-ksef-confirm-actions">
                             <button class="btn invoice-ksef-confirm-accept" type="button" data-ksef-list-send-confirm>Tak</button>
                             <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Anuluj</button>
@@ -834,12 +872,16 @@
 
             const ksefSendModalElement = document.querySelector('[data-ksef-list-send-modal]');
             const ksefSendConfirmButton = document.querySelector('[data-ksef-list-send-confirm]');
+            const ksefSendQuestion = document.querySelector('[data-ksef-list-send-question]');
             let pendingKsefSendForm = null;
 
             document.querySelectorAll('[data-ksef-list-send-form]').forEach((form) => {
                 form.addEventListener('submit', (event) => {
                     event.preventDefault();
                     pendingKsefSendForm = form;
+                    if (ksefSendQuestion && form.dataset.ksefConfirmQuestion) {
+                        ksefSendQuestion.textContent = form.dataset.ksefConfirmQuestion;
+                    }
                 });
             });
 

@@ -207,7 +207,7 @@ class KsefInvoiceUpoTest extends TestCase
             && str_contains($request->url(), '/sessions/'.rawurlencode(KsefUpoFixture::SESSION_REFERENCE).'/invoices/ksef/'));
     }
 
-    public function test_production_fetch_is_blocked_before_http_and_non_invoice_is_rejected(): void
+    public function test_production_fetch_is_blocked_before_http_and_proforma_is_rejected(): void
     {
         $invoice = $this->eligibleInvoice(KsefEnvironment::Production);
         $production = $this->acceptedSubmission($invoice, [
@@ -223,16 +223,14 @@ class KsefInvoiceUpoTest extends TestCase
 
         Http::assertNothingSent();
 
-        foreach ([InvoiceDocumentType::Proforma, InvoiceDocumentType::Correction] as $type) {
-            $document = $this->eligibleInvoice();
-            $document->forceFill(['document_type' => $type])->save();
-            $submission = $this->acceptedSubmission($document);
+        $document = $this->eligibleInvoice();
+        $document->forceFill(['document_type' => InvoiceDocumentType::Proforma])->save();
+        $submission = $this->acceptedSubmission($document);
 
-            $this->post(route('invoices.ksef.submissions.upo.fetch', [
-                'invoice' => $document,
-                'submission' => $submission,
-            ]))->assertSessionHasErrors('ksef');
-        }
+        $this->post(route('invoices.ksef.submissions.upo.fetch', [
+            'invoice' => $document,
+            'submission' => $submission,
+        ]))->assertSessionHasErrors('ksef');
 
         $this->assertDatabaseCount('ksef_invoice_upos', 0);
         Http::assertNothingSent();

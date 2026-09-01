@@ -815,6 +815,10 @@ class KsefFa3CorrectionEligibilityValidatorTest extends TestCase
 
     private function markOutside(Invoice $invoice, KsefEnvironment $environment): void
     {
+        if (! $invoice->isFinalized()) {
+            $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
+        }
+
         app(KsefInvoiceProvenanceService::class)->markOutsideKsef($invoice, $environment);
     }
 
