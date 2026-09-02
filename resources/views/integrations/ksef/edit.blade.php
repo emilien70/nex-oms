@@ -565,6 +565,9 @@
                                             <th scope="col">Ważność</th>
                                             <th scope="col">Fingerprint SHA-256</th>
                                             <th scope="col">Preferowany</th>
+                                            <th scope="col">Status KSeF</th>
+                                            <th scope="col">Ostatnia weryfikacja</th>
+                                            <th scope="col">Gotowy do Offline</th>
                                             <th scope="col">Akcje</th>
                                         </tr>
                                     </thead>
@@ -578,8 +581,29 @@
                                                 <td>{{ $certificate->valid_from->format('d.m.Y') }} – {{ $certificate->valid_until->format('d.m.Y') }}</td>
                                                 <td class="ksef-offline-fingerprint">{{ $certificate->fingerprintForDisplay() }}</td>
                                                 <td>{{ $certificate->preferredSelection === null ? 'Nie' : 'Tak' }}</td>
+                                                <td data-ksef-offline-remote-status="{{ $certificate->remote_status ?? 'unverified' }}">
+                                                    {{ $certificate->remoteStatusLabel() }}
+                                                    @if ($certificate->remote_valid_until !== null)
+                                                        <div class="ksef-help">Ważny w KSeF do {{ $certificate->remote_valid_until->format('d.m.Y H:i:s') }}</div>
+                                                    @endif
+                                                </td>
+                                                <td data-ksef-offline-verified-at>
+                                                    {{ $certificate->remote_verified_at?->format('d.m.Y H:i:s') ?? 'Brak' }}
+                                                </td>
+                                                <td data-ksef-offline-ready>
+                                                    {{ ($offlineCertificateReadinessById[$certificate->getKey()] ?? false) ? 'Tak' : 'Nie' }}
+                                                </td>
                                                 <td>
                                                     <div class="ksef-offline-actions">
+                                                        <form method="POST" action="{{ route('integrations.ksef.offline-certificates.verify', $certificate) }}" data-ksef-offline-verify-form>
+                                                            @csrf
+                                                            <button
+                                                                class="btn btn-sm btn-outline-secondary"
+                                                                type="submit"
+                                                                @disabled($certificate->environment->value === 'production')
+                                                                @if ($certificate->environment->value === 'production') title="Zdalna weryfikacja Production nie została jeszcze odblokowana." @endif
+                                                            >Sprawdź w KSeF</button>
+                                                        </form>
                                                         @if ($certificate->preferredSelection === null)
                                                             <form method="POST" action="{{ route('integrations.ksef.offline-certificates.prefer', $certificate) }}">
                                                                 @csrf

@@ -5,10 +5,13 @@ namespace Modules\Ksef\Http\Controllers;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\RedirectResponse;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Http\Requests\PreferKsefOfflineCertificateRequest;
 use Modules\Ksef\Http\Requests\StoreKsefOfflineCertificateRequest;
 use Modules\Ksef\Models\KsefOfflineCertificate;
+use Modules\Ksef\Services\KsefOfflineCertificateRemoteVerificationService;
 use Modules\Ksef\Services\KsefOfflineCertificateService;
+use Throwable;
 
 class KsefOfflineCertificateController extends Controller
 {
@@ -57,5 +60,28 @@ class KsefOfflineCertificateController extends Controller
         return redirect()
             ->route('integrations.ksef.edit', ['tab' => 'offline-certificates'])
             ->with('status', 'Lokalny certyfikat Offline został usunięty. Certyfikat nie został unieważniony w KSeF.');
+    }
+
+    public function verify(
+        KsefOfflineCertificate $offlineCertificate,
+        KsefOfflineCertificateRemoteVerificationService $verification,
+    ): RedirectResponse {
+        try {
+            $verification->verify($offlineCertificate);
+        } catch (KsefApiException $exception) {
+            return redirect()
+                ->route('integrations.ksef.edit', ['tab' => 'offline-certificates'])
+                ->withErrors(['offline_certificate_remote' => $exception->getMessage()]);
+        } catch (Throwable) {
+            return redirect()
+                ->route('integrations.ksef.edit', ['tab' => 'offline-certificates'])
+                ->withErrors([
+                    'offline_certificate_remote' => 'Nie udało się bezpiecznie sprawdzić certyfikatu Offline w KSeF.',
+                ]);
+        }
+
+        return redirect()
+            ->route('integrations.ksef.edit', ['tab' => 'offline-certificates'])
+            ->with('status', 'Certyfikat Offline został sprawdzony w KSeF.');
     }
 }

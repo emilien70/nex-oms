@@ -72,6 +72,7 @@ Route::post('/integrations/ksef/export', KsefMonthlyInvoiceExportController::cla
 Route::put('/integrations/ksef/series', [KsefSeriesSettingsController::class, 'update'])->name('integrations.ksef.series.update');
 Route::put('/integrations/ksef/payment-types', [KsefPaymentTypeSettingsController::class, 'update'])->name('integrations.ksef.payment-types.update');
 Route::post('/integrations/ksef/offline-certificates', [KsefOfflineCertificateController::class, 'store'])->name('integrations.ksef.offline-certificates.store');
+Route::post('/integrations/ksef/offline-certificates/{offlineCertificate}/verify', [KsefOfflineCertificateController::class, 'verify'])->name('integrations.ksef.offline-certificates.verify');
 Route::put('/integrations/ksef/offline-certificates/{offlineCertificate}/preferred', [KsefOfflineCertificateController::class, 'prefer'])->name('integrations.ksef.offline-certificates.prefer');
 Route::delete('/integrations/ksef/offline-certificates/{offlineCertificate}', [KsefOfflineCertificateController::class, 'destroy'])->name('integrations.ksef.offline-certificates.destroy');
 Route::get('/integrations/couriers', [CourierIntegrationController::class, 'index'])->name('integrations.couriers.index');

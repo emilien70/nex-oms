@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefOfflineCertificateKeyType;
+use Modules\Ksef\Enums\KsefOfflineCertificateRemoteStatus;
 
 class KsefOfflineCertificate extends Model
 {
@@ -21,6 +22,11 @@ class KsefOfflineCertificate extends Model
         'key_type',
         'key_size',
         'curve',
+        'remote_status',
+        'remote_certificate_name',
+        'remote_valid_from',
+        'remote_valid_until',
+        'remote_verified_at',
     ];
 
     protected $hidden = [
@@ -34,6 +40,9 @@ class KsefOfflineCertificate extends Model
         'private_key_pem' => 'encrypted',
         'valid_from' => 'immutable_datetime',
         'valid_until' => 'immutable_datetime',
+        'remote_valid_from' => 'immutable_datetime',
+        'remote_valid_until' => 'immutable_datetime',
+        'remote_verified_at' => 'immutable_datetime',
         'key_type' => KsefOfflineCertificateKeyType::class,
         'key_size' => 'integer',
     ];
@@ -46,5 +55,15 @@ class KsefOfflineCertificate extends Model
     public function fingerprintForDisplay(): string
     {
         return implode(':', str_split($this->fingerprint_sha256, 2));
+    }
+
+    public function remoteStatusLabel(): string
+    {
+        if ($this->remote_status === null) {
+            return 'Niezweryfikowany';
+        }
+
+        return KsefOfflineCertificateRemoteStatus::tryFrom($this->remote_status)?->label()
+            ?? 'Nieznany status KSeF';
     }
 }

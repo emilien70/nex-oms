@@ -13,6 +13,7 @@ use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Http\Requests\UpdateKsefSettingsRequest;
 use Modules\Ksef\Services\KsefCertificateMaterialService;
 use Modules\Ksef\Services\KsefMonthlyExportPeriod;
+use Modules\Ksef\Services\KsefOfflineCertificateReadinessService;
 use Modules\Ksef\Services\KsefOfflineCertificateService;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Modules\Ksef\Services\KsefPaymentMethodMappingService;
@@ -27,6 +28,7 @@ class KsefSettingsController extends Controller
         KsefMonthlyExportPeriod $exportPeriods,
         KsefOperationalEnvironmentPolicy $operationalEnvironments,
         KsefOfflineCertificateService $offlineCertificates,
+        KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
     ): View {
         $activeTab = match ($request->query('tab')) {
             'export' => 'export',
@@ -36,6 +38,9 @@ class KsefSettingsController extends Controller
             default => 'connection',
         };
         $settings = $settingsService->get();
+        $offlineCertificateRows = $activeTab === 'offline-certificates'
+            ? $offlineCertificates->forConfiguration()
+            : collect();
 
         return view('integrations.ksef.edit', [
             'settings' => $settings,
@@ -55,9 +60,11 @@ class KsefSettingsController extends Controller
             'monthlyExportPeriods' => $exportPeriods->options(),
             'monthlyExportGateEnabled' => config('ksef.invoice_submission_enabled') === true,
             'monthlyExportEnvironmentAllowed' => $operationalEnvironments->allows($settings->environment),
-            'offlineCertificates' => $activeTab === 'offline-certificates'
-                ? $offlineCertificates->forConfiguration()
-                : collect(),
+            'offlineCertificates' => $offlineCertificateRows,
+            'offlineCertificateReadinessById' => $offlineCertificateRows
+                ->mapWithKeys(fn ($certificate): array => [
+                    $certificate->getKey() => $offlineCertificateReadiness->isReady($certificate),
+                ]),
             'activeTab' => $activeTab,
         ]);
     }

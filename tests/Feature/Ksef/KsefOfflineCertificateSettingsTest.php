@@ -46,6 +46,11 @@ class KsefOfflineCertificateSettingsTest extends TestCase
             'key_type',
             'key_size',
             'curve',
+            'remote_status',
+            'remote_certificate_name',
+            'remote_valid_from',
+            'remote_valid_until',
+            'remote_verified_at',
         ]));
         $this->assertTrue(Schema::hasColumns('ksef_offline_certificate_selections', [
             'environment',
