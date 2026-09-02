@@ -13,6 +13,7 @@ final class KsefOfflineCertificateService
 {
     public function __construct(
         private readonly KsefOfflineCertificateMaterialService $materialService,
+        private readonly KsefInstantStorageNormalizer $instantStorage,
     ) {}
 
     public function import(
@@ -47,8 +48,8 @@ final class KsefOfflineCertificateService
                 'label' => $label,
                 'certificate_pem' => $material->certificatePem,
                 'private_key_pem' => $material->privateKeyPem,
-                'valid_from' => $material->validFrom,
-                'valid_until' => $material->validUntil,
+                'valid_from' => $this->instantStorage->forStorage($material->validFrom),
+                'valid_until' => $this->instantStorage->forStorage($material->validUntil),
                 'fingerprint_sha256' => $material->fingerprintSha256,
                 'key_type' => $material->keyType,
                 'key_size' => $material->keySize,
