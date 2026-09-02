@@ -4,7 +4,6 @@ namespace Tests\Feature\Ksef;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -296,9 +295,9 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         $this->seedCachedToken(KsefEnvironment::Test);
         $verifiedAt = $this->trustSnapshot($certificate);
 
-        Http::fake(function () use ($case) {
+        Http::fake(function (Request $request) use ($case) {
             return match ($case) {
-                'network' => throw new ConnectionException('FAKE NETWORK FAILURE'),
+                'network' => (Http::failedConnection('FAKE NETWORK FAILURE'))($request),
                 'rate_limit' => Http::response([], 429, ['Retry-After' => '30']),
                 'server_error' => Http::response([], 503),
                 'malformed_json' => Http::response('NOT JSON', 200, ['Content-Type' => 'application/json']),
@@ -313,7 +312,7 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         $this->assertSame($verifiedAt->getTimestamp(), $certificate->remote_verified_at->getTimestamp());
         $this->assertNotNull($certificate->remote_valid_from);
         $this->assertNotNull($certificate->remote_valid_until);
-        Http::assertSentCount($case === 'network' ? 0 : 1);
+        Http::assertSentCount(1);
     }
 
     public static function transientFailures(): array
@@ -324,6 +323,185 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
             'server error' => ['server_error'],
             'malformed JSON' => ['malformed_json'],
             'malformed response schema' => ['malformed_schema'],
+        ];
+    }
+
+    #[DataProvider('unsafeQueryRetrieveFailures')]
+    public function test_unsafe_exact_query_degrades_old_trust_before_retrieve_failure(
+        string $status,
+        int $validFromDays,
+        int $validUntilDays,
+        string $failure,
+    ): void {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $certificate = $this->importCertificate($fixture);
+        $this->seedCachedToken(KsefEnvironment::Test);
+        $this->trustSnapshot($certificate);
+        $this->assertTrue(app(KsefOfflineCertificateReadinessService::class)->isReady($certificate->fresh()));
+        $now = CarbonImmutable::now('UTC')->startOfSecond();
+        $validFrom = $now->addDays($validFromDays);
+        $validUntil = $now->addDays($validUntilDays);
+        $query = [
+            'certificates' => [$this->queryItem(
+                $certificate,
+                $status,
+                $validFrom->format('Y-m-d\TH:i:s\Z'),
+                $validUntil->format('Y-m-d\TH:i:s\Z'),
+            )],
+            'hasMore' => false,
+        ];
+        $this->fakeQueryThenRetrieveFailure($query, $failure);
+
+        $this->expectSafeVerificationFailure($certificate);
+
+        $certificate->refresh();
+        $this->assertSame($status, $certificate->remote_status);
+        $this->assertSame('Certyfikat Offline MF', $certificate->remote_certificate_name);
+        $this->assertSame($validFrom->getTimestamp(), $certificate->remote_valid_from->getTimestamp());
+        $this->assertSame($validUntil->getTimestamp(), $certificate->remote_valid_until->getTimestamp());
+        $this->assertNull($certificate->remote_verified_at);
+        $this->assertFalse(app(KsefOfflineCertificateReadinessService::class)->isReady($certificate));
+        Http::assertSentCount(2);
+
+        if ($status === 'Revoked' && $failure === 'server_error') {
+            $this->get(route('integrations.ksef.edit', ['tab' => 'offline-certificates']))
+                ->assertOk()
+                ->assertSeeText('Unieważniony')
+                ->assertSeeText('Brak')
+                ->assertSee('data-ksef-offline-ready', false);
+        }
+    }
+
+    public static function unsafeQueryRetrieveFailures(): array
+    {
+        return [
+            'revoked and retrieve 503' => ['Revoked', -1, 1, 'server_error'],
+            'blocked and retrieve 429' => ['Blocked', -1, 1, 'rate_limit'],
+            'expired and retrieve network error' => ['Expired', -1, 1, 'network'],
+            'unknown and retrieve 503' => ['Suspended', -1, 1, 'server_error'],
+            'active but remotely expired and retrieve 503' => ['Active', -2, -1, 'server_error'],
+            'active but not yet remotely valid and retrieve 429' => ['Active', 1, 2, 'rate_limit'],
+            'revoked and malformed retrieve' => ['Revoked', -1, 1, 'malformed_schema'],
+        ];
+    }
+
+    public function test_safe_active_query_and_transient_retrieve_preserve_old_trust(): void
+    {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $certificate = $this->importCertificate($fixture);
+        $this->seedCachedToken(KsefEnvironment::Test);
+        $verifiedAt = $this->trustSnapshot($certificate);
+        $old = $certificate->fresh();
+        $query = [
+            'certificates' => [$this->queryItem(
+                $certificate,
+                validFrom: now('UTC')->subDays(2)->format('Y-m-d\TH:i:s\Z'),
+                validUntil: now('UTC')->addDays(2)->format('Y-m-d\TH:i:s\Z'),
+            )],
+            'hasMore' => false,
+        ];
+        $this->fakeQueryThenRetrieveFailure($query, 'server_error');
+
+        $this->expectSafeVerificationFailure($certificate);
+
+        $certificate->refresh();
+        $this->assertSame('Active', $certificate->remote_status);
+        $this->assertSame('Poprzedni zaufany snapshot', $certificate->remote_certificate_name);
+        $this->assertSame($verifiedAt->getTimestamp(), $certificate->remote_verified_at->getTimestamp());
+        $this->assertSame($old->remote_valid_from->getTimestamp(), $certificate->remote_valid_from->getTimestamp());
+        $this->assertSame($old->remote_valid_until->getTimestamp(), $certificate->remote_valid_until->getTimestamp());
+        $this->assertTrue(app(KsefOfflineCertificateReadinessService::class)->isReady($certificate));
+        Http::assertSentCount(2);
+    }
+
+    public function test_non_active_query_and_successful_retrieve_finish_full_identity_verification(): void
+    {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $certificate = $this->importCertificate($fixture);
+        $this->seedCachedToken(KsefEnvironment::Test);
+        $oldVerifiedAt = $this->trustSnapshot($certificate);
+        $this->fakeSuccessfulVerification($certificate, $fixture, status: 'Revoked');
+
+        $verified = app(KsefOfflineCertificateRemoteVerificationService::class)->verify($certificate);
+
+        $this->assertSame('Revoked', $verified->remote_status);
+        $this->assertNotNull($verified->remote_verified_at);
+        $this->assertNotSame($oldVerifiedAt->getTimestamp(), $verified->remote_verified_at->getTimestamp());
+        $this->assertFalse(app(KsefOfflineCertificateReadinessService::class)->isReady($verified));
+        Http::assertSentCount(2);
+    }
+
+    public function test_non_active_query_and_retrieve_fingerprint_mismatch_clear_all_remote_trust(): void
+    {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $other = KsefCertificateFixtureFactory::offlineRsa();
+        $certificate = $this->importCertificate($fixture);
+        $this->seedCachedToken(KsefEnvironment::Test);
+        $this->trustSnapshot($certificate);
+        $this->fakeResponses(
+            $certificate,
+            ['certificates' => [$this->queryItem($certificate, 'Revoked')], 'hasMore' => false],
+            ['certificates' => [$this->retrieveItem($certificate, $other)]],
+        );
+
+        $this->expectSafeVerificationFailure($certificate);
+
+        $certificate->refresh();
+        $this->assertNull($certificate->remote_status);
+        $this->assertNull($certificate->remote_certificate_name);
+        $this->assertNull($certificate->remote_valid_from);
+        $this->assertNull($certificate->remote_valid_until);
+        $this->assertNull($certificate->remote_verified_at);
+        Http::assertSentCount(2);
+    }
+
+    #[DataProvider('localIdentityChanges')]
+    public function test_local_identity_change_before_unsafe_query_persistence_is_rejected(string $change): void
+    {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $other = KsefCertificateFixtureFactory::offlineRsa(serial: 0x08F20A5D352AE599);
+        $certificate = $this->importCertificate($fixture);
+        $this->seedCachedToken(KsefEnvironment::Test);
+        $verifiedAt = $this->trustSnapshot($certificate);
+        $query = ['certificates' => [$this->queryItem($certificate, 'Revoked')], 'hasMore' => false];
+
+        Http::fake(function (Request $request) use ($certificate, $other, $query, $change) {
+            if (str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/certificates/query')) {
+                $this->changeLocalIdentity($certificate, $other, $change);
+
+                return Http::response($query);
+            }
+
+            return Http::response(['reasonCode' => 'RETRIEVE_MUST_NOT_RUN'], 500);
+        });
+
+        try {
+            app(KsefOfflineCertificateRemoteVerificationService::class)->verify($certificate);
+            $this->fail('Expected configuration race guard before unsafe query persistence.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('offline_certificate_configuration_changed', $exception->safeCode);
+        }
+
+        $certificate->refresh();
+        $this->assertSame('Active', $certificate->remote_status);
+        $this->assertSame('Poprzedni zaufany snapshot', $certificate->remote_certificate_name);
+        $this->assertSame($verifiedAt->getTimestamp(), $certificate->remote_verified_at->getTimestamp());
+        Http::assertSentCount(1);
+    }
+
+    public static function localIdentityChanges(): array
+    {
+        return [
+            'environment' => ['environment'],
+            'serial' => ['serial'],
+            'fingerprint' => ['fingerprint'],
+            'certificate' => ['certificate'],
+            'private key' => ['private_key'],
         ];
     }
 
@@ -459,6 +637,40 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
                 'certificateSerialNumber' => $certificate->certificate_serial_number,
             ], 500);
         });
+    }
+
+    private function fakeQueryThenRetrieveFailure(array $queryResponse, string $failure): void
+    {
+        Http::fake(function (Request $request) use ($queryResponse, $failure) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+
+            if (str_ends_with($path, '/certificates/query')) {
+                return Http::response($queryResponse);
+            }
+
+            return match ($failure) {
+                'network' => (Http::failedConnection('FAKE RETRIEVE NETWORK FAILURE'))($request),
+                'rate_limit' => Http::response([], 429, ['Retry-After' => '30']),
+                'server_error' => Http::response([], 503),
+                'malformed_schema' => Http::response(['certificates' => 'INVALID']),
+            };
+        });
+    }
+
+    private function changeLocalIdentity(
+        KsefOfflineCertificate $certificate,
+        array $other,
+        string $change,
+    ): void {
+        $current = $certificate->fresh();
+
+        match ($change) {
+            'environment' => $current->forceFill(['environment' => KsefEnvironment::Demo])->save(),
+            'serial' => $current->forceFill(['certificate_serial_number' => $other['serial']])->save(),
+            'fingerprint' => $current->forceFill(['fingerprint_sha256' => str_repeat('B', 64)])->save(),
+            'certificate' => $current->forceFill(['certificate_pem' => $other['certificate']])->save(),
+            'private_key' => $current->forceFill(['private_key_pem' => $other['private_key']])->save(),
+        };
     }
 
     private function queryItem(

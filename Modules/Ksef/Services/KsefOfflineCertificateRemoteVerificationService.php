@@ -4,6 +4,7 @@ namespace Modules\Ksef\Services;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Modules\Ksef\Enums\KsefOfflineCertificateRemoteStatus;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefOfflineCertificate;
 use OpenSSLAsymmetricKey;
@@ -40,6 +41,10 @@ final class KsefOfflineCertificateRemoteVerificationService
         );
         $remote = $this->queryMetadata($queryResponse->data, $snapshot);
 
+        if ($this->queryRequiresImmediateTrustDegradation($remote, CarbonImmutable::now('UTC'))) {
+            $this->persistUnsafeQueryObservation($snapshot, $remote);
+        }
+
         $retrieveResponse = $this->http->post(
             $snapshot['environment'],
             '/certificates/retrieve',
@@ -49,6 +54,14 @@ final class KsefOfflineCertificateRemoteVerificationService
         $this->verifyRetrievedCertificate($retrieveResponse->data, $snapshot);
 
         return $this->persistRemoteSnapshot($snapshot, $remote);
+    }
+
+    private function queryRequiresImmediateTrustDegradation(array $remote, CarbonImmutable $now): bool
+    {
+        return KsefOfflineCertificateRemoteStatus::tryFrom($remote['status'])
+                !== KsefOfflineCertificateRemoteStatus::Active
+            || $remote['valid_from']->greaterThan($now)
+            || $remote['valid_until']->lessThan($now);
     }
 
     private function localSnapshot(KsefOfflineCertificate $certificate): array
@@ -229,6 +242,26 @@ final class KsefOfflineCertificateRemoteVerificationService
             ])->save();
 
             return $certificate;
+        });
+    }
+
+    private function persistUnsafeQueryObservation(array $snapshot, array $remote): void
+    {
+        DB::transaction(function () use ($snapshot, $remote): void {
+            $certificate = KsefOfflineCertificate::query()
+                ->whereKey($snapshot['id'])
+                ->lockForUpdate()
+                ->first();
+
+            $this->assertIdentityUnchanged($certificate, $snapshot);
+
+            $certificate->forceFill([
+                'remote_status' => $remote['status'],
+                'remote_certificate_name' => $remote['name'],
+                'remote_valid_from' => $this->instantStorage->forStorage($remote['valid_from']),
+                'remote_valid_until' => $this->instantStorage->forStorage($remote['valid_until']),
+                'remote_verified_at' => null,
+            ])->save();
         });
     }
 
