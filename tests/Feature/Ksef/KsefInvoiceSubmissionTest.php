@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ksef;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,15 +18,18 @@ use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefPaymentMethodMapping;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\Services\KsefInvoiceProvenanceService;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
+use Modules\Ksef\Services\KsefPdfDocumentPresenter;
 use Modules\Ksef\Services\KsefSettingsService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
@@ -42,6 +46,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         parent::setUp();
         config()->set('ksef.invoice_submission_enabled', true);
         Http::preventStrayRequests();
+        $this->travelTo(CarbonImmutable::parse('2026-08-19 12:30:00 Europe/Warsaw'));
     }
 
     public function test_migration_model_and_prepare_freeze_exact_encrypted_authoritative_payload(): void
@@ -64,6 +69,7 @@ class KsefInvoiceSubmissionTest extends TestCase
             'invoice_hash',
             'invoice_size',
             'invoice_reference_number',
+            'invoicing_mode',
             'ksef_number',
         ]));
         $this->assertFalse(Schema::hasColumn('ksef_invoice_submissions', 'cipher_key'));
@@ -73,6 +79,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertSame('9876543210', $submission->context_nip);
         $this->assertSame('9876543210', $submission->seller_nip);
         $this->assertSame(KsefInvoiceSubmissionStatus::Preparing, $submission->status);
+        $this->assertNull($submission->invoicing_mode);
         $this->assertSame(1, $submission->attempt_number);
         $this->assertSame('FA (3) 1-0E', $submission->schema_id);
         $this->assertStringContainsString('<Faktura', $xml);
@@ -415,6 +422,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         ], $fake->openPayload['formCode']);
         $this->assertSame('SYMMETRIC-KEY-ID', data_get($fake->openPayload, 'encryption.publicKeyId'));
         $this->assertSame($submission->invoice_hash, $fake->sendPayload['invoiceHash']);
+        $this->assertFalse($fake->sendPayload['offlineMode']);
         $this->assertSame($submission->invoice_size, $fake->sendPayload['invoiceSize']);
         $this->assertSame($submission->encrypted_invoice_hash, $fake->sendPayload['encryptedInvoiceHash']);
         $this->assertSame($submission->encrypted_invoice_size, $fake->sendPayload['encryptedInvoiceSize']);
@@ -434,6 +442,105 @@ class KsefInvoiceSubmissionTest extends TestCase
             return ! str_contains($path, '/sessions/')
                 || $request->hasHeader('Authorization', 'Bearer FAKE_VALID_SUBMISSION_ACCESS_TOKEN');
         });
+    }
+
+    #[DataProvider('nonCurrentIssueDates')]
+    public function test_online_submit_blocks_non_current_frozen_issue_date_before_any_http(string $issueDate): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $this->replaceFrozenIssueDate($service->prepare($invoice), $issueDate);
+
+        $this->expectKsefError(
+            'ksef_online_submission_issue_date_not_today',
+            fn () => $service->submit($submission),
+        );
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::TechnicalFailed, $submission->refresh()->status);
+        $this->assertSame(0, $fake->publicKeyCalls);
+        $this->assertSame(0, $fake->openCalls);
+        $this->assertSame(0, $fake->sendCalls);
+        $this->assertSame(0, $fake->closeCalls);
+        Http::assertNothingSent();
+    }
+
+    public static function nonCurrentIssueDates(): array
+    {
+        return [
+            'past P_1' => ['2026-08-18'],
+            'future P_1' => ['2026-08-20'],
+        ];
+    }
+
+    public function test_online_submit_blocks_malformed_frozen_issue_date_before_any_http(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $this->replaceFrozenIssueDate($service->prepare($invoice), '2026-02-30');
+
+        $this->expectKsefError(
+            'ksef_online_submission_issue_date_invalid',
+            fn () => $service->submit($submission),
+        );
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::TechnicalFailed, $submission->refresh()->status);
+        $this->assertSame(0, $fake->publicKeyCalls);
+        $this->assertSame(0, $fake->openCalls);
+        $this->assertSame(0, $fake->sendCalls);
+        Http::assertNothingSent();
+    }
+
+    public function test_online_day_guard_uses_warsaw_date_when_utc_is_still_previous_day(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-18 22:30:00 UTC'));
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+
+        $submission = $service->submit($service->prepare($invoice));
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertFalse($fake->sendPayload['offlineMode']);
+    }
+
+    public function test_midnight_race_closes_session_without_invoice_post_or_retry(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-19 23:59:59 Europe/Warsaw'));
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = new KsefOnlineSessionApiFake;
+        Http::fake(function (Request $request) use ($fake) {
+            $response = $fake($request);
+            $path = parse_url($request->url(), PHP_URL_PATH) ?: '';
+
+            if (str_ends_with($path, '/sessions/online')) {
+                $this->travelTo(CarbonImmutable::parse('2026-08-20 00:00:01 Europe/Warsaw'));
+            }
+
+            return $response;
+        });
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+
+        $this->expectKsefError(
+            'ksef_online_submission_issue_date_not_today',
+            fn () => $service->submit($submission),
+        );
+
+        $submission->refresh();
+        $this->assertSame(KsefInvoiceSubmissionStatus::TechnicalFailed, $submission->status);
+        $this->assertNotNull($submission->session_closed_at);
+        $this->assertSame(1, $fake->publicKeyCalls);
+        $this->assertSame(1, $fake->openCalls);
+        $this->assertSame(0, $fake->sendCalls);
+        $this->assertSame(1, $fake->closeCalls);
+        Http::assertSentCount(3);
     }
 
     public function test_demo_online_flow_uses_only_demo_host_and_posts_invoice_once(): void
@@ -575,6 +682,7 @@ class KsefInvoiceSubmissionTest extends TestCase
 
         $submission = $service->refreshStatus($submission);
         $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
+        $this->assertSame(KsefInvoicingMode::Online, $submission->invoicing_mode);
         $this->assertNull($submission->ksef_number);
 
         $invoice->forceFill(['seller_snapshot' => []])->saveQuietly();
@@ -585,6 +693,7 @@ class KsefInvoiceSubmissionTest extends TestCase
             'invoicingDate' => '2026-08-19T10:00:00Z',
             'acquisitionDate' => '2026-08-19T10:00:01Z',
             'permanentStorageDate' => '2026-08-19T10:00:02Z',
+            'invoicingMode' => KsefInvoicingMode::Online->value,
             'ordinalNumber' => 1,
             'ksefNumber' => $this->validKsefNumber($submission->seller_nip),
             'status' => ['code' => 200, 'description' => 'Sukces'],
@@ -592,6 +701,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         $submission = $service->refreshStatus($submission);
 
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame(KsefInvoicingMode::Online, $submission->invoicing_mode);
         $this->assertSame($this->validKsefNumber('9876543210'), $submission->ksef_number);
         $this->assertSame('2026-08-19T10:00:01.000000Z', $submission->acquisition_date->toISOString());
         $this->assertSame($xml, $submission->payload_xml);
@@ -609,6 +719,103 @@ class KsefInvoiceSubmissionTest extends TestCase
                 && ! array_key_exists('payload_xml', $payload);
         });
         Event::assertDispatchedTimes(KsefInvoiceAccepted::class, 1);
+        $this->assertSame(
+            $submission->ksef_number,
+            app(KsefPdfDocumentPresenter::class)->present($invoice)['number'],
+        );
+    }
+
+    public function test_unexpected_offline_acceptance_preserves_transport_truth_and_blocks_online_outputs(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->submit($service->prepare($invoice));
+        Event::fake([KsefInvoiceAccepted::class]);
+        $fake->statusResponse = [
+            'referenceNumber' => $submission->invoice_reference_number,
+            'invoiceHash' => $submission->invoice_hash,
+            'invoicingDate' => '2026-08-19T10:00:00Z',
+            'acquisitionDate' => '2026-08-19T10:00:01Z',
+            'permanentStorageDate' => '2026-08-19T10:00:02Z',
+            'invoicingMode' => KsefInvoicingMode::Offline->value,
+            'ordinalNumber' => 1,
+            'ksefNumber' => $this->validKsefNumber($submission->seller_nip),
+            'status' => ['code' => 200, 'description' => 'Sukces'],
+        ];
+
+        $submission = $service->refreshStatus($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame(KsefInvoicingMode::Offline, $submission->invoicing_mode);
+        $this->assertSame($fake->statusResponse['ksefNumber'], $submission->ksef_number);
+        $this->assertSame('ksef_invoice_unexpected_offline_mode', $submission->safe_error_code);
+        $this->assertNull($submission->follow_up_action);
+        $this->assertNull($submission->next_follow_up_at);
+        Event::assertNotDispatched(KsefInvoiceAccepted::class);
+        $this->expectInvoiceError(
+            'invoice_pdf_ksef_unexpected_offline_mode',
+            fn () => app(KsefPdfDocumentPresenter::class)->present($invoice),
+        );
+        $this->assertSame(1, $fake->sendCalls);
+    }
+
+    #[DataProvider('invalidAcceptedInvoicingModes')]
+    public function test_accepted_status_without_recognized_invoicing_mode_fails_closed(
+        mixed $invoicingMode,
+        string $expectedError,
+    ): void {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->submit($service->prepare($invoice));
+        Event::fake([KsefInvoiceAccepted::class]);
+        $fake->statusResponse = [
+            'referenceNumber' => $submission->invoice_reference_number,
+            'invoiceHash' => $submission->invoice_hash,
+            'invoicingDate' => '2026-08-19T10:00:00Z',
+            'acquisitionDate' => '2026-08-19T10:00:01Z',
+            'invoicingMode' => $invoicingMode,
+            'ordinalNumber' => 1,
+            'ksefNumber' => $this->validKsefNumber($submission->seller_nip),
+            'status' => ['code' => 200, 'description' => 'Sukces'],
+        ];
+
+        $submission = $service->refreshStatus($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Uncertain, $submission->status);
+        $this->assertSame($expectedError, $submission->safe_error_code);
+        $this->assertNull($submission->invoicing_mode);
+        $this->assertNull($submission->ksef_number);
+        Event::assertNotDispatched(KsefInvoiceAccepted::class);
+    }
+
+    public static function invalidAcceptedInvoicingModes(): array
+    {
+        return [
+            'missing mode' => [null, 'ksef_invoice_status_invoicing_mode_missing'],
+            'unknown mode' => ['FutureMode', 'ksef_invoice_status_invoicing_mode_unknown'],
+        ];
+    }
+
+    public function test_historical_accepted_submission_without_mode_keeps_existing_pdf_compatibility(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $submission = app(KsefInvoiceSubmissionService::class)->prepare($invoice);
+        $submission->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'invoicing_mode' => null,
+            'ksef_number' => $this->validKsefNumber($submission->seller_nip),
+            'acquisition_date' => CarbonImmutable::parse('2026-08-19 12:31:00 UTC'),
+        ])->save();
+
+        $presented = app(KsefPdfDocumentPresenter::class)->present($invoice);
+
+        $this->assertSame($submission->ksef_number, $presented['number']);
+        $this->assertNull($submission->refresh()->invoicing_mode);
+        Http::assertNothingSent();
     }
 
     #[DataProvider('conservativeStatusCases')]
@@ -914,6 +1121,7 @@ class KsefInvoiceSubmissionTest extends TestCase
             'invoices' => [[
                 'referenceNumber' => '20260819-INV-RECOVERED-REFERENCE',
                 'invoiceHash' => $submission->invoice_hash,
+                'invoicingMode' => KsefInvoicingMode::Online->value,
                 'invoicingDate' => '2026-08-19T10:00:00Z',
                 'acquisitionDate' => '2026-08-19T10:00:01Z',
                 'permanentStorageDate' => '2026-08-19T10:00:02Z',
@@ -926,6 +1134,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         $submission = $service->reconcile($submission);
 
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame(KsefInvoicingMode::Online, $submission->invoicing_mode);
         $this->assertSame('20260819-INV-RECOVERED-REFERENCE', $submission->invoice_reference_number);
         $this->assertSame($this->validKsefNumber('9876543210'), $submission->ksef_number);
         $this->assertSame($payload, $submission->payload_xml);
@@ -933,6 +1142,47 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->sessionInvoicesCalls);
         $this->assertSame(0, $fake->statusCalls);
+    }
+
+    public function test_reconciliation_preserves_unexpected_offline_mode_and_blocks_online_pdf(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $service = app(KsefInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice);
+        $submission->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Uncertain,
+            'session_reference_number' => '20260819-SO-TEST-REFERENCE',
+            'invoice_reference_number' => null,
+        ])->save();
+        $fake->sessionInvoicesResponse = [
+            'invoices' => [[
+                'referenceNumber' => '20260819-INV-OFFLINE-REFERENCE',
+                'invoiceHash' => $submission->invoice_hash,
+                'invoicingMode' => KsefInvoicingMode::Offline->value,
+                'invoicingDate' => '2026-08-19T10:00:00Z',
+                'acquisitionDate' => '2026-08-19T10:00:01Z',
+                'permanentStorageDate' => '2026-08-19T10:00:02Z',
+                'ordinalNumber' => 1,
+                'ksefNumber' => $this->validKsefNumber($submission->seller_nip),
+                'status' => ['code' => 200, 'description' => 'Sukces'],
+            ]],
+        ];
+
+        $submission = $service->reconcile($submission);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame(KsefInvoicingMode::Offline, $submission->invoicing_mode);
+        $this->assertSame($fake->sessionInvoicesResponse['invoices'][0]['ksefNumber'], $submission->ksef_number);
+        $this->assertSame('ksef_invoice_unexpected_offline_mode', $submission->safe_error_code);
+        $this->assertNull($submission->follow_up_action);
+        $this->assertSame(0, $fake->sendCalls);
+        $this->assertSame(1, $fake->sessionInvoicesCalls);
+        $this->expectInvoiceError(
+            'invoice_pdf_ksef_unexpected_offline_mode',
+            fn () => app(KsefPdfDocumentPresenter::class)->present($invoice),
+        );
     }
 
     #[DataProvider('reconciliationStatusCases')]
@@ -1212,7 +1462,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         $invoice = app(InvoiceIssuingService::class)->issue(
             $order,
             $series,
-            $this->documentContext(),
+            $this->documentContext('2026-08-19 10:00:00'),
         )->refresh()->load('items');
 
         return $finalize
@@ -1272,6 +1522,27 @@ class KsefInvoiceSubmissionTest extends TestCase
         }
 
         return $base.'-'.strtoupper(str_pad(dechex($checksum), 2, '0', STR_PAD_LEFT));
+    }
+
+    private function replaceFrozenIssueDate(
+        KsefInvoiceSubmission $submission,
+        string $issueDate,
+    ): KsefInvoiceSubmission {
+        $xml = preg_replace(
+            '/<P_1>[^<]*<\/P_1>/',
+            '<P_1>'.$issueDate.'</P_1>',
+            $submission->payload_xml,
+            1,
+        );
+        $this->assertIsString($xml);
+
+        $submission->forceFill([
+            'payload_xml' => $xml,
+            'invoice_hash' => base64_encode(hash('sha256', $xml, true)),
+            'invoice_size' => strlen($xml),
+        ])->save();
+
+        return $submission->refresh();
     }
 
     private function expectKsefError(string $code, callable $operation): KsefApiException

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ksef;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
@@ -54,6 +55,7 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         parent::setUp();
         config()->set('ksef.invoice_submission_enabled', true);
         Http::preventStrayRequests();
+        $this->travelTo(CarbonImmutable::parse('2026-08-21 10:00:00 Europe/Warsaw'));
     }
 
     public function test_correction_list_first_attempt_uses_existing_route_and_preserves_return_context(): void
@@ -84,6 +86,7 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         $this->assertDatabaseMissing('order_document_slots', ['invoice_id' => $correction->getKey()]);
         $this->assertStringContainsString('<RodzajFaktury>KOR</RodzajFaktury>', $submission->payload_xml);
         $this->assertSame(1, $fake->sendCalls);
+        $this->assertFalse($fake->sendPayload['offlineMode']);
         Event::assertNotDispatched(KsefInvoiceAccepted::class);
     }
 
@@ -565,6 +568,7 @@ class KsefManualCorrectionSubmissionTest extends TestCase
             'invoices' => [[
                 'referenceNumber' => KsefUpoFixture::INVOICE_REFERENCE,
                 'invoiceHash' => $submission->invoice_hash,
+                'invoicingMode' => 'Online',
                 'status' => ['code' => 200, 'description' => 'Zaakceptowana'],
                 'ksefNumber' => KsefUpoFixture::ksefNumber(),
                 'acquisitionDate' => '2026-08-21T10:00:01Z',

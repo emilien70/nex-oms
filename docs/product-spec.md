@@ -1323,6 +1323,14 @@ Authentication certificate i Offline certificate pozostają osobne: materiał Of
 
 03.09.2026 produkcyjny flow NEX-OMS zweryfikował w DEMO istniejący certyfikat Offline, używając ważnego cached access tokena z konfiguracji Certificate/XAdES. Exact query i retrieve zwróciły po jednym zgodnym certyfikacie typu `Offline`; serial, DER/X.509, fingerprint oraz lokalny klucz prywatny przeszły kontrolę. Zdalny status `Active`, pełny snapshot i świeży `remote_verified_at` zostały zapisane z poprawnym roundtripem instantów, a certyfikat osiągnął readiness `YES`. Nie wykonano retry, enrollmentu, CSR, revoke, transmisji dokumentów ani requestów TEST/Production.
 
+### KSeF.8C.0 — CLOSED
+
+Istniejący workflow Online wysyła Faktury VAT i Korekty wyłącznie z jawnym `offlineMode = false`. Przed jakąkolwiek komunikacją z KSeF oraz ponownie bezpośrednio przed invoice POST system bezpiecznie odczytuje `P_1` z dokładnego zamrożonego XML FA(3) i wymaga daty bieżącego dnia w `Europe/Warsaw`. Zmiana dnia podczas transportu zamyka otwartą sesję w trybie best effort i kończy próbę bez wysłania dokumentu.
+
+Submission zapisuje rzeczywisty `invoicingMode` zwrócony przez MF jako `Online` albo `Offline`. Końcowe przyjęcie bez rozpoznanego trybu jest niepewne. Niespodziewane `Offline` zachowuje status przyjęcia i numer KSeF jako fakt historyczny, ale blokuje prezentację Accepted Online PDF, Online UPO follow-up i zdarzenie automatyzacji `KsefInvoiceAccepted`. Historyczne przyjęte rekordy bez zapisanego trybu zachowują zgodność i dotychczasową prezentację.
+
+KSeF.8C.0 nie wdraża automatycznego Offline24, `KsefOfflineIssuance`, KODU II na Fakturze, Offline PDF, Latarni, deadline engine, automatycznej wysyłki Offline, Korekt Offline, korekty technicznej, total failure ani rollout'u Production.
+
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.

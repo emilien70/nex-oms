@@ -151,6 +151,7 @@ class KsefOnlineSessionApiFake
             return Http::response(array_replace([
                 'referenceNumber' => $this->sendResponse['referenceNumber'] ?? null,
                 'invoiceHash' => $this->sendPayload['invoiceHash'] ?? null,
+                'invoicingMode' => 'Online',
             ], $statusResponse));
         }
 
@@ -161,6 +162,7 @@ class KsefOnlineSessionApiFake
                 'invoices' => [array_replace([
                     'referenceNumber' => $this->sendResponse['referenceNumber'] ?? null,
                     'invoiceHash' => $this->sendPayload['invoiceHash'] ?? null,
+                    'invoicingMode' => 'Online',
                 ], $this->statusResponse)],
             ]);
         }

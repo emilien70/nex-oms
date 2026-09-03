@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ksef;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +50,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         parent::setUp();
         config()->set('ksef.invoice_submission_enabled', true);
         Http::preventStrayRequests();
+        $this->travelTo(CarbonImmutable::parse('2026-08-21 12:30:00 Europe/Warsaw'));
     }
 
     public function test_first_manual_send_posts_invoice_once_and_checks_status_once(): void
@@ -1456,7 +1458,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $invoice = app(InvoiceIssuingService::class)->issue(
             $order,
             $series,
-            $this->documentContext(),
+            $this->documentContext('2026-08-21 10:00:00'),
         )->refresh()->load('items');
 
         return $finalize

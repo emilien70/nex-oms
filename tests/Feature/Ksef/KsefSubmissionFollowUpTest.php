@@ -21,6 +21,7 @@ use Modules\Invoices\Services\InvoicePdfViewModelFactory;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Jobs\KsefSubmissionFollowUpJob;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
@@ -180,6 +181,7 @@ class KsefSubmissionFollowUpTest extends TestCase
         $fake = $this->fakeOnlineApi();
         $fake->statusResponse = [
             'invoicingDate' => '2026-08-25T10:00:00Z',
+            'invoicingMode' => 'Online',
             'acquisitionDate' => '2026-08-25T10:00:01Z',
             'permanentStorageDate' => '2026-08-25T10:00:02Z',
             'status' => ['code' => 200, 'description' => 'Zaakceptowana'],
@@ -498,6 +500,30 @@ class KsefSubmissionFollowUpTest extends TestCase
         $this->assertSame(1, $fake->upoCalls);
     }
 
+    public function test_status_follow_up_preserves_unexpected_offline_mode_without_online_upo_action(): void
+    {
+        $invoice = $this->eligibleInvoice();
+        $submission = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Processing);
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->statusResponse = array_replace($this->acceptedStatus($submission), [
+            'invoicingMode' => KsefInvoicingMode::Offline->value,
+        ]);
+
+        $this->runJob($submission);
+
+        $submission->refresh();
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->status);
+        $this->assertSame(KsefInvoicingMode::Offline, $submission->invoicing_mode);
+        $this->assertSame('ksef_invoice_unexpected_offline_mode', $submission->safe_error_code);
+        $this->assertNull($submission->follow_up_action);
+        $this->assertNull($submission->next_follow_up_at);
+        $this->assertDatabaseCount('ksef_invoice_upos', 0);
+        $this->assertSame(1, $fake->statusCalls);
+        $this->assertSame(0, $fake->upoCalls);
+        $this->assertSame(0, $fake->sendCalls);
+    }
+
     public function test_unresolved_reconciliation_is_rescheduled_without_invoice_post(): void
     {
         $invoice = $this->eligibleInvoice();
@@ -765,7 +791,7 @@ class KsefSubmissionFollowUpTest extends TestCase
         $invoice = app(InvoiceIssuingService::class)->issue(
             $order,
             $series,
-            $this->documentContext(),
+            $this->documentContext('2026-08-25 10:00:00'),
         )->refresh()->load('items');
 
         return app(InvoiceFinalizationService::class)->finalize($invoice)->load('items');
@@ -850,6 +876,7 @@ class KsefSubmissionFollowUpTest extends TestCase
             'referenceNumber' => $submission->invoice_reference_number,
             'invoiceHash' => $submission->invoice_hash,
             'invoicingDate' => '2026-08-25T10:00:00Z',
+            'invoicingMode' => 'Online',
             'acquisitionDate' => '2026-08-25T10:00:01Z',
             'permanentStorageDate' => '2026-08-25T10:00:02Z',
             'status' => ['code' => 200, 'description' => 'Zaakceptowana'],

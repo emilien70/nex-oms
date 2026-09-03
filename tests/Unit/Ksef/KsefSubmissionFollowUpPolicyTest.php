@@ -4,6 +4,7 @@ namespace Tests\Unit\Ksef;
 
 use Carbon\CarbonImmutable;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefSubmissionFollowUpPolicy;
@@ -91,6 +92,30 @@ class KsefSubmissionFollowUpPolicyTest extends TestCase
             KsefSubmissionFollowUpPolicy::ACTION_UPO,
         ));
         $this->assertSame(0, $policy->attemptsForAction($submission, null));
+    }
+
+    public function test_accepted_offline_submission_never_schedules_online_upo_follow_up(): void
+    {
+        $policy = app(KsefSubmissionFollowUpPolicy::class);
+
+        $this->assertNull($policy->action(new KsefInvoiceSubmission([
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'invoicing_mode' => KsefInvoicingMode::Offline,
+        ]), false));
+        $this->assertSame(
+            KsefSubmissionFollowUpPolicy::ACTION_UPO,
+            $policy->action(new KsefInvoiceSubmission([
+                'status' => KsefInvoiceSubmissionStatus::Accepted,
+                'invoicing_mode' => KsefInvoicingMode::Online,
+            ]), false),
+        );
+        $this->assertSame(
+            KsefSubmissionFollowUpPolicy::ACTION_UPO,
+            $policy->action(new KsefInvoiceSubmission([
+                'status' => KsefInvoiceSubmissionStatus::Accepted,
+                'invoicing_mode' => null,
+            ]), false),
+        );
     }
 
     public function test_only_explicitly_transient_failures_are_retried(): void

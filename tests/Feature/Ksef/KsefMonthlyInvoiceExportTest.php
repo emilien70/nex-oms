@@ -185,10 +185,10 @@ class KsefMonthlyInvoiceExportTest extends TestCase
     public function test_three_first_attempts_are_exactly_once_and_same_environment_rerun_is_empty(): void
     {
         $this->validAccessToken(KsefEnvironment::Test);
-        $later = $this->invoice(issueDate: '2026-08-20');
-        $earlierFirst = $this->invoice(issueDate: '2026-08-05');
-        $earlierSecond = $this->invoice(issueDate: '2026-08-05');
-        $invoices = collect([$later, $earlierFirst, $earlierSecond]);
+        $firstInvoice = $this->invoice();
+        $secondInvoice = $this->invoice();
+        $thirdInvoice = $this->invoice();
+        $invoices = collect([$firstInvoice, $secondInvoice, $thirdInvoice]);
         $fake = $this->fakeOnlineApi();
         $service = app(KsefMonthlyInvoiceExportService::class);
 
@@ -206,7 +206,7 @@ class KsefMonthlyInvoiceExportTest extends TestCase
         $this->assertSame(0, $fake->statusCalls);
         $this->assertDatabaseCount('ksef_invoice_submissions', 3);
         $this->assertSame(
-            [$earlierFirst->getKey(), $earlierSecond->getKey(), $later->getKey()],
+            [$firstInvoice->getKey(), $secondInvoice->getKey(), $thirdInvoice->getKey()],
             KsefInvoiceSubmission::query()->orderBy('id')->pluck('invoice_id')->all(),
         );
         $this->assertSame(
@@ -282,6 +282,26 @@ class KsefMonthlyInvoiceExportTest extends TestCase
             'invoice_id' => $valid->getKey(),
             'status' => KsefInvoiceSubmissionStatus::Submitted->value,
         ]);
+    }
+
+    public function test_past_issue_date_is_counted_as_local_failure_without_http(): void
+    {
+        $this->validAccessToken(KsefEnvironment::Test);
+        $invoice = $this->invoice(issueDate: '2026-08-23');
+        $this->fakeOnlineApi();
+
+        $result = app(KsefMonthlyInvoiceExportService::class)->export('2026-08');
+
+        $this->assertSame(1, $result->eligibleCount);
+        $this->assertSame(0, $result->submittedCount);
+        $this->assertSame(1, $result->failedCount);
+        $this->assertFalse($result->stoppedEarly);
+        $this->assertDatabaseHas('ksef_invoice_submissions', [
+            'invoice_id' => $invoice->getKey(),
+            'status' => KsefInvoiceSubmissionStatus::TechnicalFailed->value,
+            'safe_error_code' => 'ksef_online_submission_issue_date_not_today',
+        ]);
+        Http::assertNothingSent();
     }
 
     public function test_rate_limit_stops_remaining_invoices_without_retry(): void
@@ -458,7 +478,7 @@ class KsefMonthlyInvoiceExportTest extends TestCase
     }
 
     private function invoice(
-        string $issueDate = '2026-08-10',
+        string $issueDate = '2026-08-24',
         bool $finalized = true,
         bool $seriesEnabled = true,
         InvoiceDocumentType $documentType = InvoiceDocumentType::Invoice,

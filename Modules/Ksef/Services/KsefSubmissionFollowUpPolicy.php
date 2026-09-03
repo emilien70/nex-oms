@@ -4,6 +4,7 @@ namespace Modules\Ksef\Services;
 
 use Carbon\CarbonImmutable;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 
@@ -17,17 +18,25 @@ class KsefSubmissionFollowUpPolicy
 
     public function action(KsefInvoiceSubmission $submission, bool $hasUpo): ?string
     {
-        return $this->actionForStatus($submission->status, $hasUpo);
+        return $this->actionForStatus(
+            $submission->status,
+            $hasUpo,
+            $submission->invoicing_mode,
+        );
     }
 
     public function actionForStatus(
         KsefInvoiceSubmissionStatus $status,
         bool $hasUpo,
+        ?KsefInvoicingMode $invoicingMode = null,
     ): ?string {
         return match ($status) {
             KsefInvoiceSubmissionStatus::Submitted,
             KsefInvoiceSubmissionStatus::Processing => self::ACTION_STATUS,
-            KsefInvoiceSubmissionStatus::Accepted => $hasUpo ? null : self::ACTION_UPO,
+            KsefInvoiceSubmissionStatus::Accepted => $hasUpo
+                || $invoicingMode === KsefInvoicingMode::Offline
+                    ? null
+                    : self::ACTION_UPO,
             KsefInvoiceSubmissionStatus::Uncertain => self::ACTION_RECONCILE,
             default => null,
         };

@@ -9,6 +9,7 @@ use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Enums\KsefPublicKeyUsage;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
@@ -18,6 +19,7 @@ use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionDocumentGenerator;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
+use Modules\Ksef\Services\Fa3\KsefFa3IssueDateReader;
 use Modules\Ksef\ValueObjects\KsefOnlineSessionEncryptionData;
 use Throwable;
 
@@ -35,6 +37,7 @@ class KsefInvoiceSubmissionService
         private readonly KsefPublicKeyResolver $publicKeys,
         private readonly KsefOnlineSessionEncryptionService $encryption,
         private readonly KsefOnlineSessionRequestFactory $requests,
+        private readonly KsefFa3IssueDateReader $issueDates,
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentity,
         private readonly KsefNumberValidator $ksefNumbers,
         private readonly KsefInvoiceSubmissionLifecyclePolicy $lifecycle,
@@ -234,6 +237,8 @@ class KsefInvoiceSubmissionService
             $contextNip = $this->submissionContextNip($submission);
             $this->submissionSellerNip($submission);
             $this->assertPayloadIntegrity($submission);
+            $issueDate = $this->issueDates->read($submission->payload_xml);
+            $this->assertOnlineIssueDateIsToday($issueDate);
             $accessToken = $this->accessTokens->getValidAccessToken(
                 $submission->environment,
                 $contextNip,
@@ -269,6 +274,15 @@ class KsefInvoiceSubmissionService
                 'Nie udało się rozpocząć sesji fakturowej KSeF.',
                 'ksef_submission_pre_send_failed',
             );
+            $this->markTechnicalFailure($submission, $exception);
+
+            throw $exception;
+        }
+
+        try {
+            $this->assertOnlineIssueDateIsToday($issueDate);
+        } catch (KsefApiException $exception) {
+            $submission = $this->closeSessionBestEffort($submission, $accessToken);
             $this->markTechnicalFailure($submission, $exception);
 
             throw $exception;
@@ -314,29 +328,7 @@ class KsefInvoiceSubmissionService
             ],
         );
 
-        try {
-            $this->onlineSession->closeSession(
-                $submission->environment,
-                $accessToken,
-                $submission->session_reference_number,
-            );
-
-            return $this->updateWithoutTransition($submission, [
-                'session_closed_at' => $this->forStorage(CarbonImmutable::now('UTC')),
-                'session_close_error_code' => null,
-                'session_close_error_message' => null,
-            ]);
-        } catch (KsefApiException $exception) {
-            return $this->updateWithoutTransition($submission, [
-                'session_close_error_code' => $this->safeErrorCode($exception),
-                'session_close_error_message' => $this->safeMessage($exception),
-            ]);
-        } catch (Throwable) {
-            return $this->updateWithoutTransition($submission, [
-                'session_close_error_code' => 'ksef_session_close_failed',
-                'session_close_error_message' => 'Nie udało się zamknąć sesji KSeF.',
-            ]);
-        }
+        return $this->closeSessionBestEffort($submission, $accessToken);
     }
 
     public function refreshStatus(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
@@ -521,6 +513,21 @@ class KsefInvoiceSubmissionService
         }
 
         if ($code !== null && in_array($code, self::PROCESSING_STATUS_CODES, true)) {
+            [$invoicingMode, $modeError] = $this->invoicingMode($data);
+
+            if ($modeError !== null) {
+                return $this->markStatusUncertain(
+                    $submission,
+                    $attributes,
+                    $modeError['code'],
+                    $modeError['message'],
+                );
+            }
+
+            if ($invoicingMode !== null) {
+                $attributes['invoicing_mode'] = $invoicingMode;
+            }
+
             return $this->transition(
                 $submission,
                 KsefInvoiceSubmissionStatus::Processing,
@@ -559,8 +566,20 @@ class KsefInvoiceSubmissionService
                 );
             }
 
+            [$invoicingMode, $modeError] = $this->invoicingMode($data);
+
+            if ($modeError !== null || $invoicingMode === null) {
+                return $this->markStatusUncertain(
+                    $submission,
+                    $attributes,
+                    $modeError['code'] ?? 'ksef_invoice_status_invoicing_mode_missing',
+                    $modeError['message'] ?? 'KSeF zwrócił status sukcesu bez trybu wystawienia Faktury.',
+                );
+            }
+
             try {
                 $attributes += [
+                    'invoicing_mode' => $invoicingMode,
                     'ksef_number' => $ksefNumber,
                     'acquisition_date' => $this->optionalDate($data, 'acquisitionDate'),
                     'invoicing_date' => $this->optionalDate($data, 'invoicingDate'),
@@ -573,6 +592,11 @@ class KsefInvoiceSubmissionService
                     $exception->safeCode,
                     $exception->getMessage(),
                 );
+            }
+
+            if ($invoicingMode === KsefInvoicingMode::Offline) {
+                $attributes['safe_error_code'] = 'ksef_invoice_unexpected_offline_mode';
+                $attributes['safe_error_message'] = 'KSeF przyjął dokument, ale zakwalifikował go jako Offline. Obsługa trybu Offline wymaga osobnej ścieżki.';
             }
 
             return $this->transition(
@@ -676,7 +700,12 @@ class KsefInvoiceSubmissionService
                 throw $this->invalidState();
             }
 
-            $nextAction = $this->followUp->actionForStatus($to, $managed->upo()->exists());
+            $invoicingMode = $attributes['invoicing_mode'] ?? $managed->invoicing_mode;
+            $nextAction = $this->followUp->actionForStatus(
+                $to,
+                $managed->upo()->exists(),
+                $invoicingMode,
+            );
             if ($managed->follow_up_action !== $nextAction) {
                 $attributes['follow_up_attempts'] = 0;
                 $attributes['next_follow_up_at'] = $nextAction === null
@@ -693,6 +722,7 @@ class KsefInvoiceSubmissionService
             $managed->refresh();
 
             if ($to === KsefInvoiceSubmissionStatus::Accepted
+                && $managed->invoicing_mode === KsefInvoicingMode::Online
                 && $managed->invoice()->first()?->isInvoice() === true) {
                 KsefInvoiceAccepted::dispatch($managed);
             }
@@ -784,6 +814,64 @@ class KsefInvoiceSubmissionService
                 'ksef_submission_payload_inconsistent',
             );
         }
+    }
+
+    private function assertOnlineIssueDateIsToday(string $issueDate): void
+    {
+        if ($issueDate !== CarbonImmutable::now('Europe/Warsaw')->toDateString()) {
+            throw new KsefApiException(
+                'Data wystawienia P_1 zamrożonego dokumentu musi być dzisiejszą datą w Polsce dla wysyłki Online.',
+                'ksef_online_submission_issue_date_not_today',
+            );
+        }
+    }
+
+    private function closeSessionBestEffort(
+        KsefInvoiceSubmission $submission,
+        string $accessToken,
+    ): KsefInvoiceSubmission {
+        try {
+            $this->onlineSession->closeSession(
+                $submission->environment,
+                $accessToken,
+                $submission->session_reference_number,
+            );
+
+            return $this->updateWithoutTransition($submission, [
+                'session_closed_at' => $this->forStorage(CarbonImmutable::now('UTC')),
+                'session_close_error_code' => null,
+                'session_close_error_message' => null,
+            ]);
+        } catch (KsefApiException $exception) {
+            return $this->updateWithoutTransition($submission, [
+                'session_close_error_code' => $this->safeErrorCode($exception),
+                'session_close_error_message' => $this->safeMessage($exception),
+            ]);
+        } catch (Throwable) {
+            return $this->updateWithoutTransition($submission, [
+                'session_close_error_code' => 'ksef_session_close_failed',
+                'session_close_error_message' => 'Nie udało się zamknąć sesji KSeF.',
+            ]);
+        }
+    }
+
+    /** @return array{0: ?KsefInvoicingMode, 1: array{code: string, message: string}|null} */
+    private function invoicingMode(array $data): array
+    {
+        $value = data_get($data, 'invoicingMode');
+
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            return [null, null];
+        }
+
+        if (! is_string($value) || KsefInvoicingMode::tryFrom($value) === null) {
+            return [null, [
+                'code' => 'ksef_invoice_status_invoicing_mode_unknown',
+                'message' => 'KSeF zwrócił nierozpoznany tryb wystawienia Faktury.',
+            ]];
+        }
+
+        return [KsefInvoicingMode::from($value), null];
     }
 
     private function configuredContextNip(mixed $value): string

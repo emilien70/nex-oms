@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 
 class KsefInvoiceSubmission extends Model
 {
@@ -31,6 +32,7 @@ class KsefInvoiceSubmission extends Model
         'invoice_reference_number',
         'session_closed_at',
         'ksef_status_code',
+        'invoicing_mode',
         'ksef_number',
         'acquisition_date',
         'invoicing_date',
@@ -63,6 +65,7 @@ class KsefInvoiceSubmission extends Model
         'encrypted_invoice_size' => 'integer',
         'session_closed_at' => 'immutable_datetime',
         'ksef_status_code' => 'integer',
+        'invoicing_mode' => KsefInvoicingMode::class,
         'acquisition_date' => 'immutable_datetime',
         'invoicing_date' => 'immutable_datetime',
         'permanent_storage_date' => 'immutable_datetime',

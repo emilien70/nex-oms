@@ -7,6 +7,7 @@ use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
@@ -108,6 +109,13 @@ class KsefPdfDocumentPresenter
         KsefInvoiceSubmission $submission,
         KsefEnvironment $environment,
     ): array {
+        if ($submission->invoicing_mode === KsefInvoicingMode::Offline) {
+            throw new InvoiceDomainException(
+                'invoice_pdf_ksef_unexpected_offline_mode',
+                'KSeF zakwalifikował dokument jako Offline. Finalna wizualizacja wymaga obsługi trybu Offline i nie może zostać wygenerowana przez ścieżkę Online.',
+            );
+        }
+
         $number = trim((string) $submission->ksef_number);
         $sellerNip = trim((string) $submission->seller_nip);
         $verificationUrl = $document->issue_date !== null

@@ -420,6 +420,7 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         $fake->sendResponse['referenceNumber'] = KsefUpoFixture::INVOICE_REFERENCE;
         $fake->statusResponse = [
             'invoicingDate' => '2026-08-26T10:00:00Z',
+            'invoicingMode' => 'Online',
             'acquisitionDate' => '2026-08-26T10:00:01Z',
             'permanentStorageDate' => '2026-08-26T10:00:02Z',
             'status' => ['code' => 200, 'description' => 'Zaakceptowana'],
@@ -583,7 +584,7 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         return app(InvoiceIssuingService::class)->issue(
             $order,
             $series,
-            $this->documentContext(),
+            $this->documentContext('2026-08-26 10:00:00'),
         )->refresh()->load('items');
     }
 

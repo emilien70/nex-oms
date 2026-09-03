@@ -28,6 +28,7 @@ class KsefOnlineSessionRequestFactory
         KsefOnlineSessionEncryptionData $encryption,
     ): array {
         return [
+            'offlineMode' => false,
             'invoiceHash' => $submission->invoice_hash,
             'invoiceSize' => $submission->invoice_size,
             'encryptedInvoiceHash' => $encryption->encryptedInvoiceHash,
