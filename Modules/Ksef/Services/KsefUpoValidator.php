@@ -7,6 +7,7 @@ use DOMElement;
 use DOMXPath;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 
@@ -161,10 +162,12 @@ class KsefUpoValidator
             'UPO nie odpowiada utrwalonemu XML-owi wysłanej Faktury.',
         );
         $this->assertSame(
-            'Online',
+            $submission->expectedInvoicingMode()->value,
             $this->value($xpath, '/upo:Potwierdzenie/upo:Dokument/upo:TrybWysylki'),
             'ksef_upo_delivery_mode_invalid',
-            'UPO nie dotyczy obsługiwanego trybu wysyłki online.',
+            $submission->expectedInvoicingMode() === KsefInvoicingMode::Online
+                ? 'UPO nie dotyczy obsługiwanego trybu wysyłki online.'
+                : 'UPO nie odpowiada oczekiwanemu trybowi wysyłki Offline24.',
         );
     }
 

@@ -27,6 +27,7 @@ class KsefInvoiceUpoService
     ): KsefInvoiceUpo {
         $this->assertOwnership($invoice, $submission);
         $this->assertSupportedDocument($invoice);
+        $this->assertEligible($invoice, $submission);
 
         $existing = $this->findExisting($submission);
         if ($existing !== null) {
@@ -34,12 +35,13 @@ class KsefInvoiceUpoService
         }
 
         $this->assertTransportEnabled();
-        $this->assertIntegrationActive();
+        $settings = $this->activeSettings();
 
         $invoice = Invoice::query()->findOrFail($invoice->getKey());
         $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
         $this->assertOwnership($invoice, $submission);
         $this->assertEligible($invoice, $submission);
+        $this->assertCurrentOfflineContext($submission, $settings);
         $identity = $this->identity($submission);
         $accessToken = $this->accessTokens->getValidAccessToken(
             $submission->environment,
@@ -116,6 +118,7 @@ class KsefInvoiceUpoService
     ): ?KsefInvoiceUpo {
         $this->assertOwnership($invoice, $submission);
         $this->assertSupportedDocument($invoice);
+        $this->assertEligible($invoice, $submission);
 
         return $this->findExisting($submission);
     }
@@ -160,6 +163,13 @@ class KsefInvoiceUpoService
             );
         }
 
+        if (! $submission->hasExpectedInvoicingMode()) {
+            throw new KsefApiException(
+                'UPO jest zablokowane, ponieważ tryb wystawienia zwrócony przez KSeF nie odpowiada tej próbie.',
+                'ksef_upo_invoicing_mode_mismatch',
+            );
+        }
+
         $this->environments->assertAllowed($submission->environment);
 
         $this->requiredReference(
@@ -192,17 +202,35 @@ class KsefInvoiceUpoService
         }
     }
 
-    private function assertIntegrationActive(): void
+    private function activeSettings(): KsefSetting
     {
-        $active = KsefSetting::query()
+        $settings = KsefSetting::query()
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
-            ->where('is_active', true)
-            ->exists();
+            ->first();
 
-        if (! $active) {
+        if ($settings === null || ! $settings->is_active) {
             throw new KsefApiException(
                 'Integracja KSeF nie jest aktywna.',
                 'ksef_submission_configuration_inactive',
+            );
+        }
+
+        return $settings;
+    }
+
+    private function assertCurrentOfflineContext(
+        KsefInvoiceSubmission $submission,
+        KsefSetting $settings,
+    ): void {
+        if ($submission->offline_issuance_id === null) {
+            return;
+        }
+
+        if (! is_string($settings->context_nip)
+            || ! hash_equals((string) $submission->context_nip, $settings->context_nip)) {
+            throw new KsefApiException(
+                'Aby pobrać UPO historycznej Faktury Offline24, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
+                'ksef_offline_submission_context_not_current',
             );
         }
     }
@@ -279,6 +307,7 @@ class KsefInvoiceUpoService
     {
         return [
             'invoice_id' => $submission->invoice_id,
+            'offline_issuance_id' => (int) ($submission->offline_issuance_id ?? 0),
             'environment' => $submission->environment->value,
             'status' => $submission->status->value,
             'context_nip' => (string) $submission->context_nip,

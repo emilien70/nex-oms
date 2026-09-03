@@ -27,8 +27,23 @@ class KsefOnlineSessionRequestFactory
         KsefInvoiceSubmission $submission,
         KsefOnlineSessionEncryptionData $encryption,
     ): array {
+        return $this->invoice($submission, $encryption, false);
+    }
+
+    public function sendOfflineInvoice(
+        KsefInvoiceSubmission $submission,
+        KsefOnlineSessionEncryptionData $encryption,
+    ): array {
+        return $this->invoice($submission, $encryption, true);
+    }
+
+    private function invoice(
+        KsefInvoiceSubmission $submission,
+        KsefOnlineSessionEncryptionData $encryption,
+        bool $offlineMode,
+    ): array {
         return [
-            'offlineMode' => false,
+            'offlineMode' => $offlineMode,
             'invoiceHash' => $submission->invoice_hash,
             'invoiceSize' => $submission->invoice_size,
             'encryptedInvoiceHash' => $encryption->encryptedInvoiceHash,

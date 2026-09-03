@@ -5,6 +5,7 @@ namespace Modules\Ksef\Models;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefContextIdentifierType;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -76,5 +77,10 @@ class KsefOfflineIssuance extends Model
     public function offlineCertificate(): BelongsTo
     {
         return $this->belongsTo(KsefOfflineCertificate::class, 'offline_certificate_id');
+    }
+
+    public function submissions(): HasMany
+    {
+        return $this->hasMany(KsefInvoiceSubmission::class, 'offline_issuance_id');
     }
 }

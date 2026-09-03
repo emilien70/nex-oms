@@ -138,12 +138,15 @@ class InvoiceEditController extends Controller
                 fn (KsefInvoiceSubmission $submission): bool => $submission->environment === $settings->environment,
             );
         $currentSubmission = $currentEnvironmentSubmissions->first();
+        $offlineIssuances = KsefOfflineIssuance::query()
+            ->where('invoice_id', $invoice->getKey())
+            ->orderByDesc('id')
+            ->get();
         $offlineIssuance = $settings === null
             ? null
-            : KsefOfflineIssuance::query()
-                ->where('invoice_id', $invoice->getKey())
-                ->where('environment', $settings->environment->value)
-                ->first();
+            : $offlineIssuances->first(
+                fn (KsefOfflineIssuance $issuance): bool => $issuance->environment === $settings->environment,
+            );
         $seriesEnabled = KsefSeriesSetting::query()
             ->where('invoice_series_id', $invoice->invoice_series_id)
             ->where('is_enabled', true)
@@ -183,12 +186,42 @@ class InvoiceEditController extends Controller
             }
         }
 
+        $offlineIssuanceRows = $offlineIssuances->map(function (KsefOfflineIssuance $issuance) use (
+            $submissions,
+            $offlineDelivery,
+            $environments,
+            $settings,
+        ): array {
+            $deliveryType = null;
+            $deliveryError = null;
+
+            try {
+                $deliveryType = $offlineDelivery->primaryDocument($issuance);
+            } catch (KsefApiException $exception) {
+                $deliveryError = $exception->getMessage();
+            }
+
+            return [
+                'issuance' => $issuance,
+                'submission' => $submissions->first(
+                    fn (KsefInvoiceSubmission $submission): bool => $submission->offline_issuance_id === $issuance->getKey(),
+                ),
+                'delivery_type' => $deliveryType,
+                'delivery_error' => $deliveryError,
+                'environment_allowed' => $environments->allows($issuance->environment),
+                'context_current' => $settings !== null
+                    && is_string($settings->context_nip)
+                    && hash_equals((string) $issuance->context_identifier_value, $settings->context_nip),
+            ];
+        });
+
         return [
             'ksefSettings' => $settings,
             'ksefSubmissions' => $submissions,
             'latestKsefSubmission' => $submissions->first(),
             'currentKsefSubmission' => $currentSubmission,
             'currentKsefOfflineIssuance' => $offlineIssuance,
+            'ksefOfflineIssuanceRows' => $offlineIssuanceRows,
             'ksefOfflineDeliveryDocumentType' => $offlineDeliveryType,
             'ksefOfflineDeliveryError' => $offlineDeliveryError,
             'ksefCanCreateAttempt' => $settings !== null

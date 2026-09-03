@@ -22,6 +22,7 @@ class KsefSubmissionFollowUpPolicy
             $submission->status,
             $hasUpo,
             $submission->invoicing_mode,
+            $submission->expectedInvoicingMode(),
         );
     }
 
@@ -29,17 +30,26 @@ class KsefSubmissionFollowUpPolicy
         KsefInvoiceSubmissionStatus $status,
         bool $hasUpo,
         ?KsefInvoicingMode $invoicingMode = null,
+        KsefInvoicingMode $expectedInvoicingMode = KsefInvoicingMode::Online,
     ): ?string {
         return match ($status) {
             KsefInvoiceSubmissionStatus::Submitted,
             KsefInvoiceSubmissionStatus::Processing => self::ACTION_STATUS,
             KsefInvoiceSubmissionStatus::Accepted => $hasUpo
-                || $invoicingMode === KsefInvoicingMode::Offline
+                || ! $this->acceptedModeMatches($invoicingMode, $expectedInvoicingMode)
                     ? null
                     : self::ACTION_UPO,
             KsefInvoiceSubmissionStatus::Uncertain => self::ACTION_RECONCILE,
             default => null,
         };
+    }
+
+    private function acceptedModeMatches(
+        ?KsefInvoicingMode $actual,
+        KsefInvoicingMode $expected,
+    ): bool {
+        return $actual === $expected
+            || ($actual === null && $expected === KsefInvoicingMode::Online);
     }
 
     public function attemptsForAction(

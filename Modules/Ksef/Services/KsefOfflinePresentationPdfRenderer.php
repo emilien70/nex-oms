@@ -34,6 +34,18 @@ class KsefOfflinePresentationPdfRenderer
         );
     }
 
+    public function renderAcceptedOfflineInvoice(
+        KsefOfflinePresentationData $document,
+        string $ksefNumber,
+    ): string {
+        return $this->render(
+            $this->offlineInvoiceHtml($document),
+            'Faktura KSeF '.$document->invoiceNumber,
+            $this->acceptedOfflineInvoiceQrBlocks($document, $ksefNumber),
+            1,
+        );
+    }
+
     public function offlineInvoiceHtml(KsefOfflinePresentationData $document): string
     {
         return view('invoices.pdf.ksef-offline-invoice', [
@@ -84,9 +96,25 @@ class KsefOfflinePresentationPdfRenderer
         ];
     }
 
+    /** @return list<array{heading: string, payload: string, label: ?string}> */
+    public function acceptedOfflineInvoiceQrBlocks(
+        KsefOfflinePresentationData $document,
+        string $ksefNumber,
+    ): array {
+        return [[
+            'heading' => 'KOD I',
+            'payload' => $document->invoiceVerificationUrl,
+            'label' => $ksefNumber,
+        ]];
+    }
+
     /** @param list<array{heading: string, payload: string, label: ?string}> $qrBlocks */
-    private function render(string $html, string $title, array $qrBlocks): string
-    {
+    private function render(
+        string $html,
+        string $title,
+        array $qrBlocks,
+        int $requiredQrCount = 2,
+    ): string {
         try {
             $pdf = $this->createPdf();
             $pdf->SetCreator('');
@@ -102,7 +130,7 @@ class KsefOfflinePresentationPdfRenderer
             $pdf->SetFont($this->fonts->body(), '', 8);
             $pdf->AddPage('P', 'A4');
             $pdf->writeHTML($html, true, false, true, false, '');
-            $this->writeQrBlocks($pdf, $qrBlocks);
+            $this->writeQrBlocks($pdf, $qrBlocks, $requiredQrCount);
 
             return $pdf->Output('', 'S');
         } catch (KsefApiException $exception) {
@@ -116,11 +144,11 @@ class KsefOfflinePresentationPdfRenderer
     }
 
     /** @param list<array{heading: string, payload: string, label: ?string}> $blocks */
-    private function writeQrBlocks(\TCPDF $pdf, array $blocks): void
+    private function writeQrBlocks(\TCPDF $pdf, array $blocks, int $requiredQrCount): void
     {
-        if (count($blocks) !== 2) {
+        if (count($blocks) !== $requiredQrCount || ! in_array($requiredQrCount, [1, 2], true)) {
             throw new KsefApiException(
-                'Dokument Offline24 wymaga dokładnie dwóch kodów weryfikacyjnych.',
+                'Dokument Offline24 zawiera nieprawidłową liczbę kodów weryfikacyjnych.',
                 'ksef_offline_presentation_integrity_invalid',
             );
         }
@@ -136,7 +164,9 @@ class KsefOfflinePresentationPdfRenderer
         }
 
         foreach ($blocks as $index => $block) {
-            $x = $index === 0 ? 18.0 : 114.0;
+            $x = $requiredQrCount === 1
+                ? 66.0
+                : ($index === 0 ? 18.0 : 114.0);
             $pdf->SetFont($this->fonts->body(), '', 8);
             $pdf->SetXY($x, $y);
             $pdf->MultiCell($blockWidth, 5.0, $block['heading'], 0, 'C', false, 1, $x, $y, true);

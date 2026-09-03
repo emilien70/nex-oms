@@ -14,6 +14,11 @@ final class KsefOfflinePdfFilenameGenerator
         return 'potwierdzenie-transakcji-'.$this->safeNumber($invoiceNumber).'.pdf';
     }
 
+    public function acceptedOfflineInvoice(string $invoiceNumber): string
+    {
+        return 'faktura-ksef-'.$this->safeNumber($invoiceNumber).'.pdf';
+    }
+
     private function safeNumber(string $invoiceNumber): string
     {
         $safe = preg_replace(

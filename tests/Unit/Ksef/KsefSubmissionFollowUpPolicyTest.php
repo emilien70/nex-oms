@@ -94,7 +94,7 @@ class KsefSubmissionFollowUpPolicyTest extends TestCase
         $this->assertSame(0, $policy->attemptsForAction($submission, null));
     }
 
-    public function test_accepted_offline_submission_never_schedules_online_upo_follow_up(): void
+    public function test_accepted_upo_follow_up_requires_the_expected_invoicing_mode(): void
     {
         $policy = app(KsefSubmissionFollowUpPolicy::class);
 
@@ -102,6 +102,14 @@ class KsefSubmissionFollowUpPolicyTest extends TestCase
             'status' => KsefInvoiceSubmissionStatus::Accepted,
             'invoicing_mode' => KsefInvoicingMode::Offline,
         ]), false));
+        $this->assertSame(
+            KsefSubmissionFollowUpPolicy::ACTION_UPO,
+            $policy->action(new KsefInvoiceSubmission([
+                'status' => KsefInvoiceSubmissionStatus::Accepted,
+                'invoicing_mode' => KsefInvoicingMode::Offline,
+                'offline_issuance_id' => 1,
+            ]), false),
+        );
         $this->assertSame(
             KsefSubmissionFollowUpPolicy::ACTION_UPO,
             $policy->action(new KsefInvoiceSubmission([

@@ -2,6 +2,10 @@
     $configuredEnvironment = $ksefSettings?->environment;
     $environmentCode = $configuredEnvironment ? strtoupper($configuredEnvironment->value) : null;
     $isDemoEnvironment = $configuredEnvironment === \Modules\Ksef\Enums\KsefEnvironment::Demo;
+    $currentOfflineRow = $ksefOfflineIssuanceRows->first(
+        fn (array $row): bool => $row['issuance']->is($currentKsefOfflineIssuance),
+    );
+    $currentOfflineSubmission = $currentOfflineRow['submission'] ?? null;
     $canSend = $invoice->isInvoice()
         && $invoice->isFinalized()
         && $currentKsefOfflineIssuance === null
@@ -85,6 +89,12 @@
         margin-top: 18px;
     }
 
+    .invoice-ksef-offline-entry {
+        border-top: 1px solid #e5e8ec;
+        margin-top: 14px;
+        padding-top: 14px;
+    }
+
     .invoice-ksef-history-title {
         font-size: 14px;
         font-weight: 600;
@@ -108,7 +118,13 @@
     <div class="invoice-ksef-status-row">
         <span>Bieżący status:</span>
         @if ($currentKsefOfflineIssuance)
-            <span class="badge text-bg-warning" data-ksef-offline24-status>Offline24 — wystawiona lokalnie</span>
+            @if ($currentOfflineSubmission)
+                <span class="badge text-bg-{{ $currentOfflineSubmission->status->badgeVariant() }}" data-ksef-offline24-status>
+                    {{ $currentOfflineSubmission->status->label() }}
+                </span>
+            @else
+                <span class="badge text-bg-warning" data-ksef-offline24-status>Offline24 — wystawiona lokalnie</span>
+            @endif
             <span class="text-muted">({{ strtoupper($currentKsefOfflineIssuance->environment->value) }})</span>
         @elseif ($currentKsefSubmission)
             <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-current-status>
@@ -126,7 +142,8 @@
             Wystawiono lokalnie: <strong>{{ $currentKsefOfflineIssuance->issued_at->format('d.m.Y H:i') }}</strong><br>
             Certyfikat Offline: <strong>{{ $currentKsefOfflineIssuance->certificate_serial_number }}</strong><br>
             Status certyfikatu przy wystawieniu: <strong>{{ $currentKsefOfflineIssuance->certificate_remote_status }}</strong><br>
-            Numer KSeF: <strong>jeszcze nie nadano</strong>
+            Numer KSeF:
+            <strong>{{ $currentOfflineSubmission?->ksef_number ?: 'jeszcze nie nadano' }}</strong>
         </p>
     @endif
 
@@ -171,30 +188,148 @@
         </p>
     @endif
 
-    <div class="invoice-ksef-actions">
-        @if ($currentKsefOfflineIssuance && $ksefOfflineDeliveryError)
-            <p class="invoice-ksef-message invoice-ksef-warning mb-0" data-ksef-offline-delivery-error>
-                {{ $ksefOfflineDeliveryError }}
+    @foreach ($ksefOfflineIssuanceRows as $offlineRow)
+        @php
+            $offlineIssuance = $offlineRow['issuance'];
+            $offlineSubmission = $offlineRow['submission'];
+            $offlineEnvironmentCode = strtoupper($offlineIssuance->environment->value);
+            $offlineModeMatches = $offlineSubmission?->hasExpectedInvoicingMode() ?? false;
+            $offlineCanTransmit = $ksefSubmissionGateEnabled
+                && $ksefSettings?->is_active
+                && $offlineRow['environment_allowed']
+                && $offlineRow['context_current']
+                && ($offlineSubmission === null
+                    || $offlineSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::TechnicalFailed);
+            $offlineCanRefresh = $ksefSubmissionGateEnabled
+                && $ksefSettings?->is_active
+                && $offlineRow['environment_allowed']
+                && $offlineRow['context_current']
+                && $offlineSubmission?->status->allowsStatusRefresh() === true;
+            $offlineCanReconcile = $ksefSubmissionGateEnabled
+                && $ksefSettings?->is_active
+                && $offlineRow['environment_allowed']
+                && $offlineRow['context_current']
+                && $offlineSubmission?->status->allowsReconciliation() === true
+                && filled($offlineSubmission->session_reference_number);
+            $offlineUpo = $offlineSubmission?->upo;
+        @endphp
+
+        <div class="invoice-ksef-offline-entry" data-ksef-offline-issuance-id="{{ $offlineIssuance->getKey() }}">
+            <div class="invoice-ksef-status-row mt-0">
+                <strong>Offline24 {{ $offlineEnvironmentCode }}</strong>
+                @if ($offlineSubmission)
+                    <span class="badge text-bg-{{ $offlineSubmission->status->badgeVariant() }}" data-ksef-offline-submission-status>
+                        {{ $offlineSubmission->status->label() }}
+                    </span>
+                @else
+                    <span class="badge text-bg-warning">Wystawiona lokalnie</span>
+                @endif
+            </div>
+
+            <p class="invoice-ksef-message mb-0">
+                P_1: <strong>{{ $offlineIssuance->issue_date->format('d.m.Y') }}</strong>;
+                wystawiono: <strong>{{ $offlineIssuance->issued_at->format('d.m.Y H:i') }}</strong>.
+                @if ($offlineSubmission?->ksef_number)
+                    <br>Numer KSeF: <strong class="invoice-ksef-number">{{ $offlineSubmission->ksef_number }}</strong>
+                @endif
             </p>
-        @elseif ($currentKsefOfflineIssuance && $ksefOfflineDeliveryDocumentType === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::TransactionConfirmation)
-            <a
-                class="btn btn-outline-primary"
-                href="{{ route('invoices.ksef.offline-issuances.transaction-confirmation', ['invoice' => $invoice, 'issuance' => $currentKsefOfflineIssuance]) }}"
-                data-ksef-transaction-confirmation-download
-            >
-                <i class="bi bi-download" aria-hidden="true"></i>
-                POBIERZ POTWIERDZENIE TRANSAKCJI
-            </a>
-        @elseif ($currentKsefOfflineIssuance && $ksefOfflineDeliveryDocumentType === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::OfflineInvoice)
-            <a
-                class="btn btn-outline-primary"
-                href="{{ route('invoices.ksef.offline-issuances.invoice-pdf', ['invoice' => $invoice, 'issuance' => $currentKsefOfflineIssuance]) }}"
-                data-ksef-offline-invoice-download
-            >
-                <i class="bi bi-download" aria-hidden="true"></i>
-                POBIERZ FAKTURĘ OFFLINE
-            </a>
-        @elseif ($ksefCanIssueOffline24)
+
+            @if ($offlineSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted && ! $offlineModeMatches)
+                <p class="invoice-ksef-message invoice-ksef-warning" data-ksef-offline-mode-mismatch>
+                    {{ $offlineSubmission->safe_error_message ?: 'Tryb wystawienia zwrócony przez KSeF nie odpowiada Fakturze Offline24. Dokumenty dla nabywcy i UPO są zablokowane.' }}
+                </p>
+            @elseif ($offlineSubmission?->safe_error_message)
+                <p class="invoice-ksef-message" data-ksef-offline-safe-error>{{ $offlineSubmission->safe_error_message }}</p>
+            @endif
+
+            <div class="invoice-ksef-actions">
+                @if ($offlineSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted && $offlineModeMatches)
+                    <a
+                        class="btn btn-outline-primary"
+                        href="{{ route('invoices.ksef.offline-issuances.accepted-pdf', ['invoice' => $invoice, 'issuance' => $offlineIssuance, 'submission' => $offlineSubmission]) }}"
+                        data-ksef-accepted-offline-invoice-download
+                    >
+                        <i class="bi bi-download" aria-hidden="true"></i>
+                        POBIERZ FAKTURĘ KSeF
+                    </a>
+                    @if ($offlineUpo)
+                        <a class="btn btn-outline-secondary" href="{{ route('invoices.ksef.submissions.upo.download', ['invoice' => $invoice, 'submission' => $offlineSubmission]) }}">
+                            <i class="bi bi-download" aria-hidden="true"></i>
+                            Pobierz UPO
+                        </a>
+                    @elseif ($ksefSubmissionGateEnabled && $ksefSettings?->is_active && $offlineRow['environment_allowed'] && $offlineRow['context_current'])
+                        <form method="POST" action="{{ route('invoices.ksef.submissions.upo.fetch', ['invoice' => $invoice, 'submission' => $offlineSubmission]) }}">
+                            @csrf
+                            <button class="btn btn-outline-primary" type="submit">Pobierz UPO z KSeF</button>
+                        </form>
+                    @endif
+                @elseif ($offlineCanTransmit)
+                    <form
+                        method="POST"
+                        action="{{ route('invoices.ksef.offline-issuances.submissions.store', ['invoice' => $invoice, 'issuance' => $offlineIssuance]) }}"
+                        data-ksef-offline-submit-form
+                        onsubmit="return window.confirm('Przekazać do KSeF dokładnie zamrożoną Fakturę Offline24? Dokument zostanie wysłany do środowiska {{ $offlineEnvironmentCode }} z trybem offlineMode=true. Treść FA(3) nie zostanie ponownie wygenerowana.')"
+                    >
+                        @csrf
+                        <button class="btn btn-primary" type="submit">
+                            {{ $offlineSubmission ? 'PONÓW TRANSMISJĘ OFFLINE24 DO KSeF '.$offlineEnvironmentCode : 'PRZEŚLIJ OFFLINE24 DO KSeF '.$offlineEnvironmentCode }}
+                        </button>
+                    </form>
+                @elseif ($offlineCanRefresh)
+                    <form method="POST" action="{{ route('invoices.ksef.submissions.refresh', ['invoice' => $invoice, 'submission' => $offlineSubmission]) }}">
+                        @csrf
+                        <button class="btn btn-outline-primary" type="submit">Sprawdź status</button>
+                    </form>
+                @elseif ($offlineCanReconcile)
+                    <form method="POST" action="{{ route('invoices.ksef.submissions.reconcile', ['invoice' => $invoice, 'submission' => $offlineSubmission]) }}">
+                        @csrf
+                        <button class="btn btn-outline-warning" type="submit">Sprawdź wynik transmisji</button>
+                    </form>
+                @elseif ($offlineSubmission === null || $offlineSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::TechnicalFailed)
+                    <p class="invoice-ksef-message invoice-ksef-warning mb-0">
+                        @if (! $offlineRow['context_current'])
+                            Ustaw aktywny kontekst NIP zgodny z tym wystawieniem Offline24, aby rozpocząć transmisję.
+                        @elseif (! $ksefSettings?->is_active)
+                            Integracja KSeF nie jest aktywna.
+                        @else
+                            Transmisja do środowiska {{ $offlineEnvironmentCode }} nie jest obecnie dostępna.
+                        @endif
+                    </p>
+                @endif
+
+                @if ($offlineSubmission?->status !== \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted)
+                    @if ($offlineRow['delivery_error'])
+                        <p class="invoice-ksef-message invoice-ksef-warning mb-0">{{ $offlineRow['delivery_error'] }}</p>
+                    @elseif ($offlineRow['delivery_type'] === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::TransactionConfirmation)
+                        <a class="btn btn-outline-primary" href="{{ route('invoices.ksef.offline-issuances.transaction-confirmation', ['invoice' => $invoice, 'issuance' => $offlineIssuance]) }}" data-ksef-transaction-confirmation-download>
+                            <i class="bi bi-download" aria-hidden="true"></i>
+                            POBIERZ POTWIERDZENIE TRANSAKCJI
+                        </a>
+                    @elseif ($offlineRow['delivery_type'] === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::OfflineInvoice)
+                        <a class="btn btn-outline-primary" href="{{ route('invoices.ksef.offline-issuances.invoice-pdf', ['invoice' => $invoice, 'issuance' => $offlineIssuance]) }}" data-ksef-offline-invoice-download>
+                            <i class="bi bi-download" aria-hidden="true"></i>
+                            POBIERZ FAKTURĘ OFFLINE
+                        </a>
+                    @endif
+                @endif
+            </div>
+
+            @if ($offlineSubmission?->status !== \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted)
+                @if ($offlineRow['delivery_type'] === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::TransactionConfirmation)
+                    <p class="invoice-ksef-message" data-ksef-offline-delivery-note>
+                        Faktura zostanie udostępniona nabywcy przez KSeF po jej przesłaniu do systemu.
+                    </p>
+                @elseif ($offlineRow['delivery_type'] === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::OfflineInvoice)
+                    <p class="invoice-ksef-message" data-ksef-offline-delivery-note>
+                        Dokument zawiera kody weryfikacyjne KSeF dla Faktury wystawionej Offline24.
+                    </p>
+                @endif
+            @endif
+        </div>
+    @endforeach
+
+    <div class="invoice-ksef-actions">
+        @if ($ksefCanIssueOffline24)
             <form
                 method="POST"
                 action="{{ route('invoices.ksef.offline24.issue', $invoice) }}"
@@ -244,16 +379,6 @@
             </form>
         @endif
     </div>
-
-    @if ($currentKsefOfflineIssuance && $ksefOfflineDeliveryDocumentType === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::TransactionConfirmation)
-        <p class="invoice-ksef-message" data-ksef-offline-delivery-note>
-            Faktura zostanie udostępniona nabywcy przez KSeF po jej przesłaniu do systemu.
-        </p>
-    @elseif ($currentKsefOfflineIssuance && $ksefOfflineDeliveryDocumentType === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::OfflineInvoice)
-        <p class="invoice-ksef-message" data-ksef-offline-delivery-note>
-            Dokument zawiera kody weryfikacyjne KSeF dla Faktury wystawionej Offline24.
-        </p>
-    @endif
 
     @if (! $ksefSubmissionGateEnabled)
         <p class="invoice-ksef-message">Wysyłka KSeF jest wyłączona na poziomie wdrożenia.</p>

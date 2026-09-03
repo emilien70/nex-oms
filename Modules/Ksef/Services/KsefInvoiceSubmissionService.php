@@ -44,6 +44,7 @@ class KsefInvoiceSubmissionService
         private readonly KsefInvoiceSubmissionLifecyclePolicy $lifecycle,
         private readonly KsefOperationalEnvironmentPolicy $environments,
         private readonly KsefSubmissionFollowUpPolicy $followUp,
+        private readonly KsefOfflineSubmissionIntegrityService $offlineIntegrity,
     ) {}
 
     public function prepare(
@@ -240,6 +241,18 @@ class KsefInvoiceSubmissionService
 
     public function submit(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
     {
+        return $this->submitUsingMode($submission, false);
+    }
+
+    public function submitOffline(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
+    {
+        return $this->submitUsingMode($submission, true);
+    }
+
+    private function submitUsingMode(
+        KsefInvoiceSubmission $submission,
+        bool $offline,
+    ): KsefInvoiceSubmission {
         $this->assertTransportEnabled();
         $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
         $this->environments->assertAllowed($submission->environment);
@@ -249,8 +262,16 @@ class KsefInvoiceSubmissionService
             $contextNip = $this->submissionContextNip($submission);
             $this->submissionSellerNip($submission);
             $this->assertPayloadIntegrity($submission);
-            $issueDate = $this->issueDates->read($submission->payload_xml);
-            $this->assertOnlineIssueDateIsToday($issueDate);
+            $plaintext = $submission->payload_xml;
+
+            if ($offline) {
+                $this->assertCurrentOfflineContext($submission);
+                $this->offlineIntegrity->linkedIssuance($submission, $plaintext);
+            } else {
+                $this->assertOnlineSubmission($submission);
+                $this->assertOnlineIssueDateIsToday($this->issueDates->read($plaintext));
+            }
+
             $accessToken = $this->accessTokens->getValidAccessToken(
                 $submission->environment,
                 $contextNip,
@@ -260,7 +281,7 @@ class KsefInvoiceSubmissionService
                 $certificates,
                 KsefPublicKeyUsage::SymmetricKeyEncryption,
             );
-            $encryption = $this->encryption->encrypt($submission->payload_xml, $certificate);
+            $encryption = $this->encryption->encrypt($plaintext, $certificate);
             $submission = $this->storeEncryptionMetadata($submission, $encryption);
             $open = $this->onlineSession->openSession(
                 $submission->environment,
@@ -292,7 +313,12 @@ class KsefInvoiceSubmissionService
         }
 
         try {
-            $this->assertOnlineIssueDateIsToday($issueDate);
+            if ($offline) {
+                $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
+                $this->offlineIntegrity->linkedIssuance($submission, $plaintext);
+            } else {
+                $this->assertOnlineIssueDateIsToday($this->issueDates->read($plaintext));
+            }
         } catch (KsefApiException $exception) {
             $submission = $this->closeSessionBestEffort($submission, $accessToken);
             $this->markTechnicalFailure($submission, $exception);
@@ -305,7 +331,9 @@ class KsefInvoiceSubmissionService
                 $submission->environment,
                 $accessToken,
                 $submission->session_reference_number,
-                $this->requests->sendInvoice($submission, $encryption),
+                $offline
+                    ? $this->requests->sendOfflineInvoice($submission, $encryption)
+                    : $this->requests->sendInvoice($submission, $encryption),
             );
         } catch (KsefApiException $exception) {
             if ($this->isUncertainSendFailure($exception)) {
@@ -355,6 +383,7 @@ class KsefInvoiceSubmissionService
         try {
             $contextNip = $this->submissionContextNip($submission);
             $this->submissionSellerNip($submission);
+            $this->assertCurrentOfflineContext($submission);
             $accessToken = $this->accessTokens->getValidAccessToken(
                 $submission->environment,
                 $contextNip,
@@ -388,6 +417,7 @@ class KsefInvoiceSubmissionService
             $contextNip = $this->submissionContextNip($submission);
             $this->submissionSellerNip($submission);
             $this->assertPayloadIntegrity($submission);
+            $this->assertCurrentOfflineContext($submission);
             $sessionReference = $this->requiredSubmissionReference(
                 $submission->session_reference_number,
                 'Próba nie posiada referencji sesji potrzebnej do bezpiecznego ustalenia wyniku transmisji.',
@@ -606,9 +636,14 @@ class KsefInvoiceSubmissionService
                 );
             }
 
-            if ($invoicingMode === KsefInvoicingMode::Offline) {
-                $attributes['safe_error_code'] = 'ksef_invoice_unexpected_offline_mode';
-                $attributes['safe_error_message'] = 'KSeF przyjął dokument, ale zakwalifikował go jako Offline. Obsługa trybu Offline wymaga osobnej ścieżki.';
+            if (! $submission->hasExpectedInvoicingMode($invoicingMode)) {
+                if ($submission->expectedInvoicingMode() === KsefInvoicingMode::Offline) {
+                    $attributes['safe_error_code'] = 'ksef_invoice_unexpected_online_mode';
+                    $attributes['safe_error_message'] = 'KSeF przyjął Fakturę Offline24, ale zwrócił tryb Online. Wydanie dokumentu i UPO pozostają zablokowane.';
+                } else {
+                    $attributes['safe_error_code'] = 'ksef_invoice_unexpected_offline_mode';
+                    $attributes['safe_error_message'] = 'KSeF przyjął dokument, ale zakwalifikował go jako Offline. Obsługa trybu Offline wymaga osobnej ścieżki.';
+                }
             }
 
             return $this->transition(
@@ -717,6 +752,7 @@ class KsefInvoiceSubmissionService
                 $to,
                 $managed->upo()->exists(),
                 $invoicingMode,
+                $managed->expectedInvoicingMode(),
             );
             if ($managed->follow_up_action !== $nextAction) {
                 $attributes['follow_up_attempts'] = 0;
@@ -734,7 +770,7 @@ class KsefInvoiceSubmissionService
             $managed->refresh();
 
             if ($to === KsefInvoiceSubmissionStatus::Accepted
-                && $managed->invoicing_mode === KsefInvoicingMode::Online
+                && $managed->hasExpectedInvoicingMode()
                 && $managed->invoice()->first()?->isInvoice() === true) {
                 KsefInvoiceAccepted::dispatch($managed);
             }
@@ -824,6 +860,42 @@ class KsefInvoiceSubmissionService
             throw new KsefApiException(
                 'Zamrożony payload Faktury KSeF jest niespójny.',
                 'ksef_submission_payload_inconsistent',
+            );
+        }
+    }
+
+    private function assertOnlineSubmission(KsefInvoiceSubmission $submission): void
+    {
+        if ($submission->offline_issuance_id !== null) {
+            throw new KsefApiException(
+                'Próba Offline24 nie może zostać wysłana zwykłą ścieżką Online.',
+                'ksef_submission_mode_invalid',
+            );
+        }
+    }
+
+    private function assertCurrentOfflineContext(KsefInvoiceSubmission $submission): void
+    {
+        if ($submission->offline_issuance_id === null) {
+            return;
+        }
+
+        $settings = KsefSetting::query()
+            ->where('singleton_key', KsefSetting::SINGLETON_KEY)
+            ->first();
+
+        if ($settings === null || ! $settings->is_active) {
+            throw new KsefApiException(
+                'Integracja KSeF nie jest aktywna.',
+                'ksef_submission_configuration_inactive',
+            );
+        }
+
+        if (! is_string($settings->context_nip)
+            || ! hash_equals((string) $submission->context_nip, $settings->context_nip)) {
+            throw new KsefApiException(
+                'Aby przekazać tę historyczną Fakturę Offline24, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
+                'ksef_offline_submission_context_not_current',
             );
         }
     }

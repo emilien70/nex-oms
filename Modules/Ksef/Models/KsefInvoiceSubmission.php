@@ -14,6 +14,7 @@ class KsefInvoiceSubmission extends Model
 {
     protected $fillable = [
         'invoice_id',
+        'offline_issuance_id',
         'environment',
         'context_nip',
         'seller_nip',
@@ -78,6 +79,29 @@ class KsefInvoiceSubmission extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function offlineIssuance(): BelongsTo
+    {
+        return $this->belongsTo(KsefOfflineIssuance::class, 'offline_issuance_id');
+    }
+
+    public function expectedInvoicingMode(): KsefInvoicingMode
+    {
+        return $this->offline_issuance_id === null
+            ? KsefInvoicingMode::Online
+            : KsefInvoicingMode::Offline;
+    }
+
+    public function hasExpectedInvoicingMode(?KsefInvoicingMode $actual = null): bool
+    {
+        $actual ??= $this->invoicing_mode;
+
+        if ($actual === null) {
+            return $this->offline_issuance_id === null;
+        }
+
+        return $actual === $this->expectedInvoicingMode();
     }
 
     public function upo(): HasOne
