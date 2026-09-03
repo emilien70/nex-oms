@@ -1381,6 +1381,14 @@ Każdy komunikat jest zachowywany jako niezmienna historia konkretnego środowis
 
 KSeF.8C.4A nie uruchamia automatycznej synchronizacji, schedulerów ani kolejek i nie prezentuje Latarni w UI. Nie liczy terminów ani dni roboczych, nie łączy komunikatów z Fakturami lub Offline24, nie modyfikuje wystawień Offline, nie blokuje i nie uruchamia transportu oraz nie dodaje procedur awaryjnych. `TOTAL_FAILURE` jest na tym etapie wyłącznie zapisaną informacją, bez skutku biznesowego. Deadline engine i wynikające z Latarni obowiązki pozostają poza zakresem do KSeF.8C.4B.
 
+### KSeF.8C.4A.1 — CLOSED
+
+Kontrolowany test publicznej Latarni TEST potwierdził poprawność parsera i surowych danych UTC, ale ujawnił przesunięcie chwili przy ponownym odczycie przez standardowy Eloquent `immutable_datetime` w strefie `Europe/Warsaw`. Dedykowany cast UTC dla pól komunikatów i stanu synchronizacji zapisuje UTC wall-clock oraz zawsze odczytuje go jako ten sam instant UTC, niezależnie od `APP_TIMEZONE`, CET/CEST i zmian DST. Istniejące trzy rekordy live zachowały surowe wartości oraz payloady i nie wymagały przeliczenia ani migracji danych.
+
+Regresje potwierdzają round-trip zimą, latem, przy wejściu w DST i dla obu różnych instantów powtarzającej się jesiennej godziny. Nullable `end_at` pozostaje null, uszkodzony surowy czas jest odrzucany, a `first_fetched_at`, `last_seen_at` oraz czasy prób, sukcesów i błędów zachowują chwilę UTC. Baza przechowuje te pola z dokładnością do jednej sekundy; części ułamkowe pozostają w kanonicznym payloadzie źródłowym. `KsefInstantStorageNormalizer` oraz istniejąca semantyka tokenów i certyfikatów nie zostały zmienione.
+
+KSeF.8C.4A.1 nie zmienia klienta i parserów Latarni, historii komunikatów, Faktur, Offline24 ani transportu KSeF. Nie dodaje deadline engine, kalendarza dni roboczych, schedulera, kolejki, UI, powiązań dokumentowych, skutków biznesowych `TOTAL_FAILURE` ani nowych procedur Offline.
+
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.

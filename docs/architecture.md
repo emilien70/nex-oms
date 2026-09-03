@@ -1337,6 +1337,14 @@ Parser fail-closed dopuszcza wyłącznie statusy `AVAILABLE`, `MAINTENANCE`, `FA
 
 Etap nie dodaje harmonogramu, kolejki, UI, deadline engine, kalendarza dni roboczych, powiązania z Fakturą, modyfikacji `KsefOfflineIssuance`, wpływu na transport ani nowej procedury Offline. `TOTAL_FAILURE` jest w 8C.4A wyłącznie informacją; nie zmienia obowiązków, terminów, trybu wystawienia ani możliwości POST-u Faktury. Te decyzje należą do późniejszych etapów, w szczególności KSeF.8C.4B.
 
+### KSeF.8C.4A.1 — CLOSED
+
+Kontrolowany odczyt Latarni TEST ujawnił błąd round-trip czasu: parser poprawnie zwracał UTC i surowy SQLite przechowywał prawidłowy UTC wall-clock, lecz standardowy cast `immutable_datetime` interpretował pozbawioną offsetu wartość w `APP_TIMEZONE=Europe/Warsaw`. Pola czasu komunikatów i stanu synchronizacji używają teraz dedykowanego `KsefUtcInstantCast`: zapis przelicza `DateTimeInterface` do UTC, a odczyt interpretuje surową wartość jawnie jako UTC i odrzuca uszkodzony format. Kontrakt ma postać remote ISO instant → parser UTC → DB UTC wall-clock → model UTC instant.
+
+Istniejące rekordy live nie zostały przepisane, ponieważ ich surowe wartości były już poprawne. Testy obejmują zimę, lato, oba brzegi wiosennej zmiany czasu oraz dwa różne instanty powtarzającej się godziny jesiennej; oba jesienne instanty pozostają rozróżnialne po zapisie i odczycie. Aktualny schemat i format dat Eloquent zachowują precyzję do jednej sekundy; źródłowy kanoniczny payload nadal zachowuje ewentualne części ułamkowe. Nie dodano migracji tylko w celu rozszerzenia precyzji. `KsefInstantStorageNormalizer` i starsze kontrakty czasu tokenów/certyfikatów pozostają bez zmian.
+
+Etap nie zmienia parserów, klienta HTTP, historii wersji, transportu KSeF ani wystawień Offline. Nie dodaje deadline engine, kalendarza dni roboczych, schedulera, kolejki, UI, powiązań z Fakturą, procedur awaryjnych ani skutków biznesowych `TOTAL_FAILURE`.
+
 Transport ma deploymentowy gate `KSEF_INVOICE_SUBMISSION_ENABLED` domyślnie `false`, jest serwisowo ograniczony do TEST i nie ma trasy ani UI. KSeF.4A.1 nie dodaje automatycznej akcji, listenera, observera, kolejki, crona, automatycznego pollingu, batch, offline, QR ani UPO. Trwałe `automatic_submission=true` nie omija deployment gate i przy braku workflow nie uruchamia transmisji. Przed przyszłym włączeniem gate trzeba zweryfikować tę wartość oraz wszystkie ścieżki triggerów. Automatyczne testy pozostają fake-only, używają `Http::fake()` i blokują stray HTTP.
 
 ### Walidacja end-to-end KSeF.4A

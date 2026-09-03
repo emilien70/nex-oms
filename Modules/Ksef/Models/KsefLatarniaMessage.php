@@ -4,6 +4,7 @@ namespace Modules\Ksef\Models;
 
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
+use Modules\Ksef\Casts\KsefUtcInstantCast;
 use Modules\Ksef\Enums\KsefLatarniaEnvironment;
 use Modules\Ksef\Enums\KsefLatarniaMessageCategory;
 use Modules\Ksef\Enums\KsefLatarniaMessageType;
@@ -34,11 +35,11 @@ class KsefLatarniaMessage extends Model
         'version' => 'integer',
         'category' => KsefLatarniaMessageCategory::class,
         'type' => KsefLatarniaMessageType::class,
-        'start_at' => 'immutable_datetime',
-        'end_at' => 'immutable_datetime',
-        'published_at' => 'immutable_datetime',
-        'first_fetched_at' => 'immutable_datetime',
-        'last_seen_at' => 'immutable_datetime',
+        'start_at' => KsefUtcInstantCast::class,
+        'end_at' => KsefUtcInstantCast::class,
+        'published_at' => KsefUtcInstantCast::class,
+        'first_fetched_at' => KsefUtcInstantCast::class,
+        'last_seen_at' => KsefUtcInstantCast::class,
     ];
 
     protected static function booted(): void
