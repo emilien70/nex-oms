@@ -40,10 +40,7 @@ final class KsefOfflineCertificateRemoteVerificationService
             ],
         );
         $remote = $this->queryMetadata($queryResponse->data, $snapshot);
-
-        if ($this->queryRequiresImmediateTrustDegradation($remote, CarbonImmutable::now('UTC'))) {
-            $this->persistUnsafeQueryObservation($snapshot, $remote);
-        }
+        $this->persistFreshQueryObservation($snapshot, $remote, CarbonImmutable::now('UTC'));
 
         $retrieveResponse = $this->http->post(
             $snapshot['environment'],
@@ -54,14 +51,6 @@ final class KsefOfflineCertificateRemoteVerificationService
         $this->verifyRetrievedCertificate($retrieveResponse->data, $snapshot);
 
         return $this->persistRemoteSnapshot($snapshot, $remote);
-    }
-
-    private function queryRequiresImmediateTrustDegradation(array $remote, CarbonImmutable $now): bool
-    {
-        return KsefOfflineCertificateRemoteStatus::tryFrom($remote['status'])
-                !== KsefOfflineCertificateRemoteStatus::Active
-            || $remote['valid_from']->greaterThan($now)
-            || $remote['valid_until']->lessThan($now);
     }
 
     private function localSnapshot(KsefOfflineCertificate $certificate): array
@@ -245,9 +234,12 @@ final class KsefOfflineCertificateRemoteVerificationService
         });
     }
 
-    private function persistUnsafeQueryObservation(array $snapshot, array $remote): void
-    {
-        DB::transaction(function () use ($snapshot, $remote): void {
+    private function persistFreshQueryObservation(
+        array $snapshot,
+        array $remote,
+        CarbonImmutable $now,
+    ): void {
+        DB::transaction(function () use ($snapshot, $remote, $now): void {
             $certificate = KsefOfflineCertificate::query()
                 ->whereKey($snapshot['id'])
                 ->lockForUpdate()
@@ -255,14 +247,31 @@ final class KsefOfflineCertificateRemoteVerificationService
 
             $this->assertIdentityUnchanged($certificate, $snapshot);
 
-            $certificate->forceFill([
+            $attributes = [
                 'remote_status' => $remote['status'],
                 'remote_certificate_name' => $remote['name'],
                 'remote_valid_from' => $this->instantStorage->forStorage($remote['valid_from']),
                 'remote_valid_until' => $this->instantStorage->forStorage($remote['valid_until']),
-                'remote_verified_at' => null,
-            ])->save();
+            ];
+
+            if (! $this->canPreserveRemoteVerification($certificate, $remote, $now)) {
+                $attributes['remote_verified_at'] = null;
+            }
+
+            $certificate->forceFill($attributes)->save();
         });
+    }
+
+    private function canPreserveRemoteVerification(
+        KsefOfflineCertificate $certificate,
+        array $remote,
+        CarbonImmutable $now,
+    ): bool {
+        return $certificate->remote_verified_at !== null
+            && $certificate->remote_status === KsefOfflineCertificateRemoteStatus::Active->value
+            && $remote['status'] === KsefOfflineCertificateRemoteStatus::Active->value
+            && ! $remote['valid_from']->greaterThan($now)
+            && ! $remote['valid_until']->lessThan($now);
     }
 
     private function invalidateRemoteTrust(array $snapshot): void

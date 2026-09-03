@@ -1303,6 +1303,14 @@ Jeżeli świeże, jednoznaczne wyszukanie certyfikatu w KSeF zwróci status inny
 
 Błąd przed uzyskaniem poprawnego wyniku wyszukiwania nadal zachowuje ostatni zaufany snapshot. Tak samo zachowuje się świeży `Active` z aktualnym okresem ważności, gdy dopiero retrieve ulegnie przejściowej awarii. Udane retrieve kończy pełną weryfikację tożsamości, a jednoznaczna niezgodność pobranego certyfikatu usuwa wszystkie zdalne dane zaufania. Nie dodano automatycznego sprawdzania, kolejek, retry, TTL ani migracji; etap nie wykonuje live HTTP.
 
+### KSeF.8B.2A.2 — CLOSED
+
+Każde poprawne, jednoznaczne wyszukanie dokładnego certyfikatu Offline zapisuje przed pobraniem jego świeży status, nazwę oraz pełny zakres ważności zwrócony przez MF. NEX-OMS nie skraca, nie wydłuża ani nie łączy tych dat z poprzednim snapshotem. Jeżeli późniejsze pobranie certyfikatu zakończy się przejściową awarią lub niekompletną odpowiedzią, nowe metadane pozostają widoczne i wpływają na bieżącą gotowość.
+
+Czas `remote_verified_at` nadal opisuje ostatnią pełną kontrolę tożsamości certyfikatu, a nie samo wyszukanie metadanych. Dotychczasowy czas może pozostać wyłącznie przy przejściu ze zweryfikowanego `Active` do świeżego, obecnie ważnego `Active` bez zmiany lokalnego certyfikatu lub klucza. Brak wcześniejszej pełnej weryfikacji, wcześniejszy stan inny niż `Active`, nowy stan inny niż `Active`, nieznany status albo okres poza bieżącym instantem czyszczą ten czas; dopiero poprawne pobranie i porównanie DER, numeru seryjnego, typu, fingerprintu oraz klucza ustawia go ponownie.
+
+Błąd albo malformed response samego query nie zmienia wcześniejszego snapshotu. Jednoznaczny błąd tożsamości query lub retrieve usuwa zdalne zaufanie. Wszystkie zapisy nadal sprawdzają race lokalnej konfiguracji, a requesty HTTP pozostają poza transakcją i nie są ponawiane. Etap nie dodaje migracji, zmian UI, zadań w tle, enrollmentu ani live HTTP.
+
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.
