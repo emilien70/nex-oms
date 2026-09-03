@@ -25,7 +25,7 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_active_certificate_is_verified_by_exact_query_and_retrieve_using_token_auth(): void
+    public function test_active_certificate_is_verified_by_exact_query_and_retrieve_using_certificate_auth_cache(): void
     {
         Http::preventStrayRequests();
         config()->set('app.timezone', 'Europe/Warsaw');
@@ -56,6 +56,152 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         $this->assertTrue(app(KsefOfflineCertificateReadinessService::class)->isReady($reloaded));
         $this->assertCertificateRequests($certificate, KsefEnvironment::Test);
         $this->assertNoMutatingCertificateRequests();
+    }
+
+    #[DataProvider('tokenAuthenticationRuntimeStates')]
+    public function test_token_authentication_is_blocked_before_any_http(string $runtimeState): void
+    {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $certificate = $this->importCertificate($fixture);
+        $credential = $this->seedTokenCredential(KsefEnvironment::Test);
+
+        match ($runtimeState) {
+            'valid_access' => $credential->forceFill([
+                'access_token' => 'FAKE_TOKEN_AUTH_ACCESS',
+                'access_token_valid_until' => now()->addMinutes(10),
+            ])->save(),
+            'valid_refresh' => $credential->forceFill([
+                'access_token' => 'FAKE_EXPIRED_TOKEN_AUTH_ACCESS',
+                'access_token_valid_until' => now()->subMinute(),
+                'refresh_token' => 'FAKE_TOKEN_AUTH_REFRESH',
+                'refresh_token_valid_until' => now()->addDay(),
+            ])->save(),
+            'no_runtime' => null,
+        };
+
+        try {
+            app(KsefOfflineCertificateRemoteVerificationService::class)->verify($certificate);
+            $this->fail('Expected certificate management authentication policy failure.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('certificate_management_requires_certificate_auth', $exception->safeCode);
+            $this->assertStringContainsString('Authentication/XAdES', $exception->getMessage());
+        }
+
+        $this->assertNull($certificate->fresh()->remote_verified_at);
+        Http::assertNothingSent();
+    }
+
+    public static function tokenAuthenticationRuntimeStates(): array
+    {
+        return [
+            'valid cached access token' => ['valid_access'],
+            'valid refresh token' => ['valid_refresh'],
+            'no runtime tokens' => ['no_runtime'],
+        ];
+    }
+
+    public function test_certificate_authentication_uses_valid_refresh_before_query_and_retrieve(): void
+    {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $certificate = $this->importCertificate($fixture);
+        $credential = $this->seedCachedToken(KsefEnvironment::Test);
+        $credential->forceFill([
+            'access_token' => 'FAKE_EXPIRED_CERTIFICATE_ACCESS',
+            'access_token_valid_until' => now()->subMinute(),
+            'refresh_token' => 'FAKE_CERTIFICATE_REFRESH',
+            'refresh_token_valid_until' => now()->addDay(),
+        ])->save();
+        $refreshedAccessToken = 'FAKE_REFRESHED_CERTIFICATE_ACCESS';
+
+        Http::fake(function (Request $request) use ($certificate, $fixture, $refreshedAccessToken) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+
+            return match (true) {
+                str_ends_with($path, '/auth/token/refresh') => Http::response([
+                    'accessToken' => [
+                        'token' => $refreshedAccessToken,
+                        'validUntil' => now()->addMinutes(15)->toIso8601String(),
+                    ],
+                ]),
+                str_ends_with($path, '/certificates/query') => Http::response([
+                    'certificates' => [$this->queryItem($certificate)],
+                    'hasMore' => false,
+                ]),
+                str_ends_with($path, '/certificates/retrieve') => Http::response([
+                    'certificates' => [$this->retrieveItem($certificate, $fixture)],
+                ]),
+                default => Http::response(['reasonCode' => 'UNEXPECTED_TEST_REQUEST'], 500),
+            };
+        });
+
+        $verified = app(KsefOfflineCertificateRemoteVerificationService::class)->verify($certificate);
+
+        $this->assertNotNull($verified->remote_verified_at);
+        Http::assertSentCount(3);
+        Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/auth/token/refresh')
+            && $request->hasHeader('Authorization', 'Bearer FAKE_CERTIFICATE_REFRESH'));
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/certificates/query')
+            && $request->hasHeader('Authorization', 'Bearer '.$refreshedAccessToken));
+        Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/certificates/retrieve')
+            && $request->hasHeader('Authorization', 'Bearer '.$refreshedAccessToken));
+        Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/auth/challenge')
+            || str_contains($request->url(), '/auth/xades-signature')
+            || str_contains($request->url(), '/auth/ksef-token'));
+    }
+
+    #[DataProvider('missingAuthenticationMaterials')]
+    public function test_certificate_authentication_requires_a_complete_saved_authentication_pair(
+        string $missing,
+    ): void {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $authentication = KsefCertificateFixtureFactory::ec();
+        $certificate = $this->importCertificate($fixture);
+        app(KsefSettingsService::class)->get()->forceFill(['context_nip' => '1234567890'])->save();
+        KsefCredential::query()->create([
+            'environment' => KsefEnvironment::Test,
+            'authentication_method' => KsefAuthenticationMethod::Certificate,
+            'authentication_certificate' => $missing === 'certificate' ? null : $authentication['certificate'],
+            'authentication_private_key' => $missing === 'private_key' ? null : $authentication['private_key'],
+            'access_token' => 'FAKE_CACHED_ACCESS_MUST_NOT_BE_USED',
+            'access_token_valid_until' => now()->addMinutes(10),
+        ]);
+
+        try {
+            app(KsefOfflineCertificateRemoteVerificationService::class)->verify($certificate);
+            $this->fail('Expected incomplete Authentication certificate pair failure.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('certificate_management_requires_certificate_auth', $exception->safeCode);
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public static function missingAuthenticationMaterials(): array
+    {
+        return [
+            'certificate missing' => ['certificate'],
+            'private key missing' => ['private_key'],
+        ];
+    }
+
+    public function test_certificate_management_authentication_never_falls_back_between_environments(): void
+    {
+        Http::preventStrayRequests();
+        $fixture = KsefCertificateFixtureFactory::offlineRsa();
+        $certificate = $this->importCertificate($fixture, KsefEnvironment::Demo);
+        $this->seedCachedToken(KsefEnvironment::Test);
+
+        try {
+            app(KsefOfflineCertificateRemoteVerificationService::class)->verify($certificate);
+            $this->fail('Expected missing DEMO Certificate authentication failure.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('certificate_management_requires_certificate_auth', $exception->safeCode);
+        }
+
+        Http::assertNothingSent();
     }
 
     public function test_demo_certificate_uses_only_demo_environment_without_fallback(): void
@@ -696,15 +842,29 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         );
     }
 
-    private function seedCachedToken(KsefEnvironment $environment): void
+    private function seedCachedToken(KsefEnvironment $environment): KsefCredential
     {
         app(KsefSettingsService::class)->get()->forceFill(['context_nip' => '1234567890'])->save();
-        KsefCredential::query()->create([
+        $authentication = KsefCertificateFixtureFactory::ec();
+
+        return KsefCredential::query()->create([
+            'environment' => $environment,
+            'authentication_method' => KsefAuthenticationMethod::Certificate,
+            'authentication_certificate' => $authentication['certificate'],
+            'authentication_private_key' => $authentication['private_key'],
+            'access_token' => 'FAKE_OFFLINE_QUERY_ACCESS_TOKEN',
+            'access_token_valid_until' => now()->addMinutes(10),
+        ]);
+    }
+
+    private function seedTokenCredential(KsefEnvironment $environment): KsefCredential
+    {
+        app(KsefSettingsService::class)->get()->forceFill(['context_nip' => '1234567890'])->save();
+
+        return KsefCredential::query()->create([
             'environment' => $environment,
             'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => 'FAKE_OFFLINE_QUERY_API_TOKEN',
-            'access_token' => 'FAKE_OFFLINE_QUERY_ACCESS_TOKEN',
-            'access_token_valid_until' => now()->addMinutes(10),
         ]);
     }
 

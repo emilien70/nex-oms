@@ -15,7 +15,7 @@ final class KsefOfflineCertificateRemoteVerificationService
 {
     public function __construct(
         private readonly KsefOfflineCertificateRemoteOperationPolicy $environments,
-        private readonly KsefAccessTokenManager $accessTokens,
+        private readonly KsefCertificateManagementAccessTokenProvider $certificateManagementAccessTokens,
         private readonly KsefHttpClient $http,
         private readonly KsefInstantStorageNormalizer $instantStorage,
     ) {}
@@ -25,7 +25,8 @@ final class KsefOfflineCertificateRemoteVerificationService
         $snapshot = $this->localSnapshot($certificate);
         $this->environments->assertAllowed($snapshot['environment']);
 
-        $accessToken = $this->accessTokens->getValidAccessToken($snapshot['environment']);
+        $accessToken = $this->certificateManagementAccessTokens
+            ->getValidAccessToken($snapshot['environment']);
         $queryResponse = $this->http->post(
             $snapshot['environment'],
             '/certificates/query',
