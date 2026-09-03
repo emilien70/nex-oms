@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Services\KsefOfflineStandardPdfGuard;
 use Throwable;
 
 class InvoicePdfRenderer
@@ -13,10 +14,13 @@ class InvoicePdfRenderer
     public function __construct(
         private readonly InvoicePdfViewModelFactory $viewModels,
         private readonly InvoicePdfFontResolver $fonts,
+        private readonly KsefOfflineStandardPdfGuard $offlineGuard,
     ) {}
 
     public function render(Invoice $invoice): string
     {
+        $this->offlineGuard->assertAllowed($invoice);
+
         return $this->renderDocuments(collect([$invoice]), (string) $invoice->number);
     }
 
@@ -31,6 +35,8 @@ class InvoicePdfRenderer
                 $metadata['empty_message'],
             );
         }
+
+        $this->offlineGuard->assertManyAllowed($invoices);
 
         return $this->renderDocuments($invoices, $metadata['title']);
     }
@@ -93,6 +99,8 @@ class InvoicePdfRenderer
 
     public function html(Invoice $invoice): string
     {
+        $this->offlineGuard->assertAllowed($invoice);
+
         return $this->htmlDocument($this->viewModels->make($invoice));
     }
 

@@ -7,11 +7,13 @@ use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Services\KsefOfflineStandardPdfGuard;
 
 class InvoiceBulkPdfService
 {
     public function __construct(
         private readonly InvoicePdfRenderer $renderer,
+        private readonly KsefOfflineStandardPdfGuard $offlineGuard,
     ) {}
 
     /** @param array<int, int> $invoiceIds */
@@ -45,6 +47,8 @@ class InvoiceBulkPdfService
         }
 
         /** @var Collection<int, Invoice> $invoices */
+        $this->offlineGuard->assertManyAllowed($invoices);
+
         return $this->renderer->renderMany($invoices, $documentType);
     }
 }

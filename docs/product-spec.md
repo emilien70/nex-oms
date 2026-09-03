@@ -1341,6 +1341,16 @@ Offline24 jest wzajemnie wykluczające z istniejącą historią Online i oznacze
 
 Ekran Faktury pokazuje `WYSTAW OFFLINE24` tylko przy pełnej kwalifikacji i wymaga potwierdzenia trwałego zamrożenia dokumentu. Po operacji widoczny jest status „Offline24 — wystawiona lokalnie”, `P_1`, czas, numer seryjny i historyczny status certyfikatu oraz „Numer KSeF: jeszcze nie nadano”. Etap wykonuje zero requestów KSeF i nie tworzy submissionu. Nie obejmuje PDF Offline, obrazów QR, potwierdzenia transakcji, doręczenia nabywcy, późniejszej transmisji `offlineMode=true`, terminów, Latarni, automatycznej wysyłki, Korekt Offline ani Production.
 
+### KSeF.8C.2 — CLOSED
+
+Po wystawieniu Offline24 ekran pokazuje dokładnie jedną akcję doręczenia wynikającą z zamrożonej tożsamości nabywcy. Dla nabywcy z polskim NIP-em dostępne jest `POBIERZ POTWIERDZENIE TRANSAKCJI`; dla nabywcy bez polskiego NIP-u dostępne jest `POBIERZ FAKTURĘ OFFLINE`. Klasyfikacja „bez polskiego NIP-u” jest konserwatywną polityką v1 NEX-OMS, a nie pełną oceną prawną. Dane niejednoznaczne lub niespójne blokują oba dokumenty. Ograniczenie działa po stronie serwera, nie tylko w interfejsie.
+
+Faktura Offline jest renderowana wyłącznie z zamrożonego XML FA(3), zawiera dane dokumentu i dokładnie dwa kody QR: KOD I z podpisem `OFFLINE` oraz KOD II z podpisem `CERTYFIKAT`. Potwierdzenie transakcji nie jest fakturą; zawiera tylko dane identyfikacyjne stron, numer dokumentu `P_2`, kwotę `P_15` z walutą oraz dwa kody QR z nagłówkami `sprawdź fakturę w KSeF` i `zweryfikuj wystawcę faktury`, bez podpisów `OFFLINE` i `CERTYFIKAT`. Dokumenty środowisk TEST i DEMO są wyraźnie oznaczone.
+
+Generowanie jest lokalne, nie wykonuje HTTP, nie modyfikuje issuance i nie tworzy trwałego cache. Zmiany bieżącej Faktury, konfiguracji lub certyfikatu, a także usunięcie rekordu certyfikatu, nie zmieniają historycznej treści. Dla Faktury posiadającej Offline24 zwykły PDF z bieżącego snapshotu, stary cache tego PDF-u i PDF zbiorczy są blokowane, aby operator korzystał z właściwego dokumentu doręczenia.
+
+Etap nie wdraża transmisji Offline24, terminów przekazania, integracji z Latarnią, Korekt Offline ani środowiska Production.
+
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.

@@ -3,6 +3,7 @@
 namespace Modules\Invoices\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -20,6 +21,7 @@ use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceEditViewModelFactory;
 use Modules\Invoices\Support\InvoiceReturnContext;
 use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
+use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefOfflineCertificateSelection;
@@ -29,6 +31,7 @@ use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\KsefFa3BuyerIdentityResolver;
 use Modules\Ksef\Services\KsefInvoiceSubmissionLifecyclePolicy;
 use Modules\Ksef\Services\KsefOfflineCertificateReadinessService;
+use Modules\Ksef\Services\KsefOfflineDeliveryPolicy;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Throwable;
 
@@ -46,6 +49,7 @@ class InvoiceEditController extends Controller
         KsefOperationalEnvironmentPolicy $ksefEnvironments,
         KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
         KsefFa3BuyerIdentityResolver $buyerIdentity,
+        KsefOfflineDeliveryPolicy $offlineDelivery,
     ): View {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
@@ -66,6 +70,7 @@ class InvoiceEditController extends Controller
                         $ksefEnvironments,
                         $offlineCertificateReadiness,
                         $buyerIdentity,
+                        $offlineDelivery,
                     ),
                     'invoice' => $invoice,
                     'currentCorrection' => $chain->currentCorrection,
@@ -118,6 +123,7 @@ class InvoiceEditController extends Controller
         KsefOperationalEnvironmentPolicy $environments,
         KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
         KsefFa3BuyerIdentityResolver $buyerIdentity,
+        KsefOfflineDeliveryPolicy $offlineDelivery,
     ): array {
         $settings = KsefSetting::query()
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
@@ -166,6 +172,16 @@ class InvoiceEditController extends Controller
             && is_string($settings->context_nip)
             && $sellerNip !== null
             && hash_equals($sellerNip, $settings->context_nip);
+        $offlineDeliveryType = null;
+        $offlineDeliveryError = null;
+
+        if ($offlineIssuance !== null) {
+            try {
+                $offlineDeliveryType = $offlineDelivery->primaryDocument($offlineIssuance);
+            } catch (KsefApiException $exception) {
+                $offlineDeliveryError = $exception->getMessage();
+            }
+        }
 
         return [
             'ksefSettings' => $settings,
@@ -173,6 +189,8 @@ class InvoiceEditController extends Controller
             'latestKsefSubmission' => $submissions->first(),
             'currentKsefSubmission' => $currentSubmission,
             'currentKsefOfflineIssuance' => $offlineIssuance,
+            'ksefOfflineDeliveryDocumentType' => $offlineDeliveryType,
+            'ksefOfflineDeliveryError' => $offlineDeliveryError,
             'ksefCanCreateAttempt' => $settings !== null
                 && $offlineIssuance === null
                 && $lifecycle->allowsNewAttempt($currentEnvironmentSubmissions),
@@ -180,6 +198,7 @@ class InvoiceEditController extends Controller
                 && $invoice->isInvoice()
                 && $invoice->isIssued()
                 && $invoice->isFinalized()
+                && $invoice->issue_date?->toDateString() === CarbonImmutable::now('Europe/Warsaw')->toDateString()
                 && $settings->is_active
                 && $environments->allows($settings->environment)
                 && $seriesEnabled

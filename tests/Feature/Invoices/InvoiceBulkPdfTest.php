@@ -21,6 +21,7 @@ use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefOfflineStandardPdfGuard;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\KsefUpoFixture;
 use Tests\TestCase;
@@ -439,7 +440,7 @@ class InvoiceBulkPdfTest extends TestCase
 
     private function recordingRenderer(): InvoicePdfRenderer
     {
-        return new class(app(InvoicePdfViewModelFactory::class), app(InvoicePdfFontResolver::class)) extends InvoicePdfRenderer
+        return new class(app(InvoicePdfViewModelFactory::class), app(InvoicePdfFontResolver::class), app(KsefOfflineStandardPdfGuard::class)) extends InvoicePdfRenderer
         {
             /** @var array<int, string> */
             public array $qrPayloads = [];

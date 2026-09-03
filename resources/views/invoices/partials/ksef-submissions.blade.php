@@ -172,7 +172,29 @@
     @endif
 
     <div class="invoice-ksef-actions">
-        @if ($ksefCanIssueOffline24)
+        @if ($currentKsefOfflineIssuance && $ksefOfflineDeliveryError)
+            <p class="invoice-ksef-message invoice-ksef-warning mb-0" data-ksef-offline-delivery-error>
+                {{ $ksefOfflineDeliveryError }}
+            </p>
+        @elseif ($currentKsefOfflineIssuance && $ksefOfflineDeliveryDocumentType === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::TransactionConfirmation)
+            <a
+                class="btn btn-outline-primary"
+                href="{{ route('invoices.ksef.offline-issuances.transaction-confirmation', ['invoice' => $invoice, 'issuance' => $currentKsefOfflineIssuance]) }}"
+                data-ksef-transaction-confirmation-download
+            >
+                <i class="bi bi-download" aria-hidden="true"></i>
+                POBIERZ POTWIERDZENIE TRANSAKCJI
+            </a>
+        @elseif ($currentKsefOfflineIssuance && $ksefOfflineDeliveryDocumentType === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::OfflineInvoice)
+            <a
+                class="btn btn-outline-primary"
+                href="{{ route('invoices.ksef.offline-issuances.invoice-pdf', ['invoice' => $invoice, 'issuance' => $currentKsefOfflineIssuance]) }}"
+                data-ksef-offline-invoice-download
+            >
+                <i class="bi bi-download" aria-hidden="true"></i>
+                POBIERZ FAKTURĘ OFFLINE
+            </a>
+        @elseif ($ksefCanIssueOffline24)
             <form
                 method="POST"
                 action="{{ route('invoices.ksef.offline24.issue', $invoice) }}"
@@ -222,6 +244,16 @@
             </form>
         @endif
     </div>
+
+    @if ($currentKsefOfflineIssuance && $ksefOfflineDeliveryDocumentType === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::TransactionConfirmation)
+        <p class="invoice-ksef-message" data-ksef-offline-delivery-note>
+            Faktura zostanie udostępniona nabywcy przez KSeF po jej przesłaniu do systemu.
+        </p>
+    @elseif ($currentKsefOfflineIssuance && $ksefOfflineDeliveryDocumentType === \Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType::OfflineInvoice)
+        <p class="invoice-ksef-message" data-ksef-offline-delivery-note>
+            Dokument zawiera kody weryfikacyjne KSeF dla Faktury wystawionej Offline24.
+        </p>
+    @endif
 
     @if (! $ksefSubmissionGateEnabled)
         <p class="invoice-ksef-message">Wysyłka KSeF jest wyłączona na poziomie wdrożenia.</p>

@@ -37,6 +37,7 @@ use Modules\Ksef\Http\Controllers\KsefInvoiceSubmissionController;
 use Modules\Ksef\Http\Controllers\KsefMonthlyInvoiceExportController;
 use Modules\Ksef\Http\Controllers\KsefOfflineCertificateController;
 use Modules\Ksef\Http\Controllers\KsefOfflineIssuanceController;
+use Modules\Ksef\Http\Controllers\KsefOfflinePresentationController;
 use Modules\Ksef\Http\Controllers\KsefPaymentTypeSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSeriesSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSettingsController;
@@ -132,6 +133,8 @@ Route::get('/invoices/corrections/{correction}/edit', [CorrectionController::cla
 Route::patch('/invoices/corrections/{correction}', [CorrectionController::class, 'update'])->name('invoices.corrections.update');
 Route::post('/invoices/{invoice}/ksef/submissions/first-attempt', [KsefInvoiceSubmissionController::class, 'firstAttempt'])->name('invoices.ksef.submissions.first-attempt');
 Route::post('/invoices/{invoice}/ksef/offline24', KsefOfflineIssuanceController::class)->name('invoices.ksef.offline24.issue');
+Route::get('/invoices/{invoice}/ksef/offline-issuances/{issuance}/invoice-pdf', [KsefOfflinePresentationController::class, 'invoice'])->name('invoices.ksef.offline-issuances.invoice-pdf');
+Route::get('/invoices/{invoice}/ksef/offline-issuances/{issuance}/transaction-confirmation', [KsefOfflinePresentationController::class, 'transactionConfirmation'])->name('invoices.ksef.offline-issuances.transaction-confirmation');
 Route::post('/invoices/{invoice}/ksef/submissions', [KsefInvoiceSubmissionController::class, 'store'])->name('invoices.ksef.submissions.store');
 Route::post('/invoices/{invoice}/ksef/submissions/{submission}/refresh', [KsefInvoiceSubmissionController::class, 'refresh'])->name('invoices.ksef.submissions.refresh');
 Route::post('/invoices/{invoice}/ksef/submissions/{submission}/reconcile', [KsefInvoiceSubmissionController::class, 'reconcile'])->name('invoices.ksef.submissions.reconcile');
