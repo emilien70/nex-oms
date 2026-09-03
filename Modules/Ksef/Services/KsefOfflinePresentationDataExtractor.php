@@ -25,7 +25,7 @@ final class KsefOfflinePresentationDataExtractor
     public function __construct(
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentities,
-        private readonly KsefInvoiceVerificationLinkBuilder $invoiceLinks,
+        private readonly KsefQrEnvironmentHostPolicy $qrHosts,
     ) {}
 
     public function extract(KsefOfflineIssuance $issuance): KsefOfflinePresentationData
@@ -53,22 +53,15 @@ final class KsefOfflinePresentationDataExtractor
             throw $this->integrityInvalid();
         }
 
-        $expectedInvoiceUrl = $this->invoiceLinks->buildFor(
-            $issuance->environment,
-            $sellerNip,
-            CarbonImmutable::createFromFormat('!Y-m-d', $issueDate, 'Europe/Warsaw'),
-            (string) $issuance->invoice_hash,
-        );
-
-        if (! is_string($expectedInvoiceUrl)
-            || ! hash_equals($expectedInvoiceUrl, (string) $issuance->invoice_verification_url)
+        if (! $this->invoiceUrlIsValid($issuance, $sellerNip, $issueDate)
             || ! $this->certificateUrlIsValid($issuance)) {
             throw $this->integrityInvalid();
         }
 
         $seller = $this->seller($xpath, $sellerNip);
         [$buyer, $classification] = $this->buyer($xpath);
-        [$taxRows, $totalNet, $totalVat] = $this->taxRows($xpath);
+        [$lines, $lineTaxTreatments] = $this->lines($xpath);
+        [$taxRows, $totalNet, $totalVat] = $this->taxRows($xpath, $lineTaxTreatments);
 
         return new KsefOfflinePresentationData(
             environment: $issuance->environment,
@@ -83,7 +76,7 @@ final class KsefOfflinePresentationDataExtractor
             totalNet: $totalNet,
             totalVat: $totalVat,
             totalGross: $this->money($this->required($xpath, '/fa:Faktura/fa:Fa/fa:P_15')),
-            lines: $this->lines($xpath),
+            lines: $lines,
             taxRows: $taxRows,
             additionalDescriptions: $this->additionalDescriptions($xpath),
             payment: $this->payment($xpath),
@@ -215,7 +208,12 @@ final class KsefOfflinePresentationDataExtractor
         return array_values(array_filter([$line1, $line2, $country], static fn (?string $line): bool => $line !== null));
     }
 
-    /** @return list<array{name: string, unit_name: string, quantity: string, unit_price_net: string, total_net: string, vat: string, gtu: ?string}> */
+    /**
+     * @return array{
+     *     0: list<array{name: string, unit_name: string, quantity: string, unit_price_net: string, total_net: string, vat: string, gtu: ?string}>,
+     *     1: list<string>
+     * }
+     */
     private function lines(DOMXPath $xpath): array
     {
         $nodes = $this->nodes($xpath, '/fa:Faktura/fa:Fa/fa:FaWiersz');
@@ -224,48 +222,60 @@ final class KsefOfflinePresentationDataExtractor
         }
 
         $lines = [];
+        $taxTreatments = [];
         foreach ($nodes as $node) {
             if (! $node instanceof DOMElement) {
                 throw $this->integrityInvalid();
             }
 
+            $taxTreatment = $this->taxTreatment($this->required($xpath, './fa:P_12', $node));
             $lines[] = [
                 'name' => $this->required($xpath, './fa:P_7', $node),
                 'unit_name' => $this->required($xpath, './fa:P_8A', $node),
                 'quantity' => $this->quantity($this->required($xpath, './fa:P_8B', $node)),
                 'unit_price_net' => $this->money($this->required($xpath, './fa:P_9A', $node)),
                 'total_net' => $this->money($this->required($xpath, './fa:P_11', $node)),
-                'vat' => $this->vatLabel($this->required($xpath, './fa:P_12', $node)),
+                'vat' => $this->vatLabel($taxTreatment),
                 'gtu' => $this->optional($xpath, './fa:GTU', context: $node),
             ];
+            $taxTreatments[] = $taxTreatment;
         }
 
-        return $lines;
+        return [$lines, array_values(array_unique($taxTreatments))];
     }
 
-    /** @return array{0: list<array{vat: string, net: string, vat_amount: string, gross: string}>, 1: string, 2: string} */
-    private function taxRows(DOMXPath $xpath): array
+    /**
+     * @param  list<string>  $lineTaxTreatments
+     * @return array{0: list<array{vat: string, net: string, vat_amount: string, gross: string}>, 1: string, 2: string}
+     */
+    private function taxRows(DOMXPath $xpath, array $lineTaxTreatments): array
     {
         $rows = [];
         $totalNet = '0.00';
         $totalVat = '0.00';
 
         foreach ([
-            ['P_13_1', 'P_14_1', '23%'],
-            ['P_13_2', 'P_14_2', '8%'],
-            ['P_13_3', 'P_14_3', '5%'],
-        ] as [$netField, $vatField, $label]) {
+            ['P_13_1', 'P_14_1', ['23', '22']],
+            ['P_13_2', 'P_14_2', ['8', '7']],
+            ['P_13_3', 'P_14_3', ['5']],
+        ] as [$netField, $vatField, $bucketTreatments]) {
             $net = $this->optional($xpath, '/fa:Faktura/fa:Fa/fa:'.$netField);
             $vat = $this->optional($xpath, '/fa:Faktura/fa:Fa/fa:'.$vatField);
             if (($net === null) !== ($vat === null)) {
                 throw $this->integrityInvalid();
             }
-            if ($net === null) {
+
+            $presentTreatments = array_values(array_intersect($bucketTreatments, $lineTaxTreatments));
+            if (($net !== null) !== ($presentTreatments !== [])) {
+                throw $this->integrityInvalid();
+            }
+            if ($net === null || $vat === null) {
                 continue;
             }
 
             $net = $this->money($net);
             $vat = $this->money($vat);
+            $label = implode(' / ', array_map(static fn (string $rate): string => $rate.'%', $presentTreatments));
             $rows[] = ['vat' => $label, 'net' => $net, 'vat_amount' => $vat, 'gross' => $this->add($net, $vat)];
             $totalNet = $this->add($totalNet, $net);
             $totalVat = $this->add($totalVat, $vat);
@@ -277,6 +287,16 @@ final class KsefOfflinePresentationDataExtractor
             ['P_13_6_3', '0% eksport'],
         ] as [$netField, $label]) {
             $net = $this->optional($xpath, '/fa:Faktura/fa:Fa/fa:'.$netField);
+            $treatment = match ($netField) {
+                'P_13_6_1' => '0 KR',
+                'P_13_6_2' => '0 WDT',
+                'P_13_6_3' => '0 EX',
+            };
+            $hasMatchingLine = in_array($treatment, $lineTaxTreatments, true);
+
+            if (($net !== null) !== $hasMatchingLine) {
+                throw $this->integrityInvalid();
+            }
             if ($net === null) {
                 continue;
             }
@@ -358,27 +378,32 @@ final class KsefOfflinePresentationDataExtractor
         ];
     }
 
+    private function invoiceUrlIsValid(
+        KsefOfflineIssuance $issuance,
+        string $sellerNip,
+        string $issueDate,
+    ): bool {
+        $parts = parse_url((string) $issuance->invoice_verification_url);
+        $hash = $this->base64Url((string) $issuance->invoice_hash);
+        [$year, $month, $day] = explode('-', $issueDate);
+        $expectedPath = sprintf('/invoice/%s/%s-%s-%s/%s', $sellerNip, $day, $month, $year, $hash);
+
+        return $this->hasValidUrlEnvelope($parts, $issuance->environment)
+            && ($parts['path'] ?? null) === $expectedPath;
+    }
+
     private function certificateUrlIsValid(KsefOfflineIssuance $issuance): bool
     {
-        $baseUrl = config('ksef.qr_base_urls.'.$issuance->environment->value);
         $url = (string) $issuance->certificate_verification_url;
         $parts = parse_url($url);
-        $baseParts = is_string($baseUrl) ? parse_url($baseUrl) : false;
         $segments = is_array($parts)
             ? explode('/', trim((string) ($parts['path'] ?? ''), '/'))
             : [];
         $hash = $this->base64Url((string) $issuance->invoice_hash);
 
-        return is_array($parts)
-            && is_array($baseParts)
-            && ($parts['scheme'] ?? null) === 'https'
-            && ($parts['host'] ?? null) === ($baseParts['host'] ?? null)
-            && ! isset($parts['port'])
-            && ! isset($parts['user'])
-            && ! isset($parts['pass'])
-            && ! isset($parts['query'])
-            && ! isset($parts['fragment'])
+        return $this->hasValidUrlEnvelope($parts, $issuance->environment)
             && count($segments) === 7
+            && ($parts['path'] ?? null) === '/'.implode('/', $segments)
             && $segments[0] === 'certificate'
             && $segments[1] === $issuance->context_identifier_type->value
             && $segments[2] === (string) $issuance->context_identifier_value
@@ -387,6 +412,20 @@ final class KsefOfflinePresentationDataExtractor
             && $segments[5] === $hash
             && preg_match('/^[A-Za-z0-9_-]+$/D', $segments[6]) === 1
             && $this->base64UrlDecode($segments[6]) !== null;
+    }
+
+    /** @param array<string, int|string>|false $parts */
+    private function hasValidUrlEnvelope(array|false $parts, KsefEnvironment $environment): bool
+    {
+        return is_array($parts)
+            && ($parts['scheme'] ?? null) === 'https'
+            && is_string($parts['host'] ?? null)
+            && $this->qrHosts->allows($environment, $parts['host'])
+            && ! isset($parts['port'])
+            && ! isset($parts['user'])
+            && ! isset($parts['pass'])
+            && ! isset($parts['query'])
+            && ! isset($parts['fragment']);
     }
 
     private function base64Url(string $base64): string
@@ -401,7 +440,11 @@ final class KsefOfflinePresentationDataExtractor
             true,
         );
 
-        return is_string($decoded) && $decoded !== '' ? $decoded : null;
+        return is_string($decoded)
+            && $decoded !== ''
+            && hash_equals(rtrim(strtr(base64_encode($decoded), '+/', '-_'), '='), $value)
+                ? $decoded
+                : null;
     }
 
     private function required(
@@ -516,15 +559,22 @@ final class KsefOfflinePresentationDataExtractor
         }
     }
 
-    private function vatLabel(string $value): string
+    private function taxTreatment(string $value): string
     {
-        if (preg_match('/^\d+(?:\.\d+)?$/D', $value) === 1) {
-            $rate = rtrim(rtrim($value, '0'), '.');
-
-            return ($rate === '' ? '0' : $rate).'%';
+        if (preg_match('/^(23|22|8|7|5)(?:\.0+)?$/D', $value, $matches) === 1) {
+            return $matches[1];
         }
 
         return match ($value) {
+            '0 KR', '0 WDT', '0 EX' => $value,
+            default => throw $this->integrityInvalid(),
+        };
+    }
+
+    private function vatLabel(string $taxTreatment): string
+    {
+        return match ($taxTreatment) {
+            '23', '22', '8', '7', '5' => $taxTreatment.'%',
             '0 KR' => '0% krajowa',
             '0 WDT' => '0% WDT',
             '0 EX' => '0% eksport',

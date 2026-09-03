@@ -14,6 +14,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoiceBulkPdfService;
+use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfRenderer;
@@ -22,6 +23,7 @@ use Modules\Ksef\Enums\KsefContextIdentifierType;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefOfflineBuyerClassification;
 use Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType;
+use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefOfflineCertificate;
 use Modules\Ksef\Models\KsefOfflineCertificateSelection;
@@ -91,8 +93,11 @@ class KsefOfflinePresentationTest extends TestCase
         $document = app(KsefTransactionConfirmationPdfService::class)->document($issuance);
 
         $this->assertStringContainsString('POTWIERDZENIE TRANSAKCJI', $html);
-        $this->assertStringContainsString('Ten dokument nie jest fakturą.', $html);
+        $this->assertStringNotContainsString('Ten dokument nie jest fakturą.', $html);
+        $this->assertStringNotContainsString('Faktura VAT', $html);
         $this->assertStringNotContainsString('Produkt testowy', $html);
+        $this->assertStringNotContainsString('Sposób płatności', $html);
+        $this->assertStringNotContainsString('Numer zamówienia', $html);
         $this->assertSame([
             ['heading' => 'sprawdź fakturę w KSeF', 'payload' => $issuance->invoice_verification_url, 'label' => null],
             ['heading' => 'zweryfikuj wystawcę faktury', 'payload' => $issuance->certificate_verification_url, 'label' => null],
@@ -120,6 +125,180 @@ class KsefOfflinePresentationTest extends TestCase
             DB::table('ksef_offline_issuances')->where('id', $issuance->getKey())->first(),
         );
         Http::assertNothingSent();
+    }
+
+    #[DataProvider('vatPresentationCases')]
+    public function test_all_supported_frozen_vat_treatments_have_faithful_presentation(
+        string $vatRate,
+        string $gross,
+        KsefZeroVatClassification $zeroClassification,
+        string $expectedLabel,
+        string $expectedVat,
+        ?string $forbiddenLabel,
+    ): void {
+        [, $issuance] = $this->issueOffline(
+            orderAttributes: ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            items: [[
+                'product_name' => 'Pozycja '.$expectedLabel,
+                'unit_price_gross' => $gross,
+                'total_price_gross' => $gross,
+                'vat_rate' => $vatRate,
+            ]],
+            settingsAttributes: ['zero_vat_classification' => $zeroClassification],
+        );
+
+        $presentation = app(KsefOfflinePresentationDataExtractor::class)->extract($issuance);
+        $html = app(KsefOfflinePresentationPdfRenderer::class)->offlineInvoiceHtml($presentation);
+
+        $this->assertSame($expectedLabel, $presentation->lines[0]['vat']);
+        $this->assertSame([
+            'vat' => $expectedLabel,
+            'net' => '100.00',
+            'vat_amount' => $expectedVat,
+            'gross' => $gross,
+        ], $presentation->taxRows[0]);
+        $this->assertStringContainsString($expectedLabel, $html);
+        if ($forbiddenLabel !== null) {
+            $this->assertStringNotContainsString('>'.$forbiddenLabel.'</td>', $html);
+        }
+        Http::assertNothingSent();
+    }
+
+    public static function vatPresentationCases(): array
+    {
+        return [
+            '23 percent' => ['23.00', '123.00', KsefZeroVatClassification::Wdt, '23%', '23.00', null],
+            '22 percent' => ['22.00', '122.00', KsefZeroVatClassification::Wdt, '22%', '22.00', '23%'],
+            '8 percent' => ['8.00', '108.00', KsefZeroVatClassification::Wdt, '8%', '8.00', null],
+            '7 percent' => ['7.00', '107.00', KsefZeroVatClassification::Wdt, '7%', '7.00', '8%'],
+            '5 percent' => ['5.00', '105.00', KsefZeroVatClassification::Wdt, '5%', '5.00', null],
+            '0 KR' => ['0.00', '100.00', KsefZeroVatClassification::Domestic, '0% krajowa', '0.00', null],
+            '0 WDT' => ['0.00', '100.00', KsefZeroVatClassification::Wdt, '0% WDT', '0.00', null],
+            '0 EX' => ['0.00', '100.00', KsefZeroVatClassification::Export, '0% eksport', '0.00', null],
+        ];
+    }
+
+    public function test_mixed_historical_rates_use_unambiguous_bucket_labels_and_frozen_summary_money(): void
+    {
+        [, $issuance] = $this->issueOffline(
+            orderAttributes: ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+            items: [
+                ['product_name' => 'Pozycja 23', 'unit_price_gross' => '123.00', 'total_price_gross' => '123.00', 'vat_rate' => '23.00'],
+                ['product_name' => 'Pozycja 22', 'unit_price_gross' => '122.00', 'total_price_gross' => '122.00', 'vat_rate' => '22.00'],
+                ['product_name' => 'Pozycja 8', 'unit_price_gross' => '108.00', 'total_price_gross' => '108.00', 'vat_rate' => '8.00'],
+                ['product_name' => 'Pozycja 7', 'unit_price_gross' => '107.00', 'total_price_gross' => '107.00', 'vat_rate' => '7.00'],
+                ['product_name' => 'Pozycja 5', 'unit_price_gross' => '105.00', 'total_price_gross' => '105.00', 'vat_rate' => '5.00'],
+            ],
+        );
+
+        $presentation = app(KsefOfflinePresentationDataExtractor::class)->extract($issuance);
+
+        $this->assertSame([
+            ['vat' => '23% / 22%', 'net' => '200.00', 'vat_amount' => '45.00', 'gross' => '245.00'],
+            ['vat' => '8% / 7%', 'net' => '200.00', 'vat_amount' => '15.00', 'gross' => '215.00'],
+            ['vat' => '5%', 'net' => '100.00', 'vat_amount' => '5.00', 'gross' => '105.00'],
+        ], $presentation->taxRows);
+        $this->assertSame('500.00', $presentation->totalNet);
+        $this->assertSame('65.00', $presentation->totalVat);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('taxSummaryMismatchCases')]
+    public function test_frozen_line_and_tax_summary_bucket_mismatch_fails_closed(string $case): void
+    {
+        [, $issuance] = $this->issueOffline();
+        $issuance = $this->replaceFrozenXml($issuance, function (DOMDocument $document) use ($case): void {
+            if ($case === 'summary_without_line') {
+                $document->getElementsByTagName('P_12')->item(0)->nodeValue = '8';
+
+                return;
+            }
+
+            foreach (['P_13_1', 'P_14_1'] as $name) {
+                $node = $document->getElementsByTagName($name)->item(0);
+                $node?->parentNode?->removeChild($node);
+            }
+        });
+
+        $this->assertKsefError(
+            'ksef_offline_presentation_integrity_invalid',
+            fn () => app(KsefOfflinePresentationDataExtractor::class)->extract($issuance),
+        );
+        Http::assertNothingSent();
+    }
+
+    public static function taxSummaryMismatchCases(): array
+    {
+        return [
+            'summary without matching line' => ['summary_without_line'],
+            'line without matching summary' => ['line_without_summary'],
+        ];
+    }
+
+    public function test_unsupported_frozen_numeric_tax_treatment_is_not_rounded_into_a_supported_rate(): void
+    {
+        [, $issuance] = $this->issueOffline();
+        $issuance = $this->replaceFrozenXml($issuance, function (DOMDocument $document): void {
+            $document->getElementsByTagName('P_12')->item(0)->nodeValue = '22.999';
+        });
+
+        $this->assertKsefError(
+            'ksef_offline_presentation_integrity_invalid',
+            fn () => app(KsefOfflinePresentationDataExtractor::class)->extract($issuance),
+        );
+        Http::assertNothingSent();
+    }
+
+    public function test_frozen_qr_urls_survive_runtime_qr_configuration_change_without_rebuild(): void
+    {
+        [, $issuance] = $this->issueOffline(
+            orderAttributes: ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
+        );
+        $invoiceUrl = $issuance->invoice_verification_url;
+        $certificateUrl = $issuance->certificate_verification_url;
+        config()->set('ksef.qr_base_urls.test', 'https://example.invalid');
+
+        $presentation = app(KsefOfflinePresentationDataExtractor::class)->extract($issuance);
+        $blocks = app(KsefOfflinePresentationPdfRenderer::class)->offlineInvoiceQrBlocks($presentation);
+
+        $this->assertSame($invoiceUrl, $presentation->invoiceVerificationUrl);
+        $this->assertSame($certificateUrl, $presentation->certificateVerificationUrl);
+        $this->assertSame($invoiceUrl, $blocks[0]['payload']);
+        $this->assertSame($certificateUrl, $blocks[1]['payload']);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('invalidFrozenQrHostCases')]
+    public function test_malicious_and_wrong_environment_frozen_qr_hosts_fail_closed(
+        KsefEnvironment $environment,
+        string $field,
+        string $replacementHost,
+    ): void {
+        [, $issuance] = $this->issueOffline($environment);
+        $url = (string) $issuance->{$field};
+        $currentHost = parse_url($url, PHP_URL_HOST);
+        $this->assertIsString($currentHost);
+        DB::table('ksef_offline_issuances')
+            ->where('id', $issuance->getKey())
+            ->update([$field => str_replace('://'.$currentHost.'/', '://'.$replacementHost.'/', $url)]);
+
+        $this->assertKsefError(
+            'ksef_offline_presentation_integrity_invalid',
+            fn () => app(KsefOfflinePresentationDataExtractor::class)->extract($issuance->fresh()),
+        );
+        Http::assertNothingSent();
+    }
+
+    public static function invalidFrozenQrHostCases(): array
+    {
+        return [
+            'malicious KOD I host' => [KsefEnvironment::Test, 'invoice_verification_url', 'evil.example'],
+            'malicious KOD II host' => [KsefEnvironment::Test, 'certificate_verification_url', 'evil.example'],
+            'TEST KOD I on DEMO host' => [KsefEnvironment::Test, 'invoice_verification_url', 'qr-demo.ksef.mf.gov.pl'],
+            'TEST KOD II on DEMO host' => [KsefEnvironment::Test, 'certificate_verification_url', 'qr-demo.ksef.mf.gov.pl'],
+            'DEMO KOD I on TEST host' => [KsefEnvironment::Demo, 'invoice_verification_url', 'qr-test.ksef.mf.gov.pl'],
+            'DEMO KOD II on TEST host' => [KsefEnvironment::Demo, 'certificate_verification_url', 'qr-test.ksef.mf.gov.pl'],
+        ];
     }
 
     public function test_eu_vat_buyer_allows_only_full_offline_invoice_with_exact_qr_contract(): void
@@ -378,8 +557,15 @@ class KsefOfflinePresentationTest extends TestCase
     private function issueOffline(
         KsefEnvironment $environment = KsefEnvironment::Test,
         array $orderAttributes = [],
+        array $items = [],
+        array $settingsAttributes = [],
     ): array {
-        $invoice = $this->eligibleInvoice($environment, $orderAttributes);
+        $invoice = $this->eligibleInvoice(
+            $environment,
+            $orderAttributes,
+            items: $items,
+            settingsAttributes: $settingsAttributes,
+        );
         $certificate = $this->readyCertificate($environment);
         $issuance = app(KsefOfflineIssuanceService::class)->issueOffline24($invoice);
 
@@ -390,8 +576,10 @@ class KsefOfflinePresentationTest extends TestCase
         KsefEnvironment $environment = KsefEnvironment::Test,
         array $orderAttributes = [],
         ?string $issueDate = null,
+        array $items = [],
+        array $settingsAttributes = [],
     ): Invoice {
-        app(KsefSettingsService::class)->get()->forceFill([
+        app(KsefSettingsService::class)->get()->forceFill(array_replace([
             'is_active' => true,
             'environment' => $environment,
             'context_nip' => '9876543210',
@@ -400,18 +588,29 @@ class KsefOfflinePresentationTest extends TestCase
             'include_order_reference' => true,
             'include_bank_account' => true,
             'include_gtu' => true,
-        ])->save();
+        ], $settingsAttributes))->save();
+        $items = $items !== [] ? $items : [[
+            'unit_price_gross' => '123.00',
+            'total_price_gross' => '123.00',
+            'vat_rate' => '23.00',
+        ]];
+        $totalGross = '0.00';
+        foreach ($items as $item) {
+            $totalGross = app(InvoiceDecimalCalculator::class)->add(
+                $totalGross,
+                (string) ($item['total_price_gross'] ?? ''),
+            );
+        }
         $order = $this->createDocumentOrder(array_replace([
             'external_id' => 'KSEF-OFFLINE-PRESENTATION-'.uniqid(),
             'billing_tax_id' => '5260250995',
             'delivery_cost_gross' => '0.00',
             'paid_amount' => '0.00',
+            'total_gross' => $totalGross,
         ], $orderAttributes));
-        $this->createDocumentItem($order, [
-            'unit_price_gross' => '123.00',
-            'total_price_gross' => '123.00',
-            'vat_rate' => '23.00',
-        ]);
+        foreach ($items as $item) {
+            $this->createDocumentItem($order, $item);
+        }
         $series = $this->createDocumentSeries(InvoiceDocumentType::Invoice, [
             'include_shipping' => false,
             'seller_tax_id' => '9876543210',

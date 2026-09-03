@@ -6,15 +6,12 @@
     <style>
         .confirmation-title { font-size: 18pt; font-weight: bold; text-align: center; }
         .confirmation-meta td { border-bottom: 1px solid #c9c9c9; font-size: 10pt; padding: 7px; }
-        .confirmation-note { font-size: 8.5pt; text-align: center; }
     </style>
 </head>
 <body>
     <div class="ksef-test-mark">{{ $document['test_mark'] }}</div>
     <br><br>
     <div class="confirmation-title">POTWIERDZENIE TRANSAKCJI</div>
-    <br>
-    <div class="confirmation-note">Ten dokument nie jest fakturą.</div>
     <br><br><br>
 
     @include('invoices.pdf.partials.parties')
