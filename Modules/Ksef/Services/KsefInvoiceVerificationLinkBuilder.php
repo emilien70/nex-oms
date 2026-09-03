@@ -3,15 +3,29 @@
 namespace Modules\Ksef\Services;
 
 use DateTimeInterface;
+use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 
 class KsefInvoiceVerificationLinkBuilder
 {
     public function build(KsefInvoiceSubmission $submission, DateTimeInterface $issueDate): ?string
     {
-        $baseUrl = config('ksef.qr_base_urls.'.$submission->environment->value);
-        $sellerNip = trim((string) $submission->seller_nip);
-        $invoiceHash = (string) $submission->invoice_hash;
+        return $this->buildFor(
+            $submission->environment,
+            (string) $submission->seller_nip,
+            $issueDate,
+            (string) $submission->invoice_hash,
+        );
+    }
+
+    public function buildFor(
+        KsefEnvironment $environment,
+        string $sellerNip,
+        DateTimeInterface $issueDate,
+        string $invoiceHash,
+    ): ?string {
+        $baseUrl = config('ksef.qr_base_urls.'.$environment->value);
+        $sellerNip = trim($sellerNip);
         $decodedHash = base64_decode($invoiceHash, true);
 
         if (! is_string($baseUrl)

@@ -133,6 +133,10 @@ class KsefMonthlyInvoiceExportService
                 'ksefSubmissions',
                 fn ($query) => $query->where('environment', $environment->value),
             )
+            ->whereDoesntHave(
+                'ksefOfflineIssuances',
+                fn ($query) => $query->where('environment', $environment->value),
+            )
             ->orderBy('issue_date')
             ->orderBy('id')
             ->pluck('id')

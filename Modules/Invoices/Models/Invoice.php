@@ -12,6 +12,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefOfflineIssuance;
 
 class Invoice extends Model
 {
@@ -153,6 +154,11 @@ class Invoice extends Model
     public function ksefProvenances(): HasMany
     {
         return $this->hasMany(KsefInvoiceProvenance::class);
+    }
+
+    public function ksefOfflineIssuances(): HasMany
+    {
+        return $this->hasMany(KsefOfflineIssuance::class);
     }
 
     public function latestKsefSubmission(): HasOne

@@ -55,6 +55,14 @@ class InvoiceDeletionPolicy
             );
         }
 
+        if ($invoice->isInvoice()
+            && ($facts?->hasKsefOfflineIssuance ?? $invoice->ksefOfflineIssuances()->exists())) {
+            throw new InvoiceDomainException(
+                'invoice_delete_blocked_by_ksef_offline_issuance',
+                'Nie można usunąć Faktury, ponieważ została wystawiona w trybie Offline24.',
+            );
+        }
+
         $this->mutationPolicy->assertContentMutable($invoice);
 
         if ($invoice->lock_version !== $expectedLockVersion) {

@@ -15,6 +15,7 @@ use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionDocumentGenerator;
@@ -144,6 +145,17 @@ class KsefInvoiceSubmissionService
                 throw new KsefApiException(
                     'Kontekst NIP KSeF zmienił się podczas operacji. Faktura nie została wysłana.',
                     'ksef_submission_context_changed',
+                );
+            }
+
+            if (KsefOfflineIssuance::query()
+                ->where('invoice_id', $managed->getKey())
+                ->where('environment', $environment->value)
+                ->lockForUpdate()
+                ->exists()) {
+                throw new KsefApiException(
+                    'Dokument został wystawiony w trybie Offline24 i nie może zostać przygotowany zwykłą ścieżką Online.',
+                    'ksef_submission_blocked_by_offline_issuance',
                 );
             }
 

@@ -18,6 +18,7 @@ use Modules\Invoices\ValueObjects\InvoiceDeletionFacts;
 use Modules\Invoices\ValueObjects\InvoiceOperationContext;
 use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefOfflineIssuance;
 use Throwable;
 
 class InvoiceDeletionService
@@ -75,6 +76,8 @@ class InvoiceDeletionService
                         && $managedInvoice->ksefSubmissions()->exists(),
                     hasKsefProvenance: $managedInvoice->isInvoice()
                         && $managedInvoice->ksefProvenances()->exists(),
+                    hasKsefOfflineIssuance: $managedInvoice->isInvoice()
+                        && $managedInvoice->ksefOfflineIssuances()->exists(),
                 );
 
                 $this->policy->assertDeletable(
@@ -536,6 +539,14 @@ class InvoiceDeletionService
                 ->pluck('invoice_id')
                 ->map(static fn (mixed $id): int => (int) $id)
                 ->flip();
+        $invoiceIdsWithKsefOfflineIssuances = $selectedInvoiceIds === []
+            ? collect()
+            : KsefOfflineIssuance::query()
+                ->whereIntegerInRaw('invoice_id', $selectedInvoiceIds)
+                ->distinct()
+                ->pluck('invoice_id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->flip();
 
         return $invoices->mapWithKeys(function (Invoice $invoice) use (
             $orders,
@@ -544,6 +555,7 @@ class InvoiceDeletionService
             $invoiceIdsWithCorrections,
             $invoiceIdsWithKsefSubmissions,
             $invoiceIdsWithKsefProvenances,
+            $invoiceIdsWithKsefOfflineIssuances,
         ): array {
             /** @var Collection<int, Invoice> $corrections */
             $corrections = $correctionsByOrder->get($invoice->order_id, collect());
@@ -560,6 +572,8 @@ class InvoiceDeletionService
                     hasKsefSubmission: $invoiceIdsWithKsefSubmissions
                         ->has((int) $invoice->getKey()),
                     hasKsefProvenance: $invoiceIdsWithKsefProvenances
+                        ->has((int) $invoice->getKey()),
+                    hasKsefOfflineIssuance: $invoiceIdsWithKsefOfflineIssuances
                         ->has((int) $invoice->getKey()),
                 ),
             ];

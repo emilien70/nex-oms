@@ -4,6 +4,7 @@
     $isDemoEnvironment = $configuredEnvironment === \Modules\Ksef\Enums\KsefEnvironment::Demo;
     $canSend = $invoice->isInvoice()
         && $invoice->isFinalized()
+        && $currentKsefOfflineIssuance === null
         && $ksefSubmissionGateEnabled
         && $ksefSettings?->is_active
         && $ksefOperationalEnvironmentAllowed
@@ -106,7 +107,10 @@
 
     <div class="invoice-ksef-status-row">
         <span>Bieżący status:</span>
-        @if ($currentKsefSubmission)
+        @if ($currentKsefOfflineIssuance)
+            <span class="badge text-bg-warning" data-ksef-offline24-status>Offline24 — wystawiona lokalnie</span>
+            <span class="text-muted">({{ strtoupper($currentKsefOfflineIssuance->environment->value) }})</span>
+        @elseif ($currentKsefSubmission)
             <span class="badge text-bg-{{ $currentKsefSubmission->status->badgeVariant() }}" data-ksef-current-status>
                 {{ $currentKsefSubmission->status->label() }}
             </span>
@@ -115,6 +119,16 @@
             <span class="badge text-bg-secondary" data-ksef-current-status>Nie wysłano</span>
         @endif
     </div>
+
+    @if ($currentKsefOfflineIssuance)
+        <p class="invoice-ksef-message" data-ksef-offline24-details>
+            P_1: <strong>{{ $currentKsefOfflineIssuance->issue_date->format('d.m.Y') }}</strong><br>
+            Wystawiono lokalnie: <strong>{{ $currentKsefOfflineIssuance->issued_at->format('d.m.Y H:i') }}</strong><br>
+            Certyfikat Offline: <strong>{{ $currentKsefOfflineIssuance->certificate_serial_number }}</strong><br>
+            Status certyfikatu przy wystawieniu: <strong>{{ $currentKsefOfflineIssuance->certificate_remote_status }}</strong><br>
+            Numer KSeF: <strong>jeszcze nie nadano</strong>
+        </p>
+    @endif
 
     @if ($currentKsefSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Accepted && $currentKsefSubmission->ksef_number)
         <p class="invoice-ksef-message">
@@ -158,6 +172,18 @@
     @endif
 
     <div class="invoice-ksef-actions">
+        @if ($ksefCanIssueOffline24)
+            <form
+                method="POST"
+                action="{{ route('invoices.ksef.offline24.issue', $invoice) }}"
+                data-ksef-offline24-form
+                onsubmit="return window.confirm('Wystawienie w trybie Offline24 tworzy Fakturę przed przesłaniem do KSeF. Treść FA(3), data wystawienia oraz dane kodów weryfikacyjnych zostaną trwale zamrożone. Dokument będzie wymagał późniejszego przekazania do KSeF zgodnie z obowiązującym terminem.')"
+            >
+                @csrf
+                <button class="btn btn-outline-warning" type="submit">WYSTAW OFFLINE24</button>
+            </form>
+        @endif
+
         @if ($canSend)
             @php
                 $sendConfirmation = $isRetry

@@ -19,10 +19,16 @@ use Modules\Invoices\Services\InvoiceEditCurrencyConversionService;
 use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceEditViewModelFactory;
 use Modules\Invoices\Support\InvoiceReturnContext;
+use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
+use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefOfflineCertificateSelection;
+use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefFa3BuyerIdentityResolver;
 use Modules\Ksef\Services\KsefInvoiceSubmissionLifecyclePolicy;
+use Modules\Ksef\Services\KsefOfflineCertificateReadinessService;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Throwable;
 
@@ -38,6 +44,8 @@ class InvoiceEditController extends Controller
         CorrectionSeriesResolver $correctionSeries,
         KsefInvoiceSubmissionLifecyclePolicy $ksefLifecycle,
         KsefOperationalEnvironmentPolicy $ksefEnvironments,
+        KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
+        KsefFa3BuyerIdentityResolver $buyerIdentity,
     ): View {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
@@ -52,7 +60,13 @@ class InvoiceEditController extends Controller
                 $chain = $sourceState->chain($invoice);
 
                 return view('invoices.edit-blocked-by-correction', [
-                    ...$this->ksefViewData($invoice, $ksefLifecycle, $ksefEnvironments),
+                    ...$this->ksefViewData(
+                        $invoice,
+                        $ksefLifecycle,
+                        $ksefEnvironments,
+                        $offlineCertificateReadiness,
+                        $buyerIdentity,
+                    ),
                     'invoice' => $invoice,
                     'currentCorrection' => $chain->currentCorrection,
                     'latestFinalizedCorrection' => $chain->finalizedTail,
@@ -102,6 +116,8 @@ class InvoiceEditController extends Controller
         Invoice $invoice,
         KsefInvoiceSubmissionLifecyclePolicy $lifecycle,
         KsefOperationalEnvironmentPolicy $environments,
+        KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
+        KsefFa3BuyerIdentityResolver $buyerIdentity,
     ): array {
         $settings = KsefSetting::query()
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
@@ -116,18 +132,63 @@ class InvoiceEditController extends Controller
                 fn (KsefInvoiceSubmission $submission): bool => $submission->environment === $settings->environment,
             );
         $currentSubmission = $currentEnvironmentSubmissions->first();
+        $offlineIssuance = $settings === null
+            ? null
+            : KsefOfflineIssuance::query()
+                ->where('invoice_id', $invoice->getKey())
+                ->where('environment', $settings->environment->value)
+                ->first();
+        $seriesEnabled = KsefSeriesSetting::query()
+            ->where('invoice_series_id', $invoice->invoice_series_id)
+            ->where('is_enabled', true)
+            ->exists();
+        $preferredSelection = $settings === null
+            ? null
+            : KsefOfflineCertificateSelection::query()
+                ->with('certificate')
+                ->where('environment', $settings->environment->value)
+                ->first();
+        $preferredCertificate = $preferredSelection?->certificate;
+        $preferredCertificateReady = $settings !== null
+            && $preferredCertificate !== null
+            && $preferredCertificate->environment === $settings->environment
+            && $offlineCertificateReadiness->isReady($preferredCertificate);
+        $outsideKsef = $settings !== null
+            && KsefInvoiceProvenance::query()
+                ->where('invoice_id', $invoice->getKey())
+                ->where('environment', $settings->environment->value)
+                ->where('provenance', KsefInvoiceProvenanceType::OutsideKsef->value)
+                ->exists();
+        $sellerNip = $buyerIdentity->normalizePolishNip(
+            data_get($invoice->seller_snapshot, 'tax_id'),
+        );
+        $contextMatchesSeller = $settings !== null
+            && is_string($settings->context_nip)
+            && $sellerNip !== null
+            && hash_equals($sellerNip, $settings->context_nip);
 
         return [
             'ksefSettings' => $settings,
             'ksefSubmissions' => $submissions,
             'latestKsefSubmission' => $submissions->first(),
             'currentKsefSubmission' => $currentSubmission,
+            'currentKsefOfflineIssuance' => $offlineIssuance,
             'ksefCanCreateAttempt' => $settings !== null
+                && $offlineIssuance === null
                 && $lifecycle->allowsNewAttempt($currentEnvironmentSubmissions),
-            'ksefSeriesEnabled' => KsefSeriesSetting::query()
-                ->where('invoice_series_id', $invoice->invoice_series_id)
-                ->where('is_enabled', true)
-                ->exists(),
+            'ksefCanIssueOffline24' => $settings !== null
+                && $invoice->isInvoice()
+                && $invoice->isIssued()
+                && $invoice->isFinalized()
+                && $settings->is_active
+                && $environments->allows($settings->environment)
+                && $seriesEnabled
+                && $offlineIssuance === null
+                && $currentEnvironmentSubmissions->isEmpty()
+                && ! $outsideKsef
+                && $contextMatchesSeller
+                && $preferredCertificateReady,
+            'ksefSeriesEnabled' => $seriesEnabled,
             'ksefSubmissionGateEnabled' => config('ksef.invoice_submission_enabled') === true,
             'ksefOperationalEnvironmentAllowed' => $settings !== null
                 && $environments->allows($settings->environment),

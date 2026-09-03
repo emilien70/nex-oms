@@ -11,5 +11,6 @@ final readonly class InvoiceDeletionFacts
         public bool $hasOtherCorrection,
         public bool $hasKsefSubmission,
         public bool $hasKsefProvenance,
+        public bool $hasKsefOfflineIssuance = false,
     ) {}
 }

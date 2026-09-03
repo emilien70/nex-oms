@@ -12,6 +12,7 @@ use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefOfflineIssuance;
 
 final class KsefInvoiceProvenanceService
 {
@@ -41,6 +42,21 @@ final class KsefInvoiceProvenanceService
                     'ksef_invoice_provenance_document_not_finalized',
                     'Przed oznaczeniem Faktury jako wystawionej poza KSeF należy ją najpierw zamknąć.',
                     ['invoice_id' => $managed->getKey()],
+                );
+            }
+
+            if (KsefOfflineIssuance::query()
+                ->where('invoice_id', $managed->getKey())
+                ->where('environment', $environment->value)
+                ->lockForUpdate()
+                ->exists()) {
+                throw new InvoiceDomainException(
+                    'ksef_invoice_provenance_offline_issuance_exists',
+                    'Faktura została wystawiona w trybie Offline24 w wybranym środowisku.',
+                    [
+                        'invoice_id' => $managed->getKey(),
+                        'environment' => $environment->value,
+                    ],
                 );
             }
 

@@ -5,6 +5,7 @@ namespace Modules\Ksef\Services;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
 
@@ -47,6 +48,13 @@ class KsefAutomaticInvoiceSubmissionPolicy
         }
 
         if (KsefInvoiceSubmission::query()
+            ->where('invoice_id', $invoice->getKey())
+            ->where('environment', $settings->environment->value)
+            ->exists()) {
+            return null;
+        }
+
+        if (KsefOfflineIssuance::query()
             ->where('invoice_id', $invoice->getKey())
             ->where('environment', $settings->environment->value)
             ->exists()) {
