@@ -3,6 +3,7 @@
 namespace Tests\Feature\Invoices;
 
 use App\Models\Currency;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -288,8 +289,8 @@ class InvoicePdfTest extends TestCase
             'invoice_size' => strlen($payload),
             'ksef_status_code' => 200,
             'ksef_number' => $number,
-            'acquisition_date' => '2026-08-24 09:51:15',
-            'last_checked_at' => '2026-08-24 09:51:15',
+            'acquisition_date' => CarbonImmutable::parse('2026-08-24T09:51:15Z'),
+            'last_checked_at' => CarbonImmutable::parse('2026-08-24T09:51:15Z'),
         ]);
 
         $document = app(InvoicePdfViewModelFactory::class)->make($invoice->fresh());
@@ -381,8 +382,8 @@ class InvoicePdfTest extends TestCase
             'invoice_size' => strlen($acceptedPayload),
             'ksef_status_code' => 200,
             'ksef_number' => $number,
-            'acquisition_date' => '2026-08-24 09:51:15',
-            'last_checked_at' => '2026-08-24 09:51:15',
+            'acquisition_date' => CarbonImmutable::parse('2026-08-24T09:51:15Z'),
+            'last_checked_at' => CarbonImmutable::parse('2026-08-24T09:51:15Z'),
         ]);
 
         $processingPayload = '<Faktura>PDF KSEF PROCESSING DEMO</Faktura>';
@@ -1492,9 +1493,9 @@ class InvoicePdfTest extends TestCase
                 ? KsefUpoFixture::ksefNumber($sellerNip)
                 : null,
             'acquisition_date' => $status === KsefInvoiceSubmissionStatus::Accepted
-                ? '2026-08-24 09:51:15'
+                ? CarbonImmutable::parse('2026-08-24T09:51:15Z')
                 : null,
-            'last_checked_at' => '2026-08-24 09:51:15',
+            'last_checked_at' => CarbonImmutable::parse('2026-08-24T09:51:15Z'),
         ], $attributes));
     }
 

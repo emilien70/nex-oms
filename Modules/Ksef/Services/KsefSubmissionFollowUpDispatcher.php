@@ -2,6 +2,7 @@
 
 namespace Modules\Ksef\Services;
 
+use Carbon\CarbonImmutable;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Jobs\KsefSubmissionFollowUpJob;
@@ -35,7 +36,7 @@ class KsefSubmissionFollowUpDispatcher
 
         $ids = KsefInvoiceSubmission::query()
             ->whereNotNull('next_follow_up_at')
-            ->where('next_follow_up_at', '<=', now())
+            ->where('next_follow_up_at', '<=', CarbonImmutable::now('UTC'))
             ->whereIn('environment', [
                 KsefEnvironment::Test->value,
                 KsefEnvironment::Demo->value,

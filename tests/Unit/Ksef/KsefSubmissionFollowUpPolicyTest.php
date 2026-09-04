@@ -24,6 +24,7 @@ class KsefSubmissionFollowUpPolicyTest extends TestCase
             ->nextAttemptAt($completedAttempts, now: $now);
 
         $this->assertSame($expectedSeconds, (int) $now->diffInSeconds($next));
+        $this->assertSame('UTC', $next->getTimezone()->getName());
     }
 
     public static function backoffCases(): array

@@ -1407,9 +1407,17 @@ KSeF.8C.4B niczego nie zapisuje i nie zmienia wystawienia Offline24, Faktury ani
 
 Dwie wcześniejsze próby zamknięcia zostały zablokowane przez niejednoznaczność jesiennej zmiany czasu: dwa różne exact instants mogły zostać zapisane jako ten sam pozbawiony offsetu wall-clock `Europe/Warsaw`. `KsefOfflineIssuance.issued_at` i `KsefInvoiceSubmission.generated_at` mają teraz wspólny kontrakt: exact instant domenowy → surowy UTC wall-clock w bazie → ten sam exact instant UTC po odczycie przez istniejący `KsefUtcInstantCast`.
 
-Migracja `083000` przelicza legacy wall-clock `Europe/Warsaw` na UTC wyłącznie dla tych dwóch pól. Najpierw sprawdza wszystkie rekordy, a następnie wykonuje atomową aktualizację; brak odwzorowania podczas wiosennej przerwy lub więcej niż jedno odwzorowanie podczas jesiennego powtórzenia godziny powoduje fail-closed. Migracja jest jawnie nieodwracalna, nie została uruchomiona na bazie operatora i pozostaje `Pending`.
+Migracja `083000` przelicza legacy wall-clock `Europe/Warsaw` na UTC wyłącznie dla tych dwóch pól. Najpierw sprawdza wszystkie rekordy, a następnie wykonuje atomową aktualizację; brak odwzorowania podczas wiosennej przerwy lub więcej niż jedno odwzorowanie podczas jesiennego powtórzenia godziny powoduje fail-closed. Migracja jest jawnie nieodwracalna i została następnie kontrolowanie wykonana na bazie operatora.
 
 Zwykłe przygotowanie Online zapisuje `generated_at` bez konwersji do `APP_TIMEZONE`, a przygotowanie Offline kopiuje exact `issued_at` do `generated_at`. Ścisłe porównanie instantów w integralności Offline pozostaje bez zmian. Payload XML, hash, rozmiar, schema, `offlineMode`, szyfrowanie, lifecycle sesji, retry, statusy, reconciliation i liczba POST-ów zachowują dotychczasową semantykę. Pozostałe timestampy submissionu zostały tylko zaudytowane i nie są częścią tej zmiany.
+
+### KSeF.8C.4B.2 — CLOSED
+
+Osiem pozostałych exact-instant fields submissionu: `session_valid_until`, `session_closed_at`, `acquisition_date`, `invoicing_date`, `permanent_storage_date`, `last_checked_at`, `next_follow_up_at` i `last_follow_up_at` ma jednolity kontrakt exact instant → surowy UTC `Y-m-d H:i:s` → ten sam instant UTC po odczycie przez istniejący `KsefUtcInstantCast`. Zdalne daty KSeF zachowują offset źródłowy jako instant, a znaczniki sesji i follow-upów nie zależą już od lokalnego wall-clock `APP_TIMEZONE`. Due/future, `Retry-After`, backoff, limiter i claim zachowują dotychczasowe reguły, ale porównują i zapisują dokładne momenty UTC.
+
+Migracja `084000` konwertuje wyłącznie tych osiem historycznych kolumn z jednolitego naive wall-clock `Europe/Warsaw` do UTC. Waliduje cały plan przed zapisem, działa transakcyjnie i używa optimistic raw guardu; niejednoznaczna godzina jesienna, nieistniejąca godzina wiosenna, zły format lub zmiana współbieżna zatrzymują całość bez częściowych aktualizacji. Rollback jest jawnie nieodwracalny. Migracja nie została uruchomiona na bazie operatora i pozostaje `Pending`.
+
+Etap nie zmienia `generated_at`, `issued_at`, migracji `083000`, transportu, XML, hashy, szyfrowania, status mappingu, UPO, deadline engine ani integralności Offline. Nie dodaje HTTP, schedulera, kolejki, UI, automatycznej wysyłki ani nowej procedury Offline.
 
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 

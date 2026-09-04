@@ -104,7 +104,7 @@ class KsefSubmissionFollowUpProcessor
             }
 
             $managed->forceFill([
-                'next_follow_up_at' => CarbonImmutable::now()->addSeconds(max(1, $wait)),
+                'next_follow_up_at' => CarbonImmutable::now('UTC')->addSeconds(max(1, $wait)),
             ])->save();
         }, 3);
     }
@@ -133,7 +133,7 @@ class KsefSubmissionFollowUpProcessor
             $managed->forceFill([
                 'follow_up_attempts' => $attempts,
                 'follow_up_action' => $action,
-                'last_follow_up_at' => CarbonImmutable::now(),
+                'last_follow_up_at' => CarbonImmutable::now('UTC'),
                 'next_follow_up_at' => $this->policy->nextAttemptAt($attempts),
             ])->save();
 

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Ksef;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
@@ -131,7 +132,7 @@ class KsefCorrectionListTest extends TestCase
     {
         [$correction, $submission] = $this->correctionWithSubmission(KsefInvoiceSubmissionStatus::Accepted, [
             'ksef_number' => '9876543210-20260821-000000000001-15',
-            'acquisition_date' => '2026-08-21 10:00:01',
+            'acquisition_date' => CarbonImmutable::parse('2026-08-21T10:00:01Z'),
         ]);
 
         $this->get(route('invoices.corrections.index'))

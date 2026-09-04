@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Invoices;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -719,7 +720,7 @@ class InvoiceListTest extends TestCase
             'invoice_size' => strlen($payload),
             ...($status === KsefInvoiceSubmissionStatus::Accepted ? [
                 'ksef_number' => '6282192260-20260821-440DF5800001-5F',
-                'acquisition_date' => '2026-08-21 09:40:43',
+                'acquisition_date' => CarbonImmutable::parse('2026-08-21T09:40:43Z'),
             ] : []),
         ]);
     }

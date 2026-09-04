@@ -403,6 +403,7 @@ class KsefInvoiceSubmissionTest extends TestCase
         $invoice = $this->eligibleInvoice();
         $this->validAccessToken();
         $fake = $this->fakeOnlineApi();
+        $fake->openResponse['validUntil'] = '2026-08-19T14:00:00+02:00';
         $service = app(KsefInvoiceSubmissionService::class);
         $submission = $service->prepare($invoice);
         $xml = $submission->payload_xml;
@@ -415,7 +416,17 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertSame('SYMMETRIC-KEY-ID', $submission->public_key_id);
         $this->assertSame('20260819-SO-TEST-REFERENCE', $submission->session_reference_number);
         $this->assertSame('20260819-INV-TEST-REFERENCE', $submission->invoice_reference_number);
+        $this->assertSame('2026-08-19T12:00:00.000000Z', $submission->session_valid_until?->toISOString());
+        $this->assertSame(
+            '2026-08-19 12:00:00',
+            DB::table('ksef_invoice_submissions')->where('id', $submission->getKey())->value('session_valid_until'),
+        );
         $this->assertNotNull($submission->session_closed_at);
+        $this->assertSame('2026-08-19T10:30:00.000000Z', $submission->session_closed_at?->toISOString());
+        $this->assertSame(
+            '2026-08-19 10:30:00',
+            DB::table('ksef_invoice_submissions')->where('id', $submission->getKey())->value('session_closed_at'),
+        );
         $this->assertNull($submission->ksef_number);
         $this->assertNull($submission->session_close_error_code);
         $this->assertSame(1, $fake->openCalls);
@@ -448,6 +459,37 @@ class KsefInvoiceSubmissionTest extends TestCase
             return ! str_contains($path, '/sessions/')
                 || $request->hasHeader('Authorization', 'Bearer FAKE_VALID_SUBMISSION_ACCESS_TOKEN');
         });
+    }
+
+    #[DataProvider('fallSessionValidityProvider')]
+    public function test_session_valid_until_writer_preserves_fall_dst_instants(
+        string $remoteValue,
+        string $expectedRaw,
+    ): void {
+        $invoice = $this->eligibleInvoice();
+        $this->validAccessToken();
+        $fake = $this->fakeOnlineApi();
+        $fake->openResponse['validUntil'] = $remoteValue;
+        $submission = app(KsefInvoiceSubmissionService::class)->submit(
+            app(KsefInvoiceSubmissionService::class)->prepare($invoice),
+        );
+        $expected = CarbonImmutable::parse($remoteValue);
+
+        $this->assertSame($expectedRaw, DB::table('ksef_invoice_submissions')
+            ->where('id', $submission->getKey())
+            ->value('session_valid_until'));
+        $this->assertSame($expected->getTimestamp(), $submission->session_valid_until?->getTimestamp());
+        $this->assertSame('UTC', $submission->session_valid_until?->getTimezone()->getName());
+        $this->assertSame(1, $fake->openCalls);
+        $this->assertSame(1, $fake->sendCalls);
+    }
+
+    public static function fallSessionValidityProvider(): array
+    {
+        return [
+            'first occurrence' => ['2026-10-25T00:30:00Z', '2026-10-25 00:30:00'],
+            'second occurrence' => ['2026-10-25T01:30:00Z', '2026-10-25 01:30:00'],
+        ];
     }
 
     #[DataProvider('nonCurrentIssueDates')]
@@ -696,9 +738,9 @@ class KsefInvoiceSubmissionTest extends TestCase
         $fake->statusResponse = [
             'referenceNumber' => $submission->invoice_reference_number,
             'invoiceHash' => $submission->invoice_hash,
-            'invoicingDate' => '2026-08-19T10:00:00Z',
-            'acquisitionDate' => '2026-08-19T10:00:01Z',
-            'permanentStorageDate' => '2026-08-19T10:00:02Z',
+            'invoicingDate' => '2026-08-19T12:00:00+02:00',
+            'acquisitionDate' => '2026-08-19T12:00:01+02:00',
+            'permanentStorageDate' => '2026-08-19T12:00:02+02:00',
             'invoicingMode' => KsefInvoicingMode::Online->value,
             'ordinalNumber' => 1,
             'ksefNumber' => $this->validKsefNumber($submission->seller_nip),
@@ -710,6 +752,21 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertSame(KsefInvoicingMode::Online, $submission->invoicing_mode);
         $this->assertSame($this->validKsefNumber('9876543210'), $submission->ksef_number);
         $this->assertSame('2026-08-19T10:00:01.000000Z', $submission->acquisition_date->toISOString());
+        $this->assertSame('2026-08-19T10:00:00.000000Z', $submission->invoicing_date?->toISOString());
+        $this->assertSame('2026-08-19T10:00:02.000000Z', $submission->permanent_storage_date?->toISOString());
+        $this->assertSame('2026-08-19T10:30:00.000000Z', $submission->last_checked_at?->toISOString());
+        $rawDates = DB::table('ksef_invoice_submissions')
+            ->where('id', $submission->getKey())
+            ->first([
+                'acquisition_date',
+                'invoicing_date',
+                'permanent_storage_date',
+                'last_checked_at',
+            ]);
+        $this->assertSame('2026-08-19 10:00:01', $rawDates->acquisition_date);
+        $this->assertSame('2026-08-19 10:00:00', $rawDates->invoicing_date);
+        $this->assertSame('2026-08-19 10:00:02', $rawDates->permanent_storage_date);
+        $this->assertSame('2026-08-19 10:30:00', $rawDates->last_checked_at);
         $this->assertSame($xml, $submission->payload_xml);
         $this->assertSame(2, $fake->statusCalls);
         Event::assertDispatched(KsefInvoiceAccepted::class, function (KsefInvoiceAccepted $event) use ($invoice, $submission): bool {
@@ -1105,6 +1162,11 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
         $this->assertSame('20260819-INV-TEST-REFERENCE', $submission->invoice_reference_number);
         $this->assertSame('network_error', $submission->safe_error_code);
+        $this->assertSame('2026-08-19T10:30:00.000000Z', $submission->last_checked_at?->toISOString());
+        $this->assertSame(
+            '2026-08-19 10:30:00',
+            DB::table('ksef_invoice_submissions')->where('id', $submission->getKey())->value('last_checked_at'),
+        );
     }
 
     public function test_reconciliation_recovers_missing_reference_by_exact_hash_and_accepts_without_resend(): void

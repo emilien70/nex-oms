@@ -196,7 +196,7 @@ class KsefFa3CorrectionSourceReferenceResolverTest extends TestCase
             KsefInvoiceSubmissionStatus::Accepted,
             [
                 'context_nip' => '5265877635',
-                'invoicing_date' => '2026-08-29 14:00:00',
+                'invoicing_date' => CarbonImmutable::parse('2026-08-29T14:00:00Z'),
             ],
         );
         [$target] = $this->correctionChain($root, 1);

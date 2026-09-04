@@ -293,7 +293,7 @@ class KsefInvoiceSubmissionService
                 KsefInvoiceSubmissionStatus::SessionOpened,
                 [
                     'session_reference_number' => $open->referenceNumber,
-                    'session_valid_until' => $this->forStorage($open->validUntil),
+                    'session_valid_until' => $open->validUntil,
                     'safe_error_code' => null,
                     'safe_error_message' => null,
                 ],
@@ -538,7 +538,7 @@ class KsefInvoiceSubmissionService
             ? $codeValue
             : (is_string($codeValue) && preg_match('/^\d+$/', $codeValue) === 1 ? (int) $codeValue : null);
         $attributes = [
-            'last_checked_at' => $this->forStorage(CarbonImmutable::now('UTC')),
+            'last_checked_at' => CarbonImmutable::now('UTC'),
             'ksef_status_code' => $code,
             'safe_error_code' => null,
             'safe_error_message' => null,
@@ -811,7 +811,7 @@ class KsefInvoiceSubmissionService
             }
 
             $managed->forceFill([
-                'last_checked_at' => $this->forStorage(CarbonImmutable::now('UTC')),
+                'last_checked_at' => CarbonImmutable::now('UTC'),
                 'safe_error_code' => $this->safeErrorCode($exception),
                 'safe_error_message' => $this->safeMessage($exception),
             ])->save();
@@ -922,7 +922,7 @@ class KsefInvoiceSubmissionService
             );
 
             return $this->updateWithoutTransition($submission, [
-                'session_closed_at' => $this->forStorage(CarbonImmutable::now('UTC')),
+                'session_closed_at' => CarbonImmutable::now('UTC'),
                 'session_close_error_code' => null,
                 'session_close_error_message' => null,
             ]);
@@ -1067,7 +1067,7 @@ class KsefInvoiceSubmissionService
         }
 
         try {
-            return $this->forStorage(CarbonImmutable::parse($value)->utc());
+            return CarbonImmutable::parse($value)->utc();
         } catch (Throwable) {
             throw new KsefApiException(
                 'KSeF zwrócił nieprawidłową datę statusu Faktury.',
@@ -1079,11 +1079,6 @@ class KsefInvoiceSubmissionService
     private function hash(string $bytes): string
     {
         return base64_encode(hash('sha256', $bytes, true));
-    }
-
-    private function forStorage(CarbonImmutable $date): CarbonImmutable
-    {
-        return $date->setTimezone(config('app.timezone'));
     }
 
     private function safeMessage(KsefApiException $exception): string

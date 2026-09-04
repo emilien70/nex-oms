@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Invoices;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Enums\CorrectionReason;
@@ -420,8 +421,8 @@ class InvoiceBulkPdfTest extends TestCase
             'invoice_size' => strlen($payload),
             'ksef_status_code' => 200,
             'ksef_number' => KsefUpoFixture::ksefNumber(),
-            'acquisition_date' => '2026-08-24 09:51:15',
-            'last_checked_at' => '2026-08-24 09:51:15',
+            'acquisition_date' => CarbonImmutable::parse('2026-08-24T09:51:15Z'),
+            'last_checked_at' => CarbonImmutable::parse('2026-08-24T09:51:15Z'),
         ]);
     }
 

@@ -457,7 +457,7 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         );
         $this->assertSame('upo', $submission->follow_up_action);
         $this->assertSame(0, $submission->follow_up_attempts);
-        $this->assertSame('2026-08-26 10:01:00', $submission->next_follow_up_at?->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-08-26 08:01:00', $submission->next_follow_up_at?->format('Y-m-d H:i:s'));
         $this->assertDatabaseCount('ksef_invoice_upos', 0);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->statusCalls);

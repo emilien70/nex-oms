@@ -45,7 +45,7 @@ class KsefSubmissionFollowUpTest extends TestCase
         parent::setUp();
         config()->set('ksef.invoice_submission_enabled', true);
         Http::preventStrayRequests();
-        $this->travelTo(CarbonImmutable::parse('2026-08-25 10:00:00'));
+        $this->travelTo(CarbonImmutable::parse('2026-08-25 10:00:00 UTC'));
     }
 
     public function test_schema_model_job_and_scheduler_contracts_are_present(): void
@@ -146,6 +146,12 @@ class KsefSubmissionFollowUpTest extends TestCase
         $this->runJob($submission);
         $submission->refresh();
         $this->assertSame('2026-08-25 10:06:01', $submission->next_follow_up_at?->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-08-25 10:01:01', $submission->last_follow_up_at?->format('Y-m-d H:i:s'));
+        $this->assertSame('UTC', $submission->last_follow_up_at?->getTimezone()->getName());
+        $this->assertSame(
+            '2026-08-25 10:01:01',
+            DB::table('ksef_invoice_submissions')->where('id', $submission->getKey())->value('last_follow_up_at'),
+        );
 
         $this->travelTo($submission->next_follow_up_at);
         $this->runJob($submission);
@@ -428,6 +434,11 @@ class KsefSubmissionFollowUpTest extends TestCase
         $submission->refresh();
         $this->assertSame(0, $submission->follow_up_attempts);
         $this->assertTrue($submission->next_follow_up_at->greaterThan($before));
+        $this->assertSame('UTC', $submission->next_follow_up_at->getTimezone()->getName());
+        $this->assertSame(
+            $submission->next_follow_up_at->format('Y-m-d H:i:s'),
+            DB::table('ksef_invoice_submissions')->where('id', $submission->getKey())->value('next_follow_up_at'),
+        );
         $this->assertSame(0, $fake->statusCalls);
         Http::assertNothingSent();
     }
@@ -643,6 +654,42 @@ class KsefSubmissionFollowUpTest extends TestCase
         $this->assertSame(1, $fake->statusCalls);
         $this->assertSame(1, $submission->refresh()->follow_up_attempts);
         $this->assertSame(0, $fake->sendCalls);
+    }
+
+    public function test_fall_dst_due_dispatch_uses_exact_utc_instants(): void
+    {
+        Queue::fake();
+        $firstInvoice = $this->eligibleInvoice();
+        $secondInvoice = $this->eligibleInvoice();
+        $first = $this->createSubmission($firstInvoice, KsefInvoiceSubmissionStatus::Processing, [
+            'next_follow_up_at' => CarbonImmutable::parse('2026-10-25T00:30:00Z'),
+        ]);
+        $second = $this->createSubmission($secondInvoice, KsefInvoiceSubmissionStatus::Processing, [
+            'next_follow_up_at' => CarbonImmutable::parse('2026-10-25T01:30:00Z'),
+        ]);
+        $dispatcher = app(KsefSubmissionFollowUpDispatcher::class);
+
+        $this->travelTo(CarbonImmutable::parse('2026-10-25T00:29:59Z'));
+        $this->assertTrue($first->fresh()->next_follow_up_at->isFuture());
+        $this->assertTrue($second->fresh()->next_follow_up_at->isFuture());
+        $this->assertSame(0, $dispatcher->dispatchDue());
+
+        $this->travelTo(CarbonImmutable::parse('2026-10-25T00:30:00Z'));
+        $this->assertFalse($first->fresh()->next_follow_up_at->isFuture());
+        $this->assertTrue($second->fresh()->next_follow_up_at->isFuture());
+        $this->assertSame(1, $dispatcher->dispatchDue());
+        Queue::assertPushed(KsefSubmissionFollowUpJob::class, function ($job) use ($first): bool {
+            return $job->submissionId === $first->getKey();
+        });
+
+        $first->forceFill(['next_follow_up_at' => null])->save();
+        $this->travelTo(CarbonImmutable::parse('2026-10-25T01:30:00Z'));
+        $this->assertFalse($second->fresh()->next_follow_up_at->isFuture());
+        $this->assertSame(1, $dispatcher->dispatchDue());
+        $this->assertSame(
+            '2026-10-25 01:30:00',
+            DB::table('ksef_invoice_submissions')->where('id', $second->getKey())->value('next_follow_up_at'),
+        );
     }
 
     public function test_unique_job_prevents_linear_queue_growth_during_thirty_scheduler_runs(): void

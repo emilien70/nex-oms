@@ -76,7 +76,8 @@ class KsefSubmissionFollowUpPolicy
             3600,
         );
 
-        return ($now ?? CarbonImmutable::now())
+        return ($now ?? CarbonImmutable::now('UTC'))
+            ->utc()
             ->addSeconds(max($delay, max(0, (int) $retryAfterSeconds)));
     }
 
