@@ -1425,13 +1425,19 @@ Zweryfikowany kontrakt oficjalnej Latarni w rewizji `b3d819616eb640270a2e11321d4
 
 Synchronizacja operacyjna jest domyślnie wyłączona przez `KSEF_LATARNIA_SYNC_ENABLED=false`. Po włączeniu zadanie `ksef-latarnia-sync` działa co pięć minut bez nakładania przebiegów i wybiera maksymalnie TEST oraz Production na podstawie aktywnej konfiguracji i historycznych wystawień Offline24. Na środowisko przypada najwyżej jeden GET statusu i jeden GET komunikatów, bez retry i bez kolejki. Ręczne „Odśwież Latarnię” działa niezależnie od gate tylko dla jawnie wybranego TEST lub Production; DEMO nie wykonuje requestu.
 
-Udany `/messages` ustanawia konserwatywne coverage `[T-30 dni, T]`. Ciągłe, nakładające się lub stykające okna są scalane, a nieodwracalna luka resetuje coverage do najnowszego okna. Błędy, konflikty wersji i synchronizacja samego statusu nie przesuwają granic. Migracja `085000`, dodająca nullable exact instants coverage, pozostaje `Pending` na bazie operatora.
+Udany `/messages` ustanawia konserwatywne coverage `[T-30 dni, T]`. Ciągłe, nakładające się lub stykające okna są scalane, a nieodwracalna luka resetuje coverage do najnowszego okna. Błędy, konflikty wersji i synchronizacja samego statusu nie przesuwają granic. Migracja `085000`, dodająca nullable exact instants coverage, została wykonana przez operatora.
 
 Pełne evidence wymaga, aby wystawienie mieściło się w coverage, granica `coverageThrough` nie leżała w przyszłości i była świeża w oknie 15 minut. Wtedy projekcja używa `evidenceAsOf = coverageThrough` i ignoruje później opublikowane lub później pobrane komunikaty. Brak ciągłości, świeżości albo wsparcia środowiska daje odpowiednio `insufficient` lub `unsupported_environment`, bez domyślania brakującej historii.
 
 Zakładka „Latarnia” pokazuje wyłącznie lokalne: status, świeżość, coverage, bezpieczne błędy i maksymalnie 20 ostatnich komunikatów. Lista Faktur również nie wykonuje HTTP ani zapisów: zbiorczo wylicza read-only polskie badge i ostrzeżenia obowiązku Offline24 bez N+1. Projekcja `TOTAL_FAILURE` ma charakter informacyjny i odwracalny; nie finalizuje prawnego skutku, nie zmienia Faktury i nie blokuje ani nie uruchamia transportu.
 
 KSeF.8C.4C nie wdraża automatycznej wysyłki ani nowego trybu Offline. Live validation synchronizacji Latarni jest odłożona; testy nie wykonują publicznych requestów.
+
+### KSeF.8C.4C.1 — CLOSED
+
+Pełne evidence Latarni spełnia dokładny niezmiennik `coverageFrom <= issuance.issued_at <= coverageThrough <= requestedAsOf` wraz z dotychczasowym warunkiem świeżości. Faktura Offline24 wystawiona po końcu ostatniego kompletnego coverage pozostaje `EVIDENCE_UNAVAILABLE` do kolejnej kompletnej synchronizacji `/messages`; system nie wylicza dla niej pewnego terminu z evidence kończącego się przed wystawieniem.
+
+Etap nie zmienia deadline engine, projektora, synchronizacji coverage ani schedulera. Migracja `085000` została wcześniej wykonana przez operatora; nie dodano migracji ani backfillu, nie wykonano live HTTP i nie zmieniono danych biznesowych.
 
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 

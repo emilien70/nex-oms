@@ -36,18 +36,64 @@ class KsefLatarniaEvidenceServiceTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_fresh_complete_coverage_evaluates_exactly_at_coverage_through(): void
-    {
-        $state = $this->state('2026-08-05T10:00:00Z', '2026-09-04T10:00:00Z');
+    #[DataProvider('completeCoverageProvider')]
+    public function test_complete_coverage_contains_issuance_and_evaluates_at_its_upper_bound(
+        string $issuedAt,
+    ): void {
+        $issuance = $this->issuance(KsefEnvironment::Test, $issuedAt);
         $snapshot = $this->snapshot(
-            $this->issuance(KsefEnvironment::Test, '2026-08-05T10:00:00Z'),
-            $state,
+            $issuance,
+            $this->state('2026-09-04T09:00:00Z', '2026-09-04T10:00:00Z'),
             '2026-09-04T10:04:00Z',
         );
 
         $this->assertSame(KsefLatarniaEvidenceCoverage::Complete, $snapshot->coverage);
         $this->assertSame(KsefLatarniaEnvironment::Test, $snapshot->latarniaEnvironment);
-        $this->assertSame('2026-09-04 10:00:00', $snapshot->evaluationAsOf->format('Y-m-d H:i:s'));
+        $this->assertNotNull($snapshot->coverageFrom);
+        $this->assertNotNull($snapshot->coverageThrough);
+        $this->assertFalse($snapshot->coverageFrom->greaterThan($issuance->issued_at));
+        $this->assertFalse($issuance->issued_at->greaterThan($snapshot->evaluationAsOf));
+        $this->assertTrue($snapshot->evaluationAsOf->equalTo($snapshot->coverageThrough));
+        $this->assertFalse($snapshot->evaluationAsOf->greaterThan(CarbonImmutable::parse('2026-09-04T10:04:00Z')));
+        Http::assertNothingSent();
+    }
+
+    public static function completeCoverageProvider(): array
+    {
+        return [
+            'issuance at lower bound' => ['2026-09-04T09:00:00Z'],
+            'issuance inside window' => ['2026-09-04T09:30:00Z'],
+            'issuance at upper bound' => ['2026-09-04T10:00:00Z'],
+        ];
+    }
+
+    #[DataProvider('supportedEnvironmentProvider')]
+    public function test_issuance_after_coverage_fails_closed(
+        KsefEnvironment $environment,
+        KsefLatarniaEnvironment $latarniaEnvironment,
+    ): void {
+        $snapshot = $this->snapshot(
+            $this->issuance($environment, '2026-09-04T10:02:00Z'),
+            $this->state(
+                '2026-09-04T09:00:00Z',
+                '2026-09-04T10:00:00Z',
+                $latarniaEnvironment,
+            ),
+            '2026-09-04T10:04:00Z',
+        );
+
+        $this->assertSame(KsefLatarniaEvidenceCoverage::Insufficient, $snapshot->coverage);
+        $this->assertSame($latarniaEnvironment, $snapshot->latarniaEnvironment);
+        $this->assertSame('2026-09-04 10:04:00', $snapshot->evaluationAsOf->format('Y-m-d H:i:s'));
+        Http::assertNothingSent();
+    }
+
+    public static function supportedEnvironmentProvider(): array
+    {
+        return [
+            'TEST' => [KsefEnvironment::Test, KsefLatarniaEnvironment::Test],
+            'Production' => [KsefEnvironment::Production, KsefLatarniaEnvironment::Production],
+        ];
     }
 
     #[DataProvider('insufficientCoverageProvider')]
@@ -101,10 +147,13 @@ class KsefLatarniaEvidenceServiceTest extends TestCase
         ]);
     }
 
-    private function state(?string $from, ?string $through): KsefLatarniaSyncState
-    {
+    private function state(
+        ?string $from,
+        ?string $through,
+        KsefLatarniaEnvironment $environment = KsefLatarniaEnvironment::Test,
+    ): KsefLatarniaSyncState {
         return (new KsefLatarniaSyncState)->forceFill([
-            'source_environment' => KsefLatarniaEnvironment::Test,
+            'source_environment' => $environment,
             'messages_coverage_from_at' => $from === null ? null : CarbonImmutable::parse($from),
             'messages_coverage_through_at' => $through === null ? null : CarbonImmutable::parse($through),
         ]);

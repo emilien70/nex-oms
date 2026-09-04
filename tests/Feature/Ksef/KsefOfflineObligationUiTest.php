@@ -16,11 +16,14 @@ use Modules\Ksef\Enums\KsefLatarniaEnvironment;
 use Modules\Ksef\Enums\KsefLatarniaMessageCategory;
 use Modules\Ksef\Enums\KsefLatarniaMessageType;
 use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
+use Modules\Ksef\Enums\KsefOfflineSubmissionObligationReason;
+use Modules\Ksef\Enums\KsefOfflineSubmissionObligationStatus;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefLatarniaMessage;
 use Modules\Ksef\Models\KsefLatarniaSyncState;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Services\KsefOfflineSubmissionObligationQueryService;
+use Modules\Ksef\ValueObjects\KsefOfflineSubmissionObligation;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -71,6 +74,41 @@ class KsefOfflineObligationUiTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_post_coverage_issuance_fails_closed_in_query_and_invoice_list_without_http(): void
+    {
+        $issuance = $this->offlineIssuance(
+            KsefEnvironment::Test,
+            CarbonImmutable::parse('2026-09-04T10:02:00Z'),
+        );
+        $this->completeCoverage(
+            KsefLatarniaEnvironment::Test,
+            through: CarbonImmutable::parse('2026-09-04T10:00:00Z'),
+            from: CarbonImmutable::parse('2026-09-04T09:00:00Z'),
+        );
+
+        $obligation = $this->obligationFor($issuance);
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::EvidenceUnavailable, $obligation->status);
+        $this->assertSame(KsefOfflineSubmissionObligationReason::LatarniaEvidenceInsufficient, $obligation->reason);
+        $this->assertNull($obligation->effectiveDeadline);
+        $this->assertSame('2026-09-04 10:04:00', $obligation->evaluatedAt->format('Y-m-d H:i:s'));
+        $this->assertNotContains($obligation->status, [
+            KsefOfflineSubmissionObligationStatus::Pending,
+            KsefOfflineSubmissionObligationStatus::DueToday,
+            KsefOfflineSubmissionObligationStatus::Overdue,
+            KsefOfflineSubmissionObligationStatus::WaitingForFailureEnd,
+            KsefOfflineSubmissionObligationStatus::NotRequiredTotalFailure,
+        ]);
+
+        $this->get(route('invoices.index'))
+            ->assertOk()
+            ->assertSee('Offline24 · brak pełnych danych Latarni')
+            ->assertSee('Pełny termin wymaga aktualnych danych Latarni.')
+            ->assertDontSee('Offline24 · do 07.09.2026')
+            ->assertSee('Co najmniej jedna Faktura Offline24 wymaga uwagi.');
+        Http::assertNothingSent();
+    }
+
     public function test_demo_unsupported_evidence_is_informational_without_global_alarm_or_fallback(): void
     {
         $this->offlineIssuance(KsefEnvironment::Demo);
@@ -86,7 +124,7 @@ class KsefOfflineObligationUiTest extends TestCase
 
     public function test_message_first_seen_after_evidence_as_of_cannot_close_an_earlier_projection(): void
     {
-        $this->offlineIssuance(KsefEnvironment::Test);
+        $issuance = $this->offlineIssuance(KsefEnvironment::Test);
         $this->completeCoverage(KsefLatarniaEnvironment::Test);
         $this->failureMessage(
             id: 'FAILURE-START',
@@ -101,6 +139,12 @@ class KsefOfflineObligationUiTest extends TestCase
             firstFetchedAt: CarbonImmutable::parse('2026-09-04T10:02:00Z'),
             endAt: CarbonImmutable::parse('2026-09-04T09:20:00Z'),
         );
+
+        $obligation = $this->obligationFor($issuance);
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::WaitingForFailureEnd, $obligation->status);
+        $this->assertContains('FAILURE-START', $obligation->appliedMessageIds);
+        $this->assertNotContains('FAILURE-END', $obligation->appliedMessageIds);
 
         $this->get(route('invoices.index'))
             ->assertOk()
@@ -171,8 +215,10 @@ class KsefOfflineObligationUiTest extends TestCase
         Http::assertNothingSent();
     }
 
-    private function offlineIssuance(KsefEnvironment $environment): KsefOfflineIssuance
-    {
+    private function offlineIssuance(
+        KsefEnvironment $environment,
+        ?CarbonImmutable $issuedAt = null,
+    ): KsefOfflineIssuance {
         $order = $this->createDocumentOrder(['external_id' => 'OBLIGATION-'.uniqid()]);
         $this->createDocumentItem($order);
         $series = $this->createDocumentSeries(InvoiceDocumentType::Invoice, ['include_shipping' => false]);
@@ -188,7 +234,7 @@ class KsefOfflineObligationUiTest extends TestCase
             'environment' => $environment,
             'procedure' => KsefOfflineIssuanceProcedure::Offline24,
             'issue_date' => '2026-09-04',
-            'issued_at' => CarbonImmutable::parse('2026-09-04T08:00:00Z'),
+            'issued_at' => $issuedAt ?? CarbonImmutable::parse('2026-09-04T08:00:00Z'),
             'seller_nip' => '9876543210',
             'context_identifier_type' => 'Nip',
             'context_identifier_value' => '9876543210',
@@ -213,12 +259,21 @@ class KsefOfflineObligationUiTest extends TestCase
     private function completeCoverage(
         KsefLatarniaEnvironment $environment,
         ?CarbonImmutable $through = null,
+        ?CarbonImmutable $from = null,
     ): KsefLatarniaSyncState {
         return KsefLatarniaSyncState::query()->create([
             'source_environment' => $environment,
-            'messages_coverage_from_at' => CarbonImmutable::parse('2026-08-05T08:00:00Z'),
+            'messages_coverage_from_at' => $from ?? CarbonImmutable::parse('2026-08-05T08:00:00Z'),
             'messages_coverage_through_at' => $through ?? CarbonImmutable::parse('2026-09-04T10:00:00Z'),
         ]);
+    }
+
+    private function obligationFor(KsefOfflineIssuance $issuance): KsefOfflineSubmissionObligation
+    {
+        return app(KsefOfflineSubmissionObligationQueryService::class)
+            ->forInvoices(collect([$issuance->invoice]), $this->asOf)
+            ->get($issuance->invoice_id)
+            ->first()['obligation'];
     }
 
     private function failureMessage(

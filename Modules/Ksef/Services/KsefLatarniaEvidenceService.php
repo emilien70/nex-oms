@@ -40,6 +40,7 @@ final class KsefLatarniaEvidenceService
             && $coverageThrough !== null
             && ! $coverageFrom->greaterThan($coverageThrough)
             && ! $issuance->issued_at->lessThan($coverageFrom)
+            && ! $issuance->issued_at->greaterThan($coverageThrough)
             && ! $coverageThrough->greaterThan($requestedAsOf)
             && ! $coverageThrough->lessThan($requestedAsOf->subMinutes($freshnessMinutes));
 
