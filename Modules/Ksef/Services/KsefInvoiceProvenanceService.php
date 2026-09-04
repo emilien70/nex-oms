@@ -52,7 +52,7 @@ final class KsefInvoiceProvenanceService
                 ->exists()) {
                 throw new InvoiceDomainException(
                     'ksef_invoice_provenance_offline_issuance_exists',
-                    'Faktura została wystawiona w trybie Offline24 w wybranym środowisku.',
+                    'Faktura została wystawiona w trybie Offline w wybranym środowisku.',
                     [
                         'invoice_id' => $managed->getKey(),
                         'environment' => $environment->value,

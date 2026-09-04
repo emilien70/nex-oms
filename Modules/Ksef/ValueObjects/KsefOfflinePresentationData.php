@@ -4,6 +4,7 @@ namespace Modules\Ksef\ValueObjects;
 
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefOfflineBuyerClassification;
+use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 
 final readonly class KsefOfflinePresentationData
 {
@@ -17,6 +18,7 @@ final readonly class KsefOfflinePresentationData
      */
     public function __construct(
         public KsefEnvironment $environment,
+        public KsefOfflineIssuanceProcedure $procedure,
         public KsefOfflineBuyerClassification $buyerClassification,
         public array $seller,
         public array $buyer,

@@ -23,6 +23,7 @@ use Modules\Ksef\Enums\KsefContextIdentifierType;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefOfflineBuyerClassification;
 use Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType;
+use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefOfflineCertificate;
@@ -124,6 +125,39 @@ class KsefOfflinePresentationTest extends TestCase
             $issuanceBeforePresentation,
             DB::table('ksef_offline_issuances')->where('id', $issuance->getKey())->first(),
         );
+        Http::assertNothingSent();
+    }
+
+    public function test_failure_delivers_full_offline_invoice_to_domestic_nip_while_planned_unavailability_keeps_offline24_policy(): void
+    {
+        [$plannedInvoice, $planned] = $this->issueOffline();
+        DB::table('ksef_offline_issuances')->where('id', $planned->getKey())->update([
+            'procedure' => KsefOfflineIssuanceProcedure::PlannedUnavailability->value,
+        ]);
+        $planned = $planned->fresh();
+        $policy = app(KsefOfflineDeliveryPolicy::class);
+
+        $this->assertSame(
+            KsefOfflineDeliveryDocumentType::TransactionConfirmation,
+            $policy->primaryDocument($planned),
+        );
+        $this->get(route('invoices.ksef.offline-issuances.transaction-confirmation', [$plannedInvoice, $planned]))
+            ->assertOk();
+
+        [$failureInvoice, $failure] = $this->issueOffline();
+        DB::table('ksef_offline_issuances')->where('id', $failure->getKey())->update([
+            'procedure' => KsefOfflineIssuanceProcedure::Failure->value,
+        ]);
+        $failure = $failure->fresh();
+
+        $this->assertSame(
+            KsefOfflineDeliveryDocumentType::OfflineInvoice,
+            $policy->primaryDocument($failure),
+        );
+        $this->get(route('invoices.ksef.offline-issuances.invoice-pdf', [$failureInvoice, $failure]))
+            ->assertOk();
+        $this->get(route('invoices.ksef.offline-issuances.transaction-confirmation', [$failureInvoice, $failure]))
+            ->assertForbidden();
         Http::assertNothingSent();
     }
 

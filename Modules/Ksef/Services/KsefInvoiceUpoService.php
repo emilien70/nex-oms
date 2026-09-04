@@ -229,7 +229,7 @@ class KsefInvoiceUpoService
         if (! is_string($settings->context_nip)
             || ! hash_equals((string) $submission->context_nip, $settings->context_nip)) {
             throw new KsefApiException(
-                'Aby pobrać UPO historycznej Faktury Offline24, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
+                'Aby pobrać UPO historycznej Faktury Offline, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
                 'ksef_offline_submission_context_not_current',
             );
         }

@@ -20,7 +20,7 @@ final class KsefOfflineSubmissionIntegrityService
     {
         $invoice ??= Invoice::query()->find($issuance->invoice_id);
 
-        if ($issuance->procedure !== KsefOfflineIssuanceProcedure::Offline24
+        if (! in_array($issuance->procedure, KsefOfflineIssuanceProcedure::cases(), true)
             || ! in_array($issuance->environment, [KsefEnvironment::Test, KsefEnvironment::Demo], true)
             || $issuance->context_identifier_type !== KsefContextIdentifierType::Nip
             || ! $invoice?->isInvoice()
@@ -75,7 +75,7 @@ final class KsefOfflineSubmissionIntegrityService
     private function invalid(): KsefApiException
     {
         return new KsefApiException(
-            'Zamrożone dane Faktury Offline24 są niekompletne lub niespójne. Dokument nie został wysłany.',
+            'Zamrożone dane Faktury Offline są niekompletne lub niespójne. Dokument nie został wysłany.',
             'ksef_offline_submission_integrity_invalid',
         );
     }

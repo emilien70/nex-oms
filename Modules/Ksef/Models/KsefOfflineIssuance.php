@@ -10,6 +10,8 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Casts\KsefUtcInstantCast;
 use Modules\Ksef\Enums\KsefContextIdentifierType;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefLatarniaEnvironment;
+use Modules\Ksef\Enums\KsefLatarniaMessageCategory;
 use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 
 class KsefOfflineIssuance extends Model
@@ -38,6 +40,17 @@ class KsefOfflineIssuance extends Model
         'certificate_remote_verified_at',
         'invoice_verification_url',
         'certificate_verification_url',
+        'latarnia_source_environment',
+        'latarnia_trigger_event_id',
+        'latarnia_trigger_message_id',
+        'latarnia_trigger_message_version',
+        'latarnia_trigger_category',
+        'latarnia_trigger_start_at',
+        'latarnia_trigger_end_at',
+        'latarnia_trigger_published_at',
+        'latarnia_evidence_as_of_at',
+        'latarnia_evidence_from_at',
+        'latarnia_evidence_through_at',
     ];
 
     protected $hidden = [
@@ -57,16 +70,26 @@ class KsefOfflineIssuance extends Model
         'certificate_remote_valid_from' => 'immutable_datetime',
         'certificate_remote_valid_until' => 'immutable_datetime',
         'certificate_remote_verified_at' => 'immutable_datetime',
+        'latarnia_source_environment' => KsefLatarniaEnvironment::class,
+        'latarnia_trigger_event_id' => 'integer',
+        'latarnia_trigger_message_version' => 'integer',
+        'latarnia_trigger_category' => KsefLatarniaMessageCategory::class,
+        'latarnia_trigger_start_at' => KsefUtcInstantCast::class,
+        'latarnia_trigger_end_at' => KsefUtcInstantCast::class,
+        'latarnia_trigger_published_at' => KsefUtcInstantCast::class,
+        'latarnia_evidence_as_of_at' => KsefUtcInstantCast::class,
+        'latarnia_evidence_from_at' => KsefUtcInstantCast::class,
+        'latarnia_evidence_through_at' => KsefUtcInstantCast::class,
     ];
 
     protected static function booted(): void
     {
         static::updating(function (): never {
-            throw new DomainException('Fakt wystawienia Offline24 jest niezmienny.');
+            throw new DomainException('Fakt wystawienia Offline jest niezmienny.');
         });
 
         static::deleting(function (): never {
-            throw new DomainException('Fakt wystawienia Offline24 jest niezmienny.');
+            throw new DomainException('Fakt wystawienia Offline jest niezmienny.');
         });
     }
 

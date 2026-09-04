@@ -481,7 +481,7 @@
 
         @if ($hasUrgentOfflineObligations)
             <div class="alert alert-warning py-2 px-3 mb-2" role="status" data-offline24-urgent-warning>
-                Co najmniej jedna Faktura Offline24 wymaga uwagi. Szczegóły są widoczne w kolumnie KSeF.
+                Co najmniej jedna Faktura Offline wymaga uwagi. Szczegóły są widoczne w kolumnie KSeF.
             </div>
         @endif
 
@@ -753,6 +753,7 @@
                                                     <span
                                                         class="badge text-bg-{{ $offlinePresentation->variant }} invoice-offline-obligation"
                                                         data-offline24-obligation
+                                                        data-offline-obligation
                                                         data-bs-toggle="tooltip"
                                                         data-bs-placement="top"
                                                         data-bs-title="{{ $offlinePresentation->tooltip }}"

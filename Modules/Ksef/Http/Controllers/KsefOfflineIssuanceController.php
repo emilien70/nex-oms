@@ -13,25 +13,63 @@ use Throwable;
 
 final class KsefOfflineIssuanceController extends Controller
 {
-    public function __invoke(
+    public function offline24(
         Invoice $invoice,
         KsefOfflineIssuanceService $issuances,
     ): RedirectResponse {
+        return $this->issue(
+            $invoice,
+            fn () => $issuances->issueOffline24($invoice),
+            'Offline24',
+            'ksef_offline24',
+        );
+    }
+
+    public function plannedUnavailability(
+        Invoice $invoice,
+        KsefOfflineIssuanceService $issuances,
+    ): RedirectResponse {
+        return $this->issue(
+            $invoice,
+            fn () => $issuances->issuePlannedUnavailability($invoice),
+            'Offline – niedostępność KSeF',
+            'ksef_offline_planned_unavailability',
+        );
+    }
+
+    public function failure(
+        Invoice $invoice,
+        KsefOfflineIssuanceService $issuances,
+    ): RedirectResponse {
+        return $this->issue(
+            $invoice,
+            fn () => $issuances->issueFailure($invoice),
+            'awaryjnym',
+            'ksef_offline_failure',
+        );
+    }
+
+    private function issue(
+        Invoice $invoice,
+        callable $operation,
+        string $label,
+        string $errorKey,
+    ): RedirectResponse {
         try {
-            $issuances->issueOffline24($invoice);
+            $operation();
         } catch (KsefApiException|InvoiceDomainException $exception) {
-            return back()->withErrors(['ksef_offline24' => $exception->getMessage()]);
+            return back()->withErrors([$errorKey => $exception->getMessage()]);
         } catch (Throwable $exception) {
-            Log::error('Nieoczekiwany błąd lokalnego wystawienia Offline24.', [
+            Log::error('Nieoczekiwany błąd lokalnego wystawienia Offline.', [
                 'invoice_id' => $invoice->getKey(),
                 'exception_class' => $exception::class,
             ]);
 
             return back()->withErrors([
-                'ksef_offline24' => 'Nie udało się bezpiecznie wystawić Faktury w trybie Offline24.',
+                $errorKey => 'Nie udało się bezpiecznie wystawić Faktury Offline.',
             ]);
         }
 
-        return back()->with('status', 'Faktura została wystawiona lokalnie w trybie Offline24.');
+        return back()->with('status', 'Faktura została wystawiona lokalnie w trybie '.$label.'.');
     }
 }

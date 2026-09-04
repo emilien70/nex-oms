@@ -155,7 +155,7 @@ class KsefInvoiceSubmissionService
                 ->lockForUpdate()
                 ->exists()) {
                 throw new KsefApiException(
-                    'Dokument został wystawiony w trybie Offline24 i nie może zostać przygotowany zwykłą ścieżką Online.',
+                    'Dokument został wystawiony w trybie Offline i nie może zostać przygotowany zwykłą ścieżką Online.',
                     'ksef_submission_blocked_by_offline_issuance',
                 );
             }
@@ -639,7 +639,7 @@ class KsefInvoiceSubmissionService
             if (! $submission->hasExpectedInvoicingMode($invoicingMode)) {
                 if ($submission->expectedInvoicingMode() === KsefInvoicingMode::Offline) {
                     $attributes['safe_error_code'] = 'ksef_invoice_unexpected_online_mode';
-                    $attributes['safe_error_message'] = 'KSeF przyjął Fakturę Offline24, ale zwrócił tryb Online. Wydanie dokumentu i UPO pozostają zablokowane.';
+                    $attributes['safe_error_message'] = 'KSeF przyjął Fakturę Offline, ale zwrócił tryb Online. Wydanie dokumentu i UPO pozostają zablokowane.';
                 } else {
                     $attributes['safe_error_code'] = 'ksef_invoice_unexpected_offline_mode';
                     $attributes['safe_error_message'] = 'KSeF przyjął dokument, ale zakwalifikował go jako Offline. Obsługa trybu Offline wymaga osobnej ścieżki.';
@@ -868,7 +868,7 @@ class KsefInvoiceSubmissionService
     {
         if ($submission->offline_issuance_id !== null) {
             throw new KsefApiException(
-                'Próba Offline24 nie może zostać wysłana zwykłą ścieżką Online.',
+                'Próba Offline nie może zostać wysłana zwykłą ścieżką Online.',
                 'ksef_submission_mode_invalid',
             );
         }
@@ -894,7 +894,7 @@ class KsefInvoiceSubmissionService
         if (! is_string($settings->context_nip)
             || ! hash_equals((string) $submission->context_nip, $settings->context_nip)) {
             throw new KsefApiException(
-                'Aby przekazać tę historyczną Fakturę Offline24, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
+                'Aby przekazać tę historyczną Fakturę Offline, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
                 'ksef_offline_submission_context_not_current',
             );
         }

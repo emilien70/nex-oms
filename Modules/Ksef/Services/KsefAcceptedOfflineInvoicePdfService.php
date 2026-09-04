@@ -29,7 +29,7 @@ final class KsefAcceptedOfflineInvoicePdfService
             || $submission->invoice_id !== $invoice->getKey()
             || $submission->offline_issuance_id !== $issuance->getKey()) {
             throw new KsefApiException(
-                'Zaakceptowana próba nie należy do wskazanego wystawienia Offline24.',
+                'Zaakceptowana próba nie należy do wskazanego wystawienia Offline.',
                 'ksef_accepted_offline_submission_mismatch',
             );
         }
@@ -43,7 +43,7 @@ final class KsefAcceptedOfflineInvoicePdfService
             || ! $this->ksefNumbers->isValid($number)
             || ! str_starts_with($number, (string) $issuance->seller_nip.'-')) {
             throw new KsefApiException(
-                'Finalny PDF jest zablokowany, ponieważ akceptacja KSeF nie odpowiada trybowi Offline24.',
+                'Finalny PDF jest zablokowany, ponieważ akceptacja KSeF nie odpowiada trybowi Offline.',
                 'ksef_accepted_offline_presentation_not_allowed',
             );
         }

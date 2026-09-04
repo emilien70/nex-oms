@@ -167,7 +167,7 @@ class KsefUpoValidator
             'ksef_upo_delivery_mode_invalid',
             $submission->expectedInvoicingMode() === KsefInvoicingMode::Online
                 ? 'UPO nie dotyczy obsługiwanego trybu wysyłki online.'
-                : 'UPO nie odpowiada oczekiwanemu trybowi wysyłki Offline24.',
+                : 'UPO nie odpowiada oczekiwanemu trybowi wysyłki Offline.',
         );
     }
 

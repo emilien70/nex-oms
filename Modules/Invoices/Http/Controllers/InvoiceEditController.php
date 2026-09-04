@@ -21,6 +21,7 @@ use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceEditViewModelFactory;
 use Modules\Invoices\Support\InvoiceReturnContext;
 use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
+use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
@@ -32,6 +33,7 @@ use Modules\Ksef\Services\KsefFa3BuyerIdentityResolver;
 use Modules\Ksef\Services\KsefInvoiceSubmissionLifecyclePolicy;
 use Modules\Ksef\Services\KsefOfflineCertificateReadinessService;
 use Modules\Ksef\Services\KsefOfflineDeliveryPolicy;
+use Modules\Ksef\Services\KsefOfflineProcedureEligibilityService;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Throwable;
 
@@ -50,6 +52,7 @@ class InvoiceEditController extends Controller
         KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
         KsefFa3BuyerIdentityResolver $buyerIdentity,
         KsefOfflineDeliveryPolicy $offlineDelivery,
+        KsefOfflineProcedureEligibilityService $offlineProcedureEligibility,
     ): View {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
@@ -71,6 +74,7 @@ class InvoiceEditController extends Controller
                         $offlineCertificateReadiness,
                         $buyerIdentity,
                         $offlineDelivery,
+                        $offlineProcedureEligibility,
                     ),
                     'invoice' => $invoice,
                     'currentCorrection' => $chain->currentCorrection,
@@ -124,6 +128,7 @@ class InvoiceEditController extends Controller
         KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
         KsefFa3BuyerIdentityResolver $buyerIdentity,
         KsefOfflineDeliveryPolicy $offlineDelivery,
+        KsefOfflineProcedureEligibilityService $offlineProcedureEligibility,
     ): array {
         $settings = KsefSetting::query()
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
@@ -214,6 +219,34 @@ class InvoiceEditController extends Controller
                     && hash_equals((string) $issuance->context_identifier_value, $settings->context_nip),
             ];
         });
+        $issuedAt = CarbonImmutable::now('UTC');
+        $canIssueOffline = $settings !== null
+            && $invoice->isInvoice()
+            && $invoice->isIssued()
+            && $invoice->isFinalized()
+            && $invoice->issue_date?->toDateString() === $issuedAt->setTimezone('Europe/Warsaw')->toDateString()
+            && $settings->is_active
+            && $environments->allows($settings->environment)
+            && $seriesEnabled
+            && $offlineIssuance === null
+            && $currentEnvironmentSubmissions->isEmpty()
+            && ! $outsideKsef
+            && $contextMatchesSeller
+            && $preferredCertificateReady;
+        $plannedEligibility = $settings === null
+            ? null
+            : $offlineProcedureEligibility->snapshot(
+                KsefOfflineIssuanceProcedure::PlannedUnavailability,
+                $settings->environment,
+                $issuedAt,
+            );
+        $failureEligibility = $settings === null
+            ? null
+            : $offlineProcedureEligibility->snapshot(
+                KsefOfflineIssuanceProcedure::Failure,
+                $settings->environment,
+                $issuedAt,
+            );
 
         return [
             'ksefSettings' => $settings,
@@ -227,19 +260,12 @@ class InvoiceEditController extends Controller
             'ksefCanCreateAttempt' => $settings !== null
                 && $offlineIssuance === null
                 && $lifecycle->allowsNewAttempt($currentEnvironmentSubmissions),
-            'ksefCanIssueOffline24' => $settings !== null
-                && $invoice->isInvoice()
-                && $invoice->isIssued()
-                && $invoice->isFinalized()
-                && $invoice->issue_date?->toDateString() === CarbonImmutable::now('Europe/Warsaw')->toDateString()
-                && $settings->is_active
-                && $environments->allows($settings->environment)
-                && $seriesEnabled
-                && $offlineIssuance === null
-                && $currentEnvironmentSubmissions->isEmpty()
-                && ! $outsideKsef
-                && $contextMatchesSeller
-                && $preferredCertificateReady,
+            'ksefCanIssueOffline24' => $canIssueOffline,
+            'ksefCanIssuePlannedUnavailability' => $canIssueOffline && $plannedEligibility?->eligible === true,
+            'ksefCanIssueFailure' => $canIssueOffline && $failureEligibility?->eligible === true,
+            'ksefOfflineProcedureActionsVisible' => $canIssueOffline,
+            'ksefPlannedUnavailabilityEligibility' => $plannedEligibility,
+            'ksefFailureEligibility' => $failureEligibility,
             'ksefSeriesEnabled' => $seriesEnabled,
             'ksefSubmissionGateEnabled' => config('ksef.invoice_submission_enabled') === true,
             'ksefOperationalEnvironmentAllowed' => $settings !== null

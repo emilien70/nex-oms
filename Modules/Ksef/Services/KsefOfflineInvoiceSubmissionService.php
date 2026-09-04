@@ -45,7 +45,7 @@ final class KsefOfflineInvoiceSubmissionService
 
                 if ($managedIssuance->invoice_id !== $managedInvoice->getKey()) {
                     throw new KsefApiException(
-                        'Wystawienie Offline24 nie należy do wskazanej Faktury.',
+                        'Wystawienie Offline nie należy do wskazanej Faktury.',
                         'ksef_offline_submission_issuance_mismatch',
                     );
                 }
@@ -113,7 +113,7 @@ final class KsefOfflineInvoiceSubmissionService
         if (! is_string($settings->context_nip)
             || ! hash_equals((string) $issuance->context_identifier_value, $settings->context_nip)) {
             throw new KsefApiException(
-                'Aby przekazać tę historyczną Fakturę Offline24, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
+                'Aby przekazać tę historyczną Fakturę Offline, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
                 'ksef_offline_submission_context_not_current',
             );
         }
@@ -135,7 +135,7 @@ final class KsefOfflineInvoiceSubmissionService
             fn (KsefInvoiceSubmission $submission): bool => $submission->status === KsefInvoiceSubmissionStatus::Uncertain,
         )) {
             throw new KsefApiException(
-                'Najpierw ustal wynik poprzedniej transmisji Offline24. Dokument nie został wysłany ponownie.',
+                'Najpierw ustal wynik poprzedniej transmisji Offline. Dokument nie został wysłany ponownie.',
                 'ksef_offline_submission_reconciliation_required',
             );
         }
@@ -144,7 +144,7 @@ final class KsefOfflineInvoiceSubmissionService
             fn (KsefInvoiceSubmission $submission): bool => $submission->status === KsefInvoiceSubmissionStatus::Rejected,
         )) {
             throw new KsefApiException(
-                'Odrzuconej Faktury Offline24 nie można wysłać ponownie bez wyjaśnienia przyczyny odrzucenia.',
+                'Odrzuconej Faktury Offline nie można wysłać ponownie bez wyjaśnienia przyczyny odrzucenia.',
                 'ksef_offline_submission_rejected_retry_blocked',
             );
         }
@@ -161,7 +161,7 @@ final class KsefOfflineInvoiceSubmissionService
     private function attemptBlocked(): KsefApiException
     {
         return new KsefApiException(
-            'Istniejąca próba transmisji Offline24 blokuje utworzenie kolejnej próby.',
+            'Istniejąca próba transmisji Offline blokuje utworzenie kolejnej próby.',
             'ksef_offline_submission_attempt_blocked',
         );
     }

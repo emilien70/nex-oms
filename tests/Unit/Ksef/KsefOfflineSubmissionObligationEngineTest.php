@@ -9,6 +9,7 @@ use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Enums\KsefLatarniaEnvironment;
 use Modules\Ksef\Enums\KsefLatarniaEvidenceCoverage;
+use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Enums\KsefOfflineSubmissionObligationReason;
 use Modules\Ksef\Enums\KsefOfflineSubmissionObligationStatus;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
@@ -550,6 +551,125 @@ class KsefOfflineSubmissionObligationEngineTest extends TestCase
         $this->assertSame('2026-04-08', $spring->effectiveDeadline?->toDateString());
     }
 
+    public function test_planned_unavailability_waits_for_the_current_end_of_the_frozen_maintenance_event(): void
+    {
+        $message = $this->maintenance([
+            'end_at' => '2026-09-04T14:00:00Z',
+        ]);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::PlannedUnavailability, $message);
+
+        $result = $this->evaluate($issuance, [$message], asOf: '2026-09-04T12:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::WaitingForUnavailabilityEnd, $result->status);
+        $this->assertSame(KsefOfflineSubmissionObligationReason::PlannedUnavailabilityBase, $result->reason);
+        $this->assertNull($result->baseDeadline);
+        $this->assertNull($result->effectiveDeadline);
+        $this->assertSame(KsefOfflineIssuanceProcedure::PlannedUnavailability, $result->procedure);
+    }
+
+    public function test_planned_unavailability_uses_updated_end_of_the_same_event_for_deadline(): void
+    {
+        $frozen = $this->maintenance([
+            'version' => 1,
+            'end_at' => '2026-09-04T10:00:00Z',
+        ]);
+        $updated = $this->maintenance([
+            'version' => 2,
+            'end_at' => '2026-09-05T10:00:00Z',
+            'published_at' => '2026-09-04T09:30:00Z',
+            'first_fetched_at' => '2026-09-04T09:31:00Z',
+        ]);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::PlannedUnavailability, $frozen);
+
+        $result = $this->evaluate($issuance, [$frozen, $updated], asOf: '2026-09-06T10:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::Pending, $result->status);
+        $this->assertSame('2026-09-07', $result->baseDeadline?->toDateString());
+        $this->assertSame('2026-09-07', $result->effectiveDeadline?->toDateString());
+    }
+
+    public function test_failure_has_no_artificial_deadline_until_trigger_event_ends(): void
+    {
+        $message = $this->failure([
+            'published_at' => '2026-09-04T07:50:00Z',
+            'first_fetched_at' => '2026-09-04T07:55:00Z',
+            'start_at' => '2026-09-04T07:30:00Z',
+        ]);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::Failure, $message);
+
+        $result = $this->evaluate($issuance, [$message], asOf: '2026-09-05T10:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::WaitingForFailureEnd, $result->status);
+        $this->assertSame(KsefOfflineSubmissionObligationReason::FailureBase, $result->reason);
+        $this->assertNull($result->baseDeadline);
+        $this->assertNull($result->effectiveDeadline);
+    }
+
+    public function test_failure_deadline_is_seven_business_days_after_its_end(): void
+    {
+        $message = $this->failure([
+            'published_at' => '2026-09-04T07:50:00Z',
+            'first_fetched_at' => '2026-09-04T07:55:00Z',
+            'start_at' => '2026-09-04T07:30:00Z',
+            'end_at' => '2026-09-04T10:00:00Z',
+        ]);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::Failure, $message);
+
+        $result = $this->evaluate($issuance, [$message], asOf: '2026-09-05T10:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::Pending, $result->status);
+        $this->assertSame('2026-09-15', $result->baseDeadline?->toDateString());
+        $this->assertSame('2026-09-15', $result->effectiveDeadline?->toDateString());
+    }
+
+    public function test_failure_during_planned_unavailability_replaces_maintenance_deadline(): void
+    {
+        $maintenance = $this->maintenance(['end_at' => '2026-09-04T10:00:00Z']);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::PlannedUnavailability, $maintenance);
+        $failure = $this->failure([
+            'event_id' => 202,
+            'external_message_id' => 'FAILURE-202',
+            'start_at' => '2026-09-04T09:00:00Z',
+            'published_at' => '2026-09-04T09:05:00Z',
+            'first_fetched_at' => '2026-09-04T09:06:00Z',
+            'end_at' => '2026-09-05T10:00:00Z',
+        ]);
+
+        $result = $this->evaluate($issuance, [$maintenance, $failure], asOf: '2026-09-06T10:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationReason::OrdinaryFailureExtension, $result->reason);
+        $this->assertSame('2026-09-15', $result->effectiveDeadline?->toDateString());
+        $this->assertContains(202, $result->appliedEventIds);
+    }
+
+    public function test_procedure_trigger_mismatch_fails_closed(): void
+    {
+        $message = $this->maintenance();
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::PlannedUnavailability, $message);
+        $issuance->forceFill(['latarnia_trigger_message_version' => 999]);
+
+        $result = $this->evaluate($issuance, [$message]);
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::EvidenceUnavailable, $result->status);
+        $this->assertSame(KsefOfflineSubmissionObligationReason::ProcedureEventMissing, $result->reason);
+        $this->assertNull($result->effectiveDeadline);
+    }
+
+    public function test_submission_state_precedes_missing_procedure_evidence(): void
+    {
+        $issuance = $this->issuance(['procedure' => KsefOfflineIssuanceProcedure::Failure]);
+        $submission = $this->submission($issuance, [
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'invoicing_mode' => KsefInvoicingMode::Offline,
+            'invoice_reference_number' => 'REF-ACCEPTED',
+        ]);
+
+        $result = $this->evaluate($issuance, submissions: [$submission]);
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::Fulfilled, $result->status);
+        $this->assertSame(KsefOfflineIssuanceProcedure::Failure, $result->procedure);
+    }
+
     private function evaluate(
         KsefOfflineIssuance $issuance,
         array $messages = [],
@@ -585,6 +705,55 @@ class KsefOfflineSubmissionObligationEngineTest extends TestCase
         return (new KsefOfflineIssuance)->forceFill($attributes);
     }
 
+    private function procedureIssuance(
+        KsefOfflineIssuanceProcedure $procedure,
+        KsefLatarniaMessage $message,
+    ): KsefOfflineIssuance {
+        return $this->issuance([
+            'procedure' => $procedure,
+            'latarnia_source_environment' => $message->source_environment,
+            'latarnia_trigger_event_id' => $message->event_id,
+            'latarnia_trigger_message_id' => $message->external_message_id,
+            'latarnia_trigger_message_version' => $message->version,
+            'latarnia_trigger_category' => $message->category,
+            'latarnia_trigger_start_at' => $message->start_at,
+            'latarnia_trigger_end_at' => $message->end_at,
+            'latarnia_trigger_published_at' => $message->published_at,
+            'latarnia_evidence_as_of_at' => CarbonImmutable::parse('2026-09-04T07:59:00Z'),
+            'latarnia_evidence_from_at' => CarbonImmutable::parse('2026-09-01T00:00:00Z'),
+            'latarnia_evidence_through_at' => CarbonImmutable::parse('2026-09-04T07:59:00Z'),
+        ]);
+    }
+
+    private function maintenance(array $overrides = []): KsefLatarniaMessage
+    {
+        $attributes = array_replace([
+            'source_environment' => KsefLatarniaEnvironment::Test,
+            'external_message_id' => 'MAINTENANCE-301',
+            'event_id' => 301,
+            'version' => 1,
+            'category' => 'MAINTENANCE',
+            'type' => 'MAINTENANCE_ANNOUNCEMENT',
+            'title' => 'Synthetic maintenance',
+            'text' => 'Synthetic maintenance fixture.',
+            'start_at' => '2026-09-04T07:00:00Z',
+            'end_at' => '2026-09-04T12:00:00Z',
+            'published_at' => '2026-09-04T06:00:00Z',
+            'payload_json' => '{}',
+            'payload_hash' => str_repeat('M', 44),
+            'first_fetched_at' => '2026-09-04T06:01:00Z',
+            'last_seen_at' => '2026-09-04T06:01:00Z',
+        ], $overrides);
+
+        foreach (['start_at', 'end_at', 'published_at', 'first_fetched_at', 'last_seen_at'] as $field) {
+            if (is_string($attributes[$field])) {
+                $attributes[$field] = CarbonImmutable::parse($attributes[$field]);
+            }
+        }
+
+        return new KsefLatarniaMessage($attributes);
+    }
+
     private function failure(array $overrides = []): KsefLatarniaMessage
     {
         $attributes = array_replace([
@@ -604,6 +773,14 @@ class KsefOfflineSubmissionObligationEngineTest extends TestCase
             'first_fetched_at' => '2026-09-04T09:01:00Z',
             'last_seen_at' => '2026-09-04T09:01:00Z',
         ], $overrides);
+
+        if (! array_key_exists('first_fetched_at', $overrides)) {
+            $attributes['first_fetched_at'] = $attributes['published_at'];
+        }
+
+        if (! array_key_exists('last_seen_at', $overrides)) {
+            $attributes['last_seen_at'] = $attributes['first_fetched_at'];
+        }
 
         foreach (['start_at', 'end_at', 'published_at', 'first_fetched_at', 'last_seen_at'] as $field) {
             if (is_string($attributes[$field])) {

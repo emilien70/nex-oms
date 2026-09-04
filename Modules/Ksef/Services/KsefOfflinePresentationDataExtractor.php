@@ -32,7 +32,7 @@ final class KsefOfflinePresentationDataExtractor
     {
         $xml = $issuance->payload_xml;
 
-        if ($issuance->procedure !== KsefOfflineIssuanceProcedure::Offline24
+        if (! in_array($issuance->procedure, KsefOfflineIssuanceProcedure::cases(), true)
             || ! in_array($issuance->environment, [KsefEnvironment::Test, KsefEnvironment::Demo], true)
             || $issuance->schema_id !== self::SCHEMA_ID
             || ! is_string($xml)
@@ -65,6 +65,7 @@ final class KsefOfflinePresentationDataExtractor
 
         return new KsefOfflinePresentationData(
             environment: $issuance->environment,
+            procedure: $issuance->procedure,
             buyerClassification: $classification,
             seller: $seller,
             buyer: $buyer,
@@ -585,7 +586,7 @@ final class KsefOfflinePresentationDataExtractor
     private function integrityInvalid(): KsefApiException
     {
         return new KsefApiException(
-            'Nie można bezpiecznie przedstawić Faktury Offline24, ponieważ jej zamrożone dane są niespójne.',
+            'Nie można bezpiecznie przedstawić Faktury Offline, ponieważ jej zamrożone dane są niespójne.',
             'ksef_offline_presentation_integrity_invalid',
         );
     }

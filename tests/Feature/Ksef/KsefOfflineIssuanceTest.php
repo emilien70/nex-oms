@@ -21,10 +21,14 @@ use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefLatarniaEnvironment;
+use Modules\Ksef\Enums\KsefLatarniaStatus;
 use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefLatarniaMessage;
+use Modules\Ksef\Models\KsefLatarniaSyncState;
 use Modules\Ksef\Models\KsefOfflineCertificate;
 use Modules\Ksef\Models\KsefOfflineCertificateSelection;
 use Modules\Ksef\Models\KsefOfflineIssuance;
@@ -98,6 +102,17 @@ class KsefOfflineIssuanceTest extends TestCase
             'certificate_remote_status',
             'invoice_verification_url',
             'certificate_verification_url',
+            'latarnia_source_environment',
+            'latarnia_trigger_event_id',
+            'latarnia_trigger_message_id',
+            'latarnia_trigger_message_version',
+            'latarnia_trigger_category',
+            'latarnia_trigger_start_at',
+            'latarnia_trigger_end_at',
+            'latarnia_trigger_published_at',
+            'latarnia_evidence_as_of_at',
+            'latarnia_evidence_from_at',
+            'latarnia_evidence_through_at',
         ]));
         $this->assertSame(KsefEnvironment::Test, $issuance->environment);
         $this->assertSame(KsefOfflineIssuanceProcedure::Offline24, $issuance->procedure);
@@ -134,6 +149,9 @@ class KsefOfflineIssuanceTest extends TestCase
             $issuance->certificate_verification_url,
         );
         $this->assertStringNotContainsString('=', parse_url($issuance->invoice_verification_url, PHP_URL_PATH));
+        $this->assertNull($issuance->latarnia_source_environment);
+        $this->assertNull($issuance->latarnia_trigger_event_id);
+        $this->assertNull($issuance->latarnia_trigger_message_id);
         $this->assertKodIiSignatureIsValid($issuance->certificate_verification_url);
         $this->assertTrue($invoice->ksefOfflineIssuances()->firstOrFail()->is($issuance));
         $this->assertTrue($issuance->invoice->is($invoice));
@@ -613,6 +631,192 @@ class KsefOfflineIssuanceTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_planned_unavailability_uses_only_fresh_local_maintenance_evidence_and_freezes_provenance(): void
+    {
+        [$invoice] = $this->eligibleInvoiceWithCertificate();
+        $state = $this->latarniaState(KsefLatarniaStatus::Maintenance);
+        $message = $this->latarniaMessage([
+            'event_id' => 701,
+            'external_message_id' => 'MAINTENANCE-701',
+            'category' => 'MAINTENANCE',
+            'type' => 'MAINTENANCE_ANNOUNCEMENT',
+            'start_at' => $this->testNow->subHour(),
+            'end_at' => $this->testNow->addHours(2),
+            'published_at' => $this->testNow->subHours(2),
+            'first_fetched_at' => $this->testNow->subMinutes(10),
+        ]);
+
+        $this->get(route('invoices.edit', $invoice))
+            ->assertOk()
+            ->assertSee('WYSTAW OFFLINE – NIEDOSTĘPNOŚĆ')
+            ->assertSee('Przerwa KSeF do')
+            ->assertSee($message->end_at->setTimezone(config('app.timezone'))->format('d.m.Y H:i'))
+            ->assertSee('data-ksef-offline-unavailability-form', false)
+            ->assertSee('data-ksef-emergency-disabled', false);
+
+        $issuance = app(KsefOfflineIssuanceService::class)->issuePlannedUnavailability($invoice)->fresh();
+
+        $this->assertSame(KsefOfflineIssuanceProcedure::PlannedUnavailability, $issuance->procedure);
+        $this->assertSame(KsefLatarniaEnvironment::Test, $issuance->latarnia_source_environment);
+        $this->assertSame(701, $issuance->latarnia_trigger_event_id);
+        $this->assertSame('MAINTENANCE-701', $issuance->latarnia_trigger_message_id);
+        $this->assertSame(1, $issuance->latarnia_trigger_message_version);
+        $this->assertSame('MAINTENANCE', $issuance->latarnia_trigger_category->value);
+        $this->assertTrue($issuance->latarnia_trigger_start_at->equalTo($message->start_at));
+        $this->assertTrue($issuance->latarnia_trigger_end_at->equalTo($message->end_at));
+        $this->assertTrue($issuance->latarnia_trigger_published_at->equalTo($message->published_at));
+        $this->assertTrue($issuance->latarnia_evidence_from_at->equalTo($state->messages_coverage_from_at));
+        $this->assertTrue($issuance->latarnia_evidence_through_at->equalTo($state->messages_coverage_through_at));
+        $this->assertStringContainsString('<Faktura', $issuance->payload_xml);
+        $this->assertSame(base64_encode(hash('sha256', $issuance->payload_xml, true)), $issuance->invoice_hash);
+        $this->assertSame(strlen($issuance->payload_xml), $issuance->invoice_size);
+        $this->assertDatabaseCount('ksef_offline_issuances', 1);
+        Http::assertNothingSent();
+    }
+
+    public function test_failure_uses_only_fresh_local_ordinary_failure_evidence(): void
+    {
+        [$invoice] = $this->eligibleInvoiceWithCertificate();
+        $this->latarniaState(KsefLatarniaStatus::Failure);
+        $message = $this->latarniaMessage([
+            'event_id' => 702,
+            'external_message_id' => 'FAILURE-702',
+            'category' => 'FAILURE',
+            'type' => 'FAILURE_START',
+            'start_at' => $this->testNow->subHour(),
+            'end_at' => null,
+            'published_at' => $this->testNow->subMinutes(30),
+            'first_fetched_at' => $this->testNow->subMinutes(10),
+        ]);
+
+        $this->get(route('invoices.edit', $invoice))
+            ->assertOk()
+            ->assertSee('data-ksef-emergency-form', false)
+            ->assertSee('data-ksef-offline-unavailability-disabled', false);
+
+        $issuance = app(KsefOfflineIssuanceService::class)->issueFailure($invoice)->fresh();
+
+        $this->assertSame(KsefOfflineIssuanceProcedure::Failure, $issuance->procedure);
+        $this->assertSame(702, $issuance->latarnia_trigger_event_id);
+        $this->assertSame($message->external_message_id, $issuance->latarnia_trigger_message_id);
+        $this->assertNull($issuance->latarnia_trigger_end_at);
+        $this->assertDatabaseCount('ksef_offline_issuances', 1);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('localProcedureEligibilityFailures')]
+    public function test_event_dependent_procedures_fail_closed_without_valid_fresh_local_evidence(
+        string $scenario,
+        string $method,
+        string $expectedCode,
+    ): void {
+        [$invoice] = $this->eligibleInvoiceWithCertificate(
+            $scenario === 'demo' ? KsefEnvironment::Demo : KsefEnvironment::Test,
+        );
+
+        if ($scenario !== 'demo') {
+            $state = $this->latarniaState(match ($scenario) {
+                'maintenance stale', 'maintenance outside window', 'maintenance ambiguous' => KsefLatarniaStatus::Maintenance,
+                'failure ended' => KsefLatarniaStatus::Failure,
+                'total failure' => KsefLatarniaStatus::TotalFailure,
+                default => KsefLatarniaStatus::Available,
+            });
+
+            if ($scenario === 'maintenance stale') {
+                $state->forceFill([
+                    'status_last_success_at' => $this->testNow->subHour(),
+                    'messages_last_success_at' => $this->testNow->subHour(),
+                    'messages_coverage_through_at' => $this->testNow->subHour(),
+                ])->save();
+            }
+
+            if ($scenario === 'maintenance outside window') {
+                $this->latarniaMessage([
+                    'category' => 'MAINTENANCE',
+                    'type' => 'MAINTENANCE_ANNOUNCEMENT',
+                    'start_at' => $this->testNow->addHour(),
+                    'end_at' => $this->testNow->addHours(2),
+                ]);
+            }
+
+            if ($scenario === 'maintenance ambiguous') {
+                foreach ([901, 902] as $eventId) {
+                    $this->latarniaMessage([
+                        'event_id' => $eventId,
+                        'external_message_id' => 'MAINTENANCE-'.$eventId,
+                        'category' => 'MAINTENANCE',
+                        'type' => 'MAINTENANCE_ANNOUNCEMENT',
+                        'start_at' => $this->testNow->subHour(),
+                        'end_at' => $this->testNow->addHour(),
+                    ]);
+                }
+            }
+
+            if ($scenario === 'failure ended') {
+                $this->latarniaMessage([
+                    'category' => 'FAILURE',
+                    'type' => 'FAILURE_START',
+                    'start_at' => $this->testNow->subHours(2),
+                    'end_at' => $this->testNow->subMinute(),
+                ]);
+            }
+        }
+
+        $this->expectKsefError(
+            $expectedCode,
+            fn () => app(KsefOfflineIssuanceService::class)->{$method}($invoice),
+        );
+
+        $this->assertDatabaseCount('ksef_offline_issuances', 0);
+        Http::assertNothingSent();
+    }
+
+    public static function localProcedureEligibilityFailures(): array
+    {
+        return [
+            'DEMO planned' => ['demo', 'issuePlannedUnavailability', 'ksef_offline_procedure_unsupported_environment'],
+            'DEMO failure' => ['demo', 'issueFailure', 'ksef_offline_procedure_unsupported_environment'],
+            'stale maintenance' => ['maintenance stale', 'issuePlannedUnavailability', 'ksef_offline_procedure_latarnia_stale'],
+            'maintenance outside window' => ['maintenance outside window', 'issuePlannedUnavailability', 'ksef_offline_procedure_event_missing'],
+            'ambiguous maintenance' => ['maintenance ambiguous', 'issuePlannedUnavailability', 'ksef_offline_procedure_latarnia_ambiguous'],
+            'ended failure' => ['failure ended', 'issueFailure', 'ksef_offline_procedure_event_missing'],
+            'status mismatch' => ['status mismatch', 'issueFailure', 'ksef_offline_procedure_status_mismatch'],
+            'total failure' => ['total failure', 'issueFailure', 'ksef_offline_procedure_status_mismatch'],
+        ];
+    }
+
+    public function test_latarnia_evidence_change_during_generation_prevents_issuance(): void
+    {
+        [$invoice] = $this->eligibleInvoiceWithCertificate();
+        $state = $this->latarniaState(KsefLatarniaStatus::Maintenance);
+        $this->latarniaMessage([
+            'category' => 'MAINTENANCE',
+            'type' => 'MAINTENANCE_ANNOUNCEMENT',
+            'start_at' => $this->testNow->subHour(),
+            'end_at' => $this->testNow->addHours(2),
+        ]);
+        $realGenerator = app(KsefFa3DocumentGenerator::class);
+        $mockGenerator = Mockery::mock(KsefFa3DocumentGenerator::class);
+        $mockGenerator->shouldReceive('generate')->once()->andReturnUsing(
+            function (Invoice $managed, $generatedAt, KsefFa3EligibilityMode $mode) use ($realGenerator, $state) {
+                $generated = $realGenerator->generate($managed, $generatedAt, $mode);
+                $state->forceFill(['current_status' => KsefLatarniaStatus::Available])->save();
+
+                return $generated;
+            },
+        );
+        $this->app->instance(KsefFa3DocumentGenerator::class, $mockGenerator);
+
+        $this->expectKsefError(
+            'ksef_offline_procedure_status_mismatch',
+            fn () => app(KsefOfflineIssuanceService::class)->issuePlannedUnavailability($invoice),
+        );
+
+        $this->assertDatabaseCount('ksef_offline_issuances', 0);
+        Http::assertNothingSent();
+    }
+
     #[DataProvider('unsupportedDocumentTypes')]
     public function test_offline24_rejects_an_unsupported_document_type(
         InvoiceDocumentType $documentType,
@@ -782,6 +986,47 @@ class KsefOfflineIssuanceTest extends TestCase
             'invoice_hash' => base64_encode(hash('sha256', $xml, true)),
             'invoice_size' => strlen($xml),
         ]);
+    }
+
+    private function latarniaState(
+        KsefLatarniaStatus $status,
+        KsefLatarniaEnvironment $environment = KsefLatarniaEnvironment::Test,
+    ): KsefLatarniaSyncState {
+        return KsefLatarniaSyncState::query()->create([
+            'source_environment' => $environment,
+            'current_status' => $status,
+            'status_payload_json' => '{}',
+            'status_payload_hash' => hash('sha256', '{}'),
+            'status_last_success_at' => $this->testNow->subMinutes(2),
+            'messages_last_success_at' => $this->testNow->subMinutes(2),
+            'messages_coverage_from_at' => $this->testNow->subDay(),
+            'messages_coverage_through_at' => $this->testNow->subMinute(),
+        ]);
+    }
+
+    /** @param array<string, mixed> $overrides */
+    private function latarniaMessage(array $overrides = []): KsefLatarniaMessage
+    {
+        static $sequence = 800;
+        $sequence++;
+
+        return KsefLatarniaMessage::query()->create(array_replace([
+            'source_environment' => KsefLatarniaEnvironment::Test,
+            'external_message_id' => 'LOCAL-'.$sequence,
+            'event_id' => $sequence,
+            'version' => 1,
+            'category' => 'FAILURE',
+            'type' => 'FAILURE_START',
+            'title' => 'Synthetic local Latarnia event',
+            'text' => 'Synthetic local Latarnia fixture.',
+            'start_at' => $this->testNow->subHour(),
+            'end_at' => null,
+            'published_at' => $this->testNow->subMinutes(30),
+            'payload_json' => '{}',
+            'payload_hash' => base64_encode(hash('sha256', '{}', true)),
+            'first_fetched_at' => $this->testNow->subMinutes(10),
+            'last_seen_at' => $this->testNow->subMinute(),
+        ], $overrides));
     }
 
     private function applyRaceChange(

@@ -18,7 +18,7 @@ final class KsefOfflineStandardPdfGuard
         if (KsefOfflineIssuance::query()->where('invoice_id', $invoice->getKey())->exists()) {
             throw new InvoiceDomainException(
                 'invoice_pdf_ksef_offline24_requires_delivery_policy',
-                'Ta Faktura została wystawiona w trybie Offline24. Pobierz dokument właściwy dla nabywcy z panelu KSeF.',
+                'Ta Faktura została wystawiona w trybie Offline. Pobierz dokument właściwy dla nabywcy z panelu KSeF.',
             );
         }
     }
@@ -38,7 +38,7 @@ final class KsefOfflineStandardPdfGuard
         if ($invoiceIds !== [] && KsefOfflineIssuance::query()->whereIn('invoice_id', $invoiceIds)->exists()) {
             throw new InvoiceDomainException(
                 'invoice_pdf_ksef_offline24_requires_delivery_policy',
-                'Zbiorczy PDF nie może zawierać Faktury wystawionej w trybie Offline24.',
+                'Zbiorczy PDF nie może zawierać Faktury wystawionej w trybie Offline.',
             );
         }
     }

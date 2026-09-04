@@ -137,7 +137,7 @@ class KsefOfflinePresentationPdfRenderer
             throw $exception;
         } catch (Throwable $exception) {
             throw new KsefApiException(
-                'Nie udało się wygenerować dokumentu PDF dla wystawienia Offline24.',
+                'Nie udało się wygenerować dokumentu PDF dla wystawienia Offline.',
                 'ksef_offline_presentation_pdf_generation_failed',
             );
         }
@@ -148,7 +148,7 @@ class KsefOfflinePresentationPdfRenderer
     {
         if (count($blocks) !== $requiredQrCount || ! in_array($requiredQrCount, [1, 2], true)) {
             throw new KsefApiException(
-                'Dokument Offline24 zawiera nieprawidłową liczbę kodów weryfikacyjnych.',
+                'Dokument Offline zawiera nieprawidłową liczbę kodów weryfikacyjnych.',
                 'ksef_offline_presentation_integrity_invalid',
             );
         }

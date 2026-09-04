@@ -36,12 +36,30 @@ final class KsefOfflineIssuanceService
         private readonly KsefOfflineCertificateReadinessService $certificateReadiness,
         private readonly KsefInvoiceVerificationLinkBuilder $invoiceLinks,
         private readonly KsefOfflineCertificateVerificationLinkBuilder $certificateLinks,
+        private readonly KsefOfflineProcedureEligibilityService $procedureEligibility,
     ) {}
 
     public function issueOffline24(Invoice $invoice): KsefOfflineIssuance
     {
+        return $this->issue($invoice, KsefOfflineIssuanceProcedure::Offline24);
+    }
+
+    public function issuePlannedUnavailability(Invoice $invoice): KsefOfflineIssuance
+    {
+        return $this->issue($invoice, KsefOfflineIssuanceProcedure::PlannedUnavailability);
+    }
+
+    public function issueFailure(Invoice $invoice): KsefOfflineIssuance
+    {
+        return $this->issue($invoice, KsefOfflineIssuanceProcedure::Failure);
+    }
+
+    private function issue(
+        Invoice $invoice,
+        KsefOfflineIssuanceProcedure $procedure,
+    ): KsefOfflineIssuance {
         $issuedAt = CarbonImmutable::now('UTC');
-        $snapshot = $this->captureSnapshot($invoice, $issuedAt);
+        $snapshot = $this->captureSnapshot($invoice, $issuedAt, $procedure);
         $generated = $this->generator->generate(
             $snapshot['invoice'],
             $issuedAt,
@@ -51,7 +69,7 @@ final class KsefOfflineIssuanceService
 
         if ($issueDate !== $issuedAt->setTimezone('Europe/Warsaw')->toDateString()) {
             throw new KsefApiException(
-                'Data wystawienia P_1 dokumentu Offline24 musi być dzisiejszą datą w Polsce.',
+                'Data wystawienia P_1 Faktury Offline musi być dzisiejszą datą w Polsce.',
                 'ksef_offline24_issue_date_not_today',
             );
         }
@@ -66,7 +84,7 @@ final class KsefOfflineIssuanceService
 
         if ($invoiceVerificationUrl === null) {
             throw new KsefApiException(
-                'Nie udało się utworzyć KODU I dla Faktury Offline24.',
+                'Nie udało się utworzyć KODU I dla Faktury Offline.',
                 'ksef_offline24_invoice_verification_link_invalid',
             );
         }
@@ -82,7 +100,7 @@ final class KsefOfflineIssuanceService
             )->url;
         } catch (InvalidArgumentException) {
             throw new KsefApiException(
-                'Nie udało się bezpiecznie utworzyć KODU II dla Faktury Offline24.',
+                'Nie udało się bezpiecznie utworzyć KODU II dla Faktury Offline.',
                 'ksef_offline24_certificate_verification_link_invalid',
             );
         }
@@ -90,7 +108,7 @@ final class KsefOfflineIssuanceService
         $attributes = [
             'invoice_id' => $snapshot['invoice']->getKey(),
             'environment' => $snapshot['environment'],
-            'procedure' => KsefOfflineIssuanceProcedure::Offline24,
+            'procedure' => $procedure,
             'issue_date' => $issueDate,
             'issued_at' => $issuedAt,
             'seller_nip' => $snapshot['seller_nip'],
@@ -111,6 +129,7 @@ final class KsefOfflineIssuanceService
             'certificate_remote_verified_at' => $snapshot['certificate']->remote_verified_at,
             'invoice_verification_url' => $invoiceVerificationUrl,
             'certificate_verification_url' => $certificateVerificationUrl,
+            ...$snapshot['procedure_eligibility']->provenanceAttributes(),
         ];
 
         try {
@@ -132,8 +151,11 @@ final class KsefOfflineIssuanceService
     }
 
     /** @return array<string, mixed> */
-    private function captureSnapshot(Invoice $invoice, CarbonImmutable $issuedAt): array
-    {
+    private function captureSnapshot(
+        Invoice $invoice,
+        CarbonImmutable $issuedAt,
+        KsefOfflineIssuanceProcedure $procedure,
+    ): array {
         $managed = Invoice::query()->with('items')->findOrFail($invoice->getKey());
         $this->assertInvoiceEligible($managed);
 
@@ -143,6 +165,11 @@ final class KsefOfflineIssuanceService
         $this->assertSettingsActive($settings);
         $environment = $settings->environment;
         $this->environments->assertAllowed($environment);
+        $procedureEligibility = $this->procedureEligibility->requireEligible(
+            $procedure,
+            $environment,
+            $issuedAt,
+        );
         $context = $this->contextIdentifier($settings->context_nip);
         $sellerNip = $this->sellerNip($managed);
         $this->assertOwnContext($context, $sellerNip);
@@ -172,6 +199,8 @@ final class KsefOfflineIssuanceService
             'context' => $context,
             'seller_nip' => $sellerNip,
             'certificate' => $certificate,
+            'procedure' => $procedure,
+            'procedure_eligibility' => $procedureEligibility,
         ];
     }
 
@@ -226,6 +255,22 @@ final class KsefOfflineIssuanceService
         $this->assertSeriesEnabled($seriesSetting);
         $this->assertCertificateReady($certificate, $issuedAt);
         $this->assertNoConflictingHistory($invoice, $settings->environment->value, lock: true);
+        $currentEligibility = $this->procedureEligibility->requireEligible(
+            $snapshot['procedure'],
+            $settings->environment,
+            $issuedAt,
+            lock: true,
+        );
+
+        if (! hash_equals(
+            $snapshot['procedure_eligibility']->evidenceFingerprint(),
+            $currentEligibility->evidenceFingerprint(),
+        )) {
+            throw new KsefApiException(
+                'Dane Latarni KSeF zmieniły się podczas wystawiania. Odśwież dane i spróbuj ponownie.',
+                'ksef_offline_procedure_latarnia_changed',
+            );
+        }
     }
 
     private function assertInvoiceEligible(Invoice $invoice): void
@@ -234,7 +279,7 @@ final class KsefOfflineIssuanceService
             || $invoice->status !== InvoiceDocumentStatus::Issued
             || ! $invoice->isFinalized()) {
             throw new KsefApiException(
-                'Offline24 można wystawić wyłącznie dla wystawionej i zamkniętej Faktury VAT.',
+                'Fakturę Offline można wystawić wyłącznie dla wystawionej i zamkniętej Faktury VAT.',
                 'ksef_offline24_document_not_eligible',
             );
         }
@@ -285,7 +330,7 @@ final class KsefOfflineIssuanceService
     {
         if (! hash_equals($sellerNip, $context->value)) {
             throw new KsefApiException(
-                'Offline24 w tej wersji wymaga własnego kontekstu NIP sprzedawcy.',
+                'Wystawienie Offline w tej wersji wymaga własnego kontekstu NIP sprzedawcy.',
                 'ksef_offline24_delegated_context_not_supported',
             );
         }
@@ -330,7 +375,7 @@ final class KsefOfflineIssuanceService
     ): void {
         if (! $this->certificateReadiness->isReady($certificate, $issuedAt)) {
             throw new KsefApiException(
-                'Wybrany certyfikat Offline nie jest gotowy do wystawienia Faktury Offline24.',
+                'Wybrany certyfikat Offline nie jest gotowy do wystawienia Faktury Offline.',
                 'ksef_offline24_certificate_not_ready',
             );
         }
@@ -380,7 +425,7 @@ final class KsefOfflineIssuanceService
     private function alreadyIssued(): KsefApiException
     {
         return new KsefApiException(
-            'Faktura została już wystawiona w trybie Offline24 w aktywnym środowisku.',
+            'Faktura została już wystawiona w trybie Offline w aktywnym środowisku.',
             'ksef_offline24_already_issued',
         );
     }
@@ -388,7 +433,7 @@ final class KsefOfflineIssuanceService
     private function configurationChanged(): KsefApiException
     {
         return new KsefApiException(
-            'Konfiguracja lub Faktura zmieniła się podczas wystawiania Offline24. Spróbuj ponownie.',
+            'Konfiguracja lub Faktura zmieniła się podczas wystawiania Offline. Spróbuj ponownie.',
             'ksef_offline24_configuration_changed',
         );
     }

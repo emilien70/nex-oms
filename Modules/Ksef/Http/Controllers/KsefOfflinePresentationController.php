@@ -106,7 +106,7 @@ final class KsefOfflinePresentationController extends Controller
         KsefOfflineIssuance $issuance,
         Throwable $exception,
     ): Response {
-        Log::error('Nieoczekiwany błąd prezentacji dokumentu Offline24.', [
+        Log::error('Nieoczekiwany błąd prezentacji dokumentu Offline.', [
             'invoice_id' => $invoice->getKey(),
             'issuance_id' => $issuance->getKey(),
             'environment' => $issuance->environment->value,
@@ -114,7 +114,7 @@ final class KsefOfflinePresentationController extends Controller
         ]);
 
         return response(
-            'Nie udało się bezpiecznie przygotować dokumentu Offline24.',
+            'Nie udało się bezpiecznie przygotować dokumentu Offline.',
             500,
             [
                 'Content-Type' => 'text/plain; charset=UTF-8',

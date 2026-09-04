@@ -18,6 +18,7 @@ use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefInvoicingMode;
+use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
@@ -327,15 +328,26 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->assertDatabaseCount('ksef_invoice_submissions', 1);
     }
 
-    public function test_legitimate_offline_acceptance_schedules_upo_dispatches_event_and_builds_one_qr_pdf(): void
-    {
+    #[DataProvider('offlineProcedureProvider')]
+    public function test_legitimate_offline_acceptance_schedules_upo_dispatches_event_and_builds_one_qr_pdf(
+        KsefOfflineIssuanceProcedure $procedure,
+    ): void {
         Event::fake([KsefInvoiceAccepted::class]);
         [$invoice, $issuance] = $this->issueOffline();
+        DB::table('ksef_offline_issuances')
+            ->where('id', $issuance->getKey())
+            ->update(['procedure' => $procedure->value]);
+        $issuance = $issuance->fresh();
         $this->validAccessToken();
         $fake = $this->fakeOnlineApi();
         $fake->openResponse['referenceNumber'] = KsefUpoFixture::SESSION_REFERENCE;
         $fake->sendResponse['referenceNumber'] = KsefUpoFixture::INVOICE_REFERENCE;
         $submission = app(KsefOfflineInvoiceSubmissionService::class)->submitAttempt($invoice, $issuance);
+        $this->assertTrue($fake->sendPayload['offlineMode']);
+        $this->assertArrayNotHasKey('hashOfCorrectedInvoice', $fake->sendPayload);
+        $this->assertSame($issuance->payload_xml, $this->decryptInvoice($fake));
+        $this->assertSame($issuance->issued_at->getTimestamp(), $submission->generated_at->getTimestamp());
+        $this->assertSame($issuance->getKey(), $submission->offline_issuance_id);
         $number = KsefUpoFixture::ksefNumber($issuance->seller_nip);
         $fake->statusResponse = $this->acceptedStatus($number, KsefInvoicingMode::Offline);
 
@@ -389,6 +401,15 @@ class KsefOfflineSubmissionTest extends TestCase
         $upo = app(KsefInvoiceUpoService::class)->fetch($invoice, $accepted);
         $this->assertTrue($accepted->upo()->firstOrFail()->is($upo));
         $this->assertSame(1, $fake->upoCalls);
+    }
+
+    public static function offlineProcedureProvider(): array
+    {
+        return [
+            'Offline24' => [KsefOfflineIssuanceProcedure::Offline24],
+            'planned unavailability' => [KsefOfflineIssuanceProcedure::PlannedUnavailability],
+            'ordinary failure' => [KsefOfflineIssuanceProcedure::Failure],
+        ];
     }
 
     public function test_offline_submission_reported_as_online_preserves_truth_but_blocks_downstream(): void

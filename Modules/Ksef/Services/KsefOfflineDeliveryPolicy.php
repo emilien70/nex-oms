@@ -5,6 +5,7 @@ namespace Modules\Ksef\Services;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefOfflineBuyerClassification;
 use Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType;
+use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\ValueObjects\KsefOfflinePresentationData;
@@ -28,7 +29,7 @@ final class KsefOfflineDeliveryPolicy
             ->where('status', KsefInvoiceSubmissionStatus::Accepted->value)
             ->exists()) {
             throw new KsefApiException(
-                'Dokumenty wydawane przed przekazaniem Offline24 są niedostępne po przyjęciu Faktury przez KSeF.',
+                'Dokumenty wydawane przed przekazaniem Faktury Offline są niedostępne po jej przyjęciu przez KSeF.',
                 'ksef_offline_preacceptance_delivery_closed',
             );
         }
@@ -53,6 +54,10 @@ final class KsefOfflineDeliveryPolicy
 
     private function primaryFor(KsefOfflinePresentationData $presentation): KsefOfflineDeliveryDocumentType
     {
+        if ($presentation->procedure === KsefOfflineIssuanceProcedure::Failure) {
+            return KsefOfflineDeliveryDocumentType::OfflineInvoice;
+        }
+
         return match ($presentation->buyerClassification) {
             KsefOfflineBuyerClassification::DomesticPlNip => KsefOfflineDeliveryDocumentType::TransactionConfirmation,
             KsefOfflineBuyerClassification::NoPlNip => KsefOfflineDeliveryDocumentType::OfflineInvoice,

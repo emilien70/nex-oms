@@ -54,7 +54,7 @@ class KsefOfflineObligationUiTest extends TestCase
             ->assertSee($issuance->invoice->number)
             ->assertSee('Offline24 · do 07.09.2026')
             ->assertSee('Stan wg danych Latarni na: 04.09.2026 12:00')
-            ->assertDontSee('Co najmniej jedna Faktura Offline24 wymaga uwagi.');
+            ->assertDontSee('Co najmniej jedna Faktura Offline wymaga uwagi.');
         Http::assertNothingSent();
     }
 
@@ -70,7 +70,7 @@ class KsefOfflineObligationUiTest extends TestCase
             ->assertOk()
             ->assertSee('Offline24 · brak pełnych danych Latarni')
             ->assertSee('Bazowy termin Offline24: 07.09.2026')
-            ->assertSee('Co najmniej jedna Faktura Offline24 wymaga uwagi.');
+            ->assertSee('Co najmniej jedna Faktura Offline wymaga uwagi.');
         Http::assertNothingSent();
     }
 
@@ -105,7 +105,7 @@ class KsefOfflineObligationUiTest extends TestCase
             ->assertSee('Offline24 · brak pełnych danych Latarni')
             ->assertSee('Pełny termin wymaga aktualnych danych Latarni.')
             ->assertDontSee('Offline24 · do 07.09.2026')
-            ->assertSee('Co najmniej jedna Faktura Offline24 wymaga uwagi.');
+            ->assertSee('Co najmniej jedna Faktura Offline wymaga uwagi.');
         Http::assertNothingSent();
     }
 
@@ -116,7 +116,7 @@ class KsefOfflineObligationUiTest extends TestCase
         $this->get(route('invoices.index'))
             ->assertOk()
             ->assertSee('Offline24 · brak pełnych danych Latarni')
-            ->assertDontSee('Co najmniej jedna Faktura Offline24 wymaga uwagi.');
+            ->assertDontSee('Co najmniej jedna Faktura Offline wymaga uwagi.');
 
         $this->assertDatabaseCount('ksef_latarnia_sync_states', 0);
         Http::assertNothingSent();
@@ -154,7 +154,7 @@ class KsefOfflineObligationUiTest extends TestCase
 
     public function test_total_failure_is_a_read_only_projection_without_submission_or_document_mutation(): void
     {
-        $issuance = $this->offlineIssuance(KsefEnvironment::Test);
+        $issuance = $this->offlineIssuance(KsefEnvironment::Test)->fresh();
         $this->completeCoverage(KsefLatarniaEnvironment::Test);
         $this->failureMessage(
             id: 'TOTAL-START',

@@ -7,6 +7,7 @@ enum KsefOfflineSubmissionObligationStatus: string
     case Pending = 'PENDING';
     case DueToday = 'DUE_TODAY';
     case Overdue = 'OVERDUE';
+    case WaitingForUnavailabilityEnd = 'WAITING_FOR_UNAVAILABILITY_END';
     case WaitingForFailureEnd = 'WAITING_FOR_FAILURE_END';
     case NotRequiredTotalFailure = 'NOT_REQUIRED_TOTAL_FAILURE';
     case SubmittedPendingResult = 'SUBMITTED_PENDING_RESULT';

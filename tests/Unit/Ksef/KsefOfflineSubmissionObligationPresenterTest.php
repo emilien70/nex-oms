@@ -5,6 +5,7 @@ namespace Tests\Unit\Ksef;
 use Carbon\CarbonImmutable;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefLatarniaEvidenceCoverage;
+use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Enums\KsefOfflineSubmissionObligationReason;
 use Modules\Ksef\Enums\KsefOfflineSubmissionObligationStatus;
 use Modules\Ksef\Services\KsefOfflineSubmissionObligationPresenter;
@@ -47,6 +48,55 @@ class KsefOfflineSubmissionObligationPresenterTest extends TestCase
         $this->assertStringContainsString('Pełny termin wymaga aktualnych danych Latarni.', $presentation->tooltip);
     }
 
+    public function test_procedure_prefix_and_unknown_failure_deadline_are_explicit(): void
+    {
+        $obligation = new KsefOfflineSubmissionObligation(
+            status: KsefOfflineSubmissionObligationStatus::WaitingForFailureEnd,
+            baseDeadline: null,
+            effectiveDeadline: null,
+            reason: KsefOfflineSubmissionObligationReason::FailureBase,
+            evidenceCoverage: KsefLatarniaEvidenceCoverage::Complete,
+            appliedEventIds: [9],
+            appliedMessageIds: ['FAILURE-9'],
+            lastSubmissionStatus: null,
+            evaluatedAt: CarbonImmutable::parse('2026-09-04T10:00:00Z'),
+            procedure: KsefOfflineIssuanceProcedure::Failure,
+        );
+
+        $presentation = app(KsefOfflineSubmissionObligationPresenter::class)->present(
+            KsefEnvironment::Test,
+            $obligation,
+        );
+
+        $this->assertSame('Tryb awaryjny · trwa awaria KSeF', $presentation->label);
+        $this->assertStringContainsString('Termin zostanie wyznaczony po zakończeniu awarii KSeF.', $presentation->tooltip);
+        $this->assertStringNotContainsString('Bazowy termin', $presentation->tooltip);
+    }
+
+    public function test_planned_unavailability_has_its_own_prefix(): void
+    {
+        $obligation = $this->obligation(KsefOfflineSubmissionObligationStatus::WaitingForUnavailabilityEnd);
+        $obligation = new KsefOfflineSubmissionObligation(
+            status: $obligation->status,
+            baseDeadline: null,
+            effectiveDeadline: null,
+            reason: KsefOfflineSubmissionObligationReason::PlannedUnavailabilityBase,
+            evidenceCoverage: $obligation->evidenceCoverage,
+            appliedEventIds: [],
+            appliedMessageIds: [],
+            lastSubmissionStatus: null,
+            evaluatedAt: $obligation->evaluatedAt,
+            procedure: KsefOfflineIssuanceProcedure::PlannedUnavailability,
+        );
+
+        $presentation = app(KsefOfflineSubmissionObligationPresenter::class)->present(
+            KsefEnvironment::Test,
+            $obligation,
+        );
+
+        $this->assertSame('Offline – niedostępność · trwa przerwa KSeF', $presentation->label);
+    }
+
     public static function statusProvider(): array
     {
         return [
@@ -54,6 +104,7 @@ class KsefOfflineSubmissionObligationPresenterTest extends TestCase
             'due today' => [KsefOfflineSubmissionObligationStatus::DueToday, 'Offline24 · termin dzisiaj', 'warning', true],
             'overdue' => [KsefOfflineSubmissionObligationStatus::Overdue, 'Offline24 · po terminie', 'danger', true],
             'failure ongoing' => [KsefOfflineSubmissionObligationStatus::WaitingForFailureEnd, 'Offline24 · trwa awaria KSeF', 'warning', false],
+            'maintenance ongoing' => [KsefOfflineSubmissionObligationStatus::WaitingForUnavailabilityEnd, 'Offline24 · trwa przerwa KSeF', 'warning', false],
             'total failure' => [KsefOfflineSubmissionObligationStatus::NotRequiredTotalFailure, 'Offline24 · brak obowiązku wysyłki wg projekcji Latarni', 'info', false],
             'submission pending' => [KsefOfflineSubmissionObligationStatus::SubmittedPendingResult, 'Offline24 · wysłano, oczekiwanie na wynik', 'info', false],
             'fulfilled' => [KsefOfflineSubmissionObligationStatus::Fulfilled, 'Offline24 · obowiązek wykonany', 'success', false],

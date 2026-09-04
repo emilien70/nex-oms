@@ -38,7 +38,7 @@ final class KsefOfflineInvoiceSubmissionController extends Controller
 
             return back()->with(
                 'success',
-                'Zamrożona Faktura Offline24 została przekazana do KSeF '
+                'Zamrożona Faktura Offline została przekazana do KSeF '
                     .strtoupper($submission->environment->value).'.',
             );
         } catch (KsefApiException $exception) {
@@ -51,14 +51,14 @@ final class KsefOfflineInvoiceSubmissionController extends Controller
                 ->withErrors(['ksef' => $error['message']])
                 ->with('ksef_error', $error);
         } catch (Throwable $exception) {
-            Log::error('Nieoczekiwany błąd transmisji Faktury Offline24.', [
+            Log::error('Nieoczekiwany błąd transmisji Faktury Offline.', [
                 'invoice_id' => $invoice->getKey(),
                 'issuance_id' => $issuance->getKey(),
                 'exception_class' => $exception::class,
             ]);
 
             return back()->withErrors([
-                'ksef' => 'Nie udało się bezpiecznie przekazać Faktury Offline24 do KSeF.',
+                'ksef' => 'Nie udało się bezpiecznie przekazać Faktury Offline do KSeF.',
             ]);
         }
     }

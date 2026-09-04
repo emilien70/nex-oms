@@ -1439,6 +1439,20 @@ Pełne evidence Latarni spełnia dokładny niezmiennik `coverageFrom <= issuance
 
 Etap nie zmienia deadline engine, projektora, synchronizacji coverage ani schedulera. Migracja `085000` została wcześniej wykonana przez operatora; nie dodano migracji ani backfillu, nie wykonano live HTTP i nie zmieniono danych biznesowych.
 
+### KSeF.8C.5 — Planned unavailability + ordinary failure
+
+NEX-OMS rozróżnia trzy procedury wystawienia Faktury Offline: `Offline24`, `Offline – niedostępność KSeF` oraz `Tryb awaryjny`. Podstawą są odpowiednio art. 106nda, 106nh i 106nf ustawy o VAT, zweryfikowane 04.09.2026 z oficjalnymi materiałami MF. Operator wybiera procedurę jawnie; system nie przełącza automatycznie pomiędzy nimi. Wszystkie trzy zamrażają ten sam XML FA(3), datę `P_1`, hash, rozmiar, certyfikat Offline oraz KOD I i KOD II, a późniejsza transmisja wysyła dokładnie te bajty z `offlineMode=true`.
+
+Akcje planowanej niedostępności i trybu awaryjnego są dostępne wyłącznie na podstawie świeżych danych zapisanych wcześniej przez Latarnię. Samo otwarcie ekranu i wystawienie nie odświeżają Latarni i nie wykonują HTTP. Planowana niedostępność wymaga bieżącego statusu `MAINTENANCE` i jednego aktywnego komunikatu przerwy; tryb awaryjny wymaga statusu `FAILURE` i jednego aktywnego zwykłego zdarzenia awarii. Dane stare, brakujące, niejednoznaczne, poznane po czasie lub niespójne ze statusem blokują operację. `TOTAL_FAILURE` także blokuje te akcje. DEMO nie ma Latarni i nie korzysta z żadnego fallbacku, a Production pozostaje operacyjnie zablokowane.
+
+Dla obu nowych procedur Faktura zachowuje niezmienny dowód kwalifikacji: środowisko Latarni, identyfikator eventu i wiadomości, wersję, kategorię, początek i koniec, czas publikacji oraz okno evidence. Migracja `086000` dodaje te pola jako nullable exact instants; istniejące `Offline24` zachowują wartości `NULL` bez backfillu. Migracja pozostaje `Pending` na bazie operatora.
+
+Termin `Offline24` nadal przypada na następny dzień roboczy po `P_1`. W planowanej niedostępności termin nie jest pokazywany przed końcem przerwy, a potem przypada na następny dzień roboczy po jej zakończeniu. W trybie awaryjnym termin pozostaje nieznany do końca awarii, a następnie wynosi siedem dni roboczych. Kolejna zwykła awaria w tym okresie resetuje termin od własnego zakończenia; awaria rozpoczęta podczas planowanej przerwy również przełącza obowiązek na termin siedmiodniowy. Późniejsza awaria całkowita pozostaje wyłącznie read-only projekcją braku obowiązku transmisji.
+
+Przed akceptacją dokument dla nabywcy w `Offline24` i planowanej niedostępności podlega dotychczasowej polityce zależnej od obecności polskiego NIP-u. W zwykłej awarii pełna Faktura Offline z KODEM I i KODEM II jest dostępna również dla krajowego nabywcy z polskim NIP-em. Po transmisji wszystkie trzy procedury korzystają z tych samych statusów, zaakceptowanego PDF-u i UPO w trybie `Offline`.
+
+Etap nie implementuje wystawienia przy awarii całkowitej, Korekt Offline, korekty technicznej, automatycznej wysyłki, nowej kolejki, zmian schedulera ani Production. Wdrożenie nie wykonywało live HTTP; kontrolowana walidacja live jest osobnym zadaniem.
+
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.

@@ -135,7 +135,9 @@ Route::post('/invoices/{invoice}/corrections', [CorrectionController::class, 'st
 Route::get('/invoices/corrections/{correction}/edit', [CorrectionController::class, 'edit'])->name('invoices.corrections.edit');
 Route::patch('/invoices/corrections/{correction}', [CorrectionController::class, 'update'])->name('invoices.corrections.update');
 Route::post('/invoices/{invoice}/ksef/submissions/first-attempt', [KsefInvoiceSubmissionController::class, 'firstAttempt'])->name('invoices.ksef.submissions.first-attempt');
-Route::post('/invoices/{invoice}/ksef/offline24', KsefOfflineIssuanceController::class)->name('invoices.ksef.offline24.issue');
+Route::post('/invoices/{invoice}/ksef/offline24', [KsefOfflineIssuanceController::class, 'offline24'])->name('invoices.ksef.offline24.issue');
+Route::post('/invoices/{invoice}/ksef/offline-unavailability', [KsefOfflineIssuanceController::class, 'plannedUnavailability'])->name('invoices.ksef.offline-unavailability.issue');
+Route::post('/invoices/{invoice}/ksef/emergency', [KsefOfflineIssuanceController::class, 'failure'])->name('invoices.ksef.emergency.issue');
 Route::post('/invoices/{invoice}/ksef/offline-issuances/{issuance}/submissions', KsefOfflineInvoiceSubmissionController::class)->name('invoices.ksef.offline-issuances.submissions.store');
 Route::get('/invoices/{invoice}/ksef/offline-issuances/{issuance}/invoice-pdf', [KsefOfflinePresentationController::class, 'invoice'])->name('invoices.ksef.offline-issuances.invoice-pdf');
 Route::get('/invoices/{invoice}/ksef/offline-issuances/{issuance}/transaction-confirmation', [KsefOfflinePresentationController::class, 'transactionConfirmation'])->name('invoices.ksef.offline-issuances.transaction-confirmation');
