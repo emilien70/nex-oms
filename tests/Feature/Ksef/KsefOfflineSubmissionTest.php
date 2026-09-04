@@ -33,6 +33,7 @@ use Modules\Ksef\Services\KsefOfflineInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefOfflineIssuanceService;
 use Modules\Ksef\Services\KsefOfflinePresentationDataExtractor;
 use Modules\Ksef\Services\KsefOfflinePresentationPdfRenderer;
+use Modules\Ksef\Services\KsefOfflineSubmissionIntegrityService;
 use Modules\Ksef\Services\KsefSettingsService;
 use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -73,6 +74,12 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->app->instance(KsefFa3DocumentGenerator::class, $generator);
 
         $submission = app(KsefOfflineInvoiceSubmissionService::class)->prepare($invoice, $issuance);
+        $rawIssuedAt = DB::table('ksef_offline_issuances')
+            ->where('id', $issuance->getKey())
+            ->value('issued_at');
+        $rawGeneratedAt = DB::table('ksef_invoice_submissions')
+            ->where('id', $submission->getKey())
+            ->value('generated_at');
         $rawPayload = DB::table('ksef_invoice_submissions')
             ->where('id', $submission->getKey())
             ->value('payload_xml');
@@ -87,12 +94,51 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->assertSame($issuance->seller_nip, $submission->seller_nip);
         $this->assertSame($issuance->schema_id, $submission->schema_id);
         $this->assertSame($issuance->issued_at->getTimestamp(), $submission->generated_at->getTimestamp());
+        $this->assertSame($issuance->issued_at->format('Y-m-d H:i:s'), $rawIssuedAt);
+        $this->assertSame($rawIssuedAt, $rawGeneratedAt);
+        $this->assertTrue(
+            app(KsefOfflineSubmissionIntegrityService::class)->linkedIssuance($submission)->is($issuance),
+        );
         $this->assertNotSame($issuance->payload_xml, $rawPayload);
         $this->assertStringNotContainsString('<Faktura', $rawPayload);
         $this->assertTrue($submission->offlineIssuance->is($issuance));
         $this->assertTrue($issuance->submissions()->firstOrFail()->is($submission));
         $this->assertSame(KsefInvoicingMode::Offline, $submission->expectedInvoicingMode());
         Http::assertNothingSent();
+    }
+
+    #[DataProvider('fallOfflineInstantProvider')]
+    public function test_prepare_preserves_each_fall_repeated_hour_instant_and_exact_integrity(
+        string $instantValue,
+        string $expectedRaw,
+    ): void {
+        [$invoice, $issuance] = $this->issueOffline();
+        DB::table('ksef_offline_issuances')
+            ->where('id', $issuance->getKey())
+            ->update(['issued_at' => $expectedRaw]);
+        $issuance = $issuance->fresh();
+
+        $submission = app(KsefOfflineInvoiceSubmissionService::class)
+            ->prepare($invoice, $issuance)
+            ->fresh();
+        $linked = app(KsefOfflineSubmissionIntegrityService::class)->linkedIssuance($submission);
+        $expected = CarbonImmutable::parse($instantValue);
+
+        $this->assertSame($expectedRaw, DB::table('ksef_offline_issuances')->where('id', $issuance->getKey())->value('issued_at'));
+        $this->assertSame($expectedRaw, DB::table('ksef_invoice_submissions')->where('id', $submission->getKey())->value('generated_at'));
+        $this->assertSame($expected->getTimestamp(), $issuance->issued_at->getTimestamp());
+        $this->assertSame($expected->getTimestamp(), $submission->generated_at->getTimestamp());
+        $this->assertSame($issuance->issued_at->getTimestamp(), $submission->generated_at->getTimestamp());
+        $this->assertTrue($linked->is($issuance));
+        Http::assertNothingSent();
+    }
+
+    public static function fallOfflineInstantProvider(): array
+    {
+        return [
+            'first repeated-hour instant' => ['2026-10-25T00:30:00Z', '2026-10-25 00:30:00'],
+            'second repeated-hour instant' => ['2026-10-25T01:30:00Z', '2026-10-25 01:30:00'],
+        ];
     }
 
     public function test_next_day_submission_uses_frozen_test_payload_despite_current_configuration_drift(): void

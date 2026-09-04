@@ -191,7 +191,7 @@ trait CreatesKsefFa3CorrectionScenarios
             'attempt_number' => $attempt,
             'status' => KsefInvoiceSubmissionStatus::Accepted,
             'schema_id' => 'FA3',
-            'generated_at' => '2026-08-29 10:00:00',
+            'generated_at' => CarbonImmutable::parse('2026-08-29T10:00:00Z'),
             'payload_xml' => '<Faktura/>',
             'invoice_hash' => base64_encode(hash('sha256', '<Faktura/>', true)),
             'invoice_size' => strlen('<Faktura/>'),

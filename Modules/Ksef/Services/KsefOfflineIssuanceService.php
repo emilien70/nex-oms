@@ -36,7 +36,6 @@ final class KsefOfflineIssuanceService
         private readonly KsefOfflineCertificateReadinessService $certificateReadiness,
         private readonly KsefInvoiceVerificationLinkBuilder $invoiceLinks,
         private readonly KsefOfflineCertificateVerificationLinkBuilder $certificateLinks,
-        private readonly KsefInstantStorageNormalizer $instantStorage,
     ) {}
 
     public function issueOffline24(Invoice $invoice): KsefOfflineIssuance
@@ -93,7 +92,7 @@ final class KsefOfflineIssuanceService
             'environment' => $snapshot['environment'],
             'procedure' => KsefOfflineIssuanceProcedure::Offline24,
             'issue_date' => $issueDate,
-            'issued_at' => $this->instantStorage->forStorage($issuedAt),
+            'issued_at' => $issuedAt,
             'seller_nip' => $snapshot['seller_nip'],
             'context_identifier_type' => $snapshot['context']->type,
             'context_identifier_value' => $snapshot['context']->value,

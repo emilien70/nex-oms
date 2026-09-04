@@ -54,6 +54,9 @@ class KsefInvoiceSubmissionTest extends TestCase
         $invoice = $this->eligibleInvoice();
         $submission = app(KsefInvoiceSubmissionService::class)->prepare($invoice);
         $xml = $submission->payload_xml;
+        $rawGeneratedAt = DB::table('ksef_invoice_submissions')
+            ->where('id', $submission->getKey())
+            ->value('generated_at');
         $rawPayload = DB::table('ksef_invoice_submissions')
             ->where('id', $submission->getKey())
             ->value('payload_xml');
@@ -85,6 +88,9 @@ class KsefInvoiceSubmissionTest extends TestCase
         $this->assertStringContainsString('<Faktura', $xml);
         $this->assertSame(base64_encode(hash('sha256', $xml, true)), $submission->invoice_hash);
         $this->assertSame(strlen($xml), $submission->invoice_size);
+        $this->assertSame('2026-08-19 10:30:00', $rawGeneratedAt);
+        $this->assertSame('UTC', $submission->generated_at->getTimezone()->getName());
+        $this->assertSame('2026-08-19T10:30:00.000000Z', $submission->generated_at->toISOString());
         $this->assertNotSame($xml, $rawPayload);
         $this->assertStringNotContainsString('<Faktura', $rawPayload);
         $this->assertStringNotContainsString('9876543210', $rawPayload);

@@ -231,7 +231,7 @@ class KsefInvoiceSubmissionService
                 'attempt_number' => $attemptNumber,
                 'status' => KsefInvoiceSubmissionStatus::Preparing,
                 'schema_id' => $generated->schemaId,
-                'generated_at' => $this->forStorage(CarbonImmutable::parse($generated->generatedAt)->utc()),
+                'generated_at' => CarbonImmutable::parse($generated->generatedAt)->utc(),
                 'payload_xml' => $generated->xml,
                 'invoice_hash' => $this->hash($generated->xml),
                 'invoice_size' => strlen($generated->xml),

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Casts\KsefUtcInstantCast;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefInvoicingMode;
@@ -59,7 +60,7 @@ class KsefInvoiceSubmission extends Model
         'environment' => KsefEnvironment::class,
         'attempt_number' => 'integer',
         'status' => KsefInvoiceSubmissionStatus::class,
-        'generated_at' => 'immutable_datetime',
+        'generated_at' => KsefUtcInstantCast::class,
         'payload_xml' => 'encrypted',
         'invoice_size' => 'integer',
         'session_valid_until' => 'immutable_datetime',

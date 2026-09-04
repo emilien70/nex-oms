@@ -1403,6 +1403,14 @@ Dokładnie powiązana historia transmisji ma pierwszeństwo przed deadline: `Acc
 
 KSeF.8C.4B niczego nie zapisuje i nie zmienia wystawienia Offline24, Faktury ani submissionów. Nie dodaje migracji, HTTP, automatycznej synchronizacji Latarni, schedulera, kolejki, UI, automatycznej wysyłki, blokady transportu, obsługi korekty technicznej ani nowych procedur Offline.
 
+### KSeF.8C.4B.1-R2 — CLOSED
+
+Dwie wcześniejsze próby zamknięcia zostały zablokowane przez niejednoznaczność jesiennej zmiany czasu: dwa różne exact instants mogły zostać zapisane jako ten sam pozbawiony offsetu wall-clock `Europe/Warsaw`. `KsefOfflineIssuance.issued_at` i `KsefInvoiceSubmission.generated_at` mają teraz wspólny kontrakt: exact instant domenowy → surowy UTC wall-clock w bazie → ten sam exact instant UTC po odczycie przez istniejący `KsefUtcInstantCast`.
+
+Migracja `083000` przelicza legacy wall-clock `Europe/Warsaw` na UTC wyłącznie dla tych dwóch pól. Najpierw sprawdza wszystkie rekordy, a następnie wykonuje atomową aktualizację; brak odwzorowania podczas wiosennej przerwy lub więcej niż jedno odwzorowanie podczas jesiennego powtórzenia godziny powoduje fail-closed. Migracja jest jawnie nieodwracalna, nie została uruchomiona na bazie operatora i pozostaje `Pending`.
+
+Zwykłe przygotowanie Online zapisuje `generated_at` bez konwersji do `APP_TIMEZONE`, a przygotowanie Offline kopiuje exact `issued_at` do `generated_at`. Ścisłe porównanie instantów w integralności Offline pozostaje bez zmian. Payload XML, hash, rozmiar, schema, `offlineMode`, szyfrowanie, lifecycle sesji, retry, statusy, reconciliation i liczba POST-ów zachowują dotychczasową semantykę. Pozostałe timestampy submissionu zostały tylko zaudytowane i nie są częścią tej zmiany.
+
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.

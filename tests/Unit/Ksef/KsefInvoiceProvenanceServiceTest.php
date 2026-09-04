@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Ksef;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -240,7 +241,7 @@ class KsefInvoiceProvenanceServiceTest extends TestCase
             'attempt_number' => 1,
             'status' => $status,
             'schema_id' => 'FA3',
-            'generated_at' => '2026-08-30 10:00:00',
+            'generated_at' => CarbonImmutable::parse('2026-08-30T10:00:00Z'),
             'payload_xml' => '<Faktura/>',
             'invoice_hash' => base64_encode(hash('sha256', '<Faktura/>', true)),
             'invoice_size' => strlen('<Faktura/>'),

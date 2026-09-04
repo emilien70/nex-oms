@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Casts\KsefUtcInstantCast;
 use Modules\Ksef\Enums\KsefContextIdentifierType;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
@@ -47,7 +48,7 @@ class KsefOfflineIssuance extends Model
         'environment' => KsefEnvironment::class,
         'procedure' => KsefOfflineIssuanceProcedure::class,
         'issue_date' => 'immutable_date',
-        'issued_at' => 'immutable_datetime',
+        'issued_at' => KsefUtcInstantCast::class,
         'context_identifier_type' => KsefContextIdentifierType::class,
         'payload_xml' => 'encrypted',
         'invoice_size' => 'integer',
