@@ -1419,6 +1419,20 @@ Migracja `084000` konwertuje wyłącznie tych osiem historycznych kolumn z jedno
 
 Etap nie zmienia `generated_at`, `issued_at`, migracji `083000`, transportu, XML, hashy, szyfrowania, status mappingu, UPO, deadline engine ani integralności Offline. Nie dodaje HTTP, schedulera, kolejki, UI, automatycznej wysyłki ani nowej procedury Offline.
 
+### KSeF.8C.4C — Operational Latarnia integration
+
+Zweryfikowany kontrakt oficjalnej Latarni w rewizji `b3d819616eb640270a2e11321d424f206d5e0b1a` i OpenAPI `1.0.0` zachowuje publiczne `GET /status` oraz `GET /messages`, 30-dniową retencję zakończonych komunikatów i osobne hosty TEST/Production. DEMO nie ma Latarni i nie korzysta z fallbacku do innego środowiska.
+
+Synchronizacja operacyjna jest domyślnie wyłączona przez `KSEF_LATARNIA_SYNC_ENABLED=false`. Po włączeniu zadanie `ksef-latarnia-sync` działa co pięć minut bez nakładania przebiegów i wybiera maksymalnie TEST oraz Production na podstawie aktywnej konfiguracji i historycznych wystawień Offline24. Na środowisko przypada najwyżej jeden GET statusu i jeden GET komunikatów, bez retry i bez kolejki. Ręczne „Odśwież Latarnię” działa niezależnie od gate tylko dla jawnie wybranego TEST lub Production; DEMO nie wykonuje requestu.
+
+Udany `/messages` ustanawia konserwatywne coverage `[T-30 dni, T]`. Ciągłe, nakładające się lub stykające okna są scalane, a nieodwracalna luka resetuje coverage do najnowszego okna. Błędy, konflikty wersji i synchronizacja samego statusu nie przesuwają granic. Migracja `085000`, dodająca nullable exact instants coverage, pozostaje `Pending` na bazie operatora.
+
+Pełne evidence wymaga, aby wystawienie mieściło się w coverage, granica `coverageThrough` nie leżała w przyszłości i była świeża w oknie 15 minut. Wtedy projekcja używa `evidenceAsOf = coverageThrough` i ignoruje później opublikowane lub później pobrane komunikaty. Brak ciągłości, świeżości albo wsparcia środowiska daje odpowiednio `insufficient` lub `unsupported_environment`, bez domyślania brakującej historii.
+
+Zakładka „Latarnia” pokazuje wyłącznie lokalne: status, świeżość, coverage, bezpieczne błędy i maksymalnie 20 ostatnich komunikatów. Lista Faktur również nie wykonuje HTTP ani zapisów: zbiorczo wylicza read-only polskie badge i ostrzeżenia obowiązku Offline24 bez N+1. Projekcja `TOTAL_FAILURE` ma charakter informacyjny i odwracalny; nie finalizuje prawnego skutku, nie zmienia Faktury i nie blokuje ani nie uruchamia transportu.
+
+KSeF.8C.4C nie wdraża automatycznej wysyłki ani nowego trybu Offline. Live validation synchronizacji Latarni jest odłożona; testy nie wykonują publicznych requestów.
+
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.

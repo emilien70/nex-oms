@@ -242,6 +242,14 @@
             align-items: center;
             display: flex;
             flex-direction: column;
+            gap: 4px;
+        }
+
+        .invoice-offline-obligation {
+            cursor: help;
+            font-size: 9px;
+            max-width: 118px;
+            white-space: normal;
         }
 
         .invoice-ksef-list-send {
@@ -468,6 +476,12 @@
         @if (session('success'))
             <div class="alert alert-success py-2 px-3 mb-2" role="status">
                 {{ session('success') }}
+            </div>
+        @endif
+
+        @if ($hasUrgentOfflineObligations)
+            <div class="alert alert-warning py-2 px-3 mb-2" role="status" data-offline24-urgent-warning>
+                Co najmniej jedna Faktura Offline24 wymaga uwagi. Szczegóły są widoczne w kolumnie KSeF.
             </div>
         @endif
 
@@ -732,10 +746,20 @@
                                                     <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
                                                     <button class="badge text-bg-secondary invoice-ksef-list-send" type="submit" data-ksef-list-send-trigger data-ksef-status-tooltip data-bs-toggle="modal" data-bs-target="#invoiceKsefSendConfirmationModal" data-bs-placement="top" data-bs-title="{{ $ksefDocumentLabel }} nieprzekazana - przekaż do KSeF" title="{{ $ksefDocumentLabel }} nieprzekazana - przekaż do KSeF" aria-label="{{ $ksefDocumentLabel }} {{ $invoice->number }} nieprzekazana - przekaż do KSeF">Nie wysłano</button>
                                                 </form>
-                                            @else
-                                                <span class="badge text-bg-secondary" data-ksef-list-status>Nie wysłano</span>
-                                            @endif
-                                        </div>
+                                                @else
+                                                    <span class="badge text-bg-secondary" data-ksef-list-status>Nie wysłano</span>
+                                                @endif
+                                                @foreach ($offlineObligationPresentations->get($invoice->getKey(), collect()) as $offlinePresentation)
+                                                    <span
+                                                        class="badge text-bg-{{ $offlinePresentation->variant }} invoice-offline-obligation"
+                                                        data-offline24-obligation
+                                                        data-bs-toggle="tooltip"
+                                                        data-bs-placement="top"
+                                                        data-bs-title="{{ $offlinePresentation->tooltip }}"
+                                                        title="{{ $offlinePresentation->tooltip }}"
+                                                    >{{ $offlinePresentation->label }}</span>
+                                                @endforeach
+                                            </div>
                                     </td>
                                 @endif
                                 <td>

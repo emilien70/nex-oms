@@ -1,6 +1,11 @@
 <?php
 
 return [
+    'latarnia' => [
+        'sync_enabled' => env('KSEF_LATARNIA_SYNC_ENABLED', false),
+        'freshness_minutes' => 15,
+    ],
+
     'invoice_submission_enabled' => env('KSEF_INVOICE_SUBMISSION_ENABLED', false),
 
     'base_urls' => [

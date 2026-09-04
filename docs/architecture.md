@@ -1373,6 +1373,20 @@ Migracja `084000` obejmuje wyłącznie tych osiem kolumn i interpretuje historyc
 
 Kontrakty UTC `KsefOfflineIssuance.issued_at` oraz `KsefInvoiceSubmission.generated_at`, migracja `083000`, integralność Offline, payload XML, hash, rozmiar, schema, szyfrowanie, `offlineMode`, requesty sesji, invoice POST, status mapping i UPO pozostają bez zmian. Etap nie dodaje schedulera, kolejki, UI, automatycznej wysyłki, HTTP, zmian deadline engine ani nowych procedur Offline.
 
+### KSeF.8C.4C — Operational Latarnia integration
+
+Kontrakt oficjalnej Latarni zweryfikowano dla rewizji `b3d819616eb640270a2e11321d424f206d5e0b1a` i OpenAPI `1.0.0`: publiczne `GET /status` i `GET /messages` pozostają zgodne z fundamentem 8C.4A, TEST używa `api-latarnia-test.ksef.mf.gov.pl`, a Production `api-latarnia.ksef.mf.gov.pl`. Latarnia nie udostępnia środowiska DEMO, dlatego DEMO jest jawnie niewspierane i nigdy nie fallbackuje do TEST ani Production.
+
+Opcjonalny scheduler `ksef-latarnia-sync`, domyślnie wyłączony przez `KSEF_LATARNIA_SYNC_ENABLED=false`, działa co pięć minut z `withoutOverlapping()`. W jednym przebiegu deduplikuje maksymalnie dwa istotne środowiska: środowisko aktywnej integracji oraz środowiska utrwalonych wystawień Offline24, ograniczone do TEST i Production. Każde środowisko wykonuje najwyżej jeden status GET i jeden messages GET, bez retry, kolejki, zależności od automatycznej wysyłki lub zmiany reguł transportu.
+
+Udany odczyt `/messages` utrwala razem z komunikatami konserwatywne okno evidence `[T-30 dni, T]` w nowych polach `messages_coverage_from_at` i `messages_coverage_through_at`. Okna nakładające się lub stykające są łączone, a luka większa niż retencja resetuje początek do nowego `T-30 dni`; błąd, konflikt wersji i odczyt samego `/status` nie przesuwają coverage. Migracja `085000` dodająca nullable exact instants pozostaje `Pending` na bazie operatora.
+
+`KsefLatarniaEvidenceService` uznaje evidence za kompletne tylko wtedy, gdy wystawienie mieści się w ciągłym oknie, `coverageThrough <= asOf`, a jego wiek nie przekracza 15 minut. Pełna ocena silnika używa dokładnie `evidenceAsOf = coverageThrough`; komunikaty opublikowane lub po raz pierwszy pobrane później nie są widoczne, więc projekcja nie korzysta z przyszłej wiedzy. Przy niepełnym evidence silnik ocenia na bieżący `asOf` i zwraca fail-closed `EVIDENCE_UNAVAILABLE`.
+
+Zakładka „Latarnia” konfiguracji i lista Faktur czytają wyłącznie lokalny stan. Zakładka pokazuje status, świeżość, coverage, bezpieczne błędy i maksymalnie 20 ostatnich komunikatów oraz umożliwia jawne ręczne odświeżenie wybranego TEST lub Production niezależnie od gate; DEMO kończy się bez HTTP. Lista Faktur wylicza read-only badge obowiązku Offline24 stałą liczbą zapytań, bez N+1, HTTP i zapisów. Pilne stany dają jedno zbiorcze ostrzeżenie, natomiast `TOTAL_FAILURE` pozostaje odwracalną projekcją informacyjną i nie modyfikuje dokumentu ani transportu.
+
+Etap nie dodaje auto-send, transport guardów, nowej procedury Offline ani skutków prawnych zapisywanych w domenie. Kontrolowana walidacja live synchronizacji została odłożona; implementacja i testy używają wyłącznie fake HTTP.
+
 Transport ma deploymentowy gate `KSEF_INVOICE_SUBMISSION_ENABLED` domyślnie `false`, jest serwisowo ograniczony do TEST i nie ma trasy ani UI. KSeF.4A.1 nie dodaje automatycznej akcji, listenera, observera, kolejki, crona, automatycznego pollingu, batch, offline, QR ani UPO. Trwałe `automatic_submission=true` nie omija deployment gate i przy braku workflow nie uruchamia transmisji. Przed przyszłym włączeniem gate trzeba zweryfikować tę wartość oraz wszystkie ścieżki triggerów. Automatyczne testy pozostają fake-only, używają `Http::fake()` i blokują stray HTTP.
 
 ### Walidacja end-to-end KSeF.4A

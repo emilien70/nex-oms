@@ -24,6 +24,8 @@ class KsefLatarniaSyncState extends Model
         'messages_last_error_at',
         'messages_last_error_code',
         'messages_last_error_message',
+        'messages_coverage_from_at',
+        'messages_coverage_through_at',
     ];
 
     protected $casts = [
@@ -35,5 +37,7 @@ class KsefLatarniaSyncState extends Model
         'messages_last_attempt_at' => KsefUtcInstantCast::class,
         'messages_last_success_at' => KsefUtcInstantCast::class,
         'messages_last_error_at' => KsefUtcInstantCast::class,
+        'messages_coverage_from_at' => KsefUtcInstantCast::class,
+        'messages_coverage_through_at' => KsefUtcInstantCast::class,
     ];
 }

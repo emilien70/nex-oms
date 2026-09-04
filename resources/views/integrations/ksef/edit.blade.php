@@ -197,6 +197,10 @@
             border-left: 3px solid #dc3545;
         }
 
+        .ksef-connection-status[data-status="danger"] {
+            border-left: 3px solid #dc3545;
+        }
+
         .ksef-connection-status strong {
             color: #374151;
         }
@@ -330,6 +334,28 @@
             min-height: 38px;
         }
 
+        .ksef-latarnia-summary {
+            display: grid;
+            gap: 10px 22px;
+            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            max-width: 760px;
+        }
+
+        .ksef-latarnia-detail {
+            border-bottom: 1px solid #edf0f3;
+            color: #374151;
+            font-size: 13px;
+            padding: 8px 0;
+        }
+
+        .ksef-latarnia-detail strong {
+            color: #6b7280;
+            display: block;
+            font-size: 10px;
+            margin-bottom: 3px;
+            text-transform: uppercase;
+        }
+
         @media (max-width: 720px) {
             .ksef-page {
                 margin: -1rem;
@@ -352,6 +378,10 @@
 
             .ksef-export-row {
                 align-items: stretch;
+                grid-template-columns: 1fr;
+            }
+
+            .ksef-latarnia-summary {
                 grid-template-columns: 1fr;
             }
         }
@@ -387,6 +417,11 @@
                     href="{{ route('integrations.ksef.edit', ['tab' => 'offline-certificates']) }}"
                     data-ksef-tab="offline-certificates"
                 >Certyfikaty Offline</a>
+                <a
+                    class="ksef-tab {{ $activeTab === 'latarnia' ? 'is-active' : '' }}"
+                    href="{{ route('integrations.ksef.edit', ['tab' => 'latarnia']) }}"
+                    data-ksef-tab="latarnia"
+                >Latarnia KSeF</a>
             </nav>
 
             <div class="ksef-content">
@@ -400,7 +435,78 @@
                     <div class="ksef-environment-notice mb-3" role="status">{{ session('status') }}</div>
                 @endif
 
-                @if ($activeTab === 'export')
+                @if (session('warning'))
+                    <div class="alert alert-warning mb-3" role="status">{{ session('warning') }}</div>
+                @endif
+
+                @if (session('error'))
+                    <div class="alert alert-danger mb-3" role="alert">{{ session('error') }}</div>
+                @endif
+
+                @if ($activeTab === 'latarnia')
+                    @php
+                        $latarniaState = $latarniaStatus['state'];
+                    @endphp
+                    <section class="ksef-section" aria-labelledby="ksef-latarnia-heading" data-ksef-latarnia-panel>
+                        <h2 class="ksef-section-title" id="ksef-latarnia-heading">Latarnia KSeF</h2>
+
+                        <div class="ksef-connection-status mb-3" data-status="{{ $latarniaStatus['variant'] }}">
+                            <strong>{{ $latarniaStatus['label'] }}</strong>
+                        </div>
+
+                        <div class="ksef-latarnia-summary">
+                            <div class="ksef-latarnia-detail"><strong>Środowisko KSeF</strong>{{ $latarniaStatus['environment'] }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Środowisko Latarni</strong>{{ $latarniaStatus['latarnia_environment'] ?? 'Niedostępne' }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Ostatni poprawny status</strong>{{ $latarniaState?->status_last_success_at?->setTimezone(config('app.timezone'))->format('d.m.Y H:i:s') ?? '—' }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Ostatnie poprawne komunikaty</strong>{{ $latarniaState?->messages_last_success_at?->setTimezone(config('app.timezone'))->format('d.m.Y H:i:s') ?? '—' }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Coverage od</strong>{{ $latarniaState?->messages_coverage_from_at?->setTimezone(config('app.timezone'))->format('d.m.Y H:i:s') ?? '—' }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Coverage do</strong>{{ $latarniaState?->messages_coverage_through_at?->setTimezone(config('app.timezone'))->format('d.m.Y H:i:s') ?? '—' }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Aktualność statusu</strong>{{ $latarniaStatus['fresh'] ? 'Aktualny' : 'Brak aktualnych danych' }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Aktualność historii</strong>{{ ($latarniaStatus['coverage_fresh'] ?? false) ? 'Aktualna' : 'Brak aktualnych danych' }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Ostatni błąd statusu</strong>{{ $latarniaState?->status_last_error_message ?? '—' }}</div>
+                            <div class="ksef-latarnia-detail"><strong>Ostatni błąd komunikatów</strong>{{ $latarniaState?->messages_last_error_message ?? '—' }}</div>
+                        </div>
+
+                        <form class="mt-3" method="POST" action="{{ route('integrations.ksef.latarnia.refresh') }}">
+                            @csrf
+                            <button class="btn btn-primary" type="submit" @disabled(! $latarniaStatus['supported'])>Odśwież Latarnię</button>
+                        </form>
+                    </section>
+
+                    <section class="ksef-section" aria-labelledby="ksef-latarnia-messages-heading">
+                        <h2 class="ksef-section-title" id="ksef-latarnia-messages-heading">Ostatnie komunikaty</h2>
+                        @if ($latarniaMessages->isEmpty())
+                            <p class="ksef-payment-intro">Brak lokalnych komunikatów dla wybranego środowiska.</p>
+                        @else
+                            <div class="table-responsive">
+                                <table class="table ksef-offline-table" data-ksef-latarnia-messages>
+                                    <thead>
+                                        <tr>
+                                            <th>Kategoria</th>
+                                            <th>Typ</th>
+                                            <th>Tytuł</th>
+                                            <th>Opublikowano</th>
+                                            <th>Od</th>
+                                            <th>Do</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($latarniaMessages as $message)
+                                            <tr data-latarnia-message="{{ $message->external_message_id }}" data-latarnia-version="{{ $message->version }}">
+                                                <td>{{ $message->category->value }}</td>
+                                                <td>{{ $message->type->value }}</td>
+                                                <td>{{ $message->title }}</td>
+                                                <td>{{ $message->published_at->setTimezone(config('app.timezone'))->format('d.m.Y H:i:s') }}</td>
+                                                <td>{{ $message->start_at->setTimezone(config('app.timezone'))->format('d.m.Y H:i:s') }}</td>
+                                                <td>{{ $message->end_at?->setTimezone(config('app.timezone'))->format('d.m.Y H:i:s') ?? '—' }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </section>
+                @elseif ($activeTab === 'export')
                     <form
                         class="ksef-form"
                         method="POST"

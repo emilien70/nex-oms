@@ -17,6 +17,8 @@ use Modules\Invoices\Support\InvoiceReturnContext;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefOfflineSubmissionObligationPresenter;
+use Modules\Ksef\Services\KsefOfflineSubmissionObligationQueryService;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 
 class InvoiceController
@@ -25,6 +27,8 @@ class InvoiceController
         private readonly CorrectionSeriesResolver $correctionSeries,
         private readonly InvoiceMoneyFormatter $moneyFormatter,
         private readonly KsefOperationalEnvironmentPolicy $ksefEnvironments,
+        private readonly KsefOfflineSubmissionObligationQueryService $offlineObligations,
+        private readonly KsefOfflineSubmissionObligationPresenter $offlineObligationPresenter,
     ) {}
 
     public function index(InvoiceIndexRequest $request): View
@@ -193,6 +197,12 @@ class InvoiceController
             ->map(fn (int|string $id): int => (int) $id)
             ->all();
         $submissions = collect();
+        $offlineObligationPresentations = $this->offlineObligations
+            ->forInvoices($invoices, CarbonImmutable::now('UTC'))
+            ->map(fn (Collection $rows): Collection => $rows->map(fn (array $row) => $this->offlineObligationPresenter->present(
+                $row['environment'],
+                $row['obligation'],
+            )));
 
         if ($settings !== null && $invoices->isNotEmpty()) {
             $invoiceIds = $invoices->modelKeys();
@@ -226,6 +236,10 @@ class InvoiceController
                 && $settings->is_active
                 && config('ksef.invoice_submission_enabled') === true
                 && $this->ksefEnvironments->allows($settings->environment),
+            'offlineObligationPresentations' => $offlineObligationPresentations,
+            'hasUrgentOfflineObligations' => $offlineObligationPresentations
+                ->flatten(1)
+                ->contains(fn ($presentation): bool => $presentation->urgent),
         ];
     }
 
@@ -237,6 +251,8 @@ class InvoiceController
             'ksefEnabledSeriesIds' => [],
             'ksefListEnvironment' => null,
             'ksefListSendConfigured' => false,
+            'offlineObligationPresentations' => collect(),
+            'hasUrgentOfflineObligations' => false,
         ];
     }
 

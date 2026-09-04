@@ -64,11 +64,14 @@ final class KsefLatarniaSyncService
                 $this->persistMessages($environment, $messages, $now);
 
                 $state = $this->lockedState($environment);
+                [$coverageFrom, $coverageThrough] = $this->mergedCoverage($state, $now);
                 $state->forceFill([
                     'messages_last_success_at' => $now,
                     'messages_last_error_at' => null,
                     'messages_last_error_code' => null,
                     'messages_last_error_message' => null,
+                    'messages_coverage_from_at' => $coverageFrom,
+                    'messages_coverage_through_at' => $coverageThrough,
                 ])->save();
             });
 
@@ -143,6 +146,25 @@ final class KsefLatarniaSyncService
             ->where('source_environment', $environment->value)
             ->lockForUpdate()
             ->firstOrFail();
+    }
+
+    /** @return array{0: CarbonImmutable, 1: CarbonImmutable} */
+    private function mergedCoverage(KsefLatarniaSyncState $state, CarbonImmutable $now): array
+    {
+        $newFrom = $now->subDays(30);
+        $existingFrom = $state->messages_coverage_from_at;
+        $existingThrough = $state->messages_coverage_through_at;
+
+        if ($existingFrom === null
+            || $existingThrough === null
+            || $existingThrough->lessThan($newFrom)) {
+            return [$newFrom, $now];
+        }
+
+        return [
+            $existingFrom->lessThan($newFrom) ? $existingFrom : $newFrom,
+            $existingThrough->greaterThan($now) ? $existingThrough : $now,
+        ];
     }
 
     /**

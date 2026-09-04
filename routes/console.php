@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Schedule;
 use Modules\Integrations\AllegroShipping\Jobs\RefreshAllegroShipmentJob;
 use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
+use Modules\Ksef\Services\KsefLatarniaOperationalSyncService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpDispatcher;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
@@ -67,4 +68,9 @@ Schedule::call(function (): void {
 Schedule::call(fn () => app(KsefSubmissionFollowUpDispatcher::class)->dispatchDue())
     ->name('ksef-submission-follow-up')
     ->everyMinute()
+    ->withoutOverlapping();
+
+Schedule::call(fn () => app(KsefLatarniaOperationalSyncService::class)->runScheduled())
+    ->name('ksef-latarnia-sync')
+    ->everyFiveMinutes()
     ->withoutOverlapping();

@@ -63,6 +63,8 @@ class KsefLatarniaSyncTest extends TestCase
             'messages_last_error_at',
             'messages_last_error_code',
             'messages_last_error_message',
+            'messages_coverage_from_at',
+            'messages_coverage_through_at',
         ]));
 
         $indexes = collect(DB::select("PRAGMA index_list('ksef_latarnia_messages')"))
@@ -142,6 +144,70 @@ class KsefLatarniaSyncTest extends TestCase
         Http::assertSentCount(4);
     }
 
+    public function test_messages_success_initializes_and_continuously_extends_the_retention_coverage(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-09-04T10:00:00Z'));
+        Http::fake(['*' => Http::response([])]);
+        $sync = app(KsefLatarniaSyncService::class);
+
+        $sync->syncMessages(KsefLatarniaEnvironment::Test);
+        $initial = KsefLatarniaSyncState::query()->firstOrFail();
+
+        $this->assertSame('2026-08-05 10:00:00', $initial->messages_coverage_from_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-09-04 10:00:00', $initial->messages_coverage_through_at->format('Y-m-d H:i:s'));
+
+        $this->travel(5)->minutes();
+        $sync->syncMessages(KsefLatarniaEnvironment::Test);
+        $extended = KsefLatarniaSyncState::query()->firstOrFail();
+
+        $this->assertSame('2026-08-05 10:00:00', $extended->messages_coverage_from_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-09-04 10:05:00', $extended->messages_coverage_through_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_messages_success_resets_coverage_after_an_unrecoverable_gap(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-09-04T10:00:00Z'));
+        KsefLatarniaSyncState::query()->create([
+            'source_environment' => KsefLatarniaEnvironment::Test,
+            'messages_coverage_from_at' => CarbonImmutable::parse('2026-06-01T10:00:00Z'),
+            'messages_coverage_through_at' => CarbonImmutable::parse('2026-07-01T09:59:59Z'),
+        ]);
+        Http::fake(['*' => Http::response([])]);
+
+        app(KsefLatarniaSyncService::class)->syncMessages(KsefLatarniaEnvironment::Test);
+        $state = KsefLatarniaSyncState::query()->firstOrFail();
+
+        $this->assertSame('2026-08-05 10:00:00', $state->messages_coverage_from_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-09-04 10:00:00', $state->messages_coverage_through_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_status_success_and_failed_messages_sync_never_advance_existing_coverage(): void
+    {
+        $from = CarbonImmutable::parse('2026-08-05T09:00:00Z');
+        $through = CarbonImmutable::parse('2026-09-03T09:00:00Z');
+        KsefLatarniaSyncState::query()->create([
+            'source_environment' => KsefLatarniaEnvironment::Test,
+            'messages_coverage_from_at' => $from,
+            'messages_coverage_through_at' => $through,
+        ]);
+        Http::fakeSequence()
+            ->push(['status' => 'AVAILABLE'])
+            ->push(['error' => 'unavailable'], 500);
+        $sync = app(KsefLatarniaSyncService::class);
+
+        $sync->syncStatus(KsefLatarniaEnvironment::Test);
+        $this->assertKsefError(
+            'ksef_latarnia_http_error',
+            fn () => $sync->syncMessages(KsefLatarniaEnvironment::Test),
+        );
+        $state = KsefLatarniaSyncState::query()->firstOrFail();
+
+        $this->assertTrue($state->messages_coverage_from_at->equalTo($from));
+        $this->assertTrue($state->messages_coverage_through_at->equalTo($through));
+        $this->assertNull($state->messages_last_success_at);
+        $this->assertSame('ksef_latarnia_http_error', $state->messages_last_error_code);
+    }
+
     public function test_same_version_payload_conflict_fails_closed_and_preserves_original(): void
     {
         $original = $this->message(['id' => 'CONFLICT-1']);
@@ -150,6 +216,11 @@ class KsefLatarniaSyncTest extends TestCase
         $sync = app(KsefLatarniaSyncService::class);
         $sync->syncMessages(KsefLatarniaEnvironment::Test);
         $before = KsefLatarniaMessage::query()->firstOrFail()->getAttributes();
+        $stateBefore = KsefLatarniaSyncState::query()->firstOrFail();
+        $coverageFromBefore = $stateBefore->messages_coverage_from_at;
+        $coverageThroughBefore = $stateBefore->messages_coverage_through_at;
+        $successBefore = $stateBefore->messages_last_success_at;
+        $this->travel(1)->minutes();
 
         $this->assertKsefError(
             'ksef_latarnia_message_version_conflict',
@@ -163,7 +234,9 @@ class KsefLatarniaSyncTest extends TestCase
         $this->assertSame($before['text'], $after->getRawOriginal('text'));
         $this->assertSame('ksef_latarnia_message_version_conflict', $state->messages_last_error_code);
         $this->assertNotNull($state->messages_last_error_at);
-        $this->assertNotNull($state->messages_last_success_at);
+        $this->assertTrue($state->messages_last_success_at->equalTo($successBefore));
+        $this->assertTrue($state->messages_coverage_from_at->equalTo($coverageFromBefore));
+        $this->assertTrue($state->messages_coverage_through_at->equalTo($coverageThroughBefore));
     }
 
     public function test_messages_endpoint_is_atomic_when_one_message_is_invalid(): void

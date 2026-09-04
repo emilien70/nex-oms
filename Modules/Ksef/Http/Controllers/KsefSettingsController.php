@@ -3,6 +3,7 @@
 namespace Modules\Ksef\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -11,7 +12,10 @@ use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefPaymentType;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Http\Requests\UpdateKsefSettingsRequest;
+use Modules\Ksef\Models\KsefLatarniaMessage;
+use Modules\Ksef\Models\KsefLatarniaSyncState;
 use Modules\Ksef\Services\KsefCertificateMaterialService;
+use Modules\Ksef\Services\KsefLatarniaStatusPresenter;
 use Modules\Ksef\Services\KsefMonthlyExportPeriod;
 use Modules\Ksef\Services\KsefOfflineCertificateReadinessService;
 use Modules\Ksef\Services\KsefOfflineCertificateService;
@@ -29,18 +33,49 @@ class KsefSettingsController extends Controller
         KsefOperationalEnvironmentPolicy $operationalEnvironments,
         KsefOfflineCertificateService $offlineCertificates,
         KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
+        KsefLatarniaStatusPresenter $latarniaStatusPresenter,
     ): View {
         $activeTab = match ($request->query('tab')) {
             'export' => 'export',
             'series' => 'series',
             'payment-types' => 'payment-types',
             'offline-certificates' => 'offline-certificates',
+            'latarnia' => 'latarnia',
             default => 'connection',
         };
         $settings = $settingsService->get();
         $offlineCertificateRows = $activeTab === 'offline-certificates'
             ? $offlineCertificates->forConfiguration()
             : collect();
+        $latarniaState = null;
+        $latarniaMessages = collect();
+
+        if ($activeTab === 'latarnia' && $settings->environment !== KsefEnvironment::Demo) {
+            $latarniaState = KsefLatarniaSyncState::query()
+                ->where('source_environment', $settings->environment->value)
+                ->first();
+            $latarniaMessages = KsefLatarniaMessage::query()
+                ->where('source_environment', $settings->environment->value)
+                ->orderByDesc('published_at')
+                ->orderByDesc('version')
+                ->limit(20)
+                ->get([
+                    'id',
+                    'source_environment',
+                    'external_message_id',
+                    'event_id',
+                    'version',
+                    'category',
+                    'type',
+                    'title',
+                    'text',
+                    'start_at',
+                    'end_at',
+                    'published_at',
+                    'first_fetched_at',
+                    'last_seen_at',
+                ]);
+        }
 
         return view('integrations.ksef.edit', [
             'settings' => $settings,
@@ -65,6 +100,12 @@ class KsefSettingsController extends Controller
                 ->mapWithKeys(fn ($certificate): array => [
                     $certificate->getKey() => $offlineCertificateReadiness->isReady($certificate),
                 ]),
+            'latarniaStatus' => $latarniaStatusPresenter->present(
+                $settings->environment,
+                $latarniaState,
+                CarbonImmutable::now('UTC'),
+            ),
+            'latarniaMessages' => $latarniaMessages,
             'activeTab' => $activeTab,
         ]);
     }
