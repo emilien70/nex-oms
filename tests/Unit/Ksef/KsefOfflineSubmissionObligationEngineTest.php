@@ -567,6 +567,116 @@ class KsefOfflineSubmissionObligationEngineTest extends TestCase
         $this->assertSame(KsefOfflineIssuanceProcedure::PlannedUnavailability, $result->procedure);
     }
 
+    public function test_open_failure_during_active_planned_unavailability_takes_priority_immediately(): void
+    {
+        $maintenance = $this->maintenance([
+            'start_at' => '2026-09-04T08:00:00Z',
+            'end_at' => '2026-09-04T14:00:00Z',
+        ]);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::PlannedUnavailability, $maintenance);
+        $issuance->forceFill(['issued_at' => CarbonImmutable::parse('2026-09-04T09:00:00Z')]);
+        $failure = $this->failure([
+            'event_id' => 401,
+            'external_message_id' => 'FAILURE-401',
+            'start_at' => '2026-09-04T10:00:00Z',
+            'published_at' => '2026-09-04T10:01:00Z',
+            'first_fetched_at' => '2026-09-04T10:02:00Z',
+            'end_at' => null,
+        ]);
+
+        $result = $this->evaluate($issuance, [$maintenance, $failure], asOf: '2026-09-04T11:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::WaitingForFailureEnd, $result->status);
+        $this->assertSame(KsefOfflineSubmissionObligationReason::OrdinaryFailureExtension, $result->reason);
+        $this->assertNull($result->baseDeadline);
+        $this->assertNull($result->effectiveDeadline);
+        $this->assertSame([301, 401], $result->appliedEventIds);
+        $this->assertContains('MAINTENANCE-301', $result->appliedMessageIds);
+        $this->assertContains('FAILURE-401', $result->appliedMessageIds);
+    }
+
+    public function test_closed_failure_keeps_priority_while_planned_unavailability_is_still_active(): void
+    {
+        $maintenance = $this->maintenance([
+            'start_at' => '2026-09-04T08:00:00Z',
+            'end_at' => '2026-09-04T18:00:00Z',
+        ]);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::PlannedUnavailability, $maintenance);
+        $issuance->forceFill(['issued_at' => CarbonImmutable::parse('2026-09-04T09:00:00Z')]);
+        $failure = $this->failure([
+            'event_id' => 402,
+            'external_message_id' => 'FAILURE-402',
+            'start_at' => '2026-09-04T10:00:00Z',
+            'published_at' => '2026-09-04T10:01:00Z',
+            'first_fetched_at' => '2026-09-04T10:02:00Z',
+            'end_at' => '2026-09-04T12:00:00Z',
+        ]);
+
+        $result = $this->evaluate($issuance, [$maintenance, $failure], asOf: '2026-09-04T13:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::Pending, $result->status);
+        $this->assertSame(KsefOfflineSubmissionObligationReason::OrdinaryFailureExtension, $result->reason);
+        $this->assertSame('2026-09-15', $result->baseDeadline?->toDateString());
+        $this->assertSame('2026-09-15', $result->effectiveDeadline?->toDateString());
+        $this->assertSame([301, 402], $result->appliedEventIds);
+    }
+
+    public function test_failure_after_completed_maintenance_keeps_existing_extension_semantics(): void
+    {
+        $maintenance = $this->maintenance([
+            'start_at' => '2026-09-04T08:00:00Z',
+            'end_at' => '2026-09-04T09:30:00Z',
+        ]);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::PlannedUnavailability, $maintenance);
+        $issuance->forceFill(['issued_at' => CarbonImmutable::parse('2026-09-04T09:00:00Z')]);
+        $failure = $this->failure([
+            'event_id' => 403,
+            'external_message_id' => 'FAILURE-403',
+            'start_at' => '2026-09-04T10:00:00Z',
+            'published_at' => '2026-09-04T10:01:00Z',
+            'first_fetched_at' => '2026-09-04T10:02:00Z',
+            'end_at' => '2026-09-04T12:00:00Z',
+        ]);
+
+        $result = $this->evaluate($issuance, [$maintenance, $failure], asOf: '2026-09-04T13:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::Pending, $result->status);
+        $this->assertSame(KsefOfflineSubmissionObligationReason::OrdinaryFailureExtension, $result->reason);
+        $this->assertSame('2026-09-07', $result->baseDeadline?->toDateString());
+        $this->assertSame('2026-09-15', $result->effectiveDeadline?->toDateString());
+    }
+
+    public function test_total_failure_keeps_priority_over_failure_during_planned_unavailability(): void
+    {
+        $maintenance = $this->maintenance([
+            'start_at' => '2026-09-04T08:00:00Z',
+            'end_at' => '2026-09-04T14:00:00Z',
+        ]);
+        $issuance = $this->procedureIssuance(KsefOfflineIssuanceProcedure::PlannedUnavailability, $maintenance);
+        $issuance->forceFill(['issued_at' => CarbonImmutable::parse('2026-09-04T09:00:00Z')]);
+        $attributesBefore = $issuance->getAttributes();
+        $ordinary = $this->failure([
+            'event_id' => 404,
+            'external_message_id' => 'FAILURE-404',
+            'start_at' => '2026-09-04T10:00:00Z',
+            'published_at' => '2026-09-04T10:01:00Z',
+        ]);
+        $total = $this->failure([
+            'event_id' => 405,
+            'external_message_id' => 'TOTAL-405',
+            'category' => 'TOTAL_FAILURE',
+            'start_at' => '2026-09-04T10:30:00Z',
+            'published_at' => '2026-09-04T10:31:00Z',
+        ]);
+
+        $result = $this->evaluate($issuance, [$maintenance, $ordinary, $total], asOf: '2026-09-04T11:00:00Z');
+
+        $this->assertSame(KsefOfflineSubmissionObligationStatus::NotRequiredTotalFailure, $result->status);
+        $this->assertSame(KsefOfflineSubmissionObligationReason::TotalFailureNoSubmission, $result->reason);
+        $this->assertSame(405, $result->totalFailureEventId);
+        $this->assertSame($attributesBefore, $issuance->getAttributes());
+    }
+
     public function test_planned_unavailability_uses_updated_end_of_the_same_event_for_deadline(): void
     {
         $frozen = $this->maintenance([

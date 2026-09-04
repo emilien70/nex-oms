@@ -786,6 +786,75 @@ class KsefOfflineIssuanceTest extends TestCase
         ];
     }
 
+    #[DataProvider('eventDependentProcedureProvider')]
+    public function test_reversed_latarnia_coverage_blocks_event_dependent_issuance(
+        KsefLatarniaStatus $status,
+        string $method,
+        array $message,
+    ): void {
+        [$invoice] = $this->eligibleInvoiceWithCertificate();
+        $state = $this->latarniaState($status);
+        $state->forceFill([
+            'messages_coverage_from_at' => $this->testNow->subMinutes(5),
+            'messages_coverage_through_at' => $this->testNow->subMinutes(10),
+        ])->save();
+        if ($status === KsefLatarniaStatus::Maintenance) {
+            $message['end_at'] = $this->testNow->addHour();
+        }
+        $this->latarniaMessage($message);
+
+        $this->expectKsefError(
+            'ksef_offline_procedure_latarnia_stale',
+            fn () => app(KsefOfflineIssuanceService::class)->{$method}($invoice),
+        );
+
+        $this->assertDatabaseCount('ksef_offline_issuances', 0);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('eventDependentProcedureProvider')]
+    public function test_equal_latarnia_coverage_boundary_remains_eligible(
+        KsefLatarniaStatus $status,
+        string $method,
+        array $message,
+    ): void {
+        [$invoice] = $this->eligibleInvoiceWithCertificate();
+        $state = $this->latarniaState($status);
+        $boundary = $this->testNow->subMinute();
+        $state->forceFill([
+            'messages_coverage_from_at' => $boundary,
+            'messages_coverage_through_at' => $boundary,
+        ])->save();
+        if ($status === KsefLatarniaStatus::Maintenance) {
+            $message['end_at'] = $this->testNow->addHour();
+        }
+        $this->latarniaMessage($message);
+
+        app(KsefOfflineIssuanceService::class)->{$method}($invoice);
+
+        $this->assertDatabaseCount('ksef_offline_issuances', 1);
+        Http::assertNothingSent();
+    }
+
+    public static function eventDependentProcedureProvider(): array
+    {
+        return [
+            'planned unavailability' => [
+                KsefLatarniaStatus::Maintenance,
+                'issuePlannedUnavailability',
+                [
+                    'category' => 'MAINTENANCE',
+                    'type' => 'MAINTENANCE_ANNOUNCEMENT',
+                ],
+            ],
+            'ordinary failure' => [
+                KsefLatarniaStatus::Failure,
+                'issueFailure',
+                [],
+            ],
+        ];
+    }
+
     public function test_latarnia_evidence_change_during_generation_prevents_issuance(): void
     {
         [$invoice] = $this->eligibleInvoiceWithCertificate();

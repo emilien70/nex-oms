@@ -252,6 +252,20 @@ final class KsefOfflineSubmissionObligationEngine
         }
 
         if ($event->endAt->greaterThan($evaluatedAt)) {
+            if ($ordinaryFailures !== []) {
+                return $this->evaluateActiveDeadline(
+                    $issuance,
+                    null,
+                    $ordinaryFailures,
+                    KsefOfflineSubmissionObligationReason::PlannedUnavailabilityBase,
+                    $coverage,
+                    $lastSubmissionStatus,
+                    $evaluatedAt,
+                    [$event->eventId],
+                    [$event->messageId],
+                );
+            }
+
             return $this->result(
                 $issuance,
                 KsefOfflineSubmissionObligationStatus::WaitingForUnavailabilityEnd,

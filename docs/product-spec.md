@@ -1453,6 +1453,12 @@ Przed akceptacją dokument dla nabywcy w `Offline24` i planowanej niedostępnoś
 
 Etap nie implementuje wystawienia przy awarii całkowitej, Korekt Offline, korekty technicznej, automatycznej wysyłki, nowej kolejki, zmian schedulera ani Production. Wdrożenie nie wykonywało live HTTP; kontrolowana walidacja live jest osobnym zadaniem.
 
+### KSeF.8C.5.1 — CLOSED
+
+Zwykła awaria opublikowana podczas nadal trwającej planowanej niedostępności natychmiast przejmuje regułę terminu. Trwająca awaria oznacza `WaitingForFailureEnd`, a po jej zakończeniu termin wynosi siedem polskich dni roboczych od daty końca awarii; NEX-OMS nie czeka na zakończenie pierwotnej przerwy maintenance. Operational eligibility działa fail-closed również dla odwróconego okna Latarni `coverageFrom > coverageThrough`; równe granice nie są odrzucane wyłącznie z powodu równości.
+
+Mini-etap nie zmienia migracji `086000`, issuance core, ochrony TOCTOU, transportu, delivery policy, QR, schedulera, projekcji Total Failure ani zakresu Korekt. Nie wykonuje live HTTP ani migracji na bazie operatora.
+
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
 Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.

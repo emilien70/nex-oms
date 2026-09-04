@@ -246,15 +246,24 @@ final class KsefOfflineProcedureEligibilityService
     private function isFresh(KsefLatarniaSyncState $state, CarbonImmutable $issuedAt): bool
     {
         $freshSince = $issuedAt->subMinutes(max(1, (int) config('ksef.latarnia.freshness_minutes', 15)));
+        $coverageFrom = $state->messages_coverage_from_at;
+        $coverageThrough = $state->messages_coverage_through_at;
+
+        if ($coverageFrom === null
+            || $coverageThrough === null
+            || $coverageFrom->greaterThan($coverageThrough)
+            || $coverageFrom->greaterThan($issuedAt)
+            || $coverageThrough->greaterThan($issuedAt)) {
+            return false;
+        }
+
         $instants = [
             $state->status_last_success_at,
             $state->messages_last_success_at,
-            $state->messages_coverage_through_at,
+            $coverageThrough,
         ];
 
-        return $state->messages_coverage_from_at !== null
-            && ! $state->messages_coverage_from_at->greaterThan($issuedAt)
-            && collect($instants)->every(fn ($instant): bool => $instant !== null
+        return collect($instants)->every(fn ($instant): bool => $instant !== null
                 && ! $instant->lessThan($freshSince)
                 && ! $instant->greaterThan($issuedAt));
     }

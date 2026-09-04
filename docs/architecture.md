@@ -1407,6 +1407,12 @@ Przed akceptacją polityka doręczenia `Offline24` i planowanej niedostępności
 
 Etap nie dodaje wystawienia w trybie awarii całkowitej, Korekt Offline, korekty technicznej, automatycznego wyboru procedury, auto-send, kolejki ani zmiany schedulera Latarni. Nie odblokowuje Production i nie wykonuje live HTTP. Walidacja live nowych procedur jest odłożona do osobnego kontrolowanego etapu.
 
+### KSeF.8C.5.1 — CLOSED
+
+Zwykła awaria opublikowana podczas nadal trwającej planowanej niedostępności natychmiast przejmuje regułę terminu. Trwająca awaria daje `WaitingForFailureEnd`, a po jej zakończeniu termin wynosi siedem polskich dni roboczych od daty zakończenia awarii; engine nie czeka na koniec pierwotnej przerwy maintenance. Operational eligibility dodatkowo fail-closed odrzuca odwrócone okno Latarni `coverageFrom > coverageThrough`, zachowując poprawność okna równego i prawidłowo uporządkowanego.
+
+Mini-etap nie zmienia migracji `086000`, issuance core, ochrony TOCTOU, transportu, delivery policy, QR, schedulera, projekcji Total Failure ani zakresu Korekt. Nie wykonuje live HTTP ani migracji na bazie operatora.
+
 Transport ma deploymentowy gate `KSEF_INVOICE_SUBMISSION_ENABLED` domyślnie `false`, jest serwisowo ograniczony do TEST i nie ma trasy ani UI. KSeF.4A.1 nie dodaje automatycznej akcji, listenera, observera, kolejki, crona, automatycznego pollingu, batch, offline, QR ani UPO. Trwałe `automatic_submission=true` nie omija deployment gate i przy braku workflow nie uruchamia transmisji. Przed przyszłym włączeniem gate trzeba zweryfikować tę wartość oraz wszystkie ścieżki triggerów. Automatyczne testy pozostają fake-only, używają `Http::fake()` i blokują stray HTTP.
 
 ### Walidacja end-to-end KSeF.4A
