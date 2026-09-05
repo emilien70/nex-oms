@@ -14,6 +14,7 @@ use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Services\KsefFa3BuyerIdentityResolver;
 use Modules\Ksef\Services\KsefNumberValidator;
 use Modules\Ksef\ValueObjects\Fa3\KsefFa3CorrectionSourceReference;
@@ -29,19 +30,20 @@ final class KsefFa3CorrectionSourceReferenceResolver
     public function resolve(
         Invoice $correction,
         KsefEnvironment $environment,
+        bool $lock = false,
     ): KsefFa3CorrectionSourceReference {
         if ($correction->document_type !== InvoiceDocumentType::Correction
             || $correction->status !== InvoiceDocumentStatus::Issued) {
             throw $this->sourceInvalid($correction);
         }
 
-        $root = $correction->correctedInvoice()->first();
+        $root = $correction->correctedInvoice()->when($lock, fn ($query) => $query->lockForUpdate())->first();
         if (! $root instanceof Invoice) {
             throw $this->sourceInvalid($correction);
         }
 
         try {
-            $chain = $this->sourceState->chain($root);
+            $chain = $this->sourceState->chain($root, $lock);
         } catch (InvoiceDomainException $exception) {
             throw $this->sourceInvalid($correction, $exception);
         }
@@ -66,16 +68,18 @@ final class KsefFa3CorrectionSourceReferenceResolver
             $root,
             $environment,
             $rootSellerNip,
+            $lock,
         );
 
         $precedingCorrections = $chain->corrections
             ->take($targetIndex)
-            ->map(function (Invoice $preceding) use ($environment, $rootSellerNip): array {
+            ->map(function (Invoice $preceding) use ($environment, $rootSellerNip, $lock): array {
                 $submission = $this->acceptedSubmission(
                     $preceding,
                     $environment,
                     'previous',
                     $rootSellerNip,
+                    $lock,
                 );
 
                 return [
@@ -120,22 +124,30 @@ final class KsefFa3CorrectionSourceReferenceResolver
         Invoice $root,
         KsefEnvironment $environment,
         string $rootSellerNip,
+        bool $lock,
     ): array {
         $provenances = KsefInvoiceProvenance::query()
             ->where('invoice_id', $root->getKey())
             ->where('environment', $environment->value)
             ->orderBy('id')
+            ->when($lock, fn ($query) => $query->lockForUpdate())
             ->get();
         $submissions = KsefInvoiceSubmission::query()
             ->where('invoice_id', $root->getKey())
             ->where('environment', $environment->value)
             ->orderBy('id')
+            ->when($lock, fn ($query) => $query->lockForUpdate())
             ->get(['id', 'environment', 'status']);
 
         if ($provenances->isNotEmpty()) {
             if ($provenances->count() !== 1
                 || $provenances->first()->provenance !== KsefInvoiceProvenanceType::OutsideKsef
-                || $submissions->isNotEmpty()) {
+                || $submissions->isNotEmpty()
+                || KsefOfflineIssuance::query()
+                    ->where('invoice_id', $root->getKey())
+                    ->where('environment', $environment->value)
+                    ->when($lock, fn ($query) => $query->lockForUpdate())
+                    ->exists()) {
                 throw $this->provenanceConflict($root, $environment, $submissions);
             }
 
@@ -153,6 +165,7 @@ final class KsefFa3CorrectionSourceReferenceResolver
                 $environment,
                 'root',
                 $rootSellerNip,
+                $lock,
             ),
             'provenance' => null,
         ];
@@ -163,11 +176,13 @@ final class KsefFa3CorrectionSourceReferenceResolver
         KsefEnvironment $environment,
         string $role,
         string $rootSellerNip,
+        bool $lock,
     ): KsefInvoiceSubmission {
         $submissions = KsefInvoiceSubmission::query()
             ->where('invoice_id', $document->getKey())
             ->where('environment', $environment->value)
             ->orderBy('id')
+            ->when($lock, fn ($query) => $query->lockForUpdate())
             ->get(['id', 'environment', 'status', 'seller_nip', 'ksef_number']);
         $accepted = $submissions->filter(
             static fn (KsefInvoiceSubmission $submission): bool => $submission->status === KsefInvoiceSubmissionStatus::Accepted,

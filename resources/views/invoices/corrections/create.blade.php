@@ -104,7 +104,7 @@
                         </ul>
                     </div>
                     <button class="btn" type="button" disabled title="Wgrywanie dokumentów nie jest jeszcze dostępne." aria-label="Wgrywanie dokumentów nie jest jeszcze dostępne"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
-                    <button class="btn" type="button" disabled title="Integracja KSeF nie jest jeszcze dostępna." aria-label="Integracja KSeF nie jest jeszcze dostępna"><i class="bi bi-eraser-fill me-1"></i>Przekaż do KSeF</button>
+                    <a class="btn" href="#correction-ksef"><i class="bi bi-send me-1"></i>Przekaż do KSeF</a>
                     @if (! $isReadOnly)
                         <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#correctionDeleteModal" title="Usuń Korektę" aria-label="Usuń Korektę"><i class="bi bi-trash me-1"></i>Usuń</button>
                     @endif
@@ -298,6 +298,11 @@
                 <a class="btn btn-outline-secondary rounded-pill px-4" href="{{ $backUrl }}">Anuluj</a>
             </div>
         </form>
+        @if ($isEditing)
+            <div id="correction-ksef">
+                @include('invoices.partials.ksef-submissions', ['invoice' => $correction])
+            </div>
+        @endif
     </main>
 
     <template id="correctionItemTemplate">

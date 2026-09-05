@@ -11,7 +11,7 @@ final class KsefOfflineStandardPdfGuard
 {
     public function assertAllowed(Invoice $invoice): void
     {
-        if (! $invoice->isInvoice()) {
+        if (! $invoice->isInvoice() && ! $invoice->isCorrection()) {
             return;
         }
 
@@ -31,7 +31,7 @@ final class KsefOfflineStandardPdfGuard
         }
 
         $invoiceIds = $invoices
-            ->filter(fn (Invoice $invoice): bool => $invoice->isInvoice())
+            ->filter(fn (Invoice $invoice): bool => $invoice->isInvoice() || $invoice->isCorrection())
             ->map(fn (Invoice $invoice): int => (int) $invoice->getKey())
             ->all();
 

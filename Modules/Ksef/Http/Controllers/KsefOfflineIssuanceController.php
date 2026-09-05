@@ -19,7 +19,9 @@ final class KsefOfflineIssuanceController extends Controller
     ): RedirectResponse {
         return $this->issue(
             $invoice,
-            fn () => $issuances->issueOffline24($invoice),
+            fn () => $invoice->isCorrection()
+                ? $issuances->issueCorrectionOffline24($invoice)
+                : $issuances->issueOffline24($invoice),
             'Offline24',
             'ksef_offline24',
         );
@@ -31,7 +33,9 @@ final class KsefOfflineIssuanceController extends Controller
     ): RedirectResponse {
         return $this->issue(
             $invoice,
-            fn () => $issuances->issuePlannedUnavailability($invoice),
+            fn () => $invoice->isCorrection()
+                ? $issuances->issueCorrectionPlannedUnavailability($invoice)
+                : $issuances->issuePlannedUnavailability($invoice),
             'Offline – niedostępność KSeF',
             'ksef_offline_planned_unavailability',
         );
@@ -43,7 +47,9 @@ final class KsefOfflineIssuanceController extends Controller
     ): RedirectResponse {
         return $this->issue(
             $invoice,
-            fn () => $issuances->issueFailure($invoice),
+            fn () => $invoice->isCorrection()
+                ? $issuances->issueCorrectionFailure($invoice)
+                : $issuances->issueFailure($invoice),
             'awaryjnym',
             'ksef_offline_failure',
         );

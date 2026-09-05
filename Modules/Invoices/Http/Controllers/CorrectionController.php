@@ -16,6 +16,7 @@ use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\CorrectionViewModelFactory;
 use Modules\Invoices\Services\InvoiceOperationContextFactory;
 use Modules\Invoices\Support\InvoiceReturnContext;
+use Modules\Ksef\Services\KsefDocumentViewData;
 
 class CorrectionController extends Controller
 {
@@ -85,13 +86,14 @@ class CorrectionController extends Controller
         }
     }
 
-    public function edit(Request $request, Invoice $correction, CorrectionViewModelFactory $viewModels): View
+    public function edit(Request $request, Invoice $correction, CorrectionViewModelFactory $viewModels, KsefDocumentViewData $ksefViews): View
     {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
         try {
             return view('invoices.corrections.create', [
                 ...$viewModels->makeForEdit($correction),
+                ...$ksefViews->make($correction),
                 'returnContext' => $returnContext,
             ]);
         } catch (InvoiceDomainException $exception) {

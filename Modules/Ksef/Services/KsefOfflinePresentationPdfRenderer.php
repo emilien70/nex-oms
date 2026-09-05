@@ -20,7 +20,7 @@ class KsefOfflinePresentationPdfRenderer
     {
         return $this->render(
             $this->offlineInvoiceHtml($document),
-            'Faktura Offline '.$document->invoiceNumber,
+            ($document->correction !== null ? 'Korekta Offline ' : 'Faktura Offline ').$document->invoiceNumber,
             $this->offlineInvoiceQrBlocks($document),
         );
     }
@@ -40,7 +40,7 @@ class KsefOfflinePresentationPdfRenderer
     ): string {
         return $this->render(
             $this->offlineInvoiceHtml($document),
-            'Faktura KSeF '.$document->invoiceNumber,
+            ($document->correction !== null ? 'Korekta KSeF ' : 'Faktura KSeF ').$document->invoiceNumber,
             $this->acceptedOfflineInvoiceQrBlocks($document, $ksefNumber),
             1,
         );
@@ -233,6 +233,7 @@ class KsefOfflinePresentationPdfRenderer
                 ],
             ],
             'number' => $document->invoiceNumber,
+            'correction' => $document->correction,
             'issue_date' => $this->displayDate($document->issueDate),
             'sale_date' => $document->saleDate !== null ? $this->displayDate($document->saleDate) : null,
             'place_of_issue' => $document->placeOfIssue,

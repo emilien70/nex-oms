@@ -21,7 +21,7 @@
     <br><br>
     <table cellpadding="0" cellspacing="0" width="100%">
         <tr>
-            <td width="35%" class="unicode-heading-font offline-heading">Faktura VAT</td>
+            <td width="35%" class="unicode-heading-font offline-heading">{{ $document['correction'] ? 'Faktura korygująca' : 'Faktura VAT' }}</td>
             <td width="35%" class="number-box">{{ $document['number'] }}</td>
             <td width="30%"></td>
         </tr>
@@ -61,6 +61,21 @@
 
     @include('invoices.pdf.partials.parties')
 
+    @if ($document['correction'])
+        <div>Faktura korygowana: <strong>{{ $document['correction']['source_number'] }}</strong>, data wystawienia: {{ $document['correction']['source_issue_date'] }}</div>
+        <div>{{ $document['correction']['outside_ksef'] ? 'Faktura źródłowa wystawiona poza KSeF' : 'Numer KSeF Faktury źródłowej: '.$document['correction']['source_ksef_number'] }}</div>
+        <div>Przyczyna korekty: {{ $document['correction']['reason'] }}</div>
+        @if ($document['correction']['buyer_before'])
+            <br><div><strong>Nabywca przed korektą:</strong> {{ $document['correction']['buyer_before']['name'] }}</div>
+            @foreach ($document['correction']['buyer_before']['address'] as $address)
+                <div>{{ $address }}</div>
+            @endforeach
+            <div>{{ $document['correction']['buyer_before']['identity_label'] }}: {{ $document['correction']['buyer_before']['identity_value'] }}</div>
+        @endif
+        <br>
+        <div><strong>Zmiany pozycji</strong></div>
+    @endif
+
     <table class="offline-items" cellpadding="2" cellspacing="0" width="98%" align="center">
         <thead>
             <tr>
@@ -75,7 +90,7 @@
         <tbody>
             @foreach ($document['lines'] as $line)
                 <tr nobr="true">
-                    <td width="43%">{{ $line['name'] }}@if($line['gtu'])<br><small>{{ $line['gtu'] }}</small>@endif</td>
+                    <td width="43%">@if($document['correction'])<strong>{{ $line['state'] === 'before' ? 'Przed:' : 'Po:' }}</strong> @endif{{ $line['name'] }}@if($line['gtu'])<br><small>{{ $line['gtu'] }}</small>@endif</td>
                     <td width="8%" align="center">{{ $line['unit_name'] }}</td>
                     <td width="12%" align="right">{{ $line['quantity'] }}</td>
                     <td width="14%" align="right">{{ $line['unit_price_net'] }} {{ $document['currency'] }}</td>
@@ -86,6 +101,12 @@
         </tbody>
     </table>
 
+    @if ($document['correction'])
+        @foreach ($document['correction']['pairs'] as $position => $pair)
+            <div>Pozycja {{ $position }} — różnica netto: {{ $pair['delta_net'] }} {{ $document['currency'] }}</div>
+        @endforeach
+        <br><div><strong>Podsumowanie różnic Korekty</strong></div>
+    @endif
     <br><br>
     <table class="summary" cellpadding="1" cellspacing="0" width="55%" align="right">
         <tr>
@@ -107,7 +128,7 @@
     <br><br><br>
     <table class="final-details" cellpadding="0" cellspacing="0" width="100%">
         <tr>
-            <td width="15%" class="muted-label">Razem:</td>
+            <td width="15%" class="muted-label">{{ $document['correction'] ? 'Różnica brutto:' : 'Razem:' }}</td>
             <td width="2%"></td>
             <td width="38%" class="grand-total">{{ $document['total_gross'] }} {{ $document['currency'] }}</td>
             <td width="45%"></td>

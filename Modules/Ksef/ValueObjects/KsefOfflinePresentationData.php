@@ -37,6 +37,7 @@ final readonly class KsefOfflinePresentationData
         public ?string $orderNumber,
         public string $invoiceVerificationUrl,
         public string $certificateVerificationUrl,
+        public ?array $correction = null,
     ) {}
 
     public function testMark(): string

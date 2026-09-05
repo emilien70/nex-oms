@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Ksef\Enums\KsefContextIdentifierType;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
@@ -22,6 +24,8 @@ use Modules\Ksef\Models\KsefOfflineCertificateSelection;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionDocumentGenerator;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionSourceReferenceResolver;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\Services\Fa3\KsefFa3IssueDateReader;
 use Modules\Ksef\ValueObjects\KsefContextIdentifier;
@@ -37,6 +41,10 @@ final class KsefOfflineIssuanceService
         private readonly KsefInvoiceVerificationLinkBuilder $invoiceLinks,
         private readonly KsefOfflineCertificateVerificationLinkBuilder $certificateLinks,
         private readonly KsefOfflineProcedureEligibilityService $procedureEligibility,
+        private readonly KsefFa3CorrectionDocumentGenerator $correctionGenerator,
+        private readonly KsefFa3CorrectionSourceReferenceResolver $correctionSources,
+        private readonly InvoiceFinalizationService $finalization,
+        private readonly KsefFa3CorrectionEligibilityValidator $correctionEligibility,
     ) {}
 
     public function issueOffline24(Invoice $invoice): KsefOfflineIssuance
@@ -54,13 +62,62 @@ final class KsefOfflineIssuanceService
         return $this->issue($invoice, KsefOfflineIssuanceProcedure::Failure);
     }
 
+    public function issueCorrectionOffline24(Invoice $correction): KsefOfflineIssuance
+    {
+        return $this->issueCorrection($correction, KsefOfflineIssuanceProcedure::Offline24);
+    }
+
+    public function issueCorrectionPlannedUnavailability(Invoice $correction): KsefOfflineIssuance
+    {
+        return $this->issueCorrection($correction, KsefOfflineIssuanceProcedure::PlannedUnavailability);
+    }
+
+    public function issueCorrectionFailure(Invoice $correction): KsefOfflineIssuance
+    {
+        return $this->issueCorrection($correction, KsefOfflineIssuanceProcedure::Failure);
+    }
+
+    private function issueCorrection(Invoice $correction, KsefOfflineIssuanceProcedure $procedure): KsefOfflineIssuance
+    {
+        return DB::transaction(function () use ($correction, $procedure): KsefOfflineIssuance {
+            $managed = Invoice::query()->lockForUpdate()->findOrFail($correction->getKey());
+            $this->assertInvoiceEligible($managed, correction: true, requireFinalized: false);
+            $managed = $managed->isFinalized() ? $managed : $this->finalization->finalize($managed);
+
+            return $this->issue($managed, $procedure, correction: true);
+        }, 3);
+    }
+
+    /** Read-only eligibility; does not finalize, generate XML, sign or contact KSeF. */
+    public function correctionBlockReason(Invoice $correction, KsefOfflineIssuanceProcedure $procedure): ?string
+    {
+        try {
+            $now = CarbonImmutable::now('UTC');
+            $snapshot = $this->captureSnapshot($correction, $now, $procedure, correction: true, requireFinalized: false);
+            $this->correctionEligibility->assertEligible(
+                $snapshot['invoice'],
+                $snapshot['settings'],
+                KsefFa3EligibilityMode::Preflight,
+            );
+            if ($correction->issue_date?->toDateString() !== $now->setTimezone('Europe/Warsaw')->toDateString()) {
+                return 'Data wystawienia Korekty Offline musi być dzisiejszą datą w Polsce.';
+            }
+
+            return null;
+        } catch (KsefApiException|InvoiceDomainException $exception) {
+            return $exception->getMessage();
+        }
+    }
+
     private function issue(
         Invoice $invoice,
         KsefOfflineIssuanceProcedure $procedure,
+        bool $correction = false,
     ): KsefOfflineIssuance {
         $issuedAt = CarbonImmutable::now('UTC');
-        $snapshot = $this->captureSnapshot($invoice, $issuedAt, $procedure);
-        $generated = $this->generator->generate(
+        $snapshot = $this->captureSnapshot($invoice, $issuedAt, $procedure, $correction);
+        $generator = $correction ? $this->correctionGenerator : $this->generator;
+        $generated = $generator->generate(
             $snapshot['invoice'],
             $issuedAt,
             KsefFa3EligibilityMode::Authoritative,
@@ -155,9 +212,11 @@ final class KsefOfflineIssuanceService
         Invoice $invoice,
         CarbonImmutable $issuedAt,
         KsefOfflineIssuanceProcedure $procedure,
+        bool $correction = false,
+        bool $requireFinalized = true,
     ): array {
         $managed = Invoice::query()->with('items')->findOrFail($invoice->getKey());
-        $this->assertInvoiceEligible($managed);
+        $this->assertInvoiceEligible($managed, $correction, $requireFinalized);
 
         $settings = KsefSetting::query()
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
@@ -179,6 +238,9 @@ final class KsefOfflineIssuanceService
             ->first();
         $this->assertSeriesEnabled($seriesSetting);
         $this->assertNoConflictingHistory($managed, $environment->value);
+        $sourceReference = $correction
+            ? $this->correctionSources->resolve($managed, $environment, lock: $requireFinalized)
+            : null;
 
         $selection = KsefOfflineCertificateSelection::query()
             ->with('certificate')
@@ -189,12 +251,18 @@ final class KsefOfflineIssuanceService
 
         return [
             'invoice' => $managed,
+            'settings' => $settings,
+            'correction' => $correction,
+            'source_fingerprint' => $sourceReference === null ? null : $this->fingerprint([
+                'reference' => (array) $sourceReference,
+                'seller' => $managed->correctedInvoice()->firstOrFail()->seller_snapshot,
+            ]),
             'invoice_fingerprint' => $this->invoiceFingerprint($managed),
             'settings_fingerprint' => $this->modelFingerprint($settings),
             'series_fingerprint' => $this->modelFingerprint($seriesSetting),
             'selection_fingerprint' => $this->modelFingerprint($selection),
             'certificate_fingerprint' => $this->modelFingerprint($certificate),
-            'certificate_material_fingerprint' => $this->certificateMaterialFingerprint($certificate),
+            'certificate_material_fingerprint' => $requireFinalized ? $this->certificateMaterialFingerprint($certificate) : null,
             'environment' => $environment,
             'context' => $context,
             'seller_nip' => $sellerNip,
@@ -246,7 +314,25 @@ final class KsefOfflineIssuanceService
             throw $this->configurationChanged();
         }
 
-        $this->assertInvoiceEligible($invoice);
+        if ($snapshot['correction']) {
+            try {
+                $source = $this->correctionSources->resolve($invoice, $snapshot['environment'], lock: true);
+                $unchanged = hash_equals($snapshot['source_fingerprint'], $this->fingerprint([
+                    'reference' => (array) $source,
+                    'seller' => $invoice->correctedInvoice()->firstOrFail()->seller_snapshot,
+                ]));
+            } catch (InvoiceDomainException) {
+                $unchanged = false;
+            }
+            if (! $unchanged) {
+                throw new KsefApiException(
+                    'Referencja Faktury źródłowej lub poprzedniej Korekty zmieniła się podczas wystawiania Offline.',
+                    'ksef_offline_correction_source_changed',
+                );
+            }
+        }
+
+        $this->assertInvoiceEligible($invoice, $snapshot['correction']);
         $this->assertSettingsActive($settings);
         $this->environments->assertAllowed($settings->environment);
         $context = $this->contextIdentifier($settings->context_nip);
@@ -273,11 +359,11 @@ final class KsefOfflineIssuanceService
         }
     }
 
-    private function assertInvoiceEligible(Invoice $invoice): void
+    private function assertInvoiceEligible(Invoice $invoice, bool $correction = false, bool $requireFinalized = true): void
     {
-        if ($invoice->document_type !== InvoiceDocumentType::Invoice
+        if ($invoice->document_type !== ($correction ? InvoiceDocumentType::Correction : InvoiceDocumentType::Invoice)
             || $invoice->status !== InvoiceDocumentStatus::Issued
-            || ! $invoice->isFinalized()) {
+            || ($requireFinalized && ! $invoice->isFinalized())) {
             throw new KsefApiException(
                 'Fakturę Offline można wystawić wyłącznie dla wystawionej i zamkniętej Faktury VAT.',
                 'ksef_offline24_document_not_eligible',

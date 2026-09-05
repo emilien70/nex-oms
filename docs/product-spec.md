@@ -1445,7 +1445,7 @@ NEX-OMS rozróżnia trzy procedury wystawienia Faktury Offline: `Offline24`, `Of
 
 Akcje planowanej niedostępności i trybu awaryjnego są dostępne wyłącznie na podstawie świeżych danych zapisanych wcześniej przez Latarnię. Samo otwarcie ekranu i wystawienie nie odświeżają Latarni i nie wykonują HTTP. Planowana niedostępność wymaga bieżącego statusu `MAINTENANCE` i jednego aktywnego komunikatu przerwy; tryb awaryjny wymaga statusu `FAILURE` i jednego aktywnego zwykłego zdarzenia awarii. Dane stare, brakujące, niejednoznaczne, poznane po czasie lub niespójne ze statusem blokują operację. `TOTAL_FAILURE` także blokuje te akcje. DEMO nie ma Latarni i nie korzysta z żadnego fallbacku, a Production pozostaje operacyjnie zablokowane.
 
-Dla obu nowych procedur Faktura zachowuje niezmienny dowód kwalifikacji: środowisko Latarni, identyfikator eventu i wiadomości, wersję, kategorię, początek i koniec, czas publikacji oraz okno evidence. Migracja `086000` dodaje te pola jako nullable exact instants; istniejące `Offline24` zachowują wartości `NULL` bez backfillu. Migracja pozostaje `Pending` na bazie operatora.
+Dla obu nowych procedur Faktura zachowuje niezmienny dowód kwalifikacji: środowisko Latarni, identyfikator eventu i wiadomości, wersję, kategorię, początek i koniec, czas publikacji oraz okno evidence. Migracja `086000` dodaje te pola jako nullable exact instants; istniejące `Offline24` zachowują wartości `NULL` bez backfillu. Migracja `086000`: `Ran` na bazie operatora; read-only weryfikacja zakończona PASS. KSeF.8C.5 DB migration: CLOSED.
 
 Termin `Offline24` nadal przypada na następny dzień roboczy po `P_1`. W planowanej niedostępności termin nie jest pokazywany przed końcem przerwy, a potem przypada na następny dzień roboczy po jej zakończeniu. W trybie awaryjnym termin pozostaje nieznany do końca awarii, a następnie wynosi siedem dni roboczych. Kolejna zwykła awaria w tym okresie resetuje termin od własnego zakończenia; awaria rozpoczęta podczas planowanej przerwy również przełącza obowiązek na termin siedmiodniowy. Późniejsza awaria całkowita pozostaje wyłącznie read-only projekcją braku obowiązku transmisji.
 
@@ -1458,6 +1458,20 @@ Etap nie implementuje wystawienia przy awarii całkowitej, Korekt Offline, korek
 Zwykła awaria opublikowana podczas nadal trwającej planowanej niedostępności natychmiast przejmuje regułę terminu. Trwająca awaria oznacza `WaitingForFailureEnd`, a po jej zakończeniu termin wynosi siedem polskich dni roboczych od daty końca awarii; NEX-OMS nie czeka na zakończenie pierwotnej przerwy maintenance. Operational eligibility działa fail-closed również dla odwróconego okna Latarni `coverageFrom > coverageThrough`; równe granice nie są odrzucane wyłącznie z powodu równości.
 
 Mini-etap nie zmienia migracji `086000`, issuance core, ochrony TOCTOU, transportu, delivery policy, QR, schedulera, projekcji Total Failure ani zakresu Korekt. Nie wykonuje live HTTP ani migracji na bazie operatora.
+
+### KSeF.8C.6 — Ordinary Offline Corrections
+
+Wydaną Korektę biznesową można jawnie wystawić jako Offline24, Offline – niedostępność albo w trybie awaryjnym. Operacja zamyka Korektę atomowo, zamraża jej własny dokument FA(3) `KOR` i dwa QR; nie wysyła jej automatycznie. Błąd nie pozostawia zamkniętej Korekty bez issuance. Data wystawienia Korekty musi być dzisiejszym dniem w Polsce; historyczne P_1 źródła nie jest używane jako data nowej Korekty.
+
+Faktura źródłowa Online/Offline i wymagane poprzednie Korekty muszą mieć jednoznaczny numer KSeF w aktywnym środowisku. Niezaakceptowane źródło Offline blokuje operację i ekran pokazuje lokalną przyczynę. Źródło legalnie oznaczone OutsideKsef jest obsługiwane przez `NrKSeFN`, bez numeru KSeF źródła. Zmiana referencji w czasie wystawiania powoduje odmowę bez częściowego zapisu. Po wystawieniu zamrożone dane nie zmieniają się wraz z danymi zamówienia, serii, source lub Korekty.
+
+Wysyłka jest osobną ręczną akcją i używa dokładnie wystawionego XML, `offlineMode=true`, bez `hashOfCorrectedInvoice`. Po Accepted Korekta ma własny numer KSeF, UPO Offline i PDF z jednym KODEM I. Odrzuconej Korekty nie wysyła się ponownie w ciemno; remediation techniczna jest poza 8C.6.
+
+Przed Accepted: Offline24 i planned dla krajowego nabywcy z NIP udostępniają potwierdzenie transakcji identyfikujące Korektę; dla pozostałych wspieranych nabywców PDF Korekty z KODAMI I/II i oznaczeniami OFFLINE/CERTYFIKAT. Tryb awaryjny dopuszcza ten PDF obu grupom. PDF pokazuje źródło, przyczynę, dane nabywcy przed/po, zmienione pozycje przed/po i różnice kwot na podstawie zamrożonego XML. Accepted zamyka trasy dokumentów przedakceptacyjnych.
+
+Ekran edycji zachowuje istniejący układ i pokazuje jawne akcje Offline, potwierdzenie zamknięcia, procedurę, P_1, moment wystawienia, status i odpowiedni dokument do przekazania. Odczyt niczego nie wystawia i nie kontaktuje się z MF. Lista Korekt korzysta ze wspólnych terminów i oznaczeń obowiązku: Offline24 po P_1, planned po maintenance, Failure siedem dni roboczych po końcu awarii; awaria podczas maintenance ma pierwszeństwo. TotalFailure pozostaje projekcją obowiązku, bez nowego trybu wystawienia.
+
+Nie zmieniono schematu, migracji, schedulera ani konfiguracji. Production pozostaje zablokowane; DEMO wspiera Offline24, nie planned/failure. Brak auto-send oraz live testu: kontrolowana walidacja live pozostaje osobnym etapem. Kontrakt audytowy i dokładne źródła MF wraz z datami wersji opisuje sekcja KSeF.8C.6 w `docs/architecture.md`.
 
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 

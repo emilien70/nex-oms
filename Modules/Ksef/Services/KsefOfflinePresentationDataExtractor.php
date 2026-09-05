@@ -8,6 +8,7 @@ use DOMElement;
 use DOMNode;
 use DOMNodeList;
 use DOMXPath;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -26,11 +27,16 @@ final class KsefOfflinePresentationDataExtractor
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentities,
         private readonly KsefQrEnvironmentHostPolicy $qrHosts,
+        private readonly KsefNumberValidator $ksefNumbers,
     ) {}
 
     public function extract(KsefOfflineIssuance $issuance): KsefOfflinePresentationData
     {
-        $xml = $issuance->payload_xml;
+        try {
+            $xml = $issuance->payload_xml;
+        } catch (DecryptException) {
+            throw $this->integrityInvalid();
+        }
 
         if (! in_array($issuance->procedure, KsefOfflineIssuanceProcedure::cases(), true)
             || ! in_array($issuance->environment, [KsefEnvironment::Test, KsefEnvironment::Demo], true)
@@ -44,6 +50,11 @@ final class KsefOfflinePresentationDataExtractor
 
         $xpath = $this->xpath($xml);
         $this->assertSchema($xpath);
+        $kind = $this->required($xpath, '/fa:Faktura/fa:Fa/fa:RodzajFaktury');
+        if (! in_array($kind, ['VAT', 'KOR'], true)) {
+            throw $this->integrityInvalid();
+        }
+        $isCorrection = $kind === 'KOR';
 
         $sellerNip = $this->required($xpath, '/fa:Faktura/fa:Podmiot1/fa:DaneIdentyfikacyjne/fa:NIP');
         $issueDate = $this->date($this->required($xpath, '/fa:Faktura/fa:Fa/fa:P_1'));
@@ -60,8 +71,22 @@ final class KsefOfflinePresentationDataExtractor
 
         $seller = $this->seller($xpath, $sellerNip);
         [$buyer, $classification] = $this->buyer($xpath);
-        [$lines, $lineTaxTreatments] = $this->lines($xpath);
-        [$taxRows, $totalNet, $totalVat] = $this->taxRows($xpath, $lineTaxTreatments);
+        [$lines, $lineTaxTreatments] = $this->lines($xpath, $isCorrection);
+        [$taxRows, $totalNet, $totalVat] = $this->taxRows($xpath, $lineTaxTreatments, $isCorrection);
+        $correction = $isCorrection ? $this->correction($xpath, $lines) : null;
+        $gross = $this->money($this->required($xpath, '/fa:Faktura/fa:Fa/fa:P_15'));
+        if ($isCorrection && $this->add($totalNet, $totalVat) !== $gross) {
+            throw $this->integrityInvalid();
+        }
+        if ($correction !== null) {
+            $deltaNet = '0.00';
+            foreach ($correction['pairs'] as $pair) {
+                $deltaNet = $this->add($deltaNet, $pair['delta_net']);
+            }
+            if ($deltaNet !== $totalNet) {
+                throw $this->integrityInvalid();
+            }
+        }
 
         return new KsefOfflinePresentationData(
             environment: $issuance->environment,
@@ -76,7 +101,7 @@ final class KsefOfflinePresentationDataExtractor
             currency: $this->currency($this->required($xpath, '/fa:Faktura/fa:Fa/fa:KodWaluty')),
             totalNet: $totalNet,
             totalVat: $totalVat,
-            totalGross: $this->money($this->required($xpath, '/fa:Faktura/fa:Fa/fa:P_15')),
+            totalGross: $gross,
             lines: $lines,
             taxRows: $taxRows,
             additionalDescriptions: $this->additionalDescriptions($xpath),
@@ -84,6 +109,7 @@ final class KsefOfflinePresentationDataExtractor
             orderNumber: $this->optional($xpath, '/fa:Faktura/fa:Fa/fa:WarunkiTransakcji/fa:Zamowienia/fa:NrZamowienia'),
             invoiceVerificationUrl: (string) $issuance->invoice_verification_url,
             certificateVerificationUrl: (string) $issuance->certificate_verification_url,
+            correction: $correction,
         );
     }
 
@@ -149,9 +175,9 @@ final class KsefOfflinePresentationDataExtractor
      *     1: KsefOfflineBuyerClassification
      * }
      */
-    private function buyer(DOMXPath $xpath): array
+    private function buyer(DOMXPath $xpath, string $subject = '/fa:Faktura/fa:Podmiot2'): array
     {
-        $base = '/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne';
+        $base = $subject.'/fa:DaneIdentyfikacyjne';
         $nip = $this->optionalIdentity($xpath, $base.'/fa:NIP');
         $euCode = $this->optionalIdentity($xpath, $base.'/fa:KodUE');
         $euNumber = $this->optionalIdentity($xpath, $base.'/fa:NrVatUE');
@@ -188,10 +214,10 @@ final class KsefOfflinePresentationDataExtractor
         }
 
         return [[
-            'name' => $this->required($xpath, '/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:Nazwa', buyer: true),
+            'name' => $this->required($xpath, $base.'/fa:Nazwa', buyer: true),
             'identity_label' => $identityLabel,
             'identity_value' => $identityValue,
-            'address' => $this->address($xpath, '/fa:Faktura/fa:Podmiot2', buyer: true),
+            'address' => $this->address($xpath, $subject, buyer: true),
         ], $classification];
     }
 
@@ -215,10 +241,10 @@ final class KsefOfflinePresentationDataExtractor
      *     1: list<string>
      * }
      */
-    private function lines(DOMXPath $xpath): array
+    private function lines(DOMXPath $xpath, bool $correction = false): array
     {
         $nodes = $this->nodes($xpath, '/fa:Faktura/fa:Fa/fa:FaWiersz');
-        if ($nodes->length === 0) {
+        if ($nodes->length === 0 && ! $correction) {
             throw $this->integrityInvalid();
         }
 
@@ -240,6 +266,18 @@ final class KsefOfflinePresentationDataExtractor
                 'gtu' => $this->optional($xpath, './fa:GTU', context: $node),
             ];
             $taxTreatments[] = $taxTreatment;
+            $before = $this->optional($xpath, './fa:StanPrzed', context: $node);
+            if ((! $correction && $before !== null) || ($before !== null && $before !== '1')) {
+                throw $this->integrityInvalid();
+            }
+            if ($correction) {
+                $position = $this->required($xpath, './fa:NrWierszaFa', $node);
+                if (preg_match('/^[1-9][0-9]*$/D', $position) !== 1) {
+                    throw $this->integrityInvalid();
+                }
+                $lines[array_key_last($lines)]['position'] = (int) $position;
+                $lines[array_key_last($lines)]['state'] = $before === '1' ? 'before' : 'after';
+            }
         }
 
         return [$lines, array_values(array_unique($taxTreatments))];
@@ -249,7 +287,7 @@ final class KsefOfflinePresentationDataExtractor
      * @param  list<string>  $lineTaxTreatments
      * @return array{0: list<array{vat: string, net: string, vat_amount: string, gross: string}>, 1: string, 2: string}
      */
-    private function taxRows(DOMXPath $xpath, array $lineTaxTreatments): array
+    private function taxRows(DOMXPath $xpath, array $lineTaxTreatments, bool $correction = false): array
     {
         $rows = [];
         $totalNet = '0.00';
@@ -307,11 +345,61 @@ final class KsefOfflinePresentationDataExtractor
             $totalNet = $this->add($totalNet, $net);
         }
 
-        if ($rows === []) {
+        if ($rows === [] && ! $correction) {
             throw $this->integrityInvalid();
         }
 
         return [$rows, $totalNet, $totalVat];
+    }
+
+    /** Correction rows are paired by position, never interpreted as an ordinary invoice sum. */
+    private function correction(DOMXPath $xpath, array $lines): array
+    {
+        $base = '/fa:Faktura/fa:Fa/fa:DaneFaKorygowanej';
+        if ($this->nodes($xpath, $base)->length !== 1) {
+            throw $this->integrityInvalid();
+        }
+        $inKsef = $this->optional($xpath, $base.'/fa:NrKSeF');
+        $outside = $this->optional($xpath, $base.'/fa:NrKSeFN');
+        $number = $this->optional($xpath, $base.'/fa:NrKSeFFaKorygowanej');
+        if (! (($inKsef === '1' && $outside === null && $number !== null)
+            || ($outside === '1' && $inKsef === null && $number === null))) {
+            throw $this->integrityInvalid();
+        }
+        if ($number !== null && (! $this->ksefNumbers->isValid($number)
+            || substr($number, 0, 10) !== $this->required($xpath, '/fa:Faktura/fa:Podmiot1/fa:DaneIdentyfikacyjne/fa:NIP'))) {
+            throw $this->integrityInvalid();
+        }
+        $pairs = [];
+        foreach ($lines as $line) {
+            if (isset($pairs[$line['position']][$line['state']])) {
+                throw $this->integrityInvalid();
+            }
+            $pairs[$line['position']][$line['state']] = $line;
+        }
+        foreach ($pairs as &$pair) {
+            if (! isset($pair['before'], $pair['after'])) {
+                throw $this->integrityInvalid();
+            }
+            $pair['delta_net'] = $this->decimal->subtract($pair['after']['total_net'], $pair['before']['total_net']);
+            $pair['delta_quantity'] = $this->decimal->subtract($pair['after']['quantity'], $pair['before']['quantity'], 4);
+        }
+        unset($pair);
+        $buyerBefore = $this->nodes($xpath, '/fa:Faktura/fa:Fa/fa:Podmiot2K')->length === 0
+            ? null : $this->buyer($xpath, '/fa:Faktura/fa:Fa/fa:Podmiot2K')[0];
+        if ($pairs === [] && $buyerBefore === null) {
+            throw $this->integrityInvalid();
+        }
+
+        return [
+            'reason' => $this->required($xpath, '/fa:Faktura/fa:Fa/fa:PrzyczynaKorekty'),
+            'source_number' => $this->required($xpath, $base.'/fa:NrFaKorygowanej'),
+            'source_issue_date' => $this->date($this->required($xpath, $base.'/fa:DataWystFaKorygowanej')),
+            'source_ksef_number' => $number,
+            'outside_ksef' => $outside === '1',
+            'pairs' => $pairs,
+            'buyer_before' => $buyerBefore,
+        ];
     }
 
     /** @return list<array{key: string, value: string}> */

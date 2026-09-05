@@ -6,6 +6,10 @@
         fn (array $row): bool => $row['issuance']->is($currentKsefOfflineIssuance),
     );
     $currentOfflineSubmission = $currentOfflineRow['submission'] ?? null;
+    $offlineSubject = $invoice->isCorrection() ? 'Korekta zostanie zamknięta i wystawiona' : 'Faktura zostanie wystawiona';
+    $offline24Confirmation = $invoice->isCorrection()
+        ? 'Korekta zostanie zamknięta i wystawiona w trybie Offline24 przed przesłaniem do KSeF.'
+        : 'Wystawienie w trybie Offline24 tworzy Fakturę przed przesłaniem do KSeF.';
     $canSend = $invoice->isInvoice()
         && $invoice->isFinalized()
         && $currentKsefOfflineIssuance === null
@@ -229,7 +233,7 @@
 
             <p class="invoice-ksef-message mb-0">
                 P_1: <strong>{{ $offlineIssuance->issue_date->format('d.m.Y') }}</strong>;
-                wystawiono: <strong>{{ $offlineIssuance->issued_at->format('d.m.Y H:i') }}</strong>.
+                wystawiono: <strong>{{ $offlineIssuance->issued_at->setTimezone(config('app.timezone'))->format('d.m.Y H:i') }}</strong>.
                 @if ($offlineSubmission?->ksef_number)
                     <br>Numer KSeF: <strong class="invoice-ksef-number">{{ $offlineSubmission->ksef_number }}</strong>
                 @endif
@@ -336,13 +340,16 @@
         </p>
     @endif
 
+    @if ($ksefOfflineCorrectionBlockReason ?? null)
+        <p class="invoice-ksef-message" data-ksef-offline-correction-blocked>{{ $ksefOfflineCorrectionBlockReason }}</p>
+    @endif
     <div class="invoice-ksef-actions">
         @if ($ksefCanIssueOffline24)
             <form
                 method="POST"
                 action="{{ route('invoices.ksef.offline24.issue', $invoice) }}"
                 data-ksef-offline24-form
-                onsubmit="return window.confirm('Wystawienie w trybie Offline24 tworzy Fakturę przed przesłaniem do KSeF. Treść FA(3), data wystawienia oraz dane kodów weryfikacyjnych zostaną trwale zamrożone. Dokument będzie wymagał późniejszego przekazania do KSeF zgodnie z obowiązującym terminem.')"
+                onsubmit="return window.confirm('{{ $offline24Confirmation }} Treść FA(3), data wystawienia oraz dane kodów weryfikacyjnych zostaną trwale zamrożone. Dokument będzie wymagał późniejszego przekazania do KSeF zgodnie z obowiązującym terminem. Kontynuować?')"
             >
                 @csrf
                 <button class="btn btn-outline-warning" type="submit">WYSTAW OFFLINE24</button>
@@ -355,7 +362,7 @@
                     method="POST"
                     action="{{ route('invoices.ksef.offline-unavailability.issue', $invoice) }}"
                     data-ksef-offline-unavailability-form
-                    onsubmit="return window.confirm('Wystawić Fakturę w trybie Offline – niedostępność KSeF? Treść FA(3), data wystawienia i dowód z lokalnych danych Latarni zostaną trwale zamrożone.')"
+                    onsubmit="return window.confirm('{{ $offlineSubject }} w trybie Offline – niedostępność KSeF. Treść FA(3), data wystawienia i dowód z lokalnych danych Latarni zostaną trwale zamrożone. Kontynuować?')"
                 >
                     @csrf
                     <button class="btn btn-outline-warning" type="submit">WYSTAW OFFLINE – NIEDOSTĘPNOŚĆ</button>
@@ -377,7 +384,7 @@
                     method="POST"
                     action="{{ route('invoices.ksef.emergency.issue', $invoice) }}"
                     data-ksef-emergency-form
-                    onsubmit="return window.confirm('Wystawić Fakturę w trybie awaryjnym? Treść FA(3), data wystawienia i dowód z lokalnych danych Latarni zostaną trwale zamrożone.')"
+                    onsubmit="return window.confirm('{{ $offlineSubject }} w trybie awaryjnym. Treść FA(3), data wystawienia i dowód z lokalnych danych Latarni zostaną trwale zamrożone. Kontynuować?')"
                 >
                     @csrf
                     <button class="btn btn-outline-danger" type="submit">WYSTAW W TRYBIE AWARYJNYM</button>

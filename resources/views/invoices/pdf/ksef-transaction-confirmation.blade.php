@@ -19,7 +19,7 @@
     <br><br>
     <table class="confirmation-meta" cellpadding="2" cellspacing="0" width="70%" align="center">
         <tr>
-            <td width="45%">Numer faktury:</td>
+            <td width="45%">{{ $document['correction'] ? 'Numer Korekty:' : 'Numer faktury:' }}</td>
             <td width="55%" align="right">{{ $document['number'] }}</td>
         </tr>
         <tr>
