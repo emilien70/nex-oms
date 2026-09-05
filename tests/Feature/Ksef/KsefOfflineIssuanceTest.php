@@ -138,6 +138,8 @@ class KsefOfflineIssuanceTest extends TestCase
         $this->assertStringNotContainsString('<Faktura', $rawPayload);
         $this->assertStringNotContainsString('9876543210', $rawPayload);
         $this->assertArrayNotHasKey('payload_xml', $issuance->toArray());
+        $this->assertNull($issuance->correction_financial_evidence);
+        $this->assertNull(DB::table('ksef_offline_issuances')->where('id', $issuance->id)->value('correction_financial_evidence'));
         $this->assertSame(
             config('ksef.qr_base_urls.test').'/invoice/9876543210/'
                 .$this->testNow->setTimezone('Europe/Warsaw')->format('d-m-Y').'/'.$hashUrl,

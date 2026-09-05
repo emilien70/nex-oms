@@ -16,6 +16,8 @@ use Modules\Ksef\Enums\KsefOfflineBuyerClassification;
 use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefOfflineIssuance;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidenceValidator;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionTaxBuckets;
 use Modules\Ksef\Services\Fa3\KsefFa3XmlBuilder;
 use Modules\Ksef\ValueObjects\KsefOfflinePresentationData;
 
@@ -28,6 +30,7 @@ final class KsefOfflinePresentationDataExtractor
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentities,
         private readonly KsefQrEnvironmentHostPolicy $qrHosts,
         private readonly KsefNumberValidator $ksefNumbers,
+        private readonly KsefFa3CorrectionFinancialEvidenceValidator $financialEvidence,
     ) {}
 
     public function extract(KsefOfflineIssuance $issuance): KsefOfflinePresentationData
@@ -72,8 +75,11 @@ final class KsefOfflinePresentationDataExtractor
         $seller = $this->seller($xpath, $sellerNip);
         [$buyer, $classification] = $this->buyer($xpath);
         [$lines, $lineTaxTreatments] = $this->lines($xpath, $isCorrection);
-        [$taxRows, $totalNet, $totalVat] = $this->taxRows($xpath, $lineTaxTreatments, $isCorrection);
         $correction = $isCorrection ? $this->correction($xpath, $lines) : null;
+        if ($correction !== null) {
+            $this->assertCorrectionFinancialEvidence($issuance, $xpath, $correction['pairs']);
+        }
+        [$taxRows, $totalNet, $totalVat] = $this->taxRows($xpath, $lineTaxTreatments, $isCorrection);
         $gross = $this->money($this->required($xpath, '/fa:Faktura/fa:Fa/fa:P_15'));
         if ($isCorrection && $this->add($totalNet, $totalVat) !== $gross) {
             throw $this->integrityInvalid();
@@ -271,12 +277,17 @@ final class KsefOfflinePresentationDataExtractor
                 throw $this->integrityInvalid();
             }
             if ($correction) {
+                if ($this->required($xpath, './fa:P_11', $node) !== $lines[array_key_last($lines)]['total_net']
+                    || $this->required($xpath, './fa:P_12', $node) !== $taxTreatment) {
+                    throw $this->integrityInvalid();
+                }
                 $position = $this->required($xpath, './fa:NrWierszaFa', $node);
                 if (preg_match('/^[1-9][0-9]*$/D', $position) !== 1) {
                     throw $this->integrityInvalid();
                 }
                 $lines[array_key_last($lines)]['position'] = (int) $position;
                 $lines[array_key_last($lines)]['state'] = $before === '1' ? 'before' : 'after';
+                $lines[array_key_last($lines)]['fa3_rate'] = $taxTreatment;
             }
         }
 
@@ -305,7 +316,7 @@ final class KsefOfflinePresentationDataExtractor
             }
 
             $presentTreatments = array_values(array_intersect($bucketTreatments, $lineTaxTreatments));
-            if (($net !== null) !== ($presentTreatments !== [])) {
+            if (! $correction && ($net !== null) !== ($presentTreatments !== [])) {
                 throw $this->integrityInvalid();
             }
             if ($net === null || $vat === null) {
@@ -333,7 +344,7 @@ final class KsefOfflinePresentationDataExtractor
             };
             $hasMatchingLine = in_array($treatment, $lineTaxTreatments, true);
 
-            if (($net !== null) !== $hasMatchingLine) {
+            if (! $correction && ($net !== null) !== $hasMatchingLine) {
                 throw $this->integrityInvalid();
             }
             if ($net === null) {
@@ -350,6 +361,52 @@ final class KsefOfflinePresentationDataExtractor
         }
 
         return [$rows, $totalNet, $totalVat];
+    }
+
+    private function assertCorrectionFinancialEvidence(KsefOfflineIssuance $issuance, DOMXPath $xpath, array $pairs): void
+    {
+        try {
+            $evidence = $issuance->correction_financial_evidence;
+        } catch (DecryptException) {
+            throw $this->integrityInvalid();
+        }
+        if (! is_array($evidence)) {
+            throw $this->integrityInvalid();
+        }
+        $this->financialEvidence->validate($evidence);
+        if ($this->required($xpath, '/fa:Faktura/fa:Fa/fa:KodWaluty') !== $evidence['currency']
+            || $this->required($xpath, '/fa:Faktura/fa:Fa/fa:P_15') !== $evidence['totals']['gross']
+            || count($pairs) !== count($evidence['lines'])) {
+            throw $this->integrityInvalid();
+        }
+        foreach ($evidence['lines'] as $line) {
+            $pair = $pairs[$line['position']] ?? null;
+            if ($pair === null) {
+                throw $this->integrityInvalid();
+            }
+            foreach (['before', 'after'] as $side) {
+                if ($pair[$side]['total_net'] !== $line[$side]['total_net']
+                    || $pair[$side]['fa3_rate'] !== $line[$side]['fa3_rate']) {
+                    throw $this->integrityInvalid();
+                }
+            }
+        }
+        // Canonical mapper output defines both required and forbidden XML summary fields.
+        $allowedFields = [];
+        foreach (KsefFa3CorrectionTaxBuckets::FIELDS as $bucket => $fields) {
+            foreach ($fields as $amount => $field) {
+                $allowedFields[] = $field;
+                if ($this->optional($xpath, '/fa:Faktura/fa:Fa/fa:'.$field)
+                    !== ($evidence['tax_buckets'][$bucket][$amount] ?? null)) {
+                    throw $this->integrityInvalid();
+                }
+            }
+        }
+        foreach ($this->nodes($xpath, '/fa:Faktura/fa:Fa/*[starts-with(local-name(), "P_13_") or starts-with(local-name(), "P_14_")]') as $node) {
+            if (! in_array($node->localName, $allowedFields, true)) {
+                throw $this->integrityInvalid();
+            }
+        }
     }
 
     /** Correction rows are paired by position, never interpreted as an ordinary invoice sum. */

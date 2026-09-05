@@ -8,5 +8,6 @@ final readonly class KsefFa3GeneratedDocument
         public string $xml,
         public string $generatedAt,
         public string $schemaId,
+        public ?array $integrityEvidence = null,
     ) {}
 }

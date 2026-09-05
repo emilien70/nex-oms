@@ -3,17 +3,25 @@
 namespace Tests\Feature\Ksef;
 
 use Carbon\CarbonImmutable;
+use Closure;
+use DomainException;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use Mockery;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Invoices\Services\CorrectionTotalsCalculator;
+use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Invoices\Services\InvoiceDeletionService;
 use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceMutationPolicy;
+use Modules\Invoices\Services\InvoiceTaxIdentityNormalizer;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
@@ -28,6 +36,8 @@ use Modules\Ksef\Models\KsefLatarniaMessage;
 use Modules\Ksef\Models\KsefLatarniaSyncState;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionDocumentMapper;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionMapper;
 use Modules\Ksef\Services\KsefAcceptedOfflineInvoicePdfService;
 use Modules\Ksef\Services\KsefEcdsaSignatureConverter;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
@@ -103,6 +113,19 @@ class KsefOfflineCorrectionTest extends TestCase
         ));
         $this->assertSame($procedure === 'offline24', $issuance->latarnia_trigger_event_id === null);
         $this->assertStringNotContainsString('<Faktura', DB::table('ksef_offline_issuances')->where('id', $issuance->id)->value('payload_xml'));
+        $evidence = $issuance->fresh()->correction_financial_evidence;
+        $this->assertSame(1, $evidence['version']);
+        $this->assertSame('correction_financial', $evidence['profile']);
+        $this->assertSame('23.00', $evidence['lines'][0]['before']['total_vat']);
+        $this->assertSame('46.00', $evidence['lines'][0]['after']['total_vat']);
+        $rawEvidence = DB::table('ksef_offline_issuances')->where('id', $issuance->id)->value('correction_financial_evidence');
+        $this->assertIsString($rawEvidence);
+        $this->assertNotSame(json_encode($evidence), $rawEvidence);
+        foreach (['correction_financial', 'tax_buckets', 'total_vat'] as $marker) {
+            $this->assertStringNotContainsString($marker, $rawEvidence);
+        }
+        $this->assertArrayNotHasKey('correction_financial_evidence', $issuance->toArray());
+        $this->assertStringNotContainsString('correction_financial', $issuance->toJson());
         $this->assertDatabaseMissing('ksef_invoice_submissions', ['invoice_id' => $correction->id]);
         app(KsefOfflineSubmissionIntegrityService::class)->assertIssuance($issuance, $correction->fresh());
         Http::assertNothingSent();
@@ -208,11 +231,11 @@ class KsefOfflineCorrectionTest extends TestCase
         return [['number'], ['identity'], ['provenance'], ['environment'], ['seller'], ['previous']];
     }
 
-    #[DataProvider('procedures')]
-    public function test_exact_frozen_transport_acceptance_own_number_upo_and_single_qr(string $procedure): void
+    #[DataProvider('transportCases')]
+    public function test_exact_frozen_transport_acceptance_own_number_upo_and_single_qr(string $procedure, bool $zero = false): void
     {
         Event::fake([KsefInvoiceAccepted::class]);
-        [$root, $correction] = $this->scenario();
+        [$root, $correction] = $zero ? $this->financialScenario('zero') : $this->scenario();
         $rootNumber = $root->ksefSubmissions()->firstOrFail()->ksef_number;
         $this->evidence($procedure);
         $issuance = $this->issue($correction, $procedure);
@@ -233,6 +256,8 @@ class KsefOfflineCorrectionTest extends TestCase
         $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
         $this->assertSame(true, $fake->sendPayload['offlineMode']);
         $this->assertArrayNotHasKey('hashOfCorrectedInvoice', $fake->sendPayload);
+        $this->assertArrayNotHasKey('correction_financial_evidence', $fake->sendPayload);
+        $this->assertStringNotContainsString('correction_financial', $issuance->payload_xml);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame($issuance->payload_xml, $submission->payload_xml);
         $key = $fake->privateKey->withPadding(RSA::ENCRYPTION_OAEP)->withHash('sha256')->withMGFHash('sha256')
@@ -268,6 +293,11 @@ class KsefOfflineCorrectionTest extends TestCase
         $fake->upoContentHash = base64_encode(hash('sha256', $fake->upoResponse, true));
         $upo = app(KsefInvoiceUpoService::class)->fetch($correction, $accepted);
         $this->assertTrue($accepted->upo()->firstOrFail()->is($upo));
+    }
+
+    public static function transportCases(): array
+    {
+        return [['offline24'], ['planned_unavailability'], ['failure'], ['offline24', true]];
     }
 
     #[DataProvider('deliveries')]
@@ -307,7 +337,7 @@ class KsefOfflineCorrectionTest extends TestCase
         $issuance = KsefOfflineIssuance::query()->where('invoice_id', $correction->id)->firstOrFail();
         $this->assertError('ksef_offline24_already_issued', fn () => $this->issue($correction));
         $this->assertError('ksef_submission_blocked_by_offline_issuance', fn () => app(KsefInvoiceSubmissionService::class)->prepareCorrection($correction->fresh(), KsefEnvironment::Test));
-        $this->get($url)->assertOk()->assertDontSee('data-ksef-offline24-form', false)->assertSee('Offline24')->assertSee('P_1:')->assertDontSee($issuance->invoice_hash);
+        $this->get($url)->assertOk()->assertDontSee('data-ksef-offline24-form', false)->assertSee('Offline24')->assertSee('P_1:')->assertDontSee($issuance->invoice_hash)->assertDontSee('correction_financial')->assertDontSee('tax_buckets');
         $this->get(route('invoices.corrections.index'))->assertOk()->assertSee('data-offline24-obligation', false);
         $submission = app(KsefOfflineInvoiceSubmissionService::class)->prepare($correction, $issuance);
         $submission->forceFill(['status' => KsefInvoiceSubmissionStatus::Rejected])->save();
@@ -525,17 +555,263 @@ class KsefOfflineCorrectionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    private function scenario(string $source = 'online', bool $nip = true, KsefEnvironment $environment = KsefEnvironment::Test): array
+    #[DataProvider('financialCases')]
+    public function test_frozen_exact_financial_evidence_handles_zero_rounding_and_cross_bucket_changes(string $case): void
+    {
+        [$root, $correction] = $this->financialScenario($case);
+        $issuance = $this->issue($correction);
+        $evidence = $issuance->correction_financial_evidence;
+        $xpath = $this->ksefXpath($issuance->payload_xml);
+        $data = app(KsefOfflinePresentationDataExtractor::class)->extract($issuance);
+        $this->assertSame($correction->total_net, $data->totalNet);
+        $this->assertSame($correction->total_vat, $data->totalVat);
+        $this->assertSame($correction->total_gross, $data->totalGross);
+        app(KsefOfflineSubmissionIntegrityService::class)->assertIssuance($issuance, $correction->fresh());
+        if (in_array($case, ['zero', 'name', 'zero_domestic', 'zero_wdt', 'zero_export'], true)) {
+            $this->assertSame(['net' => '0.00', 'vat' => '0.00', 'gross' => '0.00'], $evidence['totals']);
+            $this->assertSame([], array_filter($evidence['tax_buckets']));
+            $this->assertSame(0, $xpath->query('//fa:P_13_1|//fa:P_14_1|//fa:P_13_6_1|//fa:P_13_6_2|//fa:P_13_6_3')->length);
+            $this->assertNotEmpty($data->correction['pairs']);
+            $html = app(KsefOfflinePresentationPdfRenderer::class)->offlineInvoiceHtml($data);
+            $this->assertStringContainsString('Przed:', $html);
+            $this->assertStringContainsString('Po:', $html);
+        }
+        if ($case === 'rounding') {
+            $this->assertSame('0.00', $evidence['lines'][0]['before']['total_vat']);
+            $this->assertSame('0.01', $evidence['lines'][0]['after']['total_vat']);
+            foreach (['P_9A', 'P_11', 'P_12'] as $field) {
+                $this->assertSame($this->ksefValue($xpath, '(//fa:FaWiersz)[1]/fa:'.$field), $this->ksefValue($xpath, '(//fa:FaWiersz)[2]/fa:'.$field));
+            }
+            $this->assertSame('0.01', $data->totalVat);
+        }
+        if ($case === 'cross') {
+            $this->assertSame(['net' => '-100.00', 'vat' => '-23.00'], $evidence['tax_buckets']['standard_1']);
+            $this->assertSame(['net' => '113.89', 'vat' => '9.11'], $evidence['tax_buckets']['standard_2']);
+        }
+        if ($case === 'foreign') {
+            $this->assertSame('EUR', $data->currency);
+            $this->assertSame(data_get($correction->tax_metadata_snapshot, 'converted_tax_summary.groups.0.vat'), $evidence['tax_buckets']['standard_1']['pln_vat']);
+            $this->assertSame($evidence['tax_buckets']['standard_1']['pln_vat'], $this->ksefValue($xpath, '//fa:P_14_1W'));
+        }
+        $before = $data;
+        $correction->forceFill(['total_net' => '999.00', 'total_vat' => '111.00', 'tax_metadata_snapshot' => []])->saveQuietly();
+        $this->assertEquals($before, app(KsefOfflinePresentationDataExtractor::class)->extract($issuance->fresh()));
+        $mapper = Mockery::mock(KsefFa3CorrectionMapper::class);
+        $mapper->shouldNotReceive('map');
+        $this->app->instance(KsefFa3CorrectionMapper::class, $mapper);
+        $submission = app(KsefOfflineInvoiceSubmissionService::class)->prepare($correction->fresh(), $issuance);
+        $this->assertSame($issuance->payload_xml, $submission->payload_xml);
+        $this->assertSame($issuance->invoice_hash, $submission->invoice_hash);
+        $this->assertSame($issuance->invoice_size, $submission->invoice_size);
+        $this->assertSame($issuance->issued_at->getTimestamp(), $submission->generated_at->getTimestamp());
+        Http::assertNothingSent();
+    }
+
+    public static function financialCases(): array
+    {
+        return array_map(fn (string $case): array => [$case], ['zero', 'name', 'rounding', 'cross', 'foreign', 'zero_domestic', 'zero_wdt', 'zero_export']);
+    }
+
+    public function test_xml_and_evidence_share_one_document_mapper_pass(): void
+    {
+        [, $correction] = $this->scenario();
+        $mapper = Mockery::mock(KsefFa3CorrectionMapper::class, [
+            app(InvoiceDecimalCalculator::class), app(CorrectionTotalsCalculator::class), app(InvoiceTaxIdentityNormalizer::class),
+        ])->makePartial();
+        $mapper->shouldReceive('map')->once()->passthru();
+        $this->app->when(KsefFa3CorrectionDocumentMapper::class)->needs(KsefFa3CorrectionMapper::class)->give(fn () => $mapper);
+        $generated = $this->generateKsefCorrection($correction);
+        $xpath = $this->ksefXpath($generated->xml);
+        $this->assertSame($generated->integrityEvidence['totals']['gross'], $this->ksefValue($xpath, '//fa:P_15'));
+        $this->assertSame($generated->integrityEvidence['tax_buckets']['standard_1']['vat'], $this->ksefValue($xpath, '//fa:P_14_1'));
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('financialTampering')]
+    public function test_financial_tampering_fails_after_outer_hash_size_and_qr_match(string $scenario, string $case): void
+    {
+        [, $correction] = $this->financialScenario($scenario);
+        $issuance = $this->issue($correction);
+        $xpath = $this->ksefXpath($issuance->payload_xml);
+        $fa = $xpath->query('/fa:Faktura/fa:Fa')->item(0);
+        $document = $xpath->document;
+        $remove = function (string $expression) use ($xpath): void {
+            foreach (iterator_to_array($xpath->query($expression)) as $node) {
+                $node->parentNode->removeChild($node);
+            }
+        };
+        $add = function (string $field, string $value) use ($document, $fa): void {
+            $fa->appendChild($document->createElementNS($fa->namespaceURI, $field, $value));
+        };
+        match ($case) {
+            'missing' => $remove('//fa:P_13_1|//fa:P_14_1'),
+            'half_pair' => $remove('//fa:P_14_1'),
+            'wrong_net' => $xpath->query('//fa:P_13_1')->item(0)->nodeValue = '999.00',
+            'wrong_vat' => $xpath->query('//fa:P_14_1')->item(0)->nodeValue = '999.00',
+            'wrong_pln' => $xpath->query('//fa:P_14_1W')->item(0)->nodeValue = '999.00',
+            'missing_pln' => $remove('//fa:P_14_1W'),
+            'extra_pln' => $add('P_14_1W', '0.00'),
+            'unused' => [$add('P_13_3', '100.00'), $add('P_14_3', '5.00')],
+            'fake_zero' => [$add('P_13_1', '1.00'), $add('P_14_1', '0.23')],
+            'explicit_zero' => [$add('P_13_1', '0.00'), $add('P_14_1', '0.00')],
+            'zero_vat_fake' => $add('P_13_6_1', '1.00'),
+            'unknown_bucket' => $add('P_13_4', '1.00'),
+            'p15' => $xpath->query('//fa:P_15')->item(0)->nodeValue = '999.00',
+            'line_net' => $xpath->query('(//fa:FaWiersz)[1]/fa:P_11')->item(0)->nodeValue = '999.00',
+            'line_rate' => $xpath->query('(//fa:FaWiersz)[1]/fa:P_12')->item(0)->nodeValue = '8',
+            'line_precision' => $xpath->query('(//fa:FaWiersz)[1]/fa:P_11')->item(0)->nodeValue .= '1',
+            'missing_before' => $remove('(//fa:FaWiersz)[1]'),
+            'missing_after' => $remove('(//fa:FaWiersz)[2]'),
+            'duplicate_before' => $fa->appendChild($xpath->query('(//fa:FaWiersz)[1]')->item(0)->cloneNode(true)),
+            'duplicate_after' => $fa->appendChild($xpath->query('(//fa:FaWiersz)[2]')->item(0)->cloneNode(true)),
+        };
+        $xml = $document->saveXML();
+        $oldHash = rtrim(strtr($issuance->invoice_hash, '+/', '-_'), '=');
+        $hash = base64_encode(hash('sha256', $xml, true));
+        $newHash = rtrim(strtr($hash, '+/', '-_'), '=');
+        $issuance->forceFill([
+            'payload_xml' => $xml, 'invoice_hash' => $hash, 'invoice_size' => strlen($xml),
+            'invoice_verification_url' => str_replace($oldHash, $newHash, $issuance->invoice_verification_url),
+            'certificate_verification_url' => str_replace($oldHash, $newHash, $issuance->certificate_verification_url),
+        ]);
+        $this->assertFinancialIntegrityFailure($issuance, $correction);
+    }
+
+    public static function financialTampering(): array
+    {
+        $cases = [];
+        foreach (['missing', 'half_pair', 'wrong_net', 'wrong_vat', 'extra_pln', 'unused', 'unknown_bucket', 'p15', 'line_net', 'line_rate', 'line_precision', 'missing_before', 'missing_after', 'duplicate_before', 'duplicate_after'] as $case) {
+            $cases[$case] = ['cross', $case];
+        }
+
+        return $cases + ['wrong_pln' => ['foreign', 'wrong_pln'], 'missing_pln' => ['foreign', 'missing_pln'], 'fake_zero' => ['zero', 'fake_zero'], 'explicit_zero' => ['zero', 'explicit_zero'], 'zero_vat_fake' => ['zero_domestic', 'zero_vat_fake']];
+    }
+
+    #[DataProvider('evidenceTampering')]
+    public function test_missing_corrupt_or_inconsistent_encrypted_evidence_fails_closed(string $case): void
+    {
+        [, $correction] = $this->scenario();
+        $issuance = $this->issue($correction);
+        $evidence = $issuance->correction_financial_evidence;
+        match ($case) {
+            'null' => $evidence = null,
+            'version' => $evidence['version'] = 2,
+            'profile' => $evidence['profile'] = 'invoice',
+            'currency' => $evidence['currency'] = 'EUR',
+            'extra_key' => $evidence['extra'] = true,
+            'unknown_bucket' => $evidence['tax_buckets']['unknown'] = null,
+            'missing_bucket' => $evidence['tax_buckets'] = [],
+            'line_vat' => $evidence['lines'][0]['after']['total_vat'] = '0.00',
+            'bucket_vat' => $evidence['tax_buckets']['standard_1']['vat'] = '0.00',
+            'bucket_null' => $evidence['tax_buckets']['standard_1'] = null,
+            'totals' => $evidence['totals']['gross'] = '0.00',
+            'float' => $evidence['totals']['vat'] = 23.0,
+            'empty' => $evidence['totals']['vat'] = '',
+            'nan' => $evidence['totals']['vat'] = 'NaN',
+            'noncanonical' => $evidence['totals']['vat'] = '23.000',
+            'negative_zero' => $evidence['lines'][0]['before']['total_vat'] = '-0.00',
+            'duplicate_position' => $evidence['lines'][] = $evidence['lines'][0],
+            'wrong_position' => $evidence['lines'][0]['position'] = 9,
+            'missing_side' => $evidence['lines'][0]['before'] = [],
+            'wrong_rate' => $evidence['lines'][0]['before']['fa3_rate'] = '8',
+            'ciphertext', 'json_scalar', 'malformed_json' => null,
+        };
+        $encoded = match ($case) {
+            'null' => null,
+            'ciphertext' => 'FAKE_INVALID_CIPHERTEXT',
+            'json_scalar' => Crypt::encryptString('false'),
+            'malformed_json' => Crypt::encryptString('{'),
+            default => Crypt::encryptString(json_encode($evidence, JSON_THROW_ON_ERROR)),
+        };
+        DB::table('ksef_offline_issuances')->where('id', $issuance->id)->update(['correction_financial_evidence' => $encoded]);
+        $this->assertFinancialIntegrityFailure($issuance->fresh(), $correction);
+    }
+
+    public static function evidenceTampering(): array
+    {
+        return array_map(fn (string $case): array => [$case], ['null', 'version', 'profile', 'currency', 'extra_key', 'unknown_bucket', 'missing_bucket', 'line_vat', 'bucket_vat', 'bucket_null', 'totals', 'float', 'empty', 'nan', 'noncanonical', 'negative_zero', 'duplicate_position', 'wrong_position', 'missing_side', 'wrong_rate', 'ciphertext', 'json_scalar', 'malformed_json']);
+    }
+
+    public function test_evidence_is_immutable_and_schema_only_migration_preserves_existing_invoice(): void
+    {
+        [$root, $correction] = $this->scenario(source: 'offline_accepted');
+        $invoiceIssuance = $root->ksefOfflineIssuances()->firstOrFail();
+        $this->assertNull($invoiceIssuance->correction_financial_evidence);
+        $migration = require database_path('migrations/2026_08_13_087000_add_ksef_offline_correction_financial_evidence.php');
+        $migration->down();
+        $this->assertFalse(Schema::hasColumn('ksef_offline_issuances', 'correction_financial_evidence'));
+        $before = (array) DB::table('ksef_offline_issuances')->where('id', $invoiceIssuance->id)->first();
+        $migration->up();
+        $after = (array) DB::table('ksef_offline_issuances')->where('id', $invoiceIssuance->id)->first();
+        $this->assertSame($before + ['correction_financial_evidence' => null], $after);
+        app(KsefOfflineSubmissionIntegrityService::class)->assertIssuance($invoiceIssuance->fresh(), $root->fresh());
+        $issuance = $this->issue($correction);
+        $raw = $issuance->getRawOriginal('correction_financial_evidence');
+        foreach (['update', 'delete'] as $operation) {
+            try {
+                $operation === 'update' ? $issuance->update(['correction_financial_evidence' => null]) : $issuance->delete();
+                $this->fail('Expected immutable evidence guard');
+            } catch (DomainException) {
+                $this->assertSame($raw, $issuance->fresh()->getRawOriginal('correction_financial_evidence'));
+            }
+        }
+        Http::assertNothingSent();
+    }
+
+    private function assertFinancialIntegrityFailure(KsefOfflineIssuance $issuance, Invoice $correction): void
+    {
+        $this->assertError('ksef_offline_presentation_integrity_invalid', fn () => app(KsefOfflinePresentationDataExtractor::class)->extract($issuance));
+        $this->assertError('ksef_offline_submission_integrity_invalid', fn () => app(KsefOfflineSubmissionIntegrityService::class)->assertIssuance($issuance, $correction->fresh()));
+        $this->assertDatabaseMissing('ksef_invoice_submissions', ['invoice_id' => $correction->id]);
+        Http::assertNothingSent();
+    }
+
+    private function financialScenario(string $case): array
+    {
+        $zero = str_starts_with($case, 'zero');
+        $rate = $case === 'zero' || ! $zero ? '23.00' : '0.00';
+        $items = $case === 'rounding'
+            ? [['unit_price_gross' => '0.02', 'vat_rate' => '23.00']]
+            : [['unit_price_gross' => '123.00', 'vat_rate' => $rate]];
+        if ($zero) {
+            $items[] = ['unit_price_gross' => '246.00', 'vat_rate' => $rate];
+        }
+
+        return $this->scenario(items: $items, foreign: $case === 'foreign', change: function (array $lines) use ($case, $zero): array {
+            if ($zero) {
+                [$lines[0]['unit_price_gross'], $lines[1]['unit_price_gross']] = [$lines[1]['unit_price_gross'], $lines[0]['unit_price_gross']];
+            } elseif ($case === 'rounding') {
+                $lines[0]['unit_price_gross'] = '0.03';
+            } elseif ($case === 'cross') {
+                $lines[0]['vat_rate'] = '8';
+            } elseif ($case === 'name') {
+                $lines[0]['name'] = 'FAKE Renamed product';
+            } else {
+                $lines[0]['quantity'] = 2;
+            }
+
+            return $lines;
+        }, zeroClassification: match ($case) {
+            'zero_export' => 'export', 'zero_domestic' => 'domestic', default => 'wdt',
+        }, euBuyer: $case === 'zero_wdt');
+    }
+
+    private function scenario(string $source = 'online', bool $nip = true, KsefEnvironment $environment = KsefEnvironment::Test, ?array $items = null, ?Closure $change = null, bool $foreign = false, string $zeroClassification = 'wdt', bool $euBuyer = false): array
     {
         $settings = $this->ksefSettings($environment);
-        $settings->forceFill(['is_active' => true, 'context_nip' => '9876543210', 'send_without_buyer_nip' => ! $nip])->save();
+        $settings->forceFill(['is_active' => true, 'context_nip' => '9876543210', 'send_without_buyer_nip' => ! $nip, 'zero_vat_classification' => $zeroClassification])->save();
         $certificate = app(KsefOfflineCertificateService::class)->import($environment, 'FAKE Offline correction certificate', $this->certificateFixture['certificate'], $this->certificateFixture['private_key'], null);
         $certificate->forceFill([
             'remote_status' => 'Active', 'remote_valid_from' => $this->instant->subDay(),
             'remote_valid_until' => $this->instant->addDay(), 'remote_verified_at' => $this->instant->subMinute(),
         ])->save();
         app(KsefOfflineCertificateService::class)->setPreferred($certificate, $environment);
-        $root = $this->issueKsefRoot(orderAttributes: ['billing_tax_id' => $nip ? '5260250995' : null]);
+        $root = $this->issueKsefRoot(items: $items ?? [['unit_price_gross' => '123.00', 'vat_rate' => '23.00']], orderAttributes: $euBuyer
+            ? ['billing_tax_id' => 'DE123456789', 'billing_country_code' => 'DE']
+            : ['billing_tax_id' => $nip ? '5260250995' : null]);
+        if ($foreign) {
+            $root = $this->makeKsefForeign($root);
+        }
         if (str_starts_with($source, 'offline')) {
             $root = app(InvoiceFinalizationService::class)->finalize($this->currentDate($root));
             KsefSeriesSetting::query()->updateOrCreate(['invoice_series_id' => $root->invoice_series_id], ['is_enabled' => true]);
@@ -555,7 +831,7 @@ class KsefOfflineCorrectionTest extends TestCase
                 $accepted->forceFill(['status' => $source, 'ksef_number' => null])->save();
             }
         }
-        $correction = $this->currentDate($this->issueKsefFinancialCorrection($root));
+        $correction = $this->currentDate($change === null ? $this->issueKsefFinancialCorrection($root) : $this->issueKsefCorrection($root, $change($this->submittedKsefItems($root))));
         KsefSeriesSetting::query()->updateOrCreate(['invoice_series_id' => $correction->invoice_series_id], ['is_enabled' => true]);
 
         return [$root, $correction];

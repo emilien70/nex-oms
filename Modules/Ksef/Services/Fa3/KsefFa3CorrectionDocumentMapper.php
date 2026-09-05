@@ -5,6 +5,7 @@ namespace Modules\Ksef\Services\Fa3;
 use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
+use InvalidArgumentException;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\CorrectionTotalsCalculator;
@@ -18,15 +19,6 @@ use Throwable;
 
 final class KsefFa3CorrectionDocumentMapper
 {
-    private const BUCKETS = [
-        'standard_1',
-        'standard_2',
-        'standard_3',
-        'domestic_zero',
-        'wdt',
-        'export',
-    ];
-
     public function __construct(
         private readonly KsefFa3CorrectionMapper $corrections,
         private readonly CorrectionTotalsCalculator $correctionTotals,
@@ -117,7 +109,7 @@ final class KsefFa3CorrectionDocumentMapper
         }
 
         $lines = [];
-        $buckets = array_fill_keys(self::BUCKETS, null);
+        $buckets = array_fill_keys(array_keys(KsefFa3CorrectionTaxBuckets::FIELDS), null);
         $totalNet = '0.00';
         $totalVat = '0.00';
         $totalGross = '0.00';
@@ -234,18 +226,17 @@ final class KsefFa3CorrectionDocumentMapper
     /** @param array<string, mixed> $treatment */
     private function bucketKey(array $treatment): string
     {
-        return match ($treatment['treatment'] ?? null) {
-            'domestic_zero' => 'domestic_zero',
-            'wdt' => 'wdt',
-            'export' => 'export',
-            'standard' => match ($treatment['fa3_rate'] ?? null) {
-                '23', '22' => 'standard_1',
-                '8', '7' => 'standard_2',
-                '5' => 'standard_3',
-                default => throw $this->financialError(),
-            },
-            default => throw $this->financialError(),
-        };
+        try {
+            $bucket = KsefFa3CorrectionTaxBuckets::forRate((string) ($treatment['fa3_rate'] ?? ''));
+        } catch (InvalidArgumentException) {
+            throw $this->financialError();
+        }
+        $expectedTreatment = str_starts_with($bucket, 'standard_') ? 'standard' : $bucket;
+        if (($treatment['treatment'] ?? null) !== $expectedTreatment) {
+            throw $this->financialError();
+        }
+
+        return $bucket;
     }
 
     /**

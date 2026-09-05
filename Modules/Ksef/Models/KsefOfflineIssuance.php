@@ -27,6 +27,7 @@ class KsefOfflineIssuance extends Model
         'context_identifier_value',
         'schema_id',
         'payload_xml',
+        'correction_financial_evidence',
         'invoice_hash',
         'invoice_size',
         'offline_certificate_id',
@@ -55,6 +56,7 @@ class KsefOfflineIssuance extends Model
 
     protected $hidden = [
         'payload_xml',
+        'correction_financial_evidence',
     ];
 
     protected $casts = [
@@ -64,6 +66,7 @@ class KsefOfflineIssuance extends Model
         'issued_at' => KsefUtcInstantCast::class,
         'context_identifier_type' => KsefContextIdentifierType::class,
         'payload_xml' => 'encrypted',
+        'correction_financial_evidence' => 'encrypted:array',
         'invoice_size' => 'integer',
         'certificate_valid_from' => 'immutable_datetime',
         'certificate_valid_until' => 'immutable_datetime',

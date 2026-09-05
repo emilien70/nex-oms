@@ -18,6 +18,7 @@ final class KsefFa3CorrectionDocumentGenerator
         private readonly KsefFa3CorrectionDocumentMapper $mapper,
         private readonly KsefFa3CorrectionXmlBuilder $builder,
         private readonly KsefFa3SchemaValidator $schemaValidator,
+        private readonly KsefFa3CorrectionFinancialEvidenceBuilder $financialEvidence,
     ) {}
 
     public function generate(
@@ -30,12 +31,14 @@ final class KsefFa3CorrectionDocumentGenerator
         $sourceReference = $this->sourceReferences->resolve($correction, $settings->environment);
         $data = $this->mapper->map($correction, $sourceReference, $generatedAt);
         $xml = $this->builder->build($data);
+        $evidence = $this->financialEvidence->build($data);
         $this->schemaValidator->validate($xml);
 
         return new KsefFa3GeneratedDocument(
             xml: $xml,
             generatedAt: $data->generatedAt,
             schemaId: KsefFa3SchemaValidator::SCHEMA_ID,
+            integrityEvidence: $evidence,
         );
     }
 }

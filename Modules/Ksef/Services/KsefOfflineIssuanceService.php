@@ -25,6 +25,7 @@ use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionDocumentGenerator;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidenceValidator;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionSourceReferenceResolver;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\Services\Fa3\KsefFa3IssueDateReader;
@@ -45,6 +46,7 @@ final class KsefOfflineIssuanceService
         private readonly KsefFa3CorrectionSourceReferenceResolver $correctionSources,
         private readonly InvoiceFinalizationService $finalization,
         private readonly KsefFa3CorrectionEligibilityValidator $correctionEligibility,
+        private readonly KsefFa3CorrectionFinancialEvidenceValidator $financialEvidence,
     ) {}
 
     public function issueOffline24(Invoice $invoice): KsefOfflineIssuance
@@ -123,6 +125,9 @@ final class KsefOfflineIssuanceService
             KsefFa3EligibilityMode::Authoritative,
         );
         $issueDate = $this->issueDates->read($generated->xml);
+        if ($correction) {
+            $this->financialEvidence->validate($generated->integrityEvidence);
+        }
 
         if ($issueDate !== $issuedAt->setTimezone('Europe/Warsaw')->toDateString()) {
             throw new KsefApiException(
@@ -173,6 +178,7 @@ final class KsefOfflineIssuanceService
             'context_identifier_value' => $snapshot['context']->value,
             'schema_id' => $generated->schemaId,
             'payload_xml' => $generated->xml,
+            'correction_financial_evidence' => $correction ? $generated->integrityEvidence : null,
             'invoice_hash' => $invoiceHash,
             'invoice_size' => strlen($generated->xml),
             'offline_certificate_id' => $snapshot['certificate']->getKey(),
