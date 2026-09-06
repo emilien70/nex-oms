@@ -37,6 +37,16 @@ class KsefOnlineSessionRequestFactory
         return $this->invoice($submission, $encryption, true);
     }
 
+    public function sendTechnicalCorrection(
+        KsefInvoiceSubmission $submission,
+        KsefOnlineSessionEncryptionData $encryption,
+        string $hashOfCorrectedInvoice,
+    ): array {
+        return $this->invoice($submission, $encryption, true) + [
+            'hashOfCorrectedInvoice' => $hashOfCorrectedInvoice,
+        ];
+    }
+
     private function invoice(
         KsefInvoiceSubmission $submission,
         KsefOnlineSessionEncryptionData $encryption,

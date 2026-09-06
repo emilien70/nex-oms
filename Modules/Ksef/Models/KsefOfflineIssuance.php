@@ -6,6 +6,7 @@ use DomainException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Casts\KsefUtcInstantCast;
 use Modules\Ksef\Enums\KsefContextIdentifierType;
@@ -109,5 +110,10 @@ class KsefOfflineIssuance extends Model
     public function submissions(): HasMany
     {
         return $this->hasMany(KsefInvoiceSubmission::class, 'offline_issuance_id');
+    }
+
+    public function technicalCorrection(): HasOne
+    {
+        return $this->hasOne(KsefOfflineTechnicalCorrection::class, 'offline_issuance_id');
     }
 }

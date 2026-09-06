@@ -16,6 +16,7 @@ class KsefInvoiceSubmission extends Model
     protected $fillable = [
         'invoice_id',
         'offline_issuance_id',
+        'offline_technical_correction_id',
         'environment',
         'context_nip',
         'seller_nip',
@@ -85,6 +86,11 @@ class KsefInvoiceSubmission extends Model
     public function offlineIssuance(): BelongsTo
     {
         return $this->belongsTo(KsefOfflineIssuance::class, 'offline_issuance_id');
+    }
+
+    public function offlineTechnicalCorrection(): BelongsTo
+    {
+        return $this->belongsTo(KsefOfflineTechnicalCorrection::class, 'offline_technical_correction_id');
     }
 
     public function expectedInvoicingMode(): KsefInvoicingMode

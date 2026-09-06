@@ -151,6 +151,25 @@ class KsefFa3CorrectionSourceReferenceResolverTest extends TestCase
         $this->assertSame($accepted->getKey(), $reference->rootSubmissionId);
     }
 
+    public function test_rejected_offline_source_before_one_accepted_technical_result_uses_the_accepted_number(): void
+    {
+        $root = $this->rootInvoice();
+        $this->submission($root, KsefEnvironment::Demo, KsefInvoiceSubmissionStatus::Rejected);
+        $acceptedTechnical = $this->submission(
+            $root,
+            KsefEnvironment::Demo,
+            KsefInvoiceSubmissionStatus::Accepted,
+            ['ksef_number' => $this->validKsefNumber(self::SELLER_NIP, '0600001AF629')],
+        );
+        [$target] = $this->correctionChain($root, 1);
+
+        $reference = $this->resolve($target, KsefEnvironment::Demo);
+
+        $this->assertSame($acceptedTechnical->getKey(), $reference->rootSubmissionId);
+        $this->assertSame($acceptedTechnical->ksef_number, $reference->rootKsefNumber);
+        $this->assertSame(KsefFa3CorrectionRootReferenceType::Ksef, $reference->rootReferenceType);
+    }
+
     public function test_multiple_accepted_root_submissions_in_one_environment_are_ambiguous(): void
     {
         $root = $this->rootInvoice();

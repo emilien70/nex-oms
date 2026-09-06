@@ -40,6 +40,7 @@ use Modules\Ksef\Http\Controllers\KsefOfflineCertificateController;
 use Modules\Ksef\Http\Controllers\KsefOfflineInvoiceSubmissionController;
 use Modules\Ksef\Http\Controllers\KsefOfflineIssuanceController;
 use Modules\Ksef\Http\Controllers\KsefOfflinePresentationController;
+use Modules\Ksef\Http\Controllers\KsefOfflineTechnicalCorrectionController;
 use Modules\Ksef\Http\Controllers\KsefPaymentTypeSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSeriesSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSettingsController;
@@ -139,6 +140,8 @@ Route::post('/invoices/{invoice}/ksef/offline24', [KsefOfflineIssuanceController
 Route::post('/invoices/{invoice}/ksef/offline-unavailability', [KsefOfflineIssuanceController::class, 'plannedUnavailability'])->name('invoices.ksef.offline-unavailability.issue');
 Route::post('/invoices/{invoice}/ksef/emergency', [KsefOfflineIssuanceController::class, 'failure'])->name('invoices.ksef.emergency.issue');
 Route::post('/invoices/{invoice}/ksef/offline-issuances/{issuance}/submissions', KsefOfflineInvoiceSubmissionController::class)->name('invoices.ksef.offline-issuances.submissions.store');
+Route::post('/invoices/{invoice}/ksef/offline-issuances/{issuance}/submissions/{submission}/technical-correction', [KsefOfflineTechnicalCorrectionController::class, 'prepare'])->name('invoices.ksef.offline-technical-corrections.prepare');
+Route::post('/invoices/{invoice}/ksef/offline-technical-corrections/{technicalCorrection}/submissions', [KsefOfflineTechnicalCorrectionController::class, 'submit'])->name('invoices.ksef.offline-technical-corrections.submit');
 Route::get('/invoices/{invoice}/ksef/offline-issuances/{issuance}/invoice-pdf', [KsefOfflinePresentationController::class, 'invoice'])->name('invoices.ksef.offline-issuances.invoice-pdf');
 Route::get('/invoices/{invoice}/ksef/offline-issuances/{issuance}/transaction-confirmation', [KsefOfflinePresentationController::class, 'transactionConfirmation'])->name('invoices.ksef.offline-issuances.transaction-confirmation');
 Route::get('/invoices/{invoice}/ksef/offline-issuances/{issuance}/submissions/{submission}/accepted-pdf', [KsefOfflinePresentationController::class, 'acceptedInvoice'])->name('invoices.ksef.offline-issuances.accepted-pdf');

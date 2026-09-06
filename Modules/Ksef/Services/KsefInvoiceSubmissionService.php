@@ -9,6 +9,7 @@ use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoiceTransportMode;
 use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Enums\KsefPublicKeyUsage;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
@@ -45,6 +46,7 @@ class KsefInvoiceSubmissionService
         private readonly KsefOperationalEnvironmentPolicy $environments,
         private readonly KsefSubmissionFollowUpPolicy $followUp,
         private readonly KsefOfflineSubmissionIntegrityService $offlineIntegrity,
+        private readonly KsefOfflineTechnicalCorrectionIntegrityService $technicalCorrectionIntegrity,
     ) {}
 
     public function prepare(
@@ -241,17 +243,22 @@ class KsefInvoiceSubmissionService
 
     public function submit(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
     {
-        return $this->submitUsingMode($submission, false);
+        return $this->submitUsingMode($submission, KsefInvoiceTransportMode::Online);
     }
 
     public function submitOffline(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
     {
-        return $this->submitUsingMode($submission, true);
+        return $this->submitUsingMode($submission, KsefInvoiceTransportMode::OrdinaryOffline);
+    }
+
+    public function submitTechnicalCorrection(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
+    {
+        return $this->submitUsingMode($submission, KsefInvoiceTransportMode::OfflineTechnicalCorrection);
     }
 
     private function submitUsingMode(
         KsefInvoiceSubmission $submission,
-        bool $offline,
+        KsefInvoiceTransportMode $transportMode,
     ): KsefInvoiceSubmission {
         $this->assertTransportEnabled();
         $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
@@ -264,7 +271,13 @@ class KsefInvoiceSubmissionService
             $this->assertPayloadIntegrity($submission);
             $plaintext = $submission->payload_xml;
 
-            if ($offline) {
+            if ($transportMode->isTechnicalCorrection()) {
+                $this->assertCurrentTechnicalCorrectionContext($submission);
+                $artifact = $this->technicalCorrectionIntegrity->linkedArtifact($submission, $plaintext);
+                $issuance = $artifact->offlineIssuance()->firstOrFail();
+                $invoice = $artifact->invoice()->firstOrFail();
+                $this->technicalCorrectionIntegrity->assertNoAcceptedSibling($invoice, $issuance);
+            } elseif ($transportMode->isOffline()) {
                 $this->assertCurrentOfflineContext($submission);
                 $this->offlineIntegrity->linkedIssuance($submission, $plaintext);
             } else {
@@ -313,7 +326,14 @@ class KsefInvoiceSubmissionService
         }
 
         try {
-            if ($offline) {
+            if ($transportMode->isTechnicalCorrection()) {
+                $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
+                $this->assertCurrentTechnicalCorrectionContext($submission);
+                $artifact = $this->technicalCorrectionIntegrity->linkedArtifact($submission, $plaintext);
+                $issuance = $artifact->offlineIssuance()->firstOrFail();
+                $invoice = $artifact->invoice()->firstOrFail();
+                $this->technicalCorrectionIntegrity->assertNoAcceptedSibling($invoice, $issuance);
+            } elseif ($transportMode->isOffline()) {
                 $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
                 $this->offlineIntegrity->linkedIssuance($submission, $plaintext);
             } else {
@@ -331,11 +351,18 @@ class KsefInvoiceSubmissionService
                 $submission->environment,
                 $accessToken,
                 $submission->session_reference_number,
-                $offline
-                    ? $this->requests->sendOfflineInvoice($submission, $encryption)
-                    : $this->requests->sendInvoice($submission, $encryption),
+                match ($transportMode) {
+                    KsefInvoiceTransportMode::Online => $this->requests->sendInvoice($submission, $encryption),
+                    KsefInvoiceTransportMode::OrdinaryOffline => $this->requests->sendOfflineInvoice($submission, $encryption),
+                    KsefInvoiceTransportMode::OfflineTechnicalCorrection => $this->requests->sendTechnicalCorrection(
+                        $submission,
+                        $encryption,
+                        $artifact->hash_of_corrected_invoice,
+                    ),
+                },
             );
         } catch (KsefApiException $exception) {
+            $exception = $this->technicalCorrectionSendException($exception, $transportMode);
             if ($this->isUncertainSendFailure($exception)) {
                 $this->markUncertain($submission, $exception);
             } else {
@@ -852,6 +879,40 @@ class KsefInvoiceSubmissionService
         ], true) || ($exception->httpStatus !== null && $exception->httpStatus >= 500);
     }
 
+    private function technicalCorrectionSendException(
+        KsefApiException $exception,
+        KsefInvoiceTransportMode $transportMode,
+    ): KsefApiException {
+        if (! $transportMode->isTechnicalCorrection()) {
+            return $exception;
+        }
+
+        [$message, $safeCode] = match ($exception->reasonCode) {
+            '21166' => [
+                'KSeF nie udostępnia korekty technicznej dla tej Faktury Offline.',
+                'ksef_technical_correction_unavailable',
+            ],
+            '21167' => [
+                'Status źródłowej Faktury Offline nie pozwala na korektę techniczną.',
+                'ksef_technical_correction_source_status_invalid',
+            ],
+            default => [null, null],
+        };
+
+        if ($safeCode === null) {
+            return $exception;
+        }
+
+        return new KsefApiException(
+            $message,
+            $safeCode,
+            $exception->httpStatus,
+            $exception->reasonCode,
+            $exception->retryAfterSeconds,
+            $exception->systemWarning,
+        );
+    }
+
     private function assertPayloadIntegrity(KsefInvoiceSubmission $submission): void
     {
         if ($submission->schema_id !== 'FA (3) 1-0E'
@@ -866,7 +927,8 @@ class KsefInvoiceSubmissionService
 
     private function assertOnlineSubmission(KsefInvoiceSubmission $submission): void
     {
-        if ($submission->offline_issuance_id !== null) {
+        if ($submission->offline_issuance_id !== null
+            || $submission->offline_technical_correction_id !== null) {
             throw new KsefApiException(
                 'Próba Offline nie może zostać wysłana zwykłą ścieżką Online.',
                 'ksef_submission_mode_invalid',
@@ -896,6 +958,22 @@ class KsefInvoiceSubmissionService
             throw new KsefApiException(
                 'Aby przekazać tę historyczną Fakturę Offline, aktywny kontekst NIP KSeF musi odpowiadać kontekstowi zamrożonemu przy wystawieniu.',
                 'ksef_offline_submission_context_not_current',
+            );
+        }
+    }
+
+    private function assertCurrentTechnicalCorrectionContext(KsefInvoiceSubmission $submission): void
+    {
+        $this->assertCurrentOfflineContext($submission);
+
+        $settings = KsefSetting::query()
+            ->where('singleton_key', KsefSetting::SINGLETON_KEY)
+            ->first();
+
+        if ($settings === null || $settings->environment !== $submission->environment) {
+            throw new KsefApiException(
+                'Aktywne środowisko KSeF musi odpowiadać źródłowej Fakturze Offline.',
+                'ksef_technical_correction_configuration_changed',
             );
         }
     }
@@ -1088,6 +1166,13 @@ class KsefInvoiceSubmissionService
 
     private function safeErrorCode(KsefApiException $exception): string
     {
+        if (in_array($exception->safeCode, [
+            'ksef_technical_correction_unavailable',
+            'ksef_technical_correction_source_status_invalid',
+        ], true)) {
+            return $exception->safeCode;
+        }
+
         return $exception->reasonCode ?? $exception->safeCode;
     }
 }

@@ -13,6 +13,7 @@ final class KsefAcceptedOfflineInvoicePdfService
 {
     public function __construct(
         private readonly KsefOfflineSubmissionIntegrityService $integrity,
+        private readonly KsefOfflineTechnicalCorrectionIntegrityService $technicalCorrectionIntegrity,
         private readonly KsefOfflinePresentationDataExtractor $presentations,
         private readonly KsefOfflinePresentationPdfRenderer $renderer,
         private readonly KsefOfflinePdfFilenameGenerator $filenames,
@@ -34,7 +35,12 @@ final class KsefAcceptedOfflineInvoicePdfService
             );
         }
 
-        $this->integrity->linkedIssuance($submission);
+        $technicalArtifact = $submission->offline_technical_correction_id === null
+            ? null
+            : $this->technicalCorrectionIntegrity->linkedArtifact($submission);
+        if ($technicalArtifact === null) {
+            $this->integrity->linkedIssuance($submission);
+        }
         $number = trim((string) $submission->ksef_number);
 
         if ($submission->status !== KsefInvoiceSubmissionStatus::Accepted
@@ -48,7 +54,9 @@ final class KsefAcceptedOfflineInvoicePdfService
             );
         }
 
-        $presentation = $this->presentations->extract($issuance);
+        $presentation = $technicalArtifact === null
+            ? $this->presentations->extract($issuance)
+            : $this->presentations->extractTechnical($issuance, $technicalArtifact);
 
         return [
             'contents' => $this->renderer->renderAcceptedOfflineInvoice($presentation, $number),

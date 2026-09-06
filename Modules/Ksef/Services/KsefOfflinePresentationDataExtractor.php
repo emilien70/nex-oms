@@ -16,6 +16,7 @@ use Modules\Ksef\Enums\KsefOfflineBuyerClassification;
 use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefOfflineIssuance;
+use Modules\Ksef\Models\KsefOfflineTechnicalCorrection;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidenceValidator;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionTaxBuckets;
 use Modules\Ksef\Services\Fa3\KsefFa3XmlBuilder;
@@ -31,10 +32,43 @@ final class KsefOfflinePresentationDataExtractor
         private readonly KsefQrEnvironmentHostPolicy $qrHosts,
         private readonly KsefNumberValidator $ksefNumbers,
         private readonly KsefFa3CorrectionFinancialEvidenceValidator $financialEvidence,
+        private readonly KsefInvoiceVerificationLinkBuilder $invoiceLinks,
     ) {}
 
     public function extract(KsefOfflineIssuance $issuance): KsefOfflinePresentationData
     {
+        return $this->extractIssuance($issuance, requireCertificateUrl: true);
+    }
+
+    public function extractTechnical(
+        KsefOfflineIssuance $issuance,
+        KsefOfflineTechnicalCorrection $artifact,
+    ): KsefOfflinePresentationData {
+        $technical = $issuance->replicate();
+        $invoiceUrl = $this->invoiceLinks->buildFor(
+            $artifact->environment,
+            $artifact->seller_nip,
+            $issuance->issue_date,
+            $artifact->invoice_hash,
+        );
+        $technical->forceFill([
+            'environment' => $artifact->environment,
+            'seller_nip' => $artifact->seller_nip,
+            'schema_id' => $artifact->schema_id,
+            'payload_xml' => $artifact->payload_xml,
+            'invoice_hash' => $artifact->invoice_hash,
+            'invoice_size' => $artifact->invoice_size,
+            'invoice_verification_url' => $invoiceUrl,
+            'certificate_verification_url' => '',
+        ]);
+
+        return $this->extractIssuance($technical, requireCertificateUrl: false);
+    }
+
+    private function extractIssuance(
+        KsefOfflineIssuance $issuance,
+        bool $requireCertificateUrl,
+    ): KsefOfflinePresentationData {
         try {
             $xml = $issuance->payload_xml;
         } catch (DecryptException) {
@@ -68,7 +102,7 @@ final class KsefOfflinePresentationDataExtractor
         }
 
         if (! $this->invoiceUrlIsValid($issuance, $sellerNip, $issueDate)
-            || ! $this->certificateUrlIsValid($issuance)) {
+            || ($requireCertificateUrl && ! $this->certificateUrlIsValid($issuance))) {
             throw $this->integrityInvalid();
         }
 

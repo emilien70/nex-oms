@@ -308,6 +308,7 @@ class KsefInvoiceUpoService
         return [
             'invoice_id' => $submission->invoice_id,
             'offline_issuance_id' => (int) ($submission->offline_issuance_id ?? 0),
+            'offline_technical_correction_id' => (int) ($submission->offline_technical_correction_id ?? 0),
             'environment' => $submission->environment->value,
             'status' => $submission->status->value,
             'context_nip' => (string) $submission->context_nip,

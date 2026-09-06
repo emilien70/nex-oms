@@ -217,6 +217,18 @@
                 && $offlineSubmission?->status->allowsReconciliation() === true
                 && filled($offlineSubmission->session_reference_number);
             $offlineUpo = $offlineSubmission?->upo;
+            $technicalCorrection = $offlineRow['technical_correction'];
+            $technicalSourceSubmission = $offlineRow['technical_source_submission'];
+            $technicalCanPrepare = $ksefSubmissionGateEnabled
+                && $ksefSettings?->is_active
+                && $offlineRow['environment_allowed']
+                && $offlineRow['context_current']
+                && $offlineRow['technical_prepare_available'];
+            $technicalCanSubmit = $ksefSubmissionGateEnabled
+                && $ksefSettings?->is_active
+                && $offlineRow['environment_allowed']
+                && $offlineRow['context_current']
+                && $offlineRow['technical_submit_available'];
         @endphp
 
         <div class="invoice-ksef-offline-entry" data-ksef-offline-issuance-id="{{ $offlineIssuance->getKey() }}">
@@ -268,6 +280,26 @@
                             <button class="btn btn-outline-primary" type="submit">Pobierz UPO z KSeF</button>
                         </form>
                     @endif
+                @elseif ($technicalCanPrepare)
+                    <form
+                        method="POST"
+                        action="{{ route('invoices.ksef.offline-technical-corrections.prepare', ['invoice' => $invoice, 'issuance' => $offlineIssuance, 'submission' => $technicalSourceSubmission]) }}"
+                        data-ksef-technical-correction-prepare-form
+                        onsubmit="return window.confirm('Przygotować lokalnie korektę techniczną odrzuconej Faktury Offline? Dane biznesowe zostaną odtworzone z niezmiennego snapshotu Faktury.')"
+                    >
+                        @csrf
+                        <button class="btn btn-outline-warning" type="submit">PRZYGOTUJ KOREKTĘ TECHNICZNĄ</button>
+                    </form>
+                @elseif ($technicalCanSubmit)
+                    <form
+                        method="POST"
+                        action="{{ route('invoices.ksef.offline-technical-corrections.submit', ['invoice' => $invoice, 'technicalCorrection' => $technicalCorrection]) }}"
+                        data-ksef-technical-correction-submit-form
+                        onsubmit="return window.confirm('Przekazać przygotowaną korektę techniczną do KSeF {{ $offlineEnvironmentCode }}? Operacja wykona jedną próbę wysyłki.')"
+                    >
+                        @csrf
+                        <button class="btn btn-warning" type="submit">PRZEŚLIJ KOREKTĘ TECHNICZNĄ DO KSeF {{ $offlineEnvironmentCode }}</button>
+                    </form>
                 @elseif ($offlineCanTransmit)
                     <form
                         method="POST"
@@ -298,6 +330,14 @@
                             Integracja KSeF nie jest aktywna.
                         @else
                             Transmisja do środowiska {{ $offlineEnvironmentCode }} nie jest obecnie dostępna.
+                        @endif
+                    </p>
+                @elseif ($technicalSourceSubmission?->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected && $technicalCorrection === null)
+                    <p class="invoice-ksef-message invoice-ksef-warning mb-0" data-ksef-technical-correction-blocked>
+                        @if ($offlineRow['technical_eligibility'] === \Modules\Ksef\Enums\KsefTechnicalCorrectionEligibility::Ineligible)
+                            To odrzucenie nie kwalifikuje się do korekty technicznej KSeF.
+                        @else
+                            Nie można jednoznacznie potwierdzić, że dokument kwalifikuje się do korekty technicznej KSeF.
                         @endif
                     </p>
                 @endif
@@ -476,7 +516,12 @@
                     <tbody>
                         @foreach ($ksefSubmissions as $submission)
                             <tr data-ksef-submission-id="{{ $submission->getKey() }}">
-                                <td>{{ $submission->attempt_number }}</td>
+                                <td>
+                                    {{ $submission->attempt_number }}
+                                    @if ($submission->offline_technical_correction_id !== null)
+                                        <br><span class="text-muted" data-ksef-technical-correction-history>Korekta techniczna</span>
+                                    @endif
+                                </td>
                                 <td>{{ strtoupper($submission->environment->value) }}</td>
                                 <td><span class="badge text-bg-{{ $submission->status->badgeVariant() }}">{{ $submission->status->label() }}</span></td>
                                 <td>{{ $submission->generated_at?->format('d.m.Y H:i') ?? '—' }}</td>
