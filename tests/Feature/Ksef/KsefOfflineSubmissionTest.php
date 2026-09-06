@@ -33,7 +33,9 @@ use Modules\Ksef\Models\KsefOfflineCertificate;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
+use Modules\Ksef\Services\Fa3\KsefFa3InvoiceMapper;
 use Modules\Ksef\Services\Fa3\KsefFa3IssueDateReader;
+use Modules\Ksef\Services\Fa3\KsefFa3OptionalBlocksResolver;
 use Modules\Ksef\Services\Fa3\KsefFa3SchemaValidator;
 use Modules\Ksef\Services\Fa3\KsefFa3XmlBuilder;
 use Modules\Ksef\Services\KsefAcceptedOfflineInvoicePdfService;
@@ -763,6 +765,7 @@ class KsefOfflineSubmissionTest extends TestCase
         $originalHash = $issuance->invoice_hash;
         $originalSize = $issuance->invoice_size;
         $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        $this->disableCurrentInvoiceProjectionServices();
         $this->validAccessToken();
         $fake = $this->fakeOnlineApi();
         $fake->openResponse['referenceNumber'] = KsefUpoFixture::SESSION_REFERENCE;
@@ -949,6 +952,24 @@ class KsefOfflineSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_historical_artifact_integrity_does_not_use_the_current_mapper_options_or_generator(): void
+    {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+
+        $this->disableCurrentInvoiceProjectionServices();
+
+        app(KsefOfflineTechnicalCorrectionIntegrityService::class)
+            ->assertArtifact($artifact, $invoice, $issuance, $source);
+
+        $this->assertSame(
+            $artifact->business_fingerprint,
+            app(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class)
+                ->fromInvoice($invoice, 1),
+        );
+        Http::assertNothingSent();
+    }
+
     #[DataProvider('frozenArtifactMetadataTampering')]
     public function test_frozen_policy_and_business_fingerprint_metadata_tampering_fails_closed(
         string $field,
@@ -1058,7 +1079,7 @@ class KsefOfflineSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_order_and_order_item_drift_do_not_change_the_frozen_invoice_fingerprint(): void
+    public function test_current_order_item_series_and_ksef_settings_drift_do_not_change_the_frozen_invoice_fingerprint(): void
     {
         [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
         $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
@@ -1068,6 +1089,19 @@ class KsefOfflineSubmissionTest extends TestCase
         DB::table('order_items')->where('order_id', $invoice->order_id)->update([
             'product_name' => 'Later mutable product value',
         ]);
+        $invoice->series()->update([
+            'seller_name' => 'Later mutable seller value',
+            'seller_bank_account' => 'INVALID-LIVE-ACCOUNT',
+        ]);
+        app(KsefSettingsService::class)->get()->forceFill([
+            'include_recipient_data' => false,
+            'include_buyer_contact_data' => false,
+            'include_additional_information' => false,
+            'include_order_reference' => false,
+            'include_bank_account' => false,
+            'include_gtu' => false,
+            'include_seller_vat_prefix' => true,
+        ])->save();
 
         app(KsefOfflineTechnicalCorrectionIntegrityService::class)
             ->assertArtifact($artifact, $invoice->fresh(), $issuance, $source);
@@ -1257,6 +1291,19 @@ class KsefOfflineSubmissionTest extends TestCase
     private function hash(string $bytes): string
     {
         return base64_encode(hash('sha256', $bytes, true));
+    }
+
+    private function disableCurrentInvoiceProjectionServices(): void
+    {
+        foreach ([
+            KsefFa3InvoiceMapper::class => 'map',
+            KsefFa3OptionalBlocksResolver::class => 'resolve',
+            KsefFa3DocumentGenerator::class => 'generate',
+        ] as $service => $method) {
+            $mock = Mockery::mock($service);
+            $mock->shouldNotReceive($method);
+            $this->app->instance($service, $mock);
+        }
     }
 
     private function readyCertificate(KsefEnvironment $environment): KsefOfflineCertificate

@@ -2,26 +2,26 @@
 
 namespace Modules\Ksef\Services;
 
-use DateTimeImmutable;
+use Brick\Math\BigDecimal;
+use Brick\Math\Exception\MathException;
+use Brick\Math\RoundingMode;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
 use DOMXPath;
+use InvalidArgumentException;
 use JsonException;
 use Modules\Invoices\Models\Invoice;
-use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Ksef\Exceptions\KsefApiException;
-use Modules\Ksef\Services\Fa3\KsefFa3InvoiceMapper;
-use Modules\Ksef\Services\Fa3\KsefFa3XmlBuilder;
-use Modules\Ksef\ValueObjects\Fa3\KsefFa3DocumentData;
 
 class KsefOfflineTechnicalCorrectionBusinessFingerprintService
 {
     public const CURRENT_VERSION = 1;
 
+    private const FA3_NAMESPACE = 'http://crd.gov.pl/wzor/2025/06/25/13775/';
+
     public function __construct(
-        private readonly KsefFa3InvoiceMapper $mapper,
-        private readonly InvoiceDecimalCalculator $decimal,
+        private readonly KsefOfflineTechnicalCorrectionInvoiceBusinessProjectionV1 $invoiceProjection,
     ) {}
 
     public function supportsVersion(int $version): bool
@@ -33,9 +33,7 @@ class KsefOfflineTechnicalCorrectionBusinessFingerprintService
     {
         $this->assertSupportedVersion($version);
 
-        return $this->fingerprint($this->fromDocumentDataV1(
-            $this->mapper->map($invoice, new DateTimeImmutable('@0')),
-        ));
+        return $this->fingerprint($this->invoiceProjection->project($invoice));
     }
 
     public function fromPayload(string $xml, int $version): string
@@ -43,86 +41,6 @@ class KsefOfflineTechnicalCorrectionBusinessFingerprintService
         $this->assertSupportedVersion($version);
 
         return $this->fingerprint($this->fromPayloadV1($xml));
-    }
-
-    /** @return array<string, mixed> */
-    private function fromDocumentDataV1(KsefFa3DocumentData $data): array
-    {
-        $sellerAddress = $this->dataAddress($data->seller['address'] ?? null, true);
-        $buyerAddress = $this->dataAddress($data->buyer['address'] ?? null, false);
-        $buyerContacts = $this->dataContacts($data->buyer['contacts'] ?? null);
-        $buyerIdentityType = $this->requiredDataString($data->buyer['identity_type'] ?? null);
-
-        return [
-            'header' => [
-                'form_code' => 'FA',
-                'system_code' => 'FA (3)',
-                'schema_version' => '1-0E',
-                'variant' => '3',
-                'system_info' => 'NEX-OMS',
-            ],
-            'document_kind' => 'VAT',
-            'seller' => [
-                'taxpayer_prefix' => $this->optionalDataString($data->seller['taxpayer_prefix'] ?? null),
-                'nip' => $this->requiredDataString($data->seller['nip'] ?? null),
-                'name' => $this->requiredDataString($data->seller['name'] ?? null),
-                'address' => $sellerAddress,
-            ],
-            'buyer' => [
-                'identity_type' => $buyerIdentityType,
-                'identity_country_code' => $buyerIdentityType === 'eu_vat'
-                    ? $this->requiredDataString($data->buyer['identity_country_code'] ?? null)
-                    : null,
-                'identity_identifier' => $buyerIdentityType === 'none'
-                    ? null
-                    : $this->requiredDataString($data->buyer['identity_identifier'] ?? null),
-                'name' => $this->optionalDataString($data->buyer['name'] ?? null),
-                'address' => $buyerAddress,
-                'contacts' => $buyerContacts,
-                'jst' => $this->dataBool($data->buyer['jst'] ?? null),
-                'vat_group' => $this->dataBool($data->buyer['vat_group'] ?? null),
-            ],
-            'recipient' => $this->dataRecipient($data->recipient),
-            'invoice' => [
-                'currency' => $this->requiredDataString($data->invoice['currency'] ?? null),
-                'issue_date' => $this->requiredDataString($data->invoice['issue_date'] ?? null),
-                'place_of_issue' => $this->optionalDataString($data->invoice['place_of_issue'] ?? null),
-                'number' => $this->requiredDataString($data->invoice['number'] ?? null),
-                'sale_date' => $this->optionalDataString($data->invoice['sale_date'] ?? null),
-                'tax_buckets' => $this->dataTaxBuckets($data->taxBuckets),
-                'total_gross' => $this->money($data->invoice['total_gross'] ?? null),
-                'annotations' => [
-                    'cash_accounting' => $this->dataBool($data->annotations['cash_accounting'] ?? null),
-                    'self_billing' => $this->dataBool($data->annotations['self_billing'] ?? null),
-                    'reverse_charge' => $this->dataBool($data->annotations['reverse_charge'] ?? null),
-                    'split_payment' => $this->dataBool($data->annotations['split_payment'] ?? null),
-                    'exemption' => false,
-                    'new_transport_mean' => $this->dataBool($data->annotations['new_transport_mean'] ?? null),
-                    'triangular_transaction' => $this->dataBool($data->annotations['triangular_transaction'] ?? null),
-                    'margin_scheme' => $this->dataBool($data->annotations['margin_scheme'] ?? null),
-                ],
-                'additional_descriptions' => array_map(fn (array $description): array => [
-                    'key' => $this->requiredDataString($description['key'] ?? null),
-                    'value' => $this->requiredDataString($description['value'] ?? null),
-                ], $data->additionalDescriptions),
-                'lines' => array_map(fn (array $line): array => [
-                    'position' => $this->positiveInteger($line['position'] ?? null),
-                    'name' => $this->requiredDataString($line['name'] ?? null),
-                    'unit_name' => $this->requiredDataString($line['unit_name'] ?? null),
-                    'quantity' => $this->quantity($line['quantity'] ?? null),
-                    'unit_price_net' => $this->money($line['unit_price_net'] ?? null),
-                    'total_net' => $this->money($line['total_net'] ?? null),
-                    'fa3_rate' => $this->vatRate($line['fa3_rate'] ?? null),
-                    'gtu' => $this->optionalDataString($line['gtu'] ?? null),
-                ], $data->lines),
-                'payment' => $this->dataPayment($data->payment),
-                'transaction_terms' => $this->dataTransactionTerms($data->transactionTerms),
-            ],
-            'registrations' => [
-                'regon' => $this->optionalDataString($data->registrations['regon'] ?? null),
-                'bdo' => $this->optionalDataString($data->registrations['bdo'] ?? null),
-            ],
-        ];
     }
 
     /** @return array<string, mixed> */
@@ -167,89 +85,6 @@ class KsefOfflineTechnicalCorrectionBusinessFingerprintService
             ],
             'registrations' => $this->payloadRegistrations($xpath),
         ];
-    }
-
-    /** @param array<string, mixed>|null $recipient
-     * @return array<string, mixed>|null
-     */
-    private function dataRecipient(?array $recipient): ?array
-    {
-        if ($recipient === null) {
-            return null;
-        }
-
-        return [
-            'identity_type' => 'none',
-            'name' => $this->requiredDataString($recipient['name'] ?? null),
-            'address' => $this->dataAddress($recipient['address'] ?? null, true),
-            'role_type' => 'other',
-            'role_description' => $this->requiredDataString($recipient['role_description'] ?? null),
-        ];
-    }
-
-    /** @param array<string, mixed>|null $payment
-     * @return array<string, mixed>|null
-     */
-    private function dataPayment(?array $payment): ?array
-    {
-        if ($payment === null) {
-            return null;
-        }
-
-        $bank = is_array($payment['bank_account'] ?? null) ? $payment['bank_account'] : null;
-
-        return [
-            'paid_date' => $this->optionalDataString($payment['paid_date'] ?? null),
-            'due_date' => $this->optionalDataString($payment['due_date'] ?? null),
-            'method_code' => $this->optionalDataString($payment['method_code'] ?? null),
-            'method_description' => $this->optionalDataString($payment['method_description'] ?? null),
-            'bank_account' => $bank === null ? null : [
-                'number' => $this->requiredDataString($bank['number'] ?? null),
-                'swift' => $this->optionalDataString($bank['swift'] ?? null),
-                'name' => $this->optionalDataString($bank['name'] ?? null),
-            ],
-        ];
-    }
-
-    /** @param array<string, string>|null $terms
-     * @return array<string, ?string>|null
-     */
-    private function dataTransactionTerms(?array $terms): ?array
-    {
-        if ($terms === null) {
-            return null;
-        }
-
-        return [
-            'date' => $this->optionalDataString($terms['date'] ?? null),
-            'number' => $this->requiredDataString($terms['number'] ?? null),
-        ];
-    }
-
-    /** @param array<string, mixed> $buckets
-     * @return array<string, mixed>
-     */
-    private function dataTaxBuckets(array $buckets): array
-    {
-        $result = [];
-        foreach (['standard_1', 'standard_2', 'standard_3'] as $key) {
-            $bucket = $buckets[$key] ?? null;
-            $result[$key] = is_array($bucket) ? [
-                'net' => $this->money($bucket['net'] ?? null),
-                'vat' => $this->money($bucket['vat'] ?? null),
-                'pln_vat' => array_key_exists('pln_vat', $bucket)
-                    ? $this->money($bucket['pln_vat'])
-                    : null,
-            ] : null;
-        }
-        foreach (['domestic_zero', 'wdt', 'export'] as $key) {
-            $bucket = $buckets[$key] ?? null;
-            $result[$key] = is_array($bucket) ? [
-                'net' => $this->money($bucket['net'] ?? null),
-            ] : null;
-        }
-
-        return $result;
     }
 
     /** @return array<string, mixed> */
@@ -477,26 +312,6 @@ class KsefOfflineTechnicalCorrectionBusinessFingerprintService
         ];
     }
 
-    /** @param array<string, mixed>|null $address
-     * @return array<string, ?string>|null
-     */
-    private function dataAddress(mixed $address, bool $required): ?array
-    {
-        if (! is_array($address)) {
-            if (! $required && $address === null) {
-                return null;
-            }
-
-            throw $this->invalidProjection();
-        }
-
-        return [
-            'country_code' => $this->requiredDataString($address['country_code'] ?? null),
-            'line_1' => $this->requiredDataString($address['line_1'] ?? null),
-            'line_2' => $this->optionalDataString($address['line_2'] ?? null),
-        ];
-    }
-
     /** @return array<string, ?string> */
     private function payloadAddress(DOMXPath $xpath, DOMNode $address): array
     {
@@ -504,22 +319,6 @@ class KsefOfflineTechnicalCorrectionBusinessFingerprintService
             'country_code' => $this->requiredText($xpath, './fa:KodKraju', $address),
             'line_1' => $this->requiredText($xpath, './fa:AdresL1', $address),
             'line_2' => $this->optionalText($xpath, './fa:AdresL2', $address),
-        ];
-    }
-
-    /** @return array<string, ?string>|null */
-    private function dataContacts(mixed $contacts): ?array
-    {
-        if ($contacts === null) {
-            return null;
-        }
-        if (! is_array($contacts)) {
-            throw $this->invalidProjection();
-        }
-
-        return [
-            'email' => $this->optionalDataString($contacts['email'] ?? null),
-            'phone' => $this->optionalDataString($contacts['phone'] ?? null),
         ];
     }
 
@@ -545,12 +344,12 @@ class KsefOfflineTechnicalCorrectionBusinessFingerprintService
         if (! $loaded
             || $document->doctype !== null
             || $document->documentElement?->localName !== 'Faktura'
-            || $document->documentElement?->namespaceURI !== KsefFa3XmlBuilder::NAMESPACE) {
+            || $document->documentElement?->namespaceURI !== self::FA3_NAMESPACE) {
             throw $this->invalidProjection();
         }
 
         $xpath = new DOMXPath($document);
-        $xpath->registerNamespace('fa', KsefFa3XmlBuilder::NAMESPACE);
+        $xpath->registerNamespace('fa', self::FA3_NAMESPACE);
 
         return $xpath;
     }
@@ -660,8 +459,10 @@ class KsefOfflineTechnicalCorrectionBusinessFingerprintService
         }
 
         try {
-            $normalized = $this->decimal->normalize($value, $scale);
-        } catch (\Throwable) {
+            $normalized = BigDecimal::of($value)
+                ->toScale($scale, RoundingMode::HALF_UP)
+                ->__toString();
+        } catch (MathException|InvalidArgumentException) {
             throw $this->invalidProjection();
         }
 
@@ -695,33 +496,6 @@ class KsefOfflineTechnicalCorrectionBusinessFingerprintService
             '2' => false,
             default => throw $this->invalidProjection(),
         };
-    }
-
-    private function requiredDataString(mixed $value): string
-    {
-        if (! is_string($value) || $value === '') {
-            throw $this->invalidProjection();
-        }
-
-        return $value;
-    }
-
-    private function optionalDataString(mixed $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        return $this->requiredDataString($value);
-    }
-
-    private function dataBool(mixed $value): bool
-    {
-        if (! is_bool($value)) {
-            throw $this->invalidProjection();
-        }
-
-        return $value;
     }
 
     /** @param array<string, mixed> $projection */
