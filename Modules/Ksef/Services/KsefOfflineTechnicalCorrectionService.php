@@ -19,6 +19,7 @@ final class KsefOfflineTechnicalCorrectionService
     public function __construct(
         private readonly KsefFa3DocumentGenerator $generator,
         private readonly KsefOfflineTechnicalCorrectionIntegrityService $integrity,
+        private readonly KsefOfflineTechnicalCorrectionBusinessFingerprintService $businessFingerprint,
         private readonly KsefOperationalEnvironmentPolicy $environments,
     ) {}
 
@@ -51,11 +52,23 @@ final class KsefOfflineTechnicalCorrectionService
                 }
 
                 $generatedAt = CarbonImmutable::now('UTC');
+                $businessFingerprintVersion = KsefOfflineTechnicalCorrectionBusinessFingerprintService::CURRENT_VERSION;
+                $invoiceBusinessFingerprint = $this->businessFingerprint->fromInvoice(
+                    $managedInvoice,
+                    $businessFingerprintVersion,
+                );
                 $generated = $this->generator->generate(
                     $managedInvoice,
                     $generatedAt,
                     KsefFa3EligibilityMode::Authoritative,
                 );
+                $payloadBusinessFingerprint = $this->businessFingerprint->fromPayload(
+                    $generated->xml,
+                    $businessFingerprintVersion,
+                );
+                if (! hash_equals($invoiceBusinessFingerprint, $payloadBusinessFingerprint)) {
+                    throw $this->businessSemanticsMismatch();
+                }
                 $hash = $this->hash($generated->xml);
 
                 if (hash_equals($hash, (string) $managedIssuance->invoice_hash)) {
@@ -78,6 +91,10 @@ final class KsefOfflineTechnicalCorrectionService
                     'invoice_hash' => $hash,
                     'invoice_size' => strlen($generated->xml),
                     'hash_of_corrected_invoice' => $managedIssuance->invoice_hash,
+                    'source_status_code' => $managedSource->ksef_status_code,
+                    'eligibility_policy_version' => KsefOfflineTechnicalCorrectionEligibilityService::CURRENT_POLICY_VERSION,
+                    'business_fingerprint' => $invoiceBusinessFingerprint,
+                    'business_fingerprint_version' => $businessFingerprintVersion,
                 ]);
 
                 $this->integrity->assertArtifact(
@@ -129,6 +146,14 @@ final class KsefOfflineTechnicalCorrectionService
         return new KsefApiException(
             'Korekta techniczna dla tej odrzuconej Faktury Offline została już przygotowana.',
             'ksef_technical_correction_already_prepared',
+        );
+    }
+
+    private function businessSemanticsMismatch(): KsefApiException
+    {
+        return new KsefApiException(
+            'Wygenerowana korekta techniczna nie odpowiada niezmiennej treści biznesowej Faktury.',
+            'ksef_technical_correction_business_semantics_mismatch',
         );
     }
 

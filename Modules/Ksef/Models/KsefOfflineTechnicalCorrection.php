@@ -25,6 +25,10 @@ final class KsefOfflineTechnicalCorrection extends Model
         'invoice_hash',
         'invoice_size',
         'hash_of_corrected_invoice',
+        'source_status_code',
+        'eligibility_policy_version',
+        'business_fingerprint',
+        'business_fingerprint_version',
     ];
 
     protected $hidden = [
@@ -36,6 +40,9 @@ final class KsefOfflineTechnicalCorrection extends Model
         'generated_at' => KsefUtcInstantCast::class,
         'payload_xml' => 'encrypted',
         'invoice_size' => 'integer',
+        'source_status_code' => 'integer',
+        'eligibility_policy_version' => 'integer',
+        'business_fingerprint_version' => 'integer',
     ];
 
     protected static function booted(): void

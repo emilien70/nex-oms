@@ -24,6 +24,7 @@ use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Enums\KsefLatarniaEvidenceCoverage;
 use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Enums\KsefOfflineSubmissionObligationStatus;
+use Modules\Ksef\Enums\KsefTechnicalCorrectionEligibility;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
@@ -45,6 +46,8 @@ use Modules\Ksef\Services\KsefOfflinePresentationDataExtractor;
 use Modules\Ksef\Services\KsefOfflinePresentationPdfRenderer;
 use Modules\Ksef\Services\KsefOfflineSubmissionIntegrityService;
 use Modules\Ksef\Services\KsefOfflineSubmissionObligationEngine;
+use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionBusinessFingerprintService;
+use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionEligibilityService;
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionIntegrityService;
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionService;
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionSubmissionService;
@@ -139,6 +142,10 @@ class KsefOfflineSubmissionTest extends TestCase
             'invoice_hash',
             'invoice_size',
             'hash_of_corrected_invoice',
+            'source_status_code',
+            'eligibility_policy_version',
+            'business_fingerprint',
+            'business_fingerprint_version',
         ]));
         $this->assertTrue(Schema::hasColumn('ksef_invoice_submissions', 'offline_technical_correction_id'));
 
@@ -545,6 +552,20 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->assertSame($this->hash($artifact->payload_xml), $artifact->invoice_hash);
         $this->assertSame(strlen($artifact->payload_xml), $artifact->invoice_size);
         $this->assertSame($issuance->invoice_hash, $artifact->hash_of_corrected_invoice);
+        $this->assertSame(450, $artifact->source_status_code);
+        $this->assertSame(1, $artifact->eligibility_policy_version);
+        $this->assertSame(1, $artifact->business_fingerprint_version);
+        $this->assertSame(44, strlen($artifact->business_fingerprint));
+        $this->assertSame(
+            $artifact->business_fingerprint,
+            app(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class)
+                ->fromInvoice($invoice, $artifact->business_fingerprint_version),
+        );
+        $this->assertSame(
+            $artifact->business_fingerprint,
+            app(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class)
+                ->fromPayload($artifact->payload_xml, $artifact->business_fingerprint_version),
+        );
         $this->assertNotSame($artifact->invoice_hash, $artifact->hash_of_corrected_invoice);
         $this->assertNotSame($artifact->payload_xml, $rawPayload);
         $this->assertStringNotContainsString('<Faktura', $rawPayload);
@@ -558,7 +579,9 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->get(route('invoices.edit', $invoice))
             ->assertOk()
             ->assertSee('PRZEŚLIJ KOREKTĘ TECHNICZNĄ DO KSeF TEST')
-            ->assertDontSee('PRZYGOTUJ KOREKTĘ TECHNICZNĄ');
+            ->assertDontSee('PRZYGOTUJ KOREKTĘ TECHNICZNĄ')
+            ->assertDontSee('PONÓW TRANSMISJĘ OFFLINE24')
+            ->assertDontSee('PRZEŚLIJ OFFLINE24 DO KSeF');
 
         try {
             app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
@@ -883,6 +906,249 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->assertSame(1, $fake->sendCalls);
     }
 
+    public function test_technical_prepare_rolls_back_when_invoice_and_payload_business_fingerprints_differ(): void
+    {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $fingerprints = Mockery::mock(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class);
+        $fingerprints->shouldReceive('fromInvoice')->once()->andReturn($this->hash('invoice-business'));
+        $fingerprints->shouldReceive('fromPayload')->once()->andReturn($this->hash('payload-business'));
+        $this->app->instance(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class, $fingerprints);
+
+        $this->expectKsefError(
+            'ksef_technical_correction_business_semantics_mismatch',
+            fn () => app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source),
+        );
+
+        $this->assertDatabaseCount('ksef_offline_technical_corrections', 0);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        Http::assertNothingSent();
+    }
+
+    public function test_historical_artifact_uses_frozen_policy_v1_when_simulated_current_policy_rejects_450(): void
+    {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        $futurePolicy = new class extends KsefOfflineTechnicalCorrectionEligibilityService
+        {
+            public function classify(?int $statusCode): KsefTechnicalCorrectionEligibility
+            {
+                return KsefTechnicalCorrectionEligibility::Ineligible;
+            }
+        };
+        $this->assertSame(KsefTechnicalCorrectionEligibility::Ineligible, $futurePolicy->classify(450));
+
+        $integrity = new KsefOfflineTechnicalCorrectionIntegrityService(
+            $futurePolicy,
+            app(KsefFa3SchemaValidator::class),
+            app(KsefFa3IssueDateReader::class),
+            app(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class),
+        );
+        $integrity->assertArtifact($artifact, $invoice, $issuance, $source);
+
+        $this->assertTrue(true);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('frozenArtifactMetadataTampering')]
+    public function test_frozen_policy_and_business_fingerprint_metadata_tampering_fails_closed(
+        string $field,
+        mixed $value,
+        string $expectedCode,
+    ): void {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        DB::table('ksef_offline_technical_corrections')
+            ->where('id', $artifact->getKey())
+            ->update([$field => $value]);
+
+        $this->expectKsefError(
+            $expectedCode,
+            fn () => app(KsefOfflineTechnicalCorrectionIntegrityService::class)
+                ->assertArtifact($artifact->fresh()),
+        );
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        Http::assertNothingSent();
+    }
+
+    public static function frozenArtifactMetadataTampering(): array
+    {
+        return [
+            'unknown eligibility policy' => ['eligibility_policy_version', 999, 'ksef_technical_correction_integrity_invalid'],
+            'unknown business fingerprint version' => ['business_fingerprint_version', 999, 'ksef_technical_correction_integrity_invalid'],
+            'stored business fingerprint' => [
+                'business_fingerprint',
+                base64_encode(hash('sha256', 'tampered-business', true)),
+                'ksef_technical_correction_business_semantics_mismatch',
+            ],
+        ];
+    }
+
+    public function test_frozen_source_status_code_must_still_match_the_rejected_submission(): void
+    {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        $source->forceFill(['ksef_status_code' => 440])->save();
+
+        $this->expectKsefError(
+            'ksef_technical_correction_integrity_invalid',
+            fn () => app(KsefOfflineTechnicalCorrectionIntegrityService::class)
+                ->assertArtifact($artifact, $invoice, $issuance, $source->fresh()),
+        );
+
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('technicalPayloadBusinessTampering')]
+    public function test_business_payload_tampering_is_blocked_after_outer_hash_and_size_are_recomputed(
+        string $expression,
+        string $replacement,
+    ): void {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        $tamperedPayload = $this->replaceFa3Value($artifact->payload_xml, $expression, $replacement);
+        app(KsefFa3SchemaValidator::class)->validate($tamperedPayload);
+        DB::table('ksef_offline_technical_corrections')
+            ->where('id', $artifact->getKey())
+            ->update([
+                'payload_xml' => Crypt::encryptString($tamperedPayload),
+                'invoice_hash' => $this->hash($tamperedPayload),
+                'invoice_size' => strlen($tamperedPayload),
+            ]);
+
+        $this->expectKsefError(
+            'ksef_technical_correction_business_semantics_mismatch',
+            fn () => app(KsefOfflineTechnicalCorrectionSubmissionService::class)
+                ->submitAttempt($invoice, $artifact->fresh()),
+        );
+
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        Http::assertNothingSent();
+    }
+
+    public static function technicalPayloadBusinessTampering(): array
+    {
+        return [
+            'buyer' => ['/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:Nazwa', 'Changed Buyer SA'],
+            'currency' => ['/fa:Faktura/fa:Fa/fa:KodWaluty', 'EUR'],
+            'quantity' => ['/fa:Faktura/fa:Fa/fa:FaWiersz[1]/fa:P_8B', '2'],
+            'unit price' => ['/fa:Faktura/fa:Fa/fa:FaWiersz[1]/fa:P_9A', '101.00'],
+            'VAT treatment' => ['/fa:Faktura/fa:Fa/fa:FaWiersz[1]/fa:P_12', '8'],
+            'VAT summary' => ['/fa:Faktura/fa:Fa/fa:P_14_1', '24.00'],
+            'gross total' => ['/fa:Faktura/fa:Fa/fa:P_15', '124.00'],
+        ];
+    }
+
+    public function test_immutable_invoice_snapshot_tampering_breaks_the_three_way_business_invariant(): void
+    {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        $buyer = $invoice->buyer_snapshot;
+        $buyer['company_name'] = 'Tampered immutable buyer';
+        DB::table('invoices')->where('id', $invoice->getKey())->update([
+            'buyer_snapshot' => json_encode($buyer, JSON_THROW_ON_ERROR),
+        ]);
+
+        $this->expectKsefError(
+            'ksef_technical_correction_business_semantics_mismatch',
+            fn () => app(KsefOfflineTechnicalCorrectionIntegrityService::class)
+                ->assertArtifact($artifact, $invoice->fresh(), $issuance, $source),
+        );
+
+        Http::assertNothingSent();
+    }
+
+    public function test_order_and_order_item_drift_do_not_change_the_frozen_invoice_fingerprint(): void
+    {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        DB::table('orders')->where('id', $invoice->order_id)->update([
+            'billing_name' => 'Later mutable customer and address value',
+        ]);
+        DB::table('order_items')->where('order_id', $invoice->order_id)->update([
+            'product_name' => 'Later mutable product value',
+        ]);
+
+        app(KsefOfflineTechnicalCorrectionIntegrityService::class)
+            ->assertArtifact($artifact, $invoice->fresh(), $issuance, $source);
+
+        $this->assertSame(
+            $artifact->business_fingerprint,
+            app(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class)
+                ->fromInvoice($invoice->fresh(), 1),
+        );
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('ordinaryResendBlockedTechnicalStates')]
+    public function test_ordinary_offline_resend_is_blocked_after_technical_remediation_exists(
+        KsefInvoiceSubmissionStatus $status,
+    ): void {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        $technical = app(KsefOfflineTechnicalCorrectionSubmissionService::class)->prepare($invoice, $artifact);
+        $technical->forceFill(['status' => $status])->save();
+        $count = KsefInvoiceSubmission::query()->count();
+
+        $this->expectKsefError(
+            'ksef_offline_submission_technical_remediation_exists',
+            fn () => app(KsefOfflineInvoiceSubmissionService::class)->submitAttempt($invoice, $issuance),
+        );
+
+        $this->assertSame($count, KsefInvoiceSubmission::query()->count());
+        Http::assertNothingSent();
+    }
+
+    public static function ordinaryResendBlockedTechnicalStates(): array
+    {
+        return [
+            'uncertain' => [KsefInvoiceSubmissionStatus::Uncertain],
+            'technical failed' => [KsefInvoiceSubmissionStatus::TechnicalFailed],
+            'rejected' => [KsefInvoiceSubmissionStatus::Rejected],
+        ];
+    }
+
+    #[DataProvider('technicalUiStates')]
+    public function test_technical_history_never_exposes_ordinary_resend_or_a_second_technical_send(
+        KsefInvoiceSubmissionStatus $status,
+        bool $manualAnalysis,
+    ): void {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        $technical = app(KsefOfflineTechnicalCorrectionSubmissionService::class)->prepare($invoice, $artifact);
+        $attributes = ['status' => $status];
+        if ($status === KsefInvoiceSubmissionStatus::Accepted) {
+            $attributes += [
+                'invoicing_mode' => KsefInvoicingMode::Offline,
+                'ksef_number' => $this->validKsefNumber($issuance->seller_nip, $issuance->issue_date->format('Ymd')),
+            ];
+        }
+        $technical->forceFill($attributes)->save();
+
+        $response = $this->get(route('invoices.edit', $invoice))
+            ->assertOk()
+            ->assertDontSee('PONÓW TRANSMISJĘ OFFLINE24')
+            ->assertDontSee('PRZEŚLIJ OFFLINE24 DO KSeF')
+            ->assertDontSee('PRZEŚLIJ KOREKTĘ TECHNICZNĄ DO KSeF');
+
+        if ($manualAnalysis) {
+            $response->assertSee('Korekta techniczna nie została przyjęta. Dalsza transmisja wymaga ręcznej analizy.');
+        }
+        Http::assertNothingSent();
+    }
+
+    public static function technicalUiStates(): array
+    {
+        return [
+            'submitted' => [KsefInvoiceSubmissionStatus::Submitted, false],
+            'processing' => [KsefInvoiceSubmissionStatus::Processing, false],
+            'uncertain' => [KsefInvoiceSubmissionStatus::Uncertain, false],
+            'technical failed' => [KsefInvoiceSubmissionStatus::TechnicalFailed, true],
+            'rejected' => [KsefInvoiceSubmissionStatus::Rejected, true],
+            'accepted' => [KsefInvoiceSubmissionStatus::Accepted, false],
+        ];
+    }
+
     /** @return array{0: Invoice, 1: KsefOfflineIssuance, 2: KsefOfflineCertificate} */
     private function issueOffline(
         KsefEnvironment $environment = KsefEnvironment::Test,
@@ -970,6 +1236,22 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->assertSame(1, $nodes->length);
 
         return trim($nodes->item(0)?->textContent ?? '');
+    }
+
+    private function replaceFa3Value(string $xml, string $expression, string $replacement): string
+    {
+        $document = new \DOMDocument;
+        $this->assertTrue($document->loadXML($xml, LIBXML_NONET));
+        $xpath = new \DOMXPath($document);
+        $xpath->registerNamespace('fa', KsefFa3XmlBuilder::NAMESPACE);
+        $nodes = $xpath->query($expression);
+        $this->assertNotFalse($nodes);
+        $this->assertSame(1, $nodes->length);
+        $nodes->item(0)->textContent = $replacement;
+        $payload = $document->saveXML();
+        $this->assertIsString($payload);
+
+        return $payload;
     }
 
     private function hash(string $bytes): string

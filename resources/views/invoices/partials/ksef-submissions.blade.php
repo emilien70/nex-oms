@@ -195,7 +195,10 @@
     @foreach ($ksefOfflineIssuanceRows as $offlineRow)
         @php
             $offlineIssuance = $offlineRow['issuance'];
-            $offlineSubmission = $offlineRow['submission'];
+            $offlineSubmission = $offlineRow['latest_offline_activity'];
+            $ordinaryOfflineSubmission = $offlineRow['ordinary_submission'];
+            $technicalSubmission = $offlineRow['technical_submission'];
+            $hasTechnicalRemediation = $offlineRow['has_technical_remediation'];
             $offlineEnvironmentCode = strtoupper($offlineIssuance->environment->value);
             $offlineProcedureActionLabel = mb_strtoupper($offlineIssuance->procedure->label(), 'UTF-8');
             $offlineModeMatches = $offlineSubmission?->hasExpectedInvoicingMode() ?? false;
@@ -203,8 +206,9 @@
                 && $ksefSettings?->is_active
                 && $offlineRow['environment_allowed']
                 && $offlineRow['context_current']
-                && ($offlineSubmission === null
-                    || $offlineSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::TechnicalFailed);
+                && ! $hasTechnicalRemediation
+                && ($ordinaryOfflineSubmission === null
+                    || $ordinaryOfflineSubmission->status === \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::TechnicalFailed);
             $offlineCanRefresh = $ksefSubmissionGateEnabled
                 && $ksefSettings?->is_active
                 && $offlineRow['environment_allowed']
@@ -300,6 +304,13 @@
                         @csrf
                         <button class="btn btn-warning" type="submit">PRZEŚLIJ KOREKTĘ TECHNICZNĄ DO KSeF {{ $offlineEnvironmentCode }}</button>
                     </form>
+                @elseif ($technicalSubmission !== null && in_array($technicalSubmission->status, [
+                    \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::TechnicalFailed,
+                    \Modules\Ksef\Enums\KsefInvoiceSubmissionStatus::Rejected,
+                ], true))
+                    <p class="invoice-ksef-message invoice-ksef-warning mb-0" data-ksef-technical-correction-manual-analysis>
+                        Korekta techniczna nie została przyjęta. Dalsza transmisja wymaga ręcznej analizy.
+                    </p>
                 @elseif ($offlineCanTransmit)
                     <form
                         method="POST"
@@ -309,7 +320,7 @@
                     >
                         @csrf
                         <button class="btn btn-primary" type="submit">
-                            {{ $offlineSubmission ? 'PONÓW TRANSMISJĘ '.$offlineProcedureActionLabel.' DO KSeF '.$offlineEnvironmentCode : 'PRZEŚLIJ '.$offlineProcedureActionLabel.' DO KSeF '.$offlineEnvironmentCode }}
+                            {{ $ordinaryOfflineSubmission ? 'PONÓW TRANSMISJĘ '.$offlineProcedureActionLabel.' DO KSeF '.$offlineEnvironmentCode : 'PRZEŚLIJ '.$offlineProcedureActionLabel.' DO KSeF '.$offlineEnvironmentCode }}
                         </button>
                     </form>
                 @elseif ($offlineCanRefresh)

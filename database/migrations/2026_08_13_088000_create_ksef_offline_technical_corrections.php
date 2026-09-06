@@ -22,6 +22,10 @@ return new class extends Migration
             $table->string('invoice_hash', 44);
             $table->unsignedBigInteger('invoice_size');
             $table->string('hash_of_corrected_invoice', 44);
+            $table->unsignedSmallInteger('source_status_code');
+            $table->unsignedSmallInteger('eligibility_policy_version');
+            $table->string('business_fingerprint', 44);
+            $table->unsignedSmallInteger('business_fingerprint_version');
             $table->timestamps();
 
             $table->unique('rejected_submission_id', 'ksef_offline_technical_source_unique');

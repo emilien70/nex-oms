@@ -24,9 +24,33 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
         private readonly KsefOfflineTechnicalCorrectionEligibilityService $eligibility,
         private readonly KsefFa3SchemaValidator $schema,
         private readonly KsefFa3IssueDateReader $issueDates,
+        private readonly KsefOfflineTechnicalCorrectionBusinessFingerprintService $businessFingerprint,
     ) {}
 
     public function assertSource(
+        Invoice $invoice,
+        KsefOfflineIssuance $issuance,
+        KsefInvoiceSubmission $source,
+    ): void {
+        $this->assertSourceIntegrity($invoice, $issuance, $source);
+
+        $classification = $this->eligibility->classify($source->ksef_status_code);
+        if ($classification === KsefTechnicalCorrectionEligibility::Ineligible) {
+            throw new KsefApiException(
+                'To odrzucenie nie kwalifikuje się do korekty technicznej KSeF.',
+                'ksef_technical_correction_source_nontechnical',
+            );
+        }
+
+        if ($classification !== KsefTechnicalCorrectionEligibility::Eligible) {
+            throw new KsefApiException(
+                'Nie można jednoznacznie potwierdzić, że dokument kwalifikuje się do korekty technicznej KSeF.',
+                'ksef_technical_correction_source_unconfirmed',
+            );
+        }
+    }
+
+    private function assertSourceIntegrity(
         Invoice $invoice,
         KsefOfflineIssuance $issuance,
         KsefInvoiceSubmission $source,
@@ -74,21 +98,6 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
             || ! hash_equals((string) $issuance->invoice_hash, $this->hash($issuancePayload))) {
             throw $this->sourceInvalid();
         }
-
-        $classification = $this->eligibility->classify($source->ksef_status_code);
-        if ($classification === KsefTechnicalCorrectionEligibility::Ineligible) {
-            throw new KsefApiException(
-                'To odrzucenie nie kwalifikuje się do korekty technicznej KSeF.',
-                'ksef_technical_correction_source_nontechnical',
-            );
-        }
-
-        if ($classification !== KsefTechnicalCorrectionEligibility::Eligible) {
-            throw new KsefApiException(
-                'Nie można jednoznacznie potwierdzić, że dokument kwalifikuje się do korekty technicznej KSeF.',
-                'ksef_technical_correction_source_unconfirmed',
-            );
-        }
     }
 
     public function assertArtifact(
@@ -107,7 +116,7 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
             throw $this->artifactInvalid();
         }
 
-        $this->assertSource($invoice, $issuance, $source);
+        $this->assertSourceIntegrity($invoice, $issuance, $source);
 
         try {
             $payload = $artifact->payload_xml;
@@ -133,6 +142,15 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
             throw $this->artifactInvalid();
         }
 
+        if (! $this->eligibility->supportsVersion($artifact->eligibility_policy_version)
+            || $artifact->source_status_code !== $source->ksef_status_code
+            || $this->eligibility->classifyForVersion(
+                $artifact->source_status_code,
+                $artifact->eligibility_policy_version,
+            ) !== KsefTechnicalCorrectionEligibility::Eligible) {
+            throw $this->artifactInvalid();
+        }
+
         try {
             $this->schema->validate($payload);
             $issueDate = $this->issueDates->read($payload);
@@ -145,6 +163,29 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
             || ! is_string($invoice->number)
             || ! hash_equals($invoice->number, $documentNumber)) {
             throw $this->artifactInvalid();
+        }
+
+        if (! $this->businessFingerprint->supportsVersion($artifact->business_fingerprint_version)
+            || preg_match('/^[A-Za-z0-9+\/]{43}=$/', (string) $artifact->business_fingerprint) !== 1) {
+            throw $this->artifactInvalid();
+        }
+
+        try {
+            $payloadFingerprint = $this->businessFingerprint->fromPayload(
+                $payload,
+                $artifact->business_fingerprint_version,
+            );
+            $invoiceFingerprint = $this->businessFingerprint->fromInvoice(
+                $invoice,
+                $artifact->business_fingerprint_version,
+            );
+        } catch (InvoiceDomainException|KsefApiException) {
+            throw $this->artifactInvalid();
+        }
+
+        if (! hash_equals((string) $artifact->business_fingerprint, $payloadFingerprint)
+            || ! hash_equals((string) $artifact->business_fingerprint, $invoiceFingerprint)) {
+            throw $this->businessSemanticsMismatch();
         }
     }
 
@@ -254,6 +295,14 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
         return new KsefApiException(
             'Zamrożona korekta techniczna KSeF jest niekompletna lub niespójna.',
             'ksef_technical_correction_integrity_invalid',
+        );
+    }
+
+    private function businessSemanticsMismatch(): KsefApiException
+    {
+        return new KsefApiException(
+            'Zamrożona korekta techniczna nie odpowiada treści biznesowej Faktury.',
+            'ksef_technical_correction_business_semantics_mismatch',
         );
     }
 }

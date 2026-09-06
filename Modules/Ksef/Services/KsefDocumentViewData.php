@@ -124,15 +124,20 @@ final class KsefDocumentViewData
             }
 
             $technicalCorrection = $technicalCorrections->get($issuance->getKey());
+            $issuanceSubmissions = $submissions->filter(
+                fn (KsefInvoiceSubmission $submission): bool => $submission->offline_issuance_id === $issuance->getKey(),
+            );
+            $ordinarySubmission = $issuanceSubmissions->first(
+                fn (KsefInvoiceSubmission $submission): bool => $submission->offline_technical_correction_id === null,
+            );
             $technicalSubmission = $technicalCorrection === null
                 ? null
-                : $submissions->first(
+                : $issuanceSubmissions->first(
                     fn (KsefInvoiceSubmission $submission): bool => $submission->offline_technical_correction_id === $technicalCorrection->getKey(),
                 );
             $sourceSubmission = $technicalCorrection?->rejectedSubmission
-                ?? $submissions->first(
-                    fn (KsefInvoiceSubmission $submission): bool => $submission->offline_issuance_id === $issuance->getKey()
-                        && $submission->offline_technical_correction_id === null
+                ?? $issuanceSubmissions->first(
+                    fn (KsefInvoiceSubmission $submission): bool => $submission->offline_technical_correction_id === null
                         && $submission->status === KsefInvoiceSubmissionStatus::Rejected,
                 );
             $technicalEligibility = $technicalCorrectionEligibility->classify($sourceSubmission?->ksef_status_code);
@@ -143,9 +148,13 @@ final class KsefDocumentViewData
 
             return [
                 'issuance' => $issuance,
-                'submission' => $submissions->first(
-                    fn (KsefInvoiceSubmission $submission): bool => $submission->offline_issuance_id === $issuance->getKey(),
-                ),
+                'ordinary_submission' => $ordinarySubmission,
+                'technical_submission' => $technicalSubmission,
+                'latest_offline_activity' => $issuanceSubmissions->first(),
+                'has_technical_remediation' => $technicalCorrection !== null
+                    || $issuanceSubmissions->contains(
+                        fn (KsefInvoiceSubmission $submission): bool => $submission->offline_technical_correction_id !== null,
+                    ),
                 'delivery_type' => $deliveryType,
                 'delivery_error' => $deliveryError,
                 'environment_allowed' => $environments->allows($issuance->environment),
@@ -153,7 +162,6 @@ final class KsefDocumentViewData
                     && is_string($settings->context_nip)
                     && hash_equals((string) $issuance->context_identifier_value, $settings->context_nip),
                 'technical_correction' => $technicalCorrection,
-                'technical_submission' => $technicalSubmission,
                 'technical_source_submission' => $sourceSubmission,
                 'technical_eligibility' => $technicalEligibility,
                 'technical_prepare_available' => $invoice->isInvoice()

@@ -19,6 +19,23 @@ final class KsefOfflineTechnicalCorrectionEligibilityServiceTest extends TestCas
         $this->assertSame($expected, $result);
     }
 
+    public function test_policy_version_one_is_explicit_and_immutable(): void
+    {
+        $service = new KsefOfflineTechnicalCorrectionEligibilityService;
+
+        $this->assertSame(1, KsefOfflineTechnicalCorrectionEligibilityService::CURRENT_POLICY_VERSION);
+        $this->assertTrue($service->supportsVersion(1));
+        $this->assertFalse($service->supportsVersion(2));
+        $this->assertSame(
+            KsefTechnicalCorrectionEligibility::Eligible,
+            $service->classifyForVersion(450, 1),
+        );
+        $this->assertSame(
+            KsefTechnicalCorrectionEligibility::Unknown,
+            $service->classifyForVersion(450, 999),
+        );
+    }
+
     public static function statusCodes(): array
     {
         return [

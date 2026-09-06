@@ -9,6 +9,7 @@ use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefOfflineIssuance;
+use Modules\Ksef\Models\KsefOfflineTechnicalCorrection;
 use Modules\Ksef\Models\KsefSetting;
 
 final class KsefOfflineInvoiceSubmissionService
@@ -50,15 +51,15 @@ final class KsefOfflineInvoiceSubmissionService
                     );
                 }
 
-                $this->integrity->assertIssuance($managedIssuance, $managedInvoice);
-                $this->environments->assertAllowed($managedIssuance->environment);
-                $this->assertCurrentConfiguration($managedIssuance);
-
                 $history = KsefInvoiceSubmission::query()
                     ->where('invoice_id', $managedInvoice->getKey())
                     ->where('environment', $managedIssuance->environment->value)
                     ->lockForUpdate()
-                    ->get(['id', 'offline_issuance_id', 'status']);
+                    ->get(['id', 'offline_issuance_id', 'offline_technical_correction_id', 'status']);
+                $this->assertNoTechnicalRemediation($history, $managedIssuance);
+                $this->integrity->assertIssuance($managedIssuance, $managedInvoice);
+                $this->environments->assertAllowed($managedIssuance->environment);
+                $this->assertCurrentConfiguration($managedIssuance);
                 $this->assertNewAttemptAllowed($history, $managedIssuance);
 
                 $attemptNumber = ((int) KsefInvoiceSubmission::query()
@@ -156,6 +157,24 @@ final class KsefOfflineInvoiceSubmissionService
         }
 
         throw $this->attemptBlocked();
+    }
+
+    private function assertNoTechnicalRemediation($history, KsefOfflineIssuance $issuance): void
+    {
+        $artifactExists = KsefOfflineTechnicalCorrection::query()
+            ->where('offline_issuance_id', $issuance->getKey())
+            ->lockForUpdate()
+            ->exists();
+        $technicalHistoryExists = $history->contains(
+            fn (KsefInvoiceSubmission $submission): bool => $submission->offline_technical_correction_id !== null,
+        );
+
+        if ($artifactExists || $technicalHistoryExists) {
+            throw new KsefApiException(
+                'Dla tej Faktury rozpoczęto korektę techniczną. Zwykła transmisja Offline pozostaje zablokowana.',
+                'ksef_offline_submission_technical_remediation_exists',
+            );
+        }
     }
 
     private function attemptBlocked(): KsefApiException
