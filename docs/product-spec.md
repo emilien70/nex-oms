@@ -1515,7 +1515,7 @@ Transmisja jest drugim, osobnym poleceniem. Używa sesji interaktywnej, dokładn
 
 Accepted korekta techniczna otrzymuje własny numer KSeF. Jej PDF powstaje z nowego zamrożonego XML, zawiera jeden KOD I i nie zawiera KODU II; UPO oraz fulfillment obowiązku odnoszą się do technicznego submissionu i nowego hasha. Odczyt ekranu niczego nie generuje ani nie wysyła. Brak auto-send, listenerów, kolejek i zmian schedulera; Production pozostaje zablokowane.
 
-Migracja `2026_08_13_088000_create_ksef_offline_technical_corrections.php` dodaje prywatną tabelę artefaktów i nullable, unikalne powiązanie submissionu. Pozostaje `Pending` na bazie operatora; nie wykonano migracji, live HTTP ani transmisji. Oficjalny kontrakt zweryfikowano wobec CIRFMF/ksef-api `93b843d5def041f69fe2a26d0d90a53e9fa9987a` i CIRFMF/ksef-client-csharp `04f01c1c7834336a3aef1804149cd5bcbd883a3e`.
+Migracja `2026_08_13_088000_create_ksef_offline_technical_corrections.php` dodaje prywatną tabelę artefaktów i nullable, unikalne powiązanie submissionu. W chwili implementacji R1 pozostawała `Pending` na bazie operatora, a ten etap nie wykonywał migracji, live HTTP ani transmisji. Późniejsze wykonanie operatorowe opisuje sekcja zamknięcia wdrożeniowego poniżej. Oficjalny kontrakt zweryfikowano wobec CIRFMF/ksef-api `93b843d5def041f69fe2a26d0d90a53e9fa9987a` i CIRFMF/ksef-client-csharp `04f01c1c7834336a3aef1804149cd5bcbd883a3e`.
 
 ### KSeF.8C.7-R1.1 — Technical Correction hardening
 
@@ -1525,13 +1525,43 @@ Artefakt zamraża kod odrzucenia i wersję polityki kwalifikacji. Polityka V1 ma
 
 Biznesowy fingerprint V1 to `Base64(SHA-256(canonical JSON))`. Niezależna projekcja snapshotu Faktury musi być identyczna z projekcją technicznego FA(3). Obejmuje cały biznesowy zakres zwykłego mappera: rodzaj dokumentu, P_1/P_2, sprzedawcę, nabywcę, odbiorcę, walutę, datę sprzedaży i miejsce wystawienia, linie z ilością/ceną/netto/stawką VAT/GTU, podsumowania netto/VAT/P15 (w tym VAT w PLN), adnotacje, rejestry, informacje dodatkowe, płatność, rachunek oraz referencję zamówienia. Dane liczbowe są kanonicznymi stringami dziesiętnymi, bez `float`. Jedynym wyłączeniem jest techniczne `Naglowek/DataWytworzeniaFa`; P_1 i P_2 pozostają chronione. Parser blokuje `DOCTYPE` i używa `LIBXML_NONET`.
 
-PREPARE wymaga równości fingerprintu Faktury i nowego payloadu, a `assertArtifact()` utrzymuje trójstronny invariant: immutable Invoice snapshot = frozen XML = stored fingerprint. Historyczna kontrola nie regeneruje XML bieżącym generatorem i nie korzysta z Order, Customer, Address ani Product. Pending migracja `088000` zawiera `source_status_code`, `eligibility_policy_version`, `business_fingerprint` oraz `business_fingerprint_version`; `089000` nie powstaje. KOR parity, live HTTP, auto-send, retry i Production są nadal odroczone.
+PREPARE wymaga równości fingerprintu Faktury i nowego payloadu, a `assertArtifact()` utrzymuje trójstronny invariant: immutable Invoice snapshot = frozen XML = stored fingerprint. Historyczna kontrola nie regeneruje XML bieżącym generatorem i nie korzysta z Order, Customer, Address ani Product. Na etapie R1.1 wówczas niewykonana migracja `088000` zawierała już `source_status_code`, `eligibility_policy_version`, `business_fingerprint` oraz `business_fingerprint_version`; `089000` nie powstała. KOR parity, live HTTP, auto-send, retry i Production są nadal odroczone.
 
 ### KSeF.8C.7-R1.2 — Frozen Business Projection V1
 
 Fingerprint historycznej korekty technicznej nie zależy już od bieżącego mappera FA(3). Jawna `KsefOfflineTechnicalCorrectionInvoiceBusinessProjectionV1` czyta wyłącznie rekord Faktury, jej pozycje oraz zamrożone snapshoty sprzedawcy, nabywcy, odbiorcy, wystawienia, płatności, zamówienia i podatków. Aktualne Order, Customer, Address, Product, seria, konfiguracja KSeF i kurs NBP nie są źródłami. Opcje `ksef_document` v1/v2, legacy bez tego snapshotu, `ksef_payment` v1 i historyczne mapowanie płatności zachowują znaczenie z baseline R1.
 
 V1 obejmuje pełną biznesową zawartość zwykłej Faktury FA(3): strony i adresy, PrefiksPodatnika, P_1/P_1M/P_2/P_6, walutę, pozycje, wszystkie koszyki VAT i P_14_*W, P_15, adnotacje, kontakt, odbiorcę, opisy, płatność, bank, zamówienie, GTU, REGON i BDO. Kwoty są kanonizowane do 2 miejsc, ilości do 4 miejsc bez zbędnych zer, bez `float`; wspierane są `0 KR`, `0 WDT` i `0 EX`. Jedynym wyłączeniem jest generowany technicznie `Naglowek/DataWytworzeniaFa`. PREPARE nadal korzysta z aktualnego generatora i wymaga zgodności z frozen Projection V1, lecz historyczny `assertArtifact()` nie wywołuje mappera, resolvera opcji ani generatora. Przyszła zmiana semantyki wymaga Projection V2; V1 nie może być reinterpretowana.
+
+### KSeF.8C.7 — Technical Correction R1 deployment closure
+
+Implementacja korekty technicznej R1 dla zwykłej Faktury VAT jest kompletna, utwardzona przez R1.1 i oparta na frozen Invoice Business Projection V1 z R1.2. Obsługuje wyłącznie odrzuconą Fakturę Offline bez numeru KSeF: kody `440` i `450` są kwalifikujące, `410` niekwalifikujący, a inne wartości lub brak kodu kończą się bezpieczną blokadą. Źródłowe wystawienie, submission, XML, hash, KOD I i KOD II są niezmienne; osobny artefakt techniczny otrzymuje nowy XML i hash, a `hashOfCorrectedInvoice` wskazuje pierwotny odrzucony hash. Fingerprint `Base64(SHA-256(canonical JSON))` chroni frozen Business Projection V1 niezależnie od bieżącego mappera; tylko `Naglowek/DataWytworzeniaFa` jest wyłączeniem technicznym, natomiast P_1 i P_2 pozostają chronione.
+
+Pierwotna kontrola `KSeF.8C.7-MIGRATION-088-VERIFY-001` została zatrzymana przez niejednoznaczny wynik rekonstrukcji tabeli w SQLite/Laravel `--pretend`; wynik jest `SUPERSEDED / INCONCLUSIVE` i nie oznacza błędu kodu. Rzeczywista migracja na dokładnej jednorazowej kopii operatorowej w `KSeF.8C.7-MIGRATION-088-DRY-RUN-COPY-001` zakończyła się `PASS / CLOSED`, zachowując 26 submissionów, wszystkie dane historyczne, FK, indeksy i integralność bazy.
+
+`KSeF.8C.7-MIGRATION-088-OPERATOR-001` wykonał migrację `088000` na bazie operatora 7 września 2026 o `2026-09-07T07:43:01Z`: wynik `PASS`, batch `54`, liczba migracji `80 -> 81`. Submissiony zmieniły schemat z 39 do 40 kolumn wyłącznie przez nullable `offline_technical_correction_id` z FK `RESTRICT` i unikalnym indeksem; wszystkie 26 historycznych wartości pozostały `NULL`. Utworzona tabela `ksef_offline_technical_corrections` ma 19 oczekiwanych kolumn i początkowo 0 rekordów, bez backfillu. Operatorowy DB verify potwierdził `quick_check=ok`, `foreign_key_check=0` oraz zachowanie wszystkich historycznych danych, liczników i digestów PRE/POST w ramach tego samego przebiegu; nie zakłada się równoważności digestów między różnymi przebiegami lub metodami serializacji. Dokładne dowody i migration-time counts znajdują się w `architecture.md`.
+
+Zachowano prywatną, bitowo zgodną kopię PRE `storage/app/private/backups/database_before_ksef_8c7_088_operator_001_20260907_094207.sqlite`, SHA-256 `3FA32DF724B5E99911035B9C3650CD8A8348E9BDFCC5ABEC999A138A26906E09`, z `quick_check=ok` i `foreign_key_check=0`.
+
+Migracja wykonała 0 zapisów aplikacyjnych lub biznesowych i nie utworzyła Faktury, OfflineIssuance, artefaktu technicznego, submissionu ani UPO. Ruch KSeF TEST/DEMO/PROD, Latarnia, NBP i QR HTTP wynosił `0`. Transport R1 nadal dopuszcza dokładnie jeden artefakt i jeden techniczny invoice POST w sesji interaktywnej z `offlineMode=true`; `21166/21167` dają `TechnicalFailed`, a wynik niepewny wymaga reconciliation bez blind retry.
+
+Status, bez zamykania całego KSeF.8C.7:
+
+```text
+KSeF.8C.7-R1: PASS / HARDENED / CLOSED
+KSeF.8C.7-R1.1: PASS / CLOSED
+KSeF.8C.7-R1.2: PASS / CLOSED
+KSeF.8C.7 CODE: PASS / CLOSED FOR R1 SCOPE
+KSeF.8C.7-MIGRATION-088-DRY-RUN-COPY-001: PASS / CLOSED
+KSeF.8C.7-MIGRATION-088-OPERATOR-001: PASS / CLOSED
+KSeF.8C.7 migration 088000: PASS / CLOSED
+KSeF.8C.7-DB-VERIFY-001: PASS / CLOSED
+KSeF.8C.7 DB: PASS / CLOSED FOR R1 SCOPE
+KSeF.8C.7 LIVE: NOT RUN
+KOR technical parity: DEFERRED
+Production: BLOCKED
+NEXT: controlled LIVE validation
+```
 
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
