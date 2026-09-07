@@ -1557,11 +1557,33 @@ KSeF.8C.7-MIGRATION-088-OPERATOR-001: PASS / CLOSED
 KSeF.8C.7 migration 088000: PASS / CLOSED
 KSeF.8C.7-DB-VERIFY-001: PASS / CLOSED
 KSeF.8C.7 DB: PASS / CLOSED FOR R1 SCOPE
-KSeF.8C.7 LIVE: NOT RUN
+KSeF.8C.7-TEST-OFFLINE-CERT-READINESS-001: PASS / CLOSED
+KSeF.8C.7-LIVE-TECHNICAL-CORRECTION-TEST-001-R2: PASS / CLOSED
+REAL SOURCE REJECTION 450: PASS
+TECHNICAL ACCEPTED 200: PASS
+SOURCE invoice POST: 1
+TECHNICAL invoice POST: 1
+UPO: PASS
+Accepted PDF: PASS
+Offline obligation: FULFILLED
+Correction source resolver: PASS
+Accepted XML independent refetch: NOT VERIFIED / HTTP 406 / NON-BLOCKING
+KSeF.8C.7 LIVE: PASS / CLOSED FOR R1 SCOPE
+KSeF.8C.7 R1 SCOPE: PASS / CLOSED
 KOR technical parity: DEFERRED
 Production: BLOCKED
-NEXT: controlled LIVE validation
+NEXT: no further KSeF.8C.7 R1 implementation or LIVE test required
 ```
+
+### KSeF.8C.7 — Technical Correction R1 LIVE closure
+
+`KSeF.8C.7-LIVE-TECHNICAL-CORRECTION-TEST-001-R2` zakończył się `PASS / CLOSED` w środowisku TEST. Po wcześniejszej próbie zatrzymanej bez invoice POST z powodu niegotowego certyfikatu Offline, osobny test readiness potwierdził gotowość certyfikatu TEST. Następnie syntetyczna zwykła Faktura VAT Offline przeszła rzeczywisty lifecycle MF: źródłowy submission `27` został odrzucony kodem `450` bez numeru KSeF, a osobny immutable artefakt techniczny `1` został wysłany jako submission `28` i zaakceptowany kodem `200` z numerem KSeF `6282192260-20260907-5A9BF1000000-98`.
+
+Wykonano dokładnie dwa invoice POST-y: jeden dla źródła i jeden dla korekty technicznej, bez resend, blind retry i trzeciej próby. Techniczny hash różnił się od hasha odrzuconego źródła, a `hashOfCorrectedInvoice` był dokładnie równy hashowi tego źródła. UPO `26` należy wyłącznie do Accepted submissionu `28`; źródłowy submission nie ma UPO. Accepted PDF został wygenerowany z zamrożonego technicznego payloadu, zawiera jeden KOD I i zero KODU II. Obowiązek Offline ma stan `FULFILLED`, a resolver źródła przyszłej zwykłej korekty biznesowej wskazuje zaakceptowany submission techniczny. Nie utworzono Korekty `KOR`.
+
+Opcjonalny pojedynczy GET zaakceptowanego XML zakończył się `HTTP 406`, ponieważ dostępna autoryzacja nie zapewniła wymaganego `InvoiceRead`. Nie wykonano retry ani niezależnej weryfikacji hasha zdalnie pobranego XML; jest to jawne, nieblokujące ograniczenie dodatkowej kontroli, poza rdzeniem dowodu `450 -> 200`. Test nie wykonał requestów DEMO ani Production. Po przebiegu przywrócono konfigurację DEMO i `automatic_submission=true`, zachowano wybory certyfikatów Offline TEST/DEMO, a syntetyczną serię wyłączono dla dalszych transmisji KSeF.
+
+Implementacja, migracja `088000`, wdrożenie DB i LIVE TEST są kompletne dla wąskiego R1 obejmującego zwykłą Fakturę VAT. Wynik nie rozszerza zakresu na kod `440`, parity technicznej korekty `KOR` ani Production: `KOR technical parity: DEFERRED`, `Production: BLOCKED`.
 
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 

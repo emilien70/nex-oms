@@ -1525,11 +1525,58 @@ KSeF.8C.7-MIGRATION-088-OPERATOR-001: PASS / CLOSED
 KSeF.8C.7 migration 088000: PASS / CLOSED
 KSeF.8C.7-DB-VERIFY-001: PASS / CLOSED
 KSeF.8C.7 DB: PASS / CLOSED FOR R1 SCOPE
-KSeF.8C.7 LIVE: NOT RUN
+KSeF.8C.7-TEST-OFFLINE-CERT-READINESS-001: PASS / CLOSED
+KSeF.8C.7-LIVE-TECHNICAL-CORRECTION-TEST-001-R2: PASS / CLOSED
+REAL SOURCE REJECTION 450: PASS
+TECHNICAL ACCEPTED 200: PASS
+SOURCE invoice POST: 1
+TECHNICAL invoice POST: 1
+UPO: PASS
+Accepted PDF: PASS
+Offline obligation: FULFILLED
+Correction source resolver: PASS
+Accepted XML independent refetch: NOT VERIFIED / HTTP 406 / NON-BLOCKING
+KSeF.8C.7 LIVE: PASS / CLOSED FOR R1 SCOPE
+KSeF.8C.7 R1 SCOPE: PASS / CLOSED
 KOR technical parity: DEFERRED
 Production: BLOCKED
-NEXT: controlled LIVE validation
+NEXT: no further KSeF.8C.7 R1 implementation or LIVE test required
 ```
+
+### KSeF.8C.7 — Technical Correction R1 LIVE closure
+
+Kontrolowany test `KSeF.8C.7-LIVE-TECHNICAL-CORRECTION-TEST-001-R2` zakończył się `PASS / CLOSED` 7 września 2026 w środowisku TEST. Wcześniejsza próba LIVE została poprawnie zatrzymana przed pierwszym invoice POST, ponieważ certyfikat Offline TEST nie był gotowy. Po osobnym `KSeF.8C.7-TEST-OFFLINE-CERT-READINESS-001: PASS` potwierdzono certyfikat Offline `id=2`, numer seryjny `01F94B5FC7287D92`, klucz EC P-256, przeznaczenie Non-Repudiation / Content Commitment oraz zdalny status `Active / READY`. Certyfikat Authentication/XAdES nadal należy do odrębnej domeny Digital Signature; nie użyto materiału certyfikatu Offline do uwierzytelnienia.
+
+Test użył wyłącznie syntetycznego audytowego dokumentu TEST: Order `114`, Faktura `126` o numerze `K7T 1/2026`, seria `8` i OfflineIssuance `3`. Poprawny wyjściowy FA(3) miał `P_1=2026-09-07`, `P_2=K7T 1/2026` i hash `qaYU6gfzMSI6tXzc1uZnkFCgf10LoWaWI+i0aA8hJKE=`. Jednorazowy tymczasowy harness LIVE emulował historyczny błąd generatora, zmieniając wyłącznie `P_1` na `2026-09-08`; wynik pozostał zgodny z XSD, miał `1686` bajtów i hash `rmC9f8SSScMQuvFPtxlwhlgx01nSI1HHKi9dtUK2IUc=`. Bieżący NEX-OMS nie pozwala zwykłym kodem aplikacji wystawić dokumentu Offline z przyszłym `P_1`; harness nie jest funkcją produkcyjną.
+
+Dokładna macierz prób:
+
+```text
+Attempt 1: ordinary Offline, submission 27, Rejected, 450,
+           KSeF number NULL, source hash rmC9f8SSScMQuvFPtxlwhlgx01nSI1HHKi9dtUK2IUc=
+Attempt 2: technical correction, submission 28, Accepted, 200,
+           KSeF number 6282192260-20260907-5A9BF1000000-98,
+           new technical hash qaYU6gfzMSI6tXzc1uZnkFCgf10LoWaWI+i0aA8hJKE=,
+           hashOfCorrectedInvoice = Attempt 1 hash
+```
+
+Źródłowa sesja interaktywna `20260907-SO-255F762000-DCB6F77F0E-18` wysłała dokładnie jeden invoice POST z `offlineMode=true`, bez `hashOfCorrectedInvoice`; referencja dokumentu to `20260907-EE-255F94B000-606BCDEAE1-D4`. Rzeczywisty wynik MF `450` został zapisany jako `Rejected`, bez numeru KSeF i bez resend. Polityka kwalifikacji V1 sklasyfikowała ten oficjalny wynik jako `Eligible`; test nie wykonywał wariantu `440`, a `410` i stany inne lub `null` nadal zachowują odpowiednio `Ineligible` i `Unknown / fail-closed`.
+
+Niezmienny artefakt techniczny `id=1` wskazuje OfflineIssuance `3` i odrzucony submission `27`, zachowuje `source_status_code=450`, `eligibility_policy_version=1` oraz `business_fingerprint_version=1`. Jego `hashOfCorrectedInvoice` jest dokładnie równy hashowi odrzuconego źródła, a własny hash techniczny jest od niego różny. Techniczny XML przeszedł bieżący XSD, przywrócił `P_1=2026-09-07`, zachował `P_2=K7T 1/2026` i przeszedł frozen Business Projection V1 parity.
+
+Techniczna sesja `20260907-SO-25600FA000-0A5257132C-80` utworzyła submission `28`, attempt `2`, i wykonała dokładnie jeden invoice POST z zamrożonym payloadem artefaktu, `offlineMode=true`, jego nowym `invoiceHash` oraz hashem odrzuconego źródła jako `hashOfCorrectedInvoice`. Referencja dokumentu to `20260907-EE-256031C000-DCBD534EC6-88`. Nie wykonano retry ani trzeciej próby. MF zwróciło rzeczywisty status `200`, a NEX-OMS zapisał `Accepted` i numer KSeF `6282192260-20260907-5A9BF1000000-98`. Jest to syntetyczny dokument środowiska TEST, a nie dowód akceptacji w Production.
+
+UPO `id=26` należy wyłącznie do zaakceptowanego submissionu `28`; odrzucony submission `27` nie ma UPO. Accepted PDF przeszedł weryfikację, miał `110318` bajtów i został utworzony z zamrożonego payloadu artefaktu technicznego, a nie z odrzuconego XML ani ze świeżej regeneracji przy pobraniu. PDF zawiera dokładnie jeden KOD I i nie zawiera KODU II. Źródłowe KODY I/II nadal odnoszą się do niezmiennego odrzuconego hasha i nie zostały przepisane po akceptacji technicznej; publiczny remote check starego KODU I nie był wykonywany. Finalna projekcja obowiązku Offline zwróciła `FULFILLED`, a `KsefFa3CorrectionSourceReferenceResolver` poprawnie wskazał submission `28` jako autorytatywne źródło KSeF dla przyszłej zwykłej korekty biznesowej. W teście nie utworzono Korekty `KOR`.
+
+Opcjonalny GET zaakceptowanego XML wykonano dokładnie raz i otrzymano `HTTP 406`, bez retry. Endpoint wymaga `InvoiceRead`; dostępna autoryzacja TEST wystarczała do transmisji z `InvoiceWrite`, lecz nie dostarczyła dodatkowego dowodu pobrania XML. Ograniczenie jest `NON-BLOCKING FOR KSeF.8C.7 R1 LIVE CLOSURE`, ponieważ stanowiło uzupełniającą kontrolę poza rdzeniem dowodu `450 -> technical correction -> 200`. Nie uzyskano i nie deklaruje się niezależnej weryfikacji hasha zdalnie pobranego accepted XML. Potwierdzone pozostają: dokładny frozen payload i hash faktycznego technicznego POST-u, akceptacja submissionu `28`, korelacja numeru KSeF i UPO oraz użycie tego samego artefaktu przez lokalny Accepted PDF.
+
+Pełne rozliczenie ruchu kontrolowanego przebiegu wyniosło `21` requestów: auth `8`, personal grants `1`, public keys `2`, session open `2`, session close `2`, source invoice POST `1`, technical invoice POST `1`, status GET `2`, UPO `1` oraz accepted XML GET `1`. QR, NBP, Latarnia, DEMO i PROD: `0`. Łącznie wykonano dokładnie `2` invoice POST-y: jeden źródłowy i jeden techniczny, bez resend, blind retry ani attempt `3`. Gałęzie `21166/21167 -> TechnicalFailed` oraz reconciliation dla `Uncertain` pozostają chronionym kontraktem, lecz nie były wykonywane w tym happy-path LIVE teście.
+
+Na czas testu konfigurację kontrolowanie przełączono z DEMO na TEST, pozostawiając NIP kontekstu bez zmiany i ustawiając `automatic_submission=false`. Po teście przywrócono `environment=DEMO` oraz `automatic_submission=true`; materiały Authentication nie zostały zmienione, preferowany certyfikat Offline TEST `id=2` i DEMO `id=1` pozostały wybrane. Ustawienie KSeF dla syntetycznej serii `id=8` zostało wyłączone dla dalszych transmisji.
+
+Celowe przyrosty audytowe to: Order `+1`, OrderItem `+1`, Invoice `+1`, InvoiceItem `+1`, seria Faktur `+1`, OfflineIssuance `+1`, submissions `+2`, TechnicalCorrection `+1`, UPO `+1`, order event `+1` i Automation `0`. Rekordy `114`, `126`, `3`, `27`, `1`, `28` i `26` zachowano, ponieważ istnieje odpowiadający im zdalny stan KSeF TEST i lokalna korelacja audytowa; nie są to produkcyjne rekordy biznesowe. Kopia PRE `storage/app/private/backups/database_before_ksef_8c7_live_technical_001_r2_retry_20260907_125209.sqlite` miała rozmiar `2646016` B i SHA-256 `87FEC82C583B1A9BA98B09ECCEC792D1AFD481F9A22D311E0B09094A057FB38F`. Po przebiegu operatorowa baza miała SHA-256 `BF06FA27512A9F1FD933D826E7F3BA2040E6C4A20095F6D69FABF20097DCC5E0`, `quick_check=ok` i `foreign_key_check=0`; zmiana fingerprintu wynika z celowych rekordów audytowych i metadanych lifecycle konfiguracji.
+
+Wynik zamyka wyłącznie `KSeF.8C.7 R1 scope for ordinary Invoice VAT: PASS / CLOSED`. Parity korekty technicznej dla `KOR` pozostaje `DEFERRED`, a Production pozostaje `BLOCKED`.
 
 Transport ma deploymentowy gate `KSEF_INVOICE_SUBMISSION_ENABLED` domyślnie `false`, jest serwisowo ograniczony do TEST i nie ma trasy ani UI. KSeF.4A.1 nie dodaje automatycznej akcji, listenera, observera, kolejki, crona, automatycznego pollingu, batch, offline, QR ani UPO. Trwałe `automatic_submission=true` nie omija deployment gate i przy braku workflow nie uruchamia transmisji. Przed przyszłym włączeniem gate trzeba zweryfikować tę wartość oraz wszystkie ścieżki triggerów. Automatyczne testy pozostają fake-only, używają `Http::fake()` i blokują stray HTTP.
 
