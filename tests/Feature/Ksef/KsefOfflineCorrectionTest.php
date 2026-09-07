@@ -51,6 +51,7 @@ use Modules\Ksef\Services\KsefOfflinePresentationPdfRenderer;
 use Modules\Ksef\Services\KsefOfflineSubmissionIntegrityService;
 use Modules\Ksef\Services\KsefOfflineSubmissionObligationEngine;
 use Modules\Ksef\Services\KsefOfflineSubmissionObligationQueryService;
+use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionService;
 use Modules\Ksef\Services\PolishBusinessDayCalendar;
 use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -134,6 +135,35 @@ class KsefOfflineCorrectionTest extends TestCase
     public static function procedures(): array
     {
         return [['offline24'], ['planned_unavailability'], ['failure']];
+    }
+
+    public function test_kor_technical_correction_prepare_and_ui_remain_fail_closed(): void
+    {
+        [, $correction] = $this->scenario();
+        $issuance = $this->issue($correction);
+        $source = app(KsefOfflineInvoiceSubmissionService::class)->prepare($correction, $issuance);
+        $source->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Rejected,
+            'ksef_status_code' => 450,
+        ])->save();
+        $submissionCount = $correction->ksefSubmissions()->count();
+
+        $this->assertError(
+            'ksef_technical_correction_document_type_not_supported',
+            fn () => app(KsefOfflineTechnicalCorrectionService::class)
+                ->prepare($correction->fresh(), $issuance, $source),
+        );
+
+        $this->assertDatabaseCount('ksef_offline_technical_corrections', 0);
+        $this->assertSame($submissionCount, $correction->ksefSubmissions()->count());
+        $this->assertSame(0, $correction->ksefSubmissions()
+            ->whereNotNull('offline_technical_correction_id')
+            ->count());
+        $this->get(route('invoices.corrections.edit', $correction))
+            ->assertOk()
+            ->assertDontSee('PRZYGOTUJ KOREKTĘ TECHNICZNĄ')
+            ->assertDontSee('PRZEŚLIJ KOREKTĘ TECHNICZNĄ');
+        Http::assertNothingSent();
     }
 
     #[DataProvider('sourceCases')]

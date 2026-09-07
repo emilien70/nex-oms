@@ -605,6 +605,7 @@ class KsefOfflineSubmissionTest extends TestCase
     public function test_technical_prepare_rejects_kor_in_r1(): void
     {
         [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $submissionCount = KsefInvoiceSubmission::query()->count();
         $invoice->forceFill(['document_type' => InvoiceDocumentType::Correction])->saveQuietly();
         $this->expectKsefError(
             'ksef_technical_correction_document_type_not_supported',
@@ -613,6 +614,10 @@ class KsefOfflineSubmissionTest extends TestCase
         );
 
         $this->assertDatabaseCount('ksef_offline_technical_corrections', 0);
+        $this->assertDatabaseCount('ksef_invoice_submissions', $submissionCount);
+        $this->assertSame(0, KsefInvoiceSubmission::query()
+            ->whereNotNull('offline_technical_correction_id')
+            ->count());
         Http::assertNothingSent();
     }
 

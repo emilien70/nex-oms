@@ -6,18 +6,16 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Models\Invoice;
-use Modules\Ksef\Enums\KsefFa3EligibilityMode;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefOfflineTechnicalCorrection;
 use Modules\Ksef\Models\KsefSetting;
-use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 
 final class KsefOfflineTechnicalCorrectionService
 {
     public function __construct(
-        private readonly KsefFa3DocumentGenerator $generator,
+        private readonly KsefOfflineTechnicalCorrectionDocumentGenerator $generator,
         private readonly KsefOfflineTechnicalCorrectionIntegrityService $integrity,
         private readonly KsefOfflineTechnicalCorrectionBusinessFingerprintService $businessFingerprint,
         private readonly KsefOperationalEnvironmentPolicy $environments,
@@ -60,7 +58,6 @@ final class KsefOfflineTechnicalCorrectionService
                 $generated = $this->generator->generate(
                     $managedInvoice,
                     $generatedAt,
-                    KsefFa3EligibilityMode::Authoritative,
                 );
                 $payloadBusinessFingerprint = $this->businessFingerprint->fromPayload(
                     $generated->xml,
