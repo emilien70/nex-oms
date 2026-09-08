@@ -32,12 +32,17 @@ use Modules\Ksef\Enums\KsefOfflineSubmissionObligationStatus;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefLatarniaMessage;
 use Modules\Ksef\Models\KsefLatarniaSyncState;
 use Modules\Ksef\Models\KsefOfflineIssuance;
+use Modules\Ksef\Models\KsefOfflineTechnicalCorrection;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionDocumentMapper;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidencePayloadValidator;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidenceValidator;
 use Modules\Ksef\Services\Fa3\KsefFa3CorrectionMapper;
+use Modules\Ksef\Services\Fa3\KsefFa3SchemaValidator;
 use Modules\Ksef\Services\KsefAcceptedOfflineInvoicePdfService;
 use Modules\Ksef\Services\KsefEcdsaSignatureConverter;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
@@ -51,7 +56,10 @@ use Modules\Ksef\Services\KsefOfflinePresentationPdfRenderer;
 use Modules\Ksef\Services\KsefOfflineSubmissionIntegrityService;
 use Modules\Ksef\Services\KsefOfflineSubmissionObligationEngine;
 use Modules\Ksef\Services\KsefOfflineSubmissionObligationQueryService;
+use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionBusinessFingerprintService;
+use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionIntegrityService;
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionService;
+use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionSubmissionService;
 use Modules\Ksef\Services\PolishBusinessDayCalendar;
 use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -137,7 +145,7 @@ class KsefOfflineCorrectionTest extends TestCase
         return [['offline24'], ['planned_unavailability'], ['failure']];
     }
 
-    public function test_kor_technical_correction_prepare_and_ui_remain_fail_closed(): void
+    public function test_kor_technical_prepare_and_submission_prepare_work_once_while_ui_remains_hidden(): void
     {
         [, $correction] = $this->scenario();
         $issuance = $this->issue($correction);
@@ -146,23 +154,283 @@ class KsefOfflineCorrectionTest extends TestCase
             'status' => KsefInvoiceSubmissionStatus::Rejected,
             'ksef_status_code' => 450,
         ])->save();
-        $submissionCount = $correction->ksefSubmissions()->count();
+        $this->travelTo($this->instant->addMinute());
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare(
+            $correction->fresh(),
+            $issuance,
+            $source,
+        );
+        app(KsefOfflineTechnicalCorrectionIntegrityService::class)->assertArtifact($artifact);
+        $technical = app(KsefOfflineTechnicalCorrectionSubmissionService::class)
+            ->prepare($correction->fresh(), $artifact);
 
+        $this->assertSame(2, $artifact->business_fingerprint_version);
+        $this->assertSame('KOR', $this->ksefValue(
+            $this->ksefXpath($artifact->payload_xml),
+            '/fa:Faktura/fa:Fa/fa:RodzajFaktury',
+        ));
+        $this->assertSame($issuance->invoice_hash, $artifact->hash_of_corrected_invoice);
+        $this->assertNotSame($issuance->invoice_hash, $artifact->invoice_hash);
+        $this->assertSame(2, $technical->attempt_number);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Preparing, $technical->status);
+        $this->assertSame($artifact->payload_xml, $technical->payload_xml);
+        $this->assertSame($artifact->invoice_hash, $technical->invoice_hash);
+        $this->assertDatabaseCount('ksef_offline_technical_corrections', 1);
+        $this->assertSame(1, $correction->ksefSubmissions()
+            ->whereNotNull('offline_technical_correction_id')
+            ->count());
         $this->assertError(
-            'ksef_technical_correction_document_type_not_supported',
+            'ksef_technical_correction_already_prepared',
             fn () => app(KsefOfflineTechnicalCorrectionService::class)
                 ->prepare($correction->fresh(), $issuance, $source),
         );
-
-        $this->assertDatabaseCount('ksef_offline_technical_corrections', 0);
-        $this->assertSame($submissionCount, $correction->ksefSubmissions()->count());
-        $this->assertSame(0, $correction->ksefSubmissions()
-            ->whereNotNull('offline_technical_correction_id')
-            ->count());
+        $this->assertError(
+            'ksef_technical_correction_submission_attempt_blocked',
+            fn () => app(KsefOfflineTechnicalCorrectionSubmissionService::class)
+                ->prepare($correction->fresh(), $artifact),
+        );
+        $this->assertError(
+            'ksef_offline_submission_technical_remediation_exists',
+            fn () => app(KsefOfflineInvoiceSubmissionService::class)
+                ->submitAttempt($correction->fresh(), $issuance),
+        );
         $this->get(route('invoices.corrections.edit', $correction))
             ->assertOk()
             ->assertDontSee('PRZYGOTUJ KOREKTĘ TECHNICZNĄ')
             ->assertDontSee('PRZEŚLIJ KOREKTĘ TECHNICZNĄ');
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('korTechnicalEligibilityCases')]
+    public function test_kor_technical_prepare_uses_the_existing_exact_status_policy(
+        ?int $statusCode,
+        ?string $error,
+    ): void {
+        [, $correction] = $this->scenario();
+        $issuance = $this->issue($correction);
+        $source = app(KsefOfflineInvoiceSubmissionService::class)->prepare($correction, $issuance);
+        $source->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Rejected,
+            'ksef_status_code' => $statusCode,
+        ])->save();
+        $this->travelTo($this->instant->addMinute());
+
+        if ($error === null) {
+            $artifact = app(KsefOfflineTechnicalCorrectionService::class)
+                ->prepare($correction->fresh(), $issuance, $source);
+            $this->assertSame(2, $artifact->business_fingerprint_version);
+            $this->assertSame($statusCode, $artifact->source_status_code);
+            $this->assertDatabaseCount('ksef_offline_technical_corrections', 1);
+        } else {
+            $this->assertError(
+                $error,
+                fn () => app(KsefOfflineTechnicalCorrectionService::class)
+                    ->prepare($correction->fresh(), $issuance, $source),
+            );
+            $this->assertDatabaseCount('ksef_offline_technical_corrections', 0);
+        }
+        Http::assertNothingSent();
+    }
+
+    public static function korTechnicalEligibilityCases(): array
+    {
+        return [
+            '440 eligible' => [440, null],
+            '410 ineligible' => [410, 'ksef_technical_correction_source_nontechnical'],
+            'unknown fail closed' => [500, 'ksef_technical_correction_source_unconfirmed'],
+            'null fail closed' => [null, 'ksef_technical_correction_source_unconfirmed'],
+        ];
+    }
+
+    public function test_kor_technical_prepare_requires_valid_frozen_source_financial_evidence(): void
+    {
+        [$correction, $issuance, $source] = $this->rejectedTechnicalKor();
+        DB::table('ksef_offline_issuances')
+            ->where('id', $issuance->getKey())
+            ->update(['correction_financial_evidence' => null]);
+
+        $this->assertError(
+            'ksef_technical_correction_source_integrity_invalid',
+            fn () => app(KsefOfflineTechnicalCorrectionService::class)
+                ->prepare($correction, $issuance, $source),
+        );
+
+        $this->assertDatabaseCount('ksef_offline_technical_corrections', 0);
+        $this->assertSame(1, $correction->ksefSubmissions()->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_kor_technical_prepare_rejects_generated_evidence_that_differs_from_valid_source_evidence(): void
+    {
+        [$correction, $issuance, $source] = $this->rejectedTechnicalKor();
+        $evidence = $issuance->correction_financial_evidence;
+        $decimal = app(InvoiceDecimalCalculator::class);
+        foreach (['before', 'after'] as $side) {
+            $evidence['lines'][0][$side]['total_net'] = $decimal->add(
+                $evidence['lines'][0][$side]['total_net'],
+                '100.00',
+            );
+            $evidence['lines'][0][$side]['total_vat'] = $decimal->add(
+                $evidence['lines'][0][$side]['total_vat'],
+                '23.00',
+            );
+            $evidence['lines'][0][$side]['total_gross'] = $decimal->add(
+                $evidence['lines'][0][$side]['total_gross'],
+                '123.00',
+            );
+        }
+        app(KsefFa3CorrectionFinancialEvidenceValidator::class)->validate($evidence);
+        DB::table('ksef_offline_issuances')
+            ->where('id', $issuance->getKey())
+            ->update([
+                'correction_financial_evidence' => Crypt::encryptString(
+                    json_encode($evidence, JSON_THROW_ON_ERROR),
+                ),
+            ]);
+
+        $this->assertError(
+            'ksef_technical_correction_business_semantics_mismatch',
+            fn () => app(KsefOfflineTechnicalCorrectionService::class)
+                ->prepare($correction, $issuance, $source),
+        );
+
+        $this->assertDatabaseCount('ksef_offline_technical_corrections', 0);
+        $this->assertSame(1, $correction->ksefSubmissions()->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_kor_artifact_payload_must_match_frozen_evidence_even_when_v2_fingerprint_is_same(): void
+    {
+        [$correction, $issuance, $source] = $this->rejectedTechnicalKor();
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)
+            ->prepare($correction, $issuance, $source);
+        $originalPayload = $artifact->payload_xml;
+        $artifact = $this->tamperTechnicalArtifact(
+            $artifact,
+            '/fa:Faktura/fa:Fa/fa:P_15',
+            '123',
+        );
+        $fingerprints = app(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class);
+
+        $this->assertSame(
+            $fingerprints->fromPayload($originalPayload, 2),
+            $fingerprints->fromPayload($artifact->payload_xml, 2),
+        );
+        $this->assertError(
+            'ksef_technical_correction_business_semantics_mismatch',
+            fn () => app(KsefOfflineTechnicalCorrectionIntegrityService::class)
+                ->assertArtifact($artifact),
+        );
+        $this->assertSame(1, $correction->ksefSubmissions()->count());
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('korTechnicalArtifactBusinessTampering')]
+    public function test_kor_artifact_business_tampering_fails_after_hash_and_size_are_recomputed(
+        string $expression,
+        string $replacement,
+        string $expectedCode,
+    ): void {
+        [$correction, $issuance, $source] = $this->rejectedTechnicalKor(buyerChange: true);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)
+            ->prepare($correction, $issuance, $source);
+        $artifact = $this->tamperTechnicalArtifact($artifact, $expression, $replacement);
+
+        $this->assertError(
+            $expectedCode,
+            fn () => app(KsefOfflineTechnicalCorrectionIntegrityService::class)
+                ->assertArtifact($artifact),
+        );
+        $this->assertSame(1, $correction->ksefSubmissions()->count());
+        $this->assertDatabaseCount('ksef_offline_technical_corrections', 1);
+        Http::assertNothingSent();
+    }
+
+    public static function korTechnicalArtifactBusinessTampering(): array
+    {
+        return [
+            'P_1' => ['/fa:Faktura/fa:Fa/fa:P_1', '2026-01-01', 'ksef_technical_correction_integrity_invalid'],
+            'P_2' => ['/fa:Faktura/fa:Fa/fa:P_2', 'FAKE-KOR-NUMBER', 'ksef_technical_correction_integrity_invalid'],
+            'reason' => ['/fa:Faktura/fa:Fa/fa:PrzyczynaKorekty', 'FAKE changed reason', 'ksef_technical_correction_business_semantics_mismatch'],
+            'source KSeF number' => ['/fa:Faktura/fa:Fa/fa:DaneFaKorygowanej/fa:NrKSeFFaKorygowanej', '9876543210-20260819-000000000099-03', 'ksef_technical_correction_business_semantics_mismatch'],
+            'source number' => ['/fa:Faktura/fa:Fa/fa:DaneFaKorygowanej/fa:NrFaKorygowanej', 'FAKE-SOURCE-NUMBER', 'ksef_technical_correction_business_semantics_mismatch'],
+            'source issue date' => ['/fa:Faktura/fa:Fa/fa:DaneFaKorygowanej/fa:DataWystFaKorygowanej', '2026-01-02', 'ksef_technical_correction_business_semantics_mismatch'],
+            'buyer after' => ['/fa:Faktura/fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:Nazwa', 'FAKE Buyer After', 'ksef_technical_correction_business_semantics_mismatch'],
+            'buyer before' => ['/fa:Faktura/fa:Fa/fa:Podmiot2K/fa:DaneIdentyfikacyjne/fa:Nazwa', 'FAKE Buyer Before', 'ksef_technical_correction_business_semantics_mismatch'],
+            'before line' => ['/fa:Faktura/fa:Fa/fa:FaWiersz[fa:StanPrzed]/fa:P_7', 'FAKE Before Line', 'ksef_technical_correction_business_semantics_mismatch'],
+            'after line' => ['/fa:Faktura/fa:Fa/fa:FaWiersz[not(fa:StanPrzed)]/fa:P_8B', '3', 'ksef_technical_correction_business_semantics_mismatch'],
+            'tax bucket' => ['/fa:Faktura/fa:Fa/fa:P_13_1', '101.00', 'ksef_technical_correction_business_semantics_mismatch'],
+            'P_15' => ['/fa:Faktura/fa:Fa/fa:P_15', '124.00', 'ksef_technical_correction_business_semantics_mismatch'],
+        ];
+    }
+
+    #[DataProvider('invalidKorBusinessFingerprintVersions')]
+    public function test_kor_artifact_business_version_tampering_fails_closed(int $version): void
+    {
+        [$correction, $issuance, $source] = $this->rejectedTechnicalKor();
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)
+            ->prepare($correction, $issuance, $source);
+        DB::table('ksef_offline_technical_corrections')
+            ->where('id', $artifact->getKey())
+            ->update(['business_fingerprint_version' => $version]);
+
+        $this->assertError(
+            'ksef_technical_correction_integrity_invalid',
+            fn () => app(KsefOfflineTechnicalCorrectionIntegrityService::class)
+                ->assertArtifact($artifact->fresh()),
+        );
+        $this->assertSame(1, $correction->ksefSubmissions()->count());
+        Http::assertNothingSent();
+    }
+
+    public static function invalidKorBusinessFingerprintVersions(): array
+    {
+        return [
+            'KOR marked as VAT V1' => [1],
+            'zero' => [0],
+            'unknown' => [3],
+        ];
+    }
+
+    #[DataProvider('korTechnicalFinancialCases')]
+    public function test_kor_technical_prepare_uses_frozen_zero_vat_and_foreign_currency_evidence(
+        string $case,
+    ): void {
+        [$correction, $issuance, $source] = $this->rejectedTechnicalKor(financialCase: $case);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)
+            ->prepare($correction, $issuance, $source);
+        $evidence = $issuance->correction_financial_evidence;
+
+        $this->assertSame(2, $artifact->business_fingerprint_version);
+        app(KsefFa3CorrectionFinancialEvidencePayloadValidator::class)
+            ->validate($artifact->payload_xml, $evidence);
+        if ($case === 'foreign') {
+            $this->assertSame(
+                $evidence['tax_buckets']['standard_1']['pln_vat'],
+                $this->ksefValue($this->ksefXpath($artifact->payload_xml), '//fa:P_14_1W'),
+            );
+        }
+        Http::assertNothingSent();
+    }
+
+    public static function korTechnicalFinancialCases(): array
+    {
+        return array_map(
+            static fn (string $case): array => [$case],
+            ['foreign', 'zero', 'zero_domestic', 'zero_wdt', 'zero_export'],
+        );
+    }
+
+    public function test_buyer_only_kor_technical_prepare_uses_frozen_buyer_semantics(): void
+    {
+        [$correction, $issuance, $source] = $this->rejectedTechnicalKor(buyerChange: true, buyerOnly: true);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)
+            ->prepare($correction, $issuance, $source);
+        $xpath = $this->ksefXpath($artifact->payload_xml);
+
+        $this->assertSame(0, $xpath->query('/fa:Faktura/fa:Fa/fa:FaWiersz')->length);
+        $this->assertSame(1, $xpath->query('/fa:Faktura/fa:Fa/fa:Podmiot2K')->length);
+        $this->assertSame(2, $artifact->business_fingerprint_version);
         Http::assertNothingSent();
     }
 
@@ -883,6 +1151,70 @@ class KsefOfflineCorrectionTest extends TestCase
         };
 
         return app(KsefOfflineIssuanceService::class)->{$method}($correction);
+    }
+
+    /**
+     * @return array{0: Invoice, 1: KsefOfflineIssuance, 2: KsefInvoiceSubmission}
+     */
+    private function rejectedTechnicalKor(
+        ?string $financialCase = null,
+        bool $buyerChange = false,
+        bool $buyerOnly = false,
+        int $statusCode = 450,
+    ): array {
+        if ($financialCase !== null) {
+            [, $correction] = $this->financialScenario($financialCase);
+        } else {
+            [$root, $correction] = $this->scenario();
+            if ($buyerChange) {
+                app(InvoiceDeletionService::class)->delete(
+                    $correction,
+                    $correction->lock_version,
+                    $this->documentContext(),
+                );
+                $buyer = $root->buyer_snapshot;
+                $buyer['company_name'] = 'FAKE Frozen Buyer After';
+                $items = $this->submittedKsefItems($root);
+                if (! $buyerOnly) {
+                    $items[0]['quantity'] = 2;
+                }
+                $correction = $this->currentDate($this->issueKsefCorrection($root, $items, $buyer));
+            }
+        }
+
+        $issuance = $this->issue($correction);
+        $source = app(KsefOfflineInvoiceSubmissionService::class)->prepare($correction, $issuance);
+        $source->forceFill([
+            'status' => KsefInvoiceSubmissionStatus::Rejected,
+            'ksef_status_code' => $statusCode,
+        ])->save();
+        $this->travelTo($this->instant->addMinute());
+
+        return [$correction->fresh(), $issuance->fresh(), $source->fresh()];
+    }
+
+    private function tamperTechnicalArtifact(
+        KsefOfflineTechnicalCorrection $artifact,
+        string $expression,
+        string $replacement,
+    ): KsefOfflineTechnicalCorrection {
+        $xpath = $this->ksefXpath($artifact->payload_xml);
+        $nodes = $xpath->query($expression);
+        $this->assertNotFalse($nodes);
+        $this->assertSame(1, $nodes->length, $expression);
+        $nodes->item(0)->nodeValue = $replacement;
+        $payload = $xpath->document->saveXML();
+        $this->assertIsString($payload);
+        app(KsefFa3SchemaValidator::class)->validate($payload);
+        DB::table('ksef_offline_technical_corrections')
+            ->where('id', $artifact->getKey())
+            ->update([
+                'payload_xml' => Crypt::encryptString($payload),
+                'invoice_hash' => base64_encode(hash('sha256', $payload, true)),
+                'invoice_size' => strlen($payload),
+            ]);
+
+        return $artifact->fresh();
     }
 
     private function evidence(string $procedure): void

@@ -14,9 +14,12 @@ use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefOfflineTechnicalCorrection;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidencePayloadValidator;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidenceValidator;
 use Modules\Ksef\Services\Fa3\KsefFa3IssueDateReader;
 use Modules\Ksef\Services\Fa3\KsefFa3SchemaValidator;
 use Modules\Ksef\Services\Fa3\KsefFa3XmlBuilder;
+use Modules\Ksef\ValueObjects\Fa3\KsefFa3GeneratedDocument;
 
 final class KsefOfflineTechnicalCorrectionIntegrityService
 {
@@ -25,6 +28,8 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
         private readonly KsefFa3SchemaValidator $schema,
         private readonly KsefFa3IssueDateReader $issueDates,
         private readonly KsefOfflineTechnicalCorrectionBusinessFingerprintService $businessFingerprint,
+        private readonly KsefFa3CorrectionFinancialEvidenceValidator $financialEvidence,
+        private readonly KsefFa3CorrectionFinancialEvidencePayloadValidator $financialEvidencePayload,
     ) {}
 
     public function assertSource(
@@ -55,9 +60,9 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
         KsefOfflineIssuance $issuance,
         KsefInvoiceSubmission $source,
     ): void {
-        if (! $invoice->isInvoice()) {
+        if (! $invoice->isInvoice() && ! $invoice->isCorrection()) {
             throw new KsefApiException(
-                'Korekta techniczna jest obecnie dostępna wyłącznie dla zwykłej Faktury VAT Offline.',
+                'Korekta techniczna jest dostępna wyłącznie dla Faktury VAT albo Korekty Offline.',
                 'ksef_technical_correction_document_type_not_supported',
             );
         }
@@ -97,6 +102,32 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
             || strlen($issuancePayload) !== $issuance->invoice_size
             || ! hash_equals((string) $issuance->invoice_hash, $this->hash($issuancePayload))) {
             throw $this->sourceInvalid();
+        }
+
+        if ($invoice->isCorrection()) {
+            $this->correctionEvidence($issuance, source: true);
+        }
+    }
+
+    public function assertGeneratedCorrectionEvidence(
+        Invoice $invoice,
+        KsefOfflineIssuance $issuance,
+        KsefFa3GeneratedDocument $generated,
+    ): void {
+        if (! $invoice->isCorrection()) {
+            return;
+        }
+
+        $sourceEvidence = $this->correctionEvidence($issuance, source: true);
+        if (! is_array($generated->integrityEvidence)
+            || ! $this->sameEvidence($sourceEvidence, $generated->integrityEvidence)) {
+            throw $this->businessSemanticsMismatch();
+        }
+
+        try {
+            $this->financialEvidencePayload->validate($generated->xml, $sourceEvidence);
+        } catch (KsefApiException) {
+            throw $this->businessSemanticsMismatch();
         }
     }
 
@@ -165,7 +196,14 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
             throw $this->artifactInvalid();
         }
 
-        if (! $this->businessFingerprint->supportsVersion($artifact->business_fingerprint_version)
+        try {
+            $expectedFingerprintVersion = $this->businessFingerprint->versionFor($invoice);
+        } catch (KsefApiException) {
+            throw $this->artifactInvalid();
+        }
+
+        if ($artifact->business_fingerprint_version !== $expectedFingerprintVersion
+            || ! $this->businessFingerprint->supportsVersion($artifact->business_fingerprint_version)
             || preg_match('/^[A-Za-z0-9+\/]{43}=$/', (string) $artifact->business_fingerprint) !== 1) {
             throw $this->artifactInvalid();
         }
@@ -178,6 +216,7 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
             $invoiceFingerprint = $this->businessFingerprint->fromInvoice(
                 $invoice,
                 $artifact->business_fingerprint_version,
+                $issuance->environment,
             );
         } catch (InvoiceDomainException|KsefApiException) {
             throw $this->artifactInvalid();
@@ -186,6 +225,15 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
         if (! hash_equals((string) $artifact->business_fingerprint, $payloadFingerprint)
             || ! hash_equals((string) $artifact->business_fingerprint, $invoiceFingerprint)) {
             throw $this->businessSemanticsMismatch();
+        }
+
+        if ($invoice->isCorrection()) {
+            $evidence = $this->correctionEvidence($issuance, source: false);
+            try {
+                $this->financialEvidencePayload->validate($payload, $evidence);
+            } catch (KsefApiException) {
+                throw $this->businessSemanticsMismatch();
+            }
         }
     }
 
@@ -280,6 +328,42 @@ final class KsefOfflineTechnicalCorrectionIntegrityService
     private function hash(string $payload): string
     {
         return base64_encode(hash('sha256', $payload, true));
+    }
+
+    /** @return array<string, mixed> */
+    private function correctionEvidence(KsefOfflineIssuance $issuance, bool $source): array
+    {
+        try {
+            $evidence = $issuance->correction_financial_evidence;
+            if (! is_array($evidence)) {
+                throw $source ? $this->sourceInvalid() : $this->artifactInvalid();
+            }
+            $this->financialEvidence->validate($evidence);
+
+            return $evidence;
+        } catch (DecryptException|KsefApiException) {
+            throw $source ? $this->sourceInvalid() : $this->artifactInvalid();
+        }
+    }
+
+    /** @param array<string, mixed> $left
+     * @param  array<string, mixed>  $right
+     */
+    private function sameEvidence(array $left, array $right): bool
+    {
+        return $this->canonicalEvidence($left) === $this->canonicalEvidence($right);
+    }
+
+    private function canonicalEvidence(mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+        if (! array_is_list($value)) {
+            ksort($value, SORT_STRING);
+        }
+
+        return array_map(fn (mixed $item): mixed => $this->canonicalEvidence($item), $value);
     }
 
     private function sourceInvalid(): KsefApiException

@@ -32,6 +32,8 @@ use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefOfflineCertificate;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidencePayloadValidator;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidenceValidator;
 use Modules\Ksef\Services\Fa3\KsefFa3DocumentGenerator;
 use Modules\Ksef\Services\Fa3\KsefFa3InvoiceMapper;
 use Modules\Ksef\Services\Fa3\KsefFa3IssueDateReader;
@@ -602,13 +604,13 @@ class KsefOfflineSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_technical_prepare_rejects_kor_in_r1(): void
+    public function test_technical_prepare_rejects_document_type_tampering_without_kor_snapshots(): void
     {
         [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
         $submissionCount = KsefInvoiceSubmission::query()->count();
         $invoice->forceFill(['document_type' => InvoiceDocumentType::Correction])->saveQuietly();
         $this->expectKsefError(
-            'ksef_technical_correction_document_type_not_supported',
+            'ksef_technical_correction_source_integrity_invalid',
             fn () => app(KsefOfflineTechnicalCorrectionService::class)
                 ->prepare($invoice->fresh(), $issuance, $source),
         );
@@ -918,6 +920,7 @@ class KsefOfflineSubmissionTest extends TestCase
     {
         [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
         $fingerprints = Mockery::mock(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class);
+        $fingerprints->shouldReceive('versionFor')->once()->andReturn(1);
         $fingerprints->shouldReceive('fromInvoice')->once()->andReturn($this->hash('invoice-business'));
         $fingerprints->shouldReceive('fromPayload')->once()->andReturn($this->hash('payload-business'));
         $this->app->instance(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class, $fingerprints);
@@ -950,6 +953,8 @@ class KsefOfflineSubmissionTest extends TestCase
             app(KsefFa3SchemaValidator::class),
             app(KsefFa3IssueDateReader::class),
             app(KsefOfflineTechnicalCorrectionBusinessFingerprintService::class),
+            app(KsefFa3CorrectionFinancialEvidenceValidator::class),
+            app(KsefFa3CorrectionFinancialEvidencePayloadValidator::class),
         );
         $integrity->assertArtifact($artifact, $invoice, $issuance, $source);
 
@@ -1001,7 +1006,9 @@ class KsefOfflineSubmissionTest extends TestCase
     {
         return [
             'unknown eligibility policy' => ['eligibility_policy_version', 999, 'ksef_technical_correction_integrity_invalid'],
-            'unknown business fingerprint version' => ['business_fingerprint_version', 999, 'ksef_technical_correction_integrity_invalid'],
+            'VAT marked as KOR version' => ['business_fingerprint_version', 2, 'ksef_technical_correction_integrity_invalid'],
+            'zero business fingerprint version' => ['business_fingerprint_version', 0, 'ksef_technical_correction_integrity_invalid'],
+            'unknown business fingerprint version' => ['business_fingerprint_version', 3, 'ksef_technical_correction_integrity_invalid'],
             'stored business fingerprint' => [
                 'business_fingerprint',
                 base64_encode(hash('sha256', 'tampered-business', true)),

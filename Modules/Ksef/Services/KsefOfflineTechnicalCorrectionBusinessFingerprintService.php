@@ -12,35 +12,74 @@ use DOMXPath;
 use InvalidArgumentException;
 use JsonException;
 use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Exceptions\KsefApiException;
 
 class KsefOfflineTechnicalCorrectionBusinessFingerprintService
 {
-    public const CURRENT_VERSION = 1;
+    public const INVOICE_VERSION = 1;
+
+    public const CORRECTION_VERSION = 2;
+
+    public const CURRENT_VERSION = self::INVOICE_VERSION;
 
     private const FA3_NAMESPACE = 'http://crd.gov.pl/wzor/2025/06/25/13775/';
 
     public function __construct(
         private readonly KsefOfflineTechnicalCorrectionInvoiceBusinessProjectionV1 $invoiceProjection,
+        private readonly KsefOfflineTechnicalCorrectionCorrectionBusinessProjectionV2 $correctionProjection,
     ) {}
 
     public function supportsVersion(int $version): bool
     {
-        return $version === 1;
+        return in_array($version, [self::INVOICE_VERSION, self::CORRECTION_VERSION], true);
     }
 
-    public function fromInvoice(Invoice $invoice, int $version): string
+    public function versionFor(Invoice $document): int
     {
+        return match (true) {
+            $document->isInvoice() => self::INVOICE_VERSION,
+            $document->isCorrection() => self::CORRECTION_VERSION,
+            default => throw new KsefApiException(
+                'Ten typ dokumentu nie jest obsługiwany przez biznesowy fingerprint korekty technicznej.',
+                'ksef_technical_correction_document_type_not_supported',
+            ),
+        };
+    }
+
+    public function fromInvoice(
+        Invoice $invoice,
+        int $version,
+        ?KsefEnvironment $environment = null,
+    ): string {
         $this->assertSupportedVersion($version);
 
-        return $this->fingerprint($this->invoiceProjection->project($invoice));
+        $projection = match ($version) {
+            self::INVOICE_VERSION => $invoice->isInvoice()
+                ? $this->invoiceProjection->project($invoice)
+                : throw $this->invalidProjection(),
+            self::CORRECTION_VERSION => $invoice->isCorrection()
+                ? $this->correctionProjection->projectInvoice($invoice, $environment)
+                : throw $this->invalidProjection(),
+        };
+
+        return $this->fingerprint($projection);
     }
 
     public function fromPayload(string $xml, int $version): string
     {
         $this->assertSupportedVersion($version);
 
-        return $this->fingerprint($this->fromPayloadV1($xml));
+        $projection = match ($version) {
+            self::INVOICE_VERSION => $this->fromPayloadV1($xml),
+            self::CORRECTION_VERSION => $this->correctionProjection->projectPayload($xml),
+        };
+        $expectedKind = $version === self::INVOICE_VERSION ? 'VAT' : 'KOR';
+        if (($projection['document_kind'] ?? null) !== $expectedKind) {
+            throw $this->invalidProjection();
+        }
+
+        return $this->fingerprint($projection);
     }
 
     /** @return array<string, mixed> */

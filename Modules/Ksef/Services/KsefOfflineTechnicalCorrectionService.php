@@ -50,10 +50,11 @@ final class KsefOfflineTechnicalCorrectionService
                 }
 
                 $generatedAt = CarbonImmutable::now('UTC');
-                $businessFingerprintVersion = KsefOfflineTechnicalCorrectionBusinessFingerprintService::CURRENT_VERSION;
+                $businessFingerprintVersion = $this->businessFingerprint->versionFor($managedInvoice);
                 $invoiceBusinessFingerprint = $this->businessFingerprint->fromInvoice(
                     $managedInvoice,
                     $businessFingerprintVersion,
+                    $managedIssuance->environment,
                 );
                 $generated = $this->generator->generate(
                     $managedInvoice,
@@ -66,6 +67,11 @@ final class KsefOfflineTechnicalCorrectionService
                 if (! hash_equals($invoiceBusinessFingerprint, $payloadBusinessFingerprint)) {
                     throw $this->businessSemanticsMismatch();
                 }
+                $this->integrity->assertGeneratedCorrectionEvidence(
+                    $managedInvoice,
+                    $managedIssuance,
+                    $generated,
+                );
                 $hash = $this->hash($generated->xml);
 
                 if (hash_equals($hash, (string) $managedIssuance->invoice_hash)) {

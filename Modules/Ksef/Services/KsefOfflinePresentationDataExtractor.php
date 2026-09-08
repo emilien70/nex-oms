@@ -17,8 +17,7 @@ use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefOfflineTechnicalCorrection;
-use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidenceValidator;
-use Modules\Ksef\Services\Fa3\KsefFa3CorrectionTaxBuckets;
+use Modules\Ksef\Services\Fa3\KsefFa3CorrectionFinancialEvidencePayloadValidator;
 use Modules\Ksef\Services\Fa3\KsefFa3XmlBuilder;
 use Modules\Ksef\ValueObjects\KsefOfflinePresentationData;
 
@@ -31,7 +30,7 @@ final class KsefOfflinePresentationDataExtractor
         private readonly KsefFa3BuyerIdentityResolver $buyerIdentities,
         private readonly KsefQrEnvironmentHostPolicy $qrHosts,
         private readonly KsefNumberValidator $ksefNumbers,
-        private readonly KsefFa3CorrectionFinancialEvidenceValidator $financialEvidence,
+        private readonly KsefFa3CorrectionFinancialEvidencePayloadValidator $financialEvidence,
         private readonly KsefInvoiceVerificationLinkBuilder $invoiceLinks,
     ) {}
 
@@ -111,7 +110,15 @@ final class KsefOfflinePresentationDataExtractor
         [$lines, $lineTaxTreatments] = $this->lines($xpath, $isCorrection);
         $correction = $isCorrection ? $this->correction($xpath, $lines) : null;
         if ($correction !== null) {
-            $this->assertCorrectionFinancialEvidence($issuance, $xpath, $correction['pairs']);
+            try {
+                $evidence = $issuance->correction_financial_evidence;
+            } catch (DecryptException) {
+                throw $this->integrityInvalid();
+            }
+            if (! is_array($evidence)) {
+                throw $this->integrityInvalid();
+            }
+            $this->financialEvidence->validate($xml, $evidence);
         }
         [$taxRows, $totalNet, $totalVat] = $this->taxRows($xpath, $lineTaxTreatments, $isCorrection);
         $gross = $this->money($this->required($xpath, '/fa:Faktura/fa:Fa/fa:P_15'));
@@ -395,52 +402,6 @@ final class KsefOfflinePresentationDataExtractor
         }
 
         return [$rows, $totalNet, $totalVat];
-    }
-
-    private function assertCorrectionFinancialEvidence(KsefOfflineIssuance $issuance, DOMXPath $xpath, array $pairs): void
-    {
-        try {
-            $evidence = $issuance->correction_financial_evidence;
-        } catch (DecryptException) {
-            throw $this->integrityInvalid();
-        }
-        if (! is_array($evidence)) {
-            throw $this->integrityInvalid();
-        }
-        $this->financialEvidence->validate($evidence);
-        if ($this->required($xpath, '/fa:Faktura/fa:Fa/fa:KodWaluty') !== $evidence['currency']
-            || $this->required($xpath, '/fa:Faktura/fa:Fa/fa:P_15') !== $evidence['totals']['gross']
-            || count($pairs) !== count($evidence['lines'])) {
-            throw $this->integrityInvalid();
-        }
-        foreach ($evidence['lines'] as $line) {
-            $pair = $pairs[$line['position']] ?? null;
-            if ($pair === null) {
-                throw $this->integrityInvalid();
-            }
-            foreach (['before', 'after'] as $side) {
-                if ($pair[$side]['total_net'] !== $line[$side]['total_net']
-                    || $pair[$side]['fa3_rate'] !== $line[$side]['fa3_rate']) {
-                    throw $this->integrityInvalid();
-                }
-            }
-        }
-        // Canonical mapper output defines both required and forbidden XML summary fields.
-        $allowedFields = [];
-        foreach (KsefFa3CorrectionTaxBuckets::FIELDS as $bucket => $fields) {
-            foreach ($fields as $amount => $field) {
-                $allowedFields[] = $field;
-                if ($this->optional($xpath, '/fa:Faktura/fa:Fa/fa:'.$field)
-                    !== ($evidence['tax_buckets'][$bucket][$amount] ?? null)) {
-                    throw $this->integrityInvalid();
-                }
-            }
-        }
-        foreach ($this->nodes($xpath, '/fa:Faktura/fa:Fa/*[starts-with(local-name(), "P_13_") or starts-with(local-name(), "P_14_")]') as $node) {
-            if (! in_array($node->localName, $allowedFields, true)) {
-                throw $this->integrityInvalid();
-            }
-        }
     }
 
     /** Correction rows are paired by position, never interpreted as an ordinary invoice sum. */
