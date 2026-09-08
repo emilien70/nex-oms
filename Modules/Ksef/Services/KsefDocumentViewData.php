@@ -105,6 +105,7 @@ final class KsefDocumentViewData
             }
         }
 
+        $technicalDocumentSupported = $invoice->isInvoice() || $invoice->isCorrection();
         $offlineIssuanceRows = $offlineIssuances->map(function (KsefOfflineIssuance $issuance) use (
             $submissions,
             $offlineDelivery,
@@ -112,7 +113,7 @@ final class KsefDocumentViewData
             $settings,
             $technicalCorrections,
             $technicalCorrectionEligibility,
-            $invoice,
+            $technicalDocumentSupported,
         ): array {
             $deliveryType = null;
             $deliveryError = null;
@@ -158,18 +159,19 @@ final class KsefDocumentViewData
                 'delivery_type' => $deliveryType,
                 'delivery_error' => $deliveryError,
                 'environment_allowed' => $environments->allows($issuance->environment),
+                'environment_current' => $settings?->environment === $issuance->environment,
                 'context_current' => $settings !== null
                     && is_string($settings->context_nip)
                     && hash_equals((string) $issuance->context_identifier_value, $settings->context_nip),
                 'technical_correction' => $technicalCorrection,
                 'technical_source_submission' => $sourceSubmission,
                 'technical_eligibility' => $technicalEligibility,
-                'technical_prepare_available' => $invoice->isInvoice()
+                'technical_prepare_available' => $technicalDocumentSupported
                     && $technicalCorrection === null
                     && ! $hasAcceptedSubmission
                     && $sourceSubmission?->status === KsefInvoiceSubmissionStatus::Rejected
                     && $technicalEligibility === KsefTechnicalCorrectionEligibility::Eligible,
-                'technical_submit_available' => $invoice->isInvoice()
+                'technical_submit_available' => $technicalDocumentSupported
                     && $technicalCorrection !== null
                     && ! $hasAcceptedSubmission
                     && $technicalSubmission === null,

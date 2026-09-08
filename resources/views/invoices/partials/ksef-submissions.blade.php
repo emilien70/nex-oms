@@ -226,11 +226,13 @@
             $technicalCanPrepare = $ksefSubmissionGateEnabled
                 && $ksefSettings?->is_active
                 && $offlineRow['environment_allowed']
+                && $offlineRow['environment_current']
                 && $offlineRow['context_current']
                 && $offlineRow['technical_prepare_available'];
             $technicalCanSubmit = $ksefSubmissionGateEnabled
                 && $ksefSettings?->is_active
                 && $offlineRow['environment_allowed']
+                && $offlineRow['environment_current']
                 && $offlineRow['context_current']
                 && $offlineRow['technical_submit_available'];
         @endphp
@@ -289,7 +291,7 @@
                         method="POST"
                         action="{{ route('invoices.ksef.offline-technical-corrections.prepare', ['invoice' => $invoice, 'issuance' => $offlineIssuance, 'submission' => $technicalSourceSubmission]) }}"
                         data-ksef-technical-correction-prepare-form
-                        onsubmit="return window.confirm('Przygotować lokalnie korektę techniczną odrzuconej Faktury Offline? Dane biznesowe zostaną odtworzone z niezmiennego snapshotu Faktury.')"
+                        onsubmit="return window.confirm('Przygotować lokalnie korektę techniczną odrzuconego dokumentu Offline? Dane biznesowe zostaną odtworzone z jego niezmiennego snapshotu.')"
                     >
                         @csrf
                         <button class="btn btn-outline-warning" type="submit">PRZYGOTUJ KOREKTĘ TECHNICZNĄ</button>
