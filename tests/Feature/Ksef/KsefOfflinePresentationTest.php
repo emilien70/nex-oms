@@ -332,6 +332,10 @@ class KsefOfflinePresentationTest extends TestCase
             'TEST KOD II on DEMO host' => [KsefEnvironment::Test, 'certificate_verification_url', 'qr-demo.ksef.mf.gov.pl'],
             'DEMO KOD I on TEST host' => [KsefEnvironment::Demo, 'invoice_verification_url', 'qr-test.ksef.mf.gov.pl'],
             'DEMO KOD II on TEST host' => [KsefEnvironment::Demo, 'certificate_verification_url', 'qr-test.ksef.mf.gov.pl'],
+            'PROD KOD I on TEST host' => [KsefEnvironment::Production, 'invoice_verification_url', 'qr-test.ksef.mf.gov.pl'],
+            'PROD KOD II on DEMO host' => [KsefEnvironment::Production, 'certificate_verification_url', 'qr-demo.ksef.mf.gov.pl'],
+            'TEST KOD I on PROD host' => [KsefEnvironment::Test, 'invoice_verification_url', 'qr.ksef.mf.gov.pl'],
+            'DEMO KOD II on PROD host' => [KsefEnvironment::Demo, 'certificate_verification_url', 'qr.ksef.mf.gov.pl'],
         ];
     }
 
@@ -453,10 +457,11 @@ class KsefOfflinePresentationTest extends TestCase
         ];
     }
 
-    public function test_frozen_presentation_survives_invoice_settings_and_certificate_changes(): void
+    #[DataProvider('frozenEnvironments')]
+    public function test_frozen_presentation_survives_invoice_settings_and_certificate_changes(KsefEnvironment $environment): void
     {
         [$invoice, $issuance, $certificate] = $this->issueOffline(
-            KsefEnvironment::Demo,
+            $environment,
             ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE123456789'],
         );
         $extractor = app(KsefOfflinePresentationDataExtractor::class);
@@ -472,8 +477,10 @@ class KsefOfflinePresentationTest extends TestCase
         ])->saveQuietly();
         app(KsefSettingsService::class)->get()->forceFill([
             'environment' => KsefEnvironment::Test,
+            'is_active' => false,
         ])->save();
         app(KsefOfflineCertificateService::class)->delete($certificate);
+        config(['ksef.invoice_submission_enabled' => false]);
 
         $issuance = $issuance->fresh();
         $after = $extractor->extract($issuance);
@@ -481,12 +488,17 @@ class KsefOfflinePresentationTest extends TestCase
 
         $this->assertNull($issuance->offline_certificate_id);
         $this->assertEquals($before, $after);
-        $this->assertSame(KsefEnvironment::Demo, $after->environment);
+        $this->assertSame($environment, $after->environment);
         $this->assertSame($invoiceUrl, $after->invoiceVerificationUrl);
         $this->assertSame($certificateUrl, $after->certificateVerificationUrl);
         $this->assertStringStartsWith('%PDF-', $document['contents']);
         $this->assertStringNotContainsString('LATER BUYER', app(KsefOfflinePresentationPdfRenderer::class)->offlineInvoiceHtml($after));
         Http::assertNothingSent();
+    }
+
+    public static function frozenEnvironments(): array
+    {
+        return array_map(fn (KsefEnvironment $environment): array => [$environment], KsefEnvironment::cases());
     }
 
     public function test_standard_pdf_and_preexisting_cache_are_blocked_after_offline24(): void
@@ -552,7 +564,7 @@ class KsefOfflinePresentationTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_test_and_demo_marks_come_from_each_frozen_issuance_environment(): void
+    public function test_marks_and_qr_hosts_come_from_each_frozen_issuance_environment(): void
     {
         [, $testIssuance] = $this->issueOffline(
             KsefEnvironment::Test,
@@ -562,7 +574,11 @@ class KsefOfflinePresentationTest extends TestCase
             KsefEnvironment::Demo,
             ['billing_country_code' => 'DE', 'billing_tax_id' => 'DE987654321'],
         );
+        [, $productionIssuance] = $this->issueOffline(KsefEnvironment::Production);
         $extractor = app(KsefOfflinePresentationDataExtractor::class);
+        $production = $extractor->extract($productionIssuance);
+        $this->assertSame('', $production->testMark());
+        $this->assertStringStartsWith('https://qr.ksef.mf.gov.pl/', $production->invoiceVerificationUrl);
 
         $test = $extractor->extract($testIssuance);
         $demo = $extractor->extract($demoIssuance);

@@ -32,7 +32,6 @@ use Modules\Ksef\Services\KsefInvoiceStatusFollowUpService;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefInvoiceUpoService;
 use Modules\Ksef\Services\KsefManualCorrectionSubmissionService;
-use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use phpseclib3\Crypt\RSA;
@@ -245,26 +244,28 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_first_manual_correction_send_atomically_finalizes_prepares_and_reuses_transport(): void
+    #[DataProvider('operationalEnvironments')]
+    public function test_first_manual_correction_send_atomically_finalizes_prepares_and_reuses_transport(KsefEnvironment $environment): void
     {
-        $this->allowProductionEnvironment();
-        $this->configure(KsefEnvironment::Production);
+        $this->configure($environment);
         $root = $this->issueKsefRoot();
-        $this->acceptKsefDocument($root, KsefEnvironment::Production);
+        $this->acceptKsefDocument($root, $environment);
         $correction = $this->issueKsefFinancialCorrection($root);
-        $this->validAccessToken(KsefEnvironment::Production);
-        $fake = $this->fakeOnlineApi();
+        $this->validAccessToken($environment);
+        $fake = new KsefOnlineSessionApiFake;
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/*' => fn (Request $request) => $fake($request)]);
 
         $submission = app(KsefManualCorrectionSubmissionService::class)->submitFirstAttempt(
             $correction,
-            KsefEnvironment::Production,
+            $environment,
             KsefUpoFixture::CONTEXT_NIP,
         );
 
         $this->assertTrue($correction->fresh()->isFinalized());
         $this->assertDatabaseMissing('order_document_slots', ['invoice_id' => $correction->getKey()]);
         $this->assertSame($correction->getKey(), $submission->invoice_id);
-        $this->assertSame(KsefEnvironment::Production, $submission->environment);
+        $this->assertSame($environment, $submission->environment);
         $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
         $this->assertSame('FA (3) 1-0E', $submission->schema_id);
         $this->assertSame(KsefUpoFixture::CONTEXT_NIP, $submission->context_nip);
@@ -276,11 +277,23 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         $this->assertSame($submission->invoice_size, $fake->sendPayload['invoiceSize']);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->closeCalls);
+        $fake->statusResponse = $this->acceptedStatus($submission);
+        $accepted = app(KsefInvoiceSubmissionService::class)->refreshStatus($submission);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $accepted->status);
+        $this->assertSame($environment, $accepted->environment);
+        Http::assertSentCount(5);
+        foreach (Http::recorded() as [$request]) {
+            $this->assertStringStartsWith($base.'/', $request->url());
+        }
+    }
+
+    public static function operationalEnvironments(): array
+    {
+        return array_map(fn (KsefEnvironment $environment): array => [$environment], KsefEnvironment::cases());
     }
 
     public function test_failed_source_resolution_rolls_back_finalization_slot_and_submission_without_http(): void
     {
-        $this->allowProductionEnvironment();
         $this->configure(KsefEnvironment::Production);
         $root = $this->issueKsefRoot();
         $correction = $this->issueKsefFinancialCorrection($root);
@@ -344,7 +357,6 @@ class KsefManualCorrectionSubmissionTest extends TestCase
 
     public function test_first_attempt_history_is_strictly_isolated_per_correction_and_environment(): void
     {
-        $this->allowProductionEnvironment();
         $this->configure(KsefEnvironment::Production);
         $root = $this->issueKsefRoot();
         $this->acceptKsefDocument($root, KsefEnvironment::Production);
@@ -382,7 +394,6 @@ class KsefManualCorrectionSubmissionTest extends TestCase
 
     public function test_demo_root_never_satisfies_production_source_reference(): void
     {
-        $this->allowProductionEnvironment();
         $this->configure(KsefEnvironment::Production);
         $root = $this->issueKsefRoot();
         $this->acceptKsefDocument($root, KsefEnvironment::Demo);
@@ -398,7 +409,6 @@ class KsefManualCorrectionSubmissionTest extends TestCase
 
     public function test_explicit_outside_ksef_root_allows_first_correction_transport(): void
     {
-        $this->allowProductionEnvironment();
         $this->configure(KsefEnvironment::Production);
         $root = $this->issueKsefRoot();
         $this->markKsefOutside($root, KsefEnvironment::Production);
@@ -418,7 +428,6 @@ class KsefManualCorrectionSubmissionTest extends TestCase
 
     public function test_c2_and_c3_reuse_exact_accepted_production_chain_without_upo(): void
     {
-        $this->allowProductionEnvironment();
         $this->configure(KsefEnvironment::Production);
         $root = $this->issueKsefRoot();
         $this->acceptKsefDocument($root, KsefEnvironment::Production);
@@ -452,7 +461,6 @@ class KsefManualCorrectionSubmissionTest extends TestCase
 
     public function test_c2_rejects_previous_correction_accepted_only_in_demo(): void
     {
-        $this->allowProductionEnvironment();
         $this->configure(KsefEnvironment::Production);
         $root = $this->issueKsefRoot();
         $this->acceptKsefDocument($root, KsefEnvironment::Production);
@@ -780,22 +788,6 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         Http::fake(fn (Request $request) => $fake($request));
 
         return $fake;
-    }
-
-    private function allowProductionEnvironment(): void
-    {
-        $this->app->instance(
-            KsefOperationalEnvironmentPolicy::class,
-            new class extends KsefOperationalEnvironmentPolicy
-            {
-                public function allows(KsefEnvironment $environment): bool
-                {
-                    return true;
-                }
-
-                public function assertAllowed(KsefEnvironment $environment): void {}
-            },
-        );
     }
 
     private function assertManualFailure(

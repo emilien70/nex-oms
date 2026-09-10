@@ -75,7 +75,7 @@ final class KsefOfflinePresentationDataExtractor
         }
 
         if (! in_array($issuance->procedure, KsefOfflineIssuanceProcedure::cases(), true)
-            || ! in_array($issuance->environment, [KsefEnvironment::Test, KsefEnvironment::Demo], true)
+            || ! in_array($issuance->environment, KsefEnvironment::cases(), true)
             || $issuance->schema_id !== self::SCHEMA_ID
             || ! is_string($xml)
             || $xml === ''

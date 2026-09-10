@@ -2,7 +2,6 @@
 
 namespace Modules\Ksef\Services;
 
-use Illuminate\Contracts\Foundation\Application;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -15,7 +14,6 @@ use Modules\Ksef\Models\KsefSetting;
 class KsefPdfDocumentPresenter
 {
     public function __construct(
-        private readonly Application $app,
         private readonly KsefInvoiceVerificationLinkBuilder $verificationLinks,
         private readonly KsefNumberValidator $ksefNumbers,
     ) {}
@@ -68,10 +66,6 @@ class KsefPdfDocumentPresenter
 
     private function environment(): ?KsefEnvironment
     {
-        if ($this->app->environment('production')) {
-            return KsefEnvironment::Production;
-        }
-
         return KsefSetting::query()
             ->where('singleton_key', KsefSetting::SINGLETON_KEY)
             ->first(['environment'])

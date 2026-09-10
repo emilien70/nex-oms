@@ -203,10 +203,11 @@ class KsefOfflineCorrectionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_kor_application_two_step_technical_workflow_sends_once_and_completes_downstream(): void
+    #[DataProvider('technicalEnvironments')]
+    public function test_kor_application_two_step_technical_workflow_sends_once_and_completes_downstream(KsefEnvironment $environment, int $rejection): void
     {
         Queue::fake();
-        [$correction, $issuance, $source] = $this->rejectedTechnicalKor();
+        [$correction, $issuance, $source] = $this->rejectedTechnicalKor(statusCode: $rejection, environment: $environment);
         $url = route('invoices.corrections.edit', $correction);
         $sourcePayload = $issuance->payload_xml;
         $sourceHash = $issuance->invoice_hash;
@@ -238,10 +239,10 @@ class KsefOfflineCorrectionTest extends TestCase
         $this->get($url)
             ->assertOk()
             ->assertDontSee('PRZYGOTUJ KOREKTĘ TECHNICZNĄ')
-            ->assertSee('PRZEŚLIJ KOREKTĘ TECHNICZNĄ DO KSeF TEST');
+            ->assertSee('PRZEŚLIJ KOREKTĘ TECHNICZNĄ DO KSeF '.strtoupper($environment->value));
 
-        $this->validTechnicalAccessToken();
-        $fake = $this->fakeTechnicalApi();
+        $this->validTechnicalAccessToken($environment);
+        $fake = $this->fakeTechnicalApi($environment);
         $ksefNumber = KsefUpoFixture::ksefNumber($issuance->seller_nip);
         $fake->openResponse['referenceNumber'] = KsefUpoFixture::SESSION_REFERENCE;
         $fake->sendResponse['referenceNumber'] = KsefUpoFixture::INVOICE_REFERENCE;
@@ -253,6 +254,9 @@ class KsefOfflineCorrectionTest extends TestCase
         ]))->assertRedirect($url)->assertSessionHasNoErrors();
 
         $technical = $artifact->submission()->firstOrFail()->fresh();
+        foreach ([$issuance, $source, $artifact, $technical] as $record) {
+            $this->assertSame($environment, $record->environment);
+        }
         $this->assertSame(2, $technical->attempt_number);
         $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $technical->status);
         $this->assertSame(200, $technical->ksef_status_code);
@@ -325,6 +329,7 @@ class KsefOfflineCorrectionTest extends TestCase
             'invoice_number' => $correction->number,
             'invoice_hash' => $technical->invoice_hash,
             'mode' => 'Offline',
+            'receiver_name' => $this->upoReceiver($environment),
         ]);
         $fake->upoContentHash = base64_encode(hash('sha256', $fake->upoResponse, true));
         $upos = app(KsefInvoiceUpoService::class);
@@ -1246,18 +1251,18 @@ class KsefOfflineCorrectionTest extends TestCase
     }
 
     #[DataProvider('transportCases')]
-    public function test_exact_frozen_transport_acceptance_own_number_upo_and_single_qr(string $procedure, bool $zero = false): void
+    public function test_exact_frozen_transport_acceptance_own_number_upo_and_single_qr(string $procedure, bool $zero = false, KsefEnvironment $environment = KsefEnvironment::Test): void
     {
         Event::fake([KsefInvoiceAccepted::class]);
-        [$root, $correction] = $zero ? $this->financialScenario('zero') : $this->scenario();
+        [$root, $correction] = $zero ? $this->financialScenario('zero') : $this->scenario(environment: $environment);
         $rootNumber = $root->ksefSubmissions()->firstOrFail()->ksef_number;
-        $this->evidence($procedure);
+        $this->evidence($procedure, $environment);
         $issuance = $this->issue($correction, $procedure);
         $presentation = app(KsefOfflinePresentationDataExtractor::class)->extract($issuance);
         $correction->forceFill(['additional_information_text' => 'LATER MUTABLE VALUE'])->saveQuietly();
         $this->assertEquals($presentation, app(KsefOfflinePresentationDataExtractor::class)->extract($issuance->fresh()));
         KsefCredential::query()->create([
-            'environment' => KsefEnvironment::Test, 'authentication_method' => KsefAuthenticationMethod::Token,
+            'environment' => $environment, 'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => 'FAKE_OFFLINE_CORRECTION_TOKEN', 'access_token' => 'FAKE_OFFLINE_CORRECTION_ACCESS',
             'access_token_valid_until' => now()->addHour(), 'refresh_token' => 'FAKE_OFFLINE_CORRECTION_REFRESH',
             'refresh_token_valid_until' => now()->addDay(),
@@ -1265,7 +1270,8 @@ class KsefOfflineCorrectionTest extends TestCase
         $fake = new KsefOnlineSessionApiFake;
         $fake->openResponse['referenceNumber'] = KsefUpoFixture::SESSION_REFERENCE;
         $fake->sendResponse['referenceNumber'] = KsefUpoFixture::INVOICE_REFERENCE;
-        Http::fake(fn (Request $request) => $fake($request));
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/*' => fn (Request $request) => $fake($request)]);
         $submission = app(KsefOfflineInvoiceSubmissionService::class)->submitAttempt($correction, $issuance);
         $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
         $this->assertSame(true, $fake->sendPayload['offlineMode']);
@@ -1303,6 +1309,7 @@ class KsefOfflineCorrectionTest extends TestCase
         $fake->upoResponse = KsefUpoFixture::xml([
             'session_reference' => $accepted->session_reference_number, 'ksef_number' => $number,
             'invoice_number' => $correction->number, 'invoice_hash' => $accepted->invoice_hash, 'mode' => 'Offline',
+            'receiver_name' => $this->upoReceiver($environment),
         ]);
         $fake->upoContentHash = base64_encode(hash('sha256', $fake->upoResponse, true));
         $upo = app(KsefInvoiceUpoService::class)->fetch($correction, $accepted);
@@ -1311,7 +1318,34 @@ class KsefOfflineCorrectionTest extends TestCase
 
     public static function transportCases(): array
     {
-        return [['offline24'], ['planned_unavailability'], ['failure'], ['offline24', true]];
+        return [
+            ['offline24'], ['planned_unavailability'], ['failure'], ['offline24', true],
+            ['offline24', false, KsefEnvironment::Demo],
+            ['offline24', false, KsefEnvironment::Production],
+            ['planned_unavailability', false, KsefEnvironment::Production],
+            ['failure', false, KsefEnvironment::Production],
+        ];
+    }
+
+    public static function technicalEnvironments(): array
+    {
+        $cases = [];
+        foreach (KsefEnvironment::cases() as $environment) {
+            foreach ([440, 450] as $rejection) {
+                $cases[$environment->value.' '.$rejection] = [$environment, $rejection];
+            }
+        }
+
+        return $cases;
+    }
+
+    private function upoReceiver(KsefEnvironment $environment): string
+    {
+        return match ($environment) {
+            KsefEnvironment::Test => 'Ministerstwo Finansów - środowisko testowe (TE)',
+            KsefEnvironment::Demo => 'Ministerstwo Finansów - środowisko przedprodukcyjne (TR)',
+            KsefEnvironment::Production => 'Ministerstwo Finansów',
+        };
     }
 
     #[DataProvider('deliveries')]
@@ -1445,7 +1479,6 @@ class KsefOfflineCorrectionTest extends TestCase
         return [
             ['demo', 'planned_unavailability', 'ksef_offline_procedure_unsupported_environment'],
             ['demo', 'failure', 'ksef_offline_procedure_unsupported_environment'],
-            ['production', 'offline24', 'ksef_operational_environment_blocked'],
             ['stale', 'planned_unavailability', 'ksef_offline_procedure_latarnia_stale'],
             ['stale', 'failure', 'ksef_offline_procedure_latarnia_stale'],
             ['status', 'failure', 'ksef_offline_procedure_status_mismatch'],
@@ -1877,11 +1910,12 @@ class KsefOfflineCorrectionTest extends TestCase
         bool $buyerChange = false,
         bool $buyerOnly = false,
         int $statusCode = 450,
+        KsefEnvironment $environment = KsefEnvironment::Test,
     ): array {
         if ($financialCase !== null) {
             [, $correction] = $this->financialScenario($financialCase);
         } else {
-            [$root, $correction] = $this->scenario();
+            [$root, $correction] = $this->scenario(environment: $environment);
             if ($buyerChange) {
                 app(InvoiceDeletionService::class)->delete(
                     $correction,
@@ -1982,10 +2016,10 @@ class KsefOfflineCorrectionTest extends TestCase
         return [$correction, $issuance, $source, $artifact];
     }
 
-    private function validTechnicalAccessToken(): KsefCredential
+    private function validTechnicalAccessToken(KsefEnvironment $environment = KsefEnvironment::Test): KsefCredential
     {
         return KsefCredential::query()->create([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => 'FAKE_KOR_TECHNICAL_API_TOKEN',
             'access_token' => 'FAKE_KOR_TECHNICAL_ACCESS_TOKEN',
@@ -1995,10 +2029,11 @@ class KsefOfflineCorrectionTest extends TestCase
         ]);
     }
 
-    private function fakeTechnicalApi(): KsefOnlineSessionApiFake
+    private function fakeTechnicalApi(KsefEnvironment $environment = KsefEnvironment::Test): KsefOnlineSessionApiFake
     {
         $fake = new KsefOnlineSessionApiFake;
-        Http::fake(fn (Request $request) => $fake($request));
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/*' => fn (Request $request) => $fake($request)]);
 
         return $fake;
     }
@@ -2016,20 +2051,20 @@ class KsefOfflineCorrectionTest extends TestCase
         ];
     }
 
-    private function evidence(string $procedure): void
+    private function evidence(string $procedure, KsefEnvironment $environment = KsefEnvironment::Test): void
     {
         if ($procedure === 'offline24') {
             return;
         }
         $maintenance = $procedure === 'planned_unavailability';
         KsefLatarniaSyncState::query()->create([
-            'source_environment' => 'test', 'current_status' => $maintenance ? 'MAINTENANCE' : 'FAILURE',
+            'source_environment' => $environment->value, 'current_status' => $maintenance ? 'MAINTENANCE' : 'FAILURE',
             'status_payload_json' => '{}', 'status_payload_hash' => hash('sha256', '{}'),
             'status_last_success_at' => $this->instant->subMinute(), 'messages_last_success_at' => $this->instant->subMinute(),
             'messages_coverage_from_at' => $this->instant->subDay(), 'messages_coverage_through_at' => $this->instant->subMinute(),
         ]);
         KsefLatarniaMessage::query()->create([
-            'source_environment' => 'test', 'external_message_id' => 'FAKE-8C6', 'event_id' => 806,
+            'source_environment' => $environment->value, 'external_message_id' => 'FAKE-8C6', 'event_id' => 806,
             'version' => 1, 'category' => $maintenance ? 'MAINTENANCE' : 'FAILURE',
             'type' => $maintenance ? 'MAINTENANCE_ANNOUNCEMENT' : 'FAILURE_START',
             'title' => 'FAKE Offline correction evidence', 'text' => 'Synthetic fixture only',

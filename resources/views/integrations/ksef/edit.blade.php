@@ -544,7 +544,7 @@
                             @elseif (! $settings->is_active)
                                 <p class="ksef-help mt-3">Integracja KSeF nie jest aktywna.</p>
                             @elseif (! $monthlyExportEnvironmentAllowed)
-                                <p class="ksef-help mt-3">Operacyjny transport Faktur do środowiska produkcyjnego KSeF nie został jeszcze odblokowany.</p>
+                                <p class="ksef-help mt-3">Wybrane środowisko nie obsługuje operacyjnego transportu Faktur do KSeF.</p>
                             @endif
                         </section>
                     </form>
@@ -706,8 +706,7 @@
                                                             <button
                                                                 class="btn btn-sm btn-outline-secondary"
                                                                 type="submit"
-                                                                @disabled($certificate->environment->value === 'production')
-                                                                @if ($certificate->environment->value === 'production') title="Zdalna weryfikacja Production nie została jeszcze odblokowana." @endif
+                                                                @disabled(! $offlineCertificateOperationsByEnvironment[$certificate->environment->value])
                                                             >Sprawdź w KSeF</button>
                                                         </form>
                                                         @if ($certificate->preferredSelection === null)

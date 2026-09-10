@@ -217,12 +217,13 @@ class KsefOfflineIssuanceTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_production_is_blocked_before_certificate_lookup_or_http(): void
+    public function test_production_without_own_preferred_certificate_never_uses_demo(): void
     {
         $invoice = $this->eligibleInvoice(KsefEnvironment::Production);
+        $this->readyCertificate(KsefEnvironment::Demo);
 
         $this->expectKsefError(
-            'ksef_operational_environment_blocked',
+            'ksef_offline24_preferred_certificate_missing',
             fn () => app(KsefOfflineIssuanceService::class)->issueOffline24($invoice),
         );
 
@@ -614,7 +615,7 @@ class KsefOfflineIssuanceTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_ui_hides_offline24_for_production_and_unfinalized_invoices(): void
+    public function test_ui_hides_offline24_without_environment_certificate_and_for_unfinalized_invoices(): void
     {
         [$finalized] = $this->eligibleInvoiceWithCertificate();
         app(KsefSettingsService::class)->get()->forceFill([

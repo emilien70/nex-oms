@@ -18,6 +18,7 @@ use Modules\Ksef\Services\KsefCertificateMaterialService;
 use Modules\Ksef\Services\KsefLatarniaStatusPresenter;
 use Modules\Ksef\Services\KsefMonthlyExportPeriod;
 use Modules\Ksef\Services\KsefOfflineCertificateReadinessService;
+use Modules\Ksef\Services\KsefOfflineCertificateRemoteOperationPolicy;
 use Modules\Ksef\Services\KsefOfflineCertificateService;
 use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Modules\Ksef\Services\KsefPaymentMethodMappingService;
@@ -33,6 +34,7 @@ class KsefSettingsController extends Controller
         KsefOperationalEnvironmentPolicy $operationalEnvironments,
         KsefOfflineCertificateService $offlineCertificates,
         KsefOfflineCertificateReadinessService $offlineCertificateReadiness,
+        KsefOfflineCertificateRemoteOperationPolicy $offlineCertificateOperations,
         KsefLatarniaStatusPresenter $latarniaStatusPresenter,
     ): View {
         $activeTab = match ($request->query('tab')) {
@@ -96,6 +98,10 @@ class KsefSettingsController extends Controller
             'monthlyExportGateEnabled' => config('ksef.invoice_submission_enabled') === true,
             'monthlyExportEnvironmentAllowed' => $operationalEnvironments->allows($settings->environment),
             'offlineCertificates' => $offlineCertificateRows,
+            'offlineCertificateOperationsByEnvironment' => collect(KsefEnvironment::cases())
+                ->mapWithKeys(fn (KsefEnvironment $environment): array => [
+                    $environment->value => $offlineCertificateOperations->allows($environment),
+                ]),
             'offlineCertificateReadinessById' => $offlineCertificateRows
                 ->mapWithKeys(fn ($certificate): array => [
                     $certificate->getKey() => $offlineCertificateReadiness->isReady($certificate),

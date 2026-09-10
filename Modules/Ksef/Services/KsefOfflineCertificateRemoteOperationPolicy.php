@@ -12,6 +12,7 @@ final class KsefOfflineCertificateRemoteOperationPolicy
         return in_array($environment, [
             KsefEnvironment::Test,
             KsefEnvironment::Demo,
+            KsefEnvironment::Production,
         ], true);
     }
 
@@ -22,7 +23,7 @@ final class KsefOfflineCertificateRemoteOperationPolicy
         }
 
         throw new KsefApiException(
-            'Zdalne operacje certyfikatów Offline w środowisku produkcyjnym nie zostały jeszcze odblokowane.',
+            'Wybrane środowisko nie obsługuje zdalnych operacji certyfikatów Offline.',
             'offline_certificate_production_blocked',
         );
     }

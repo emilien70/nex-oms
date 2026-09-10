@@ -30,6 +30,8 @@ use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpDispatcher;
 use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use Modules\Ksef\Services\KsefSubmissionFollowUpRateLimiter;
+use Modules\Ksef\Services\KsefUpoValidator;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\Support\KsefUpoFixture;
@@ -555,52 +557,124 @@ class KsefSubmissionFollowUpTest extends TestCase
         $this->assertSame(0, $fake->sendCalls);
     }
 
-    public function test_follow_up_uses_submission_demo_environment_after_settings_switch_to_test(): void
+    #[DataProvider('historicalEnvironmentCases')]
+    public function test_follow_up_uses_frozen_environment_and_credential_after_settings_switch(KsefEnvironment $environment, KsefEnvironment $current, string $action): void
     {
-        $invoice = $this->eligibleInvoice(KsefEnvironment::Test);
-        $submission = $this->createSubmission(
-            $invoice,
-            KsefInvoiceSubmissionStatus::Processing,
-            environment: KsefEnvironment::Demo,
-        );
-        $this->validAccessToken(KsefEnvironment::Demo);
-        $fake = $this->fakeOnlineApi();
+        $invoice = $this->eligibleInvoice($current);
+        $status = match ($action) {
+            'status' => KsefInvoiceSubmissionStatus::Processing,
+            'reconcile' => KsefInvoiceSubmissionStatus::Uncertain,
+            'upo' => KsefInvoiceSubmissionStatus::Accepted,
+        };
+        $submission = $this->createSubmission($invoice, $status, [
+            'invoice_reference_number' => $action === 'reconcile' ? null : KsefUpoFixture::INVOICE_REFERENCE,
+            'ksef_number' => $action === 'upo' ? KsefUpoFixture::ksefNumber() : null,
+            'acquisition_date' => $action === 'upo' ? now() : null,
+        ], $environment);
+        $this->validAccessToken($environment);
+        $this->validAccessToken($current)->forceFill(['access_token' => 'FAKE_WRONG_ENVIRONMENT_ACCESS'])->save();
+        $fake = $this->fakeOnlineApi($environment);
         $fake->statusResponse = $this->processingStatus($submission);
+        $fake->sessionInvoicesResponse = ['invoices' => [array_replace($this->processingStatus($submission), [
+            'referenceNumber' => KsefUpoFixture::INVOICE_REFERENCE,
+        ])]];
+        $fake->upoResponse = $this->upoXml($invoice, $submission, KsefUpoFixture::ksefNumber());
 
         $this->runJob($submission);
 
-        $this->assertSame(1, $fake->statusCalls);
-        $this->assertSame(KsefEnvironment::Demo, $submission->refresh()->environment);
+        $this->assertSame($environment, $submission->refresh()->environment);
+        $this->assertSame(0, $fake->sendCalls);
+        Http::assertSentCount(1);
         foreach (Http::recorded() as [$request]) {
-            $this->assertSame('api-demo.ksef.mf.gov.pl', parse_url($request->url(), PHP_URL_HOST));
+            $this->assertSame('GET', $request->method());
+            $this->assertStringStartsWith(config('ksef.base_urls.'.$environment->value).'/', $request->url());
+            $this->assertTrue($request->hasHeader('Authorization', 'Bearer FAKE_VALID_FOLLOW_UP_ACCESS_TOKEN'));
+        }
+        if ($action === 'upo') {
+            $this->assertSame(1, $submission->upo()->count());
+            $this->assertSame(1, $fake->upoCalls);
+        } elseif ($action === 'reconcile') {
+            $this->assertSame(1, $fake->sessionInvoicesCalls);
+            $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
+        } else {
+            $this->assertSame(1, $fake->statusCalls);
         }
     }
 
-    public function test_gate_inactive_and_production_leave_due_work_without_http(): void
+    public static function historicalEnvironmentCases(): array
     {
-        $invoice = $this->eligibleInvoice();
-        $submission = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Processing);
-        $fake = $this->fakeOnlineApi();
+        $cases = [];
+        foreach ([
+            [KsefEnvironment::Test, KsefEnvironment::Production],
+            [KsefEnvironment::Demo, KsefEnvironment::Production],
+            [KsefEnvironment::Production, KsefEnvironment::Demo],
+        ] as [$historical, $current]) {
+            foreach (['status', 'reconcile', 'upo'] as $action) {
+                $cases[$historical->value.' to '.$current->value.' '.$action] = [$historical, $current, $action];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('operationalEnvironments')]
+    public function test_gate_and_inactive_integration_leave_due_work_without_http(KsefEnvironment $environment): void
+    {
+        $invoice = $this->eligibleInvoice($environment);
+        $submission = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Processing, environment: $environment);
+        $fake = $this->fakeOnlineApi($environment);
 
         config()->set('ksef.invoice_submission_enabled', false);
+        $this->assertSame(0, app(KsefSubmissionFollowUpDispatcher::class)->dispatchDue());
         $this->runJob($submission);
         $this->assertNotNull($submission->refresh()->next_follow_up_at);
 
         config()->set('ksef.invoice_submission_enabled', true);
         app(KsefSettingsService::class)->getExisting()->forceFill(['is_active' => false])->save();
+        $this->assertSame(0, app(KsefSubmissionFollowUpDispatcher::class)->dispatchDue());
         $this->runJob($submission);
         $this->assertNotNull($submission->refresh()->next_follow_up_at);
-
-        app(KsefSettingsService::class)->getExisting()->forceFill(['is_active' => true])->save();
-        $production = $this->createSubmission(
-            $invoice,
-            KsefInvoiceSubmissionStatus::Processing,
-            environment: KsefEnvironment::Production,
-        );
-        $this->runJob($production);
-
-        $this->assertNotNull($production->refresh()->next_follow_up_at);
         $this->assertSame(0, $fake->statusCalls);
+        Http::assertNothingSent();
+    }
+
+    public static function operationalEnvironments(): array
+    {
+        return array_map(fn (KsefEnvironment $environment): array => [$environment], KsefEnvironment::cases());
+    }
+
+    public function test_dispatcher_selects_due_supported_history_with_state_order_and_batch_guards(): void
+    {
+        Queue::fake();
+        $invoice = $this->eligibleInvoice(KsefEnvironment::Demo);
+        $expected = [];
+        foreach (KsefEnvironment::cases() as $environment) {
+            foreach ([KsefInvoiceSubmissionStatus::Submitted, KsefInvoiceSubmissionStatus::Processing, KsefInvoiceSubmissionStatus::Uncertain, KsefInvoiceSubmissionStatus::Accepted] as $status) {
+                $expected[] = $this->createSubmission($invoice, $status, environment: $environment)->getKey();
+            }
+            $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Processing, ['next_follow_up_at' => now()->addMinute()], $environment);
+            $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Rejected, environment: $environment);
+            $completed = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Accepted, [
+                'ksef_number' => KsefUpoFixture::ksefNumber(),
+            ], $environment);
+            $xml = $this->upoXml($invoice, $completed, $completed->ksef_number);
+            $completed->upo()->create([
+                'schema_id' => KsefUpoValidator::SCHEMA_ID,
+                'payload_xml' => $xml,
+                'payload_hash' => base64_encode(hash('sha256', $xml, true)),
+                'payload_size' => strlen($xml),
+                'fetched_at' => now(),
+            ]);
+        }
+        $invalid = $this->createSubmission($invoice, KsefInvoiceSubmissionStatus::Processing);
+        DB::table('ksef_invoice_submissions')->where('id', $invalid->getKey())->update(['environment' => 'unknown']);
+        config(['ksef.follow_up.dispatch_batch_size' => 5]);
+        $this->assertSame(5, app(KsefSubmissionFollowUpDispatcher::class)->dispatchDue());
+        $this->assertSame(array_slice($expected, 0, 5), Queue::pushed(KsefSubmissionFollowUpJob::class)->pluck('submissionId')->all());
+        Queue::fake();
+        config(['ksef.follow_up.dispatch_batch_size' => 20]);
+        $this->assertSame(12, app(KsefSubmissionFollowUpDispatcher::class)->dispatchDue());
+        $this->assertSame($expected, Queue::pushed(KsefSubmissionFollowUpJob::class)->pluck('submissionId')->all());
         Http::assertNothingSent();
     }
 
@@ -858,12 +932,13 @@ class KsefSubmissionFollowUpTest extends TestCase
         ]);
     }
 
-    private function fakeOnlineApi(): KsefOnlineSessionApiFake
+    private function fakeOnlineApi(KsefEnvironment $environment = KsefEnvironment::Test): KsefOnlineSessionApiFake
     {
         $fake = new KsefOnlineSessionApiFake;
         $fake->openResponse['referenceNumber'] = KsefUpoFixture::SESSION_REFERENCE;
         $fake->sendResponse['referenceNumber'] = KsefUpoFixture::INVOICE_REFERENCE;
-        Http::fake(fn (Request $request) => $fake($request));
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/*' => fn (Request $request) => $fake($request)]);
 
         return $fake;
     }
@@ -944,6 +1019,11 @@ class KsefSubmissionFollowUpTest extends TestCase
             'invoice_number' => $invoice->number,
             'issue_date' => $invoice->issue_date->format('Y-m-d'),
             'invoice_hash' => $submission->invoice_hash,
+            'receiver_name' => match ($submission->environment) {
+                KsefEnvironment::Test => 'Ministerstwo Finansów - środowisko testowe (TE)',
+                KsefEnvironment::Demo => 'Ministerstwo Finansów - środowisko przedprodukcyjne (TR)',
+                KsefEnvironment::Production => 'Ministerstwo Finansów',
+            },
         ]);
     }
 }

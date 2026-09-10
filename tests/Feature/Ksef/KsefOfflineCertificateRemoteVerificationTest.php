@@ -187,21 +187,31 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         ];
     }
 
-    public function test_certificate_management_authentication_never_falls_back_between_environments(): void
+    #[DataProvider('missingEnvironmentCredentials')]
+    public function test_certificate_management_authentication_never_falls_back_between_environments(KsefEnvironment $environment, KsefEnvironment $other): void
     {
         Http::preventStrayRequests();
         $fixture = KsefCertificateFixtureFactory::offlineRsa();
-        $certificate = $this->importCertificate($fixture, KsefEnvironment::Demo);
-        $this->seedCachedToken(KsefEnvironment::Test);
+        $certificate = $this->importCertificate($fixture, $environment);
+        $this->seedCachedToken($other);
 
         try {
             app(KsefOfflineCertificateRemoteVerificationService::class)->verify($certificate);
-            $this->fail('Expected missing DEMO Certificate authentication failure.');
+            $this->fail('Expected missing environment-specific Certificate authentication failure.');
         } catch (KsefApiException $exception) {
             $this->assertSame('certificate_management_requires_certificate_auth', $exception->safeCode);
         }
 
         Http::assertNothingSent();
+    }
+
+    public static function missingEnvironmentCredentials(): array
+    {
+        return [
+            [KsefEnvironment::Demo, KsefEnvironment::Test],
+            [KsefEnvironment::Production, KsefEnvironment::Demo],
+            [KsefEnvironment::Demo, KsefEnvironment::Production],
+        ];
     }
 
     public function test_demo_certificate_uses_only_demo_environment_without_fallback(): void
@@ -219,19 +229,34 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
             || str_contains($request->url(), 'api.ksef.mf.gov.pl'));
     }
 
-    public function test_production_verification_is_blocked_before_http(): void
+    public function test_production_verification_ui_and_backend_share_policy_without_invoice_gate(): void
     {
         Http::preventStrayRequests();
+        config(['ksef.invoice_submission_enabled' => false]);
         $fixture = KsefCertificateFixtureFactory::offlineRsa();
         $certificate = $this->importCertificate($fixture, KsefEnvironment::Production);
-
-        $response = $this->post(route('integrations.ksef.offline-certificates.verify', $certificate));
-
-        $response
-            ->assertRedirect(route('integrations.ksef.edit', ['tab' => 'offline-certificates']))
-            ->assertSessionHasErrors('offline_certificate_remote');
-        $this->assertNull($certificate->fresh()->remote_verified_at);
+        $other = $this->importCertificate($fixture, KsefEnvironment::Demo);
+        $this->seedCachedToken(KsefEnvironment::Production);
+        $this->seedCachedToken(KsefEnvironment::Demo)->forceFill(['access_token' => 'FAKE_OTHER_DEMO_TOKEN'])->save();
+        $url = route('integrations.ksef.offline-certificates.verify', $certificate);
+        $page = $this->get(route('integrations.ksef.edit', ['tab' => 'offline-certificates']))->assertOk();
+        $dom = new \DOMDocument;
+        @$dom->loadHTML($page->getContent());
+        $xpath = new \DOMXPath($dom);
+        $this->assertSame(1, $xpath->query('//form[@action="'.$url.'"]//button[not(@disabled)]')->length);
         Http::assertNothingSent();
+        $this->fakeSuccessfulVerification($certificate, $fixture);
+
+        $this->post($url)
+            ->assertRedirect(route('integrations.ksef.edit', ['tab' => 'offline-certificates']))
+            ->assertSessionHasNoErrors();
+
+        $verified = $certificate->fresh();
+        $this->assertSame('Active', $verified->remote_status);
+        $this->assertTrue(app(KsefOfflineCertificateReadinessService::class)->isReady($verified));
+        $this->assertSame(KsefEnvironment::Production, $verified->environment);
+        $this->assertNull($other->fresh()->remote_verified_at);
+        $this->assertCertificateRequests($certificate, KsefEnvironment::Production);
     }
 
     #[DataProvider('remoteStatuses')]
@@ -895,22 +920,11 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         array $queryResponse,
         array $retrieveResponse,
     ): void {
-        Http::fake(function (Request $request) use ($certificate, $queryResponse, $retrieveResponse) {
-            $path = (string) parse_url($request->url(), PHP_URL_PATH);
-
-            if (str_ends_with($path, '/certificates/query')) {
-                return Http::response($queryResponse);
-            }
-
-            if (str_ends_with($path, '/certificates/retrieve')) {
-                return Http::response($retrieveResponse);
-            }
-
-            return Http::response([
-                'reasonCode' => 'UNEXPECTED_TEST_REQUEST',
-                'certificateSerialNumber' => $certificate->certificate_serial_number,
-            ], 500);
-        });
+        $base = config('ksef.base_urls.'.$certificate->environment->value);
+        Http::fake([
+            $base.'/certificates/query*' => Http::response($queryResponse),
+            $base.'/certificates/retrieve' => Http::response($retrieveResponse),
+        ]);
     }
 
     private function fakeQueryThenRetrieveFailure(array $queryResponse, string $failure): void

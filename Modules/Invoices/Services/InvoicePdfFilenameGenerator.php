@@ -3,6 +3,7 @@
 namespace Modules\Invoices\Services;
 
 use Modules\Invoices\Models\Invoice;
+use Modules\Ksef\Models\KsefSetting;
 
 class InvoicePdfFilenameGenerator
 {
@@ -22,6 +23,13 @@ class InvoicePdfFilenameGenerator
             $invoice->isCorrection() => 'correction-'.self::CORRECTION_LAYOUT_VERSION.'.pdf',
             default => 'document-'.self::FALLBACK_LAYOUT_VERSION.'.pdf',
         };
+
+        if ($invoice->isInvoice() || $invoice->isCorrection()) {
+            $environment = KsefSetting::query()
+                ->where('singleton_key', KsefSetting::SINGLETON_KEY)
+                ->first(['environment'])?->environment;
+            $filename = substr($filename, 0, -4).'-ksef-'.($environment?->value ?? 'none').'.pdf';
+        }
 
         return 'invoices/'.$invoice->getKey().'/'.$filename;
     }

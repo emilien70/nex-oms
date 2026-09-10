@@ -560,6 +560,8 @@ class InvoiceListTest extends TestCase
             'unfinalized TEST' => [KsefEnvironment::Test, false],
             'finalized DEMO' => [KsefEnvironment::Demo, true],
             'unfinalized DEMO' => [KsefEnvironment::Demo, false],
+            'finalized PROD' => [KsefEnvironment::Production, true],
+            'unfinalized PROD' => [KsefEnvironment::Production, false],
         ];
     }
 
@@ -624,7 +626,7 @@ class InvoiceListTest extends TestCase
     public function test_list_first_send_is_hidden_when_precondition_is_missing(string $case): void
     {
         $invoice = $this->createKsefListInvoice(
-            environment: $case === 'production' ? KsefEnvironment::Production : KsefEnvironment::Test,
+            environment: KsefEnvironment::Test,
             finalize: false,
             integrationActive: $case !== 'inactive',
             seriesEnabled: $case !== 'series_disabled',
@@ -644,7 +646,6 @@ class InvoiceListTest extends TestCase
     public static function unavailableListSendCases(): array
     {
         return [
-            'PRODUCTION' => ['production'],
             'deployment gate disabled' => ['gate_disabled'],
             'integration inactive' => ['inactive'],
             'series disabled' => ['series_disabled'],

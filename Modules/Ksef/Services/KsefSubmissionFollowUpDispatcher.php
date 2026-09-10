@@ -11,6 +11,10 @@ use Modules\Ksef\Models\KsefSetting;
 
 class KsefSubmissionFollowUpDispatcher
 {
+    public function __construct(
+        private readonly KsefOperationalEnvironmentPolicy $environments,
+    ) {}
+
     public function dispatchScheduled(KsefInvoiceSubmission $submission): bool
     {
         $managed = KsefInvoiceSubmission::query()->find($submission->getKey());
@@ -37,10 +41,10 @@ class KsefSubmissionFollowUpDispatcher
         $ids = KsefInvoiceSubmission::query()
             ->whereNotNull('next_follow_up_at')
             ->where('next_follow_up_at', '<=', CarbonImmutable::now('UTC'))
-            ->whereIn('environment', [
-                KsefEnvironment::Test->value,
-                KsefEnvironment::Demo->value,
-            ])
+            ->whereIn('environment', array_map(
+                static fn (KsefEnvironment $environment): string => $environment->value,
+                $this->environments->allowedEnvironments(),
+            ))
             ->where(function ($query): void {
                 $query->whereIn('status', [
                     KsefInvoiceSubmissionStatus::Submitted->value,

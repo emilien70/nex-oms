@@ -15,12 +15,10 @@ use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefAuthenticationMethod;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
-use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefInvoiceUpo;
 use Modules\Ksef\Models\KsefSeriesSetting;
-use Modules\Ksef\Services\KsefInvoiceUpoService;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefUpoValidator;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -207,22 +205,8 @@ class KsefInvoiceUpoTest extends TestCase
             && str_contains($request->url(), '/sessions/'.rawurlencode(KsefUpoFixture::SESSION_REFERENCE).'/invoices/ksef/'));
     }
 
-    public function test_production_fetch_is_blocked_before_http_and_proforma_is_rejected(): void
+    public function test_proforma_upo_is_rejected_before_http(): void
     {
-        $invoice = $this->eligibleInvoice(KsefEnvironment::Production);
-        $production = $this->acceptedSubmission($invoice, [
-            'environment' => KsefEnvironment::Production,
-        ]);
-
-        try {
-            app(KsefInvoiceUpoService::class)->fetch($invoice, $production);
-            $this->fail('Expected production UPO environment block.');
-        } catch (KsefApiException $exception) {
-            $this->assertSame('ksef_operational_environment_blocked', $exception->safeCode);
-        }
-
-        Http::assertNothingSent();
-
         $document = $this->eligibleInvoice();
         $document->forceFill(['document_type' => InvoiceDocumentType::Proforma])->save();
         $submission = $this->acceptedSubmission($document);

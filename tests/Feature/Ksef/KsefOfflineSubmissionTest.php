@@ -386,15 +386,16 @@ class KsefOfflineSubmissionTest extends TestCase
     #[DataProvider('offlineProcedureProvider')]
     public function test_legitimate_offline_acceptance_schedules_upo_dispatches_event_and_builds_one_qr_pdf(
         KsefOfflineIssuanceProcedure $procedure,
+        KsefEnvironment $environment = KsefEnvironment::Test,
     ): void {
         Event::fake([KsefInvoiceAccepted::class]);
-        [$invoice, $issuance] = $this->issueOffline();
+        [$invoice, $issuance] = $this->issueOffline($environment);
         DB::table('ksef_offline_issuances')
             ->where('id', $issuance->getKey())
             ->update(['procedure' => $procedure->value]);
         $issuance = $issuance->fresh();
-        $this->validAccessToken();
-        $fake = $this->fakeOnlineApi();
+        $this->validAccessToken($environment);
+        $fake = $this->fakeOnlineApi($environment);
         $fake->openResponse['referenceNumber'] = KsefUpoFixture::SESSION_REFERENCE;
         $fake->sendResponse['referenceNumber'] = KsefUpoFixture::INVOICE_REFERENCE;
         $submission = app(KsefOfflineInvoiceSubmissionService::class)->submitAttempt($invoice, $issuance);
@@ -449,6 +450,7 @@ class KsefOfflineSubmissionTest extends TestCase
             'invoice_number' => $invoice->number,
             'invoice_hash' => $accepted->invoice_hash,
             'mode' => 'Offline',
+            'receiver_name' => $this->upoReceiver($environment),
         ]);
         $fake->upoResponse = $upoXml;
         $fake->upoContentHash = base64_encode(hash('sha256', $upoXml, true));
@@ -456,6 +458,12 @@ class KsefOfflineSubmissionTest extends TestCase
         $upo = app(KsefInvoiceUpoService::class)->fetch($invoice, $accepted);
         $this->assertTrue($accepted->upo()->firstOrFail()->is($upo));
         $this->assertSame(1, $fake->upoCalls);
+        Http::assertSentCount(6);
+        config(['ksef.invoice_submission_enabled' => false]);
+        app(KsefSettingsService::class)->get()->forceFill(['is_active' => false])->save();
+        $historical = app(KsefAcceptedOfflineInvoicePdfService::class)->document($invoice, $issuance, $accepted);
+        $this->assertStringStartsWith('%PDF-', $historical['contents']);
+        Http::assertSentCount(6);
     }
 
     public static function offlineProcedureProvider(): array
@@ -464,6 +472,10 @@ class KsefOfflineSubmissionTest extends TestCase
             'Offline24' => [KsefOfflineIssuanceProcedure::Offline24],
             'planned unavailability' => [KsefOfflineIssuanceProcedure::PlannedUnavailability],
             'ordinary failure' => [KsefOfflineIssuanceProcedure::Failure],
+            'DEMO Offline24' => [KsefOfflineIssuanceProcedure::Offline24, KsefEnvironment::Demo],
+            'PROD Offline24' => [KsefOfflineIssuanceProcedure::Offline24, KsefEnvironment::Production],
+            'PROD planned' => [KsefOfflineIssuanceProcedure::PlannedUnavailability, KsefEnvironment::Production],
+            'PROD failure' => [KsefOfflineIssuanceProcedure::Failure, KsefEnvironment::Production],
         ];
     }
 
@@ -766,15 +778,16 @@ class KsefOfflineSubmissionTest extends TestCase
         ];
     }
 
-    public function test_technical_submission_sends_once_accepts_offline_and_uses_corrected_payload_for_pdf_upo_and_obligation(): void
+    #[DataProvider('technicalEnvironments')]
+    public function test_technical_submission_sends_once_accepts_offline_and_uses_corrected_payload_for_pdf_upo_and_obligation(KsefEnvironment $environment, int $rejection): void
     {
-        [$invoice, $issuance, $source, $originalPayload] = $this->rejectedOfflineSource(450);
+        [$invoice, $issuance, $source, $originalPayload] = $this->rejectedOfflineSource($rejection, $environment);
         $originalHash = $issuance->invoice_hash;
         $originalSize = $issuance->invoice_size;
         $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
         $this->disableCurrentInvoiceProjectionServices();
-        $this->validAccessToken();
-        $fake = $this->fakeOnlineApi();
+        $this->validAccessToken($environment);
+        $fake = $this->fakeOnlineApi($environment);
         $fake->openResponse['referenceNumber'] = KsefUpoFixture::SESSION_REFERENCE;
         $fake->sendResponse['referenceNumber'] = KsefUpoFixture::INVOICE_REFERENCE;
 
@@ -782,6 +795,10 @@ class KsefOfflineSubmissionTest extends TestCase
             ->submitAttempt($invoice, $artifact)
             ->fresh();
 
+        $this->assertSame(1, $artifact->business_fingerprint_version);
+        foreach ([$issuance, $source, $artifact, $submission] as $record) {
+            $this->assertSame($environment, $record->environment);
+        }
         $this->assertSame(2, $submission->attempt_number);
         $this->assertSame($artifact->getKey(), $submission->offline_technical_correction_id);
         $this->assertSame($issuance->getKey(), $submission->offline_issuance_id);
@@ -826,6 +843,7 @@ class KsefOfflineSubmissionTest extends TestCase
             'invoice_number' => $invoice->number,
             'invoice_hash' => $accepted->invoice_hash,
             'mode' => 'Offline',
+            'receiver_name' => $this->upoReceiver($environment),
         ]);
         $upo = app(KsefInvoiceUpoService::class)->fetch($invoice, $accepted);
         $this->assertSame($accepted->getKey(), $upo->ksef_invoice_submission_id);
@@ -847,6 +865,27 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->assertDatabaseCount('ksef_offline_technical_corrections', 1);
         $this->assertDatabaseCount('ksef_invoice_submissions', 2);
         $this->assertSame(1, $fake->sendCalls);
+    }
+
+    public static function technicalEnvironments(): array
+    {
+        $cases = [];
+        foreach (KsefEnvironment::cases() as $environment) {
+            foreach ([440, 450] as $rejection) {
+                $cases[$environment->value.' '.$rejection] = [$environment, $rejection];
+            }
+        }
+
+        return $cases;
+    }
+
+    private function upoReceiver(KsefEnvironment $environment): string
+    {
+        return match ($environment) {
+            KsefEnvironment::Test => 'Ministerstwo Finansów - środowisko testowe (TE)',
+            KsefEnvironment::Demo => 'Ministerstwo Finansów - środowisko przedprodukcyjne (TR)',
+            KsefEnvironment::Production => 'Ministerstwo Finansów',
+        };
     }
 
     #[DataProvider('deterministicTechnicalSendFailures')]
@@ -1237,9 +1276,9 @@ class KsefOfflineSubmissionTest extends TestCase
     }
 
     /** @return array{0: Invoice, 1: KsefOfflineIssuance, 2: KsefInvoiceSubmission, 3: string} */
-    private function rejectedOfflineSource(int $statusCode): array
+    private function rejectedOfflineSource(int $statusCode, KsefEnvironment $environment = KsefEnvironment::Test): array
     {
-        [$invoice, $issuance] = $this->issueOffline();
+        [$invoice, $issuance] = $this->issueOffline($environment);
         $source = app(KsefOfflineInvoiceSubmissionService::class)->prepare($invoice, $issuance);
         $source->forceFill([
             'status' => KsefInvoiceSubmissionStatus::Rejected,
@@ -1353,10 +1392,11 @@ class KsefOfflineSubmissionTest extends TestCase
         ]);
     }
 
-    private function fakeOnlineApi(): KsefOnlineSessionApiFake
+    private function fakeOnlineApi(KsefEnvironment $environment = KsefEnvironment::Test): KsefOnlineSessionApiFake
     {
         $fake = new KsefOnlineSessionApiFake;
-        Http::fake(fn (Request $request) => $fake($request));
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/*' => fn (Request $request) => $fake($request)]);
 
         return $fake;
     }

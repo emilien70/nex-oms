@@ -16,6 +16,7 @@ use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\KsefSettingsService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -31,14 +32,22 @@ class KsefInvoiceSourceTest extends TestCase
         Http::preventStrayRequests();
     }
 
-    public function test_accepted_invoice_source_uses_exact_test_endpoint_and_returns_verified_xml_without_persistence(): void
+    #[DataProvider('operationalEnvironments')]
+    public function test_accepted_invoice_source_uses_exact_environment_endpoint_and_returns_verified_xml_without_persistence(KsefEnvironment $environment): void
     {
-        $invoice = $this->eligibleInvoice();
-        $submission = $this->acceptedSubmission($invoice);
-        $this->validAccessToken();
+        $invoice = $this->eligibleInvoice($environment);
+        $submission = $this->acceptedSubmission($invoice, $environment);
+        $this->validAccessToken($environment);
         $xml = $submission->payload_xml;
         $updatedAt = $submission->updated_at?->toISOString();
-        $this->fakeInvoice($xml, $this->hash($xml));
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/invoices/ksef/'.rawurlencode($submission->ksef_number) => Http::response($xml, 200, [
+            'Content-Type' => 'application/xml',
+            'x-ms-meta-hash' => $this->hash($xml),
+        ])]);
+        app(KsefSettingsService::class)->get()->forceFill([
+            'environment' => $environment === KsefEnvironment::Demo ? KsefEnvironment::Production : KsefEnvironment::Demo,
+        ])->save();
 
         $response = $this->withHeader('Accept', 'application/xml')->get($this->route($invoice, $submission));
 
@@ -50,11 +59,16 @@ class KsefInvoiceSourceTest extends TestCase
         $this->assertSame($updatedAt, $submission->fresh()->updated_at?->toISOString());
         $this->assertDatabaseCount('ksef_invoice_submissions', 1);
         Http::assertSent(fn (Request $request): bool => $request->method() === 'GET'
-            && $request->url() === 'https://api-test.ksef.mf.gov.pl/v2/invoices/ksef/'
+            && $request->url() === $base.'/invoices/ksef/'
                 .rawurlencode($submission->ksef_number)
             && $request->hasHeader('Authorization', 'Bearer FAKE_INVOICE_SOURCE_ACCESS_TOKEN')
             && $request->hasHeader('Accept', 'application/xml'));
         Http::assertSentCount(1);
+    }
+
+    public static function operationalEnvironments(): array
+    {
+        return array_map(fn (KsefEnvironment $environment): array => [$environment], KsefEnvironment::cases());
     }
 
     public function test_demo_submission_uses_demo_endpoint(): void

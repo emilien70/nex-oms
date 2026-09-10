@@ -9,10 +9,17 @@ class KsefOperationalEnvironmentPolicy
 {
     public function allows(KsefEnvironment $environment): bool
     {
-        return in_array($environment, [
+        return in_array($environment, $this->allowedEnvironments(), true);
+    }
+
+    /** @return list<KsefEnvironment> */
+    public function allowedEnvironments(): array
+    {
+        return [
             KsefEnvironment::Test,
             KsefEnvironment::Demo,
-        ], true);
+            KsefEnvironment::Production,
+        ];
     }
 
     public function assertAllowed(KsefEnvironment $environment): void
@@ -22,7 +29,7 @@ class KsefOperationalEnvironmentPolicy
         }
 
         throw new KsefApiException(
-            'Operacyjny transport Faktur do środowiska produkcyjnego KSeF nie został jeszcze odblokowany.',
+            'Wybrane środowisko nie obsługuje operacyjnego transportu Faktur do KSeF.',
             'ksef_operational_environment_blocked',
         );
     }

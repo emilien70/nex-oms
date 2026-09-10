@@ -26,7 +26,6 @@ use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionProcessor;
 use Modules\Ksef\Services\KsefInvoiceProvenanceService;
-use Modules\Ksef\Services\KsefOperationalEnvironmentPolicy;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -48,15 +47,16 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-08-26 10:00:00'));
     }
 
-    public function test_eligible_new_invoice_is_dispatched_after_commit_on_dedicated_queue(): void
+    #[DataProvider('environments')]
+    public function test_eligible_new_invoice_is_dispatched_after_commit_on_dedicated_queue(KsefEnvironment $environment): void
     {
         Queue::fake();
 
-        $invoice = $this->issueInvoice();
+        $invoice = $this->issueInvoice(environment: $environment);
 
-        Queue::assertPushedOn('ksef-submit', KsefAutomaticInvoiceSubmissionJob::class, function ($job) use ($invoice): bool {
+        Queue::assertPushedOn('ksef-submit', KsefAutomaticInvoiceSubmissionJob::class, function ($job) use ($invoice, $environment): bool {
             return $job->invoiceId === $invoice->getKey()
-                && $job->environment === KsefEnvironment::Test->value
+                && $job->environment === $environment->value
                 && $job->contextNip === '9876543210'
                 && $job->delay === null
                 && $job->afterCommit === true;
@@ -64,7 +64,7 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
 
         $job = new KsefAutomaticInvoiceSubmissionJob(
             (int) $invoice->getKey(),
-            KsefEnvironment::Test,
+            $environment,
             '9876543210',
         );
 
@@ -77,7 +77,7 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         $this->assertSame(1, $job->tries);
         $this->assertSame(21600, $job->uniqueFor);
         $this->assertSame(
-            'ksef-automatic-submission-'.$invoice->getKey().'-test-'.hash('sha256', '9876543210'),
+            'ksef-automatic-submission-'.$invoice->getKey().'-'.$environment->value.'-'.hash('sha256', '9876543210'),
             $job->uniqueId(),
         );
         $this->assertFalse($invoice->isFinalized());
@@ -115,30 +115,43 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
             'integration inactive' => [true, false, true, true, KsefEnvironment::Test],
             'automatic submission disabled' => [true, true, false, true, KsefEnvironment::Test],
             'series disabled' => [true, true, true, false, KsefEnvironment::Test],
-            'production blocked operationally' => [true, true, true, true, KsefEnvironment::Production],
         ];
     }
 
-    public function test_changed_environment_before_job_execution_cancels_send_without_http(): void
+    #[DataProvider('changedEnvironments')]
+    public function test_changed_environment_before_job_execution_cancels_send_without_http(KsefEnvironment $queued, KsefEnvironment $current): void
     {
         Queue::fake();
-        $invoice = $this->issueInvoice();
+        $invoice = $this->issueInvoice(environment: $queued);
 
         app(KsefSettingsService::class)->get()->forceFill([
-            'environment' => KsefEnvironment::Demo,
+            'environment' => $current,
         ])->save();
 
-        $this->runJob($invoice, KsefEnvironment::Test);
+        $this->runJob($invoice, $queued);
 
         $this->assertFalse($invoice->refresh()->isFinalized());
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
     }
 
+    public static function changedEnvironments(): array
+    {
+        return [
+            [KsefEnvironment::Test, KsefEnvironment::Demo],
+            [KsefEnvironment::Demo, KsefEnvironment::Production],
+            [KsefEnvironment::Production, KsefEnvironment::Demo],
+        ];
+    }
+
+    public static function environments(): array
+    {
+        return array_map(fn (KsefEnvironment $environment): array => [$environment], KsefEnvironment::cases());
+    }
+
     public function test_outside_production_provenance_blocks_automatic_attempt_without_http(): void
     {
         Queue::fake();
-        $this->allowProductionEnvironment();
         $invoice = $this->issueInvoice(environment: KsefEnvironment::Production);
         $invoice = app(InvoiceFinalizationService::class)->finalize($invoice);
         app(KsefInvoiceProvenanceService::class)
@@ -385,14 +398,17 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         $this->assertStringContainsString('Aktualna wersja wysłana do KSeF', $submission->payload_xml);
     }
 
-    public function test_automatic_job_sends_once_and_hands_processing_to_existing_follow_up(): void
+    #[DataProvider('environments')]
+    public function test_automatic_job_sends_once_and_hands_processing_to_existing_follow_up(KsefEnvironment $environment): void
     {
         Queue::fake();
-        $invoice = $this->issueInvoice();
-        $this->validAccessToken();
-        $fake = $this->fakeOnlineApi();
+        $invoice = $this->issueInvoice(environment: $environment);
+        $this->validAccessToken($environment);
+        $fake = new KsefOnlineSessionApiFake;
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/*' => fn (Request $request) => $fake($request)]);
 
-        $this->runJob($invoice);
+        $this->runJob($invoice, $environment);
 
         $submission = KsefInvoiceSubmission::query()->sole();
         $this->assertTrue($invoice->refresh()->isFinalized());
@@ -403,7 +419,12 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         $this->assertSame(1, $fake->statusCalls);
         $this->assertSame(0, $fake->upoCalls);
 
-        $this->runJob($invoice);
+        $this->runJob($invoice, $environment);
+        $this->assertSame($environment, $submission->environment);
+        Http::assertSentCount(5);
+        foreach (Http::recorded() as [$request]) {
+            $this->assertStringStartsWith($base.'/', $request->url());
+        }
 
         $this->assertDatabaseCount('ksef_invoice_submissions', 1);
         $this->assertSame(1, $fake->sendCalls);
@@ -588,10 +609,10 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         )->refresh()->load('items');
     }
 
-    private function validAccessToken(): KsefCredential
+    private function validAccessToken(KsefEnvironment $environment = KsefEnvironment::Test): KsefCredential
     {
         return KsefCredential::query()->create([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => 'FAKE_AUTOMATIC_API_TOKEN',
             'access_token' => 'FAKE_AUTOMATIC_ACCESS_TOKEN',
@@ -599,22 +620,6 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
             'refresh_token' => 'FAKE_AUTOMATIC_REFRESH_TOKEN',
             'refresh_token_valid_until' => now()->addDay(),
         ]);
-    }
-
-    private function allowProductionEnvironment(): void
-    {
-        $this->app->instance(
-            KsefOperationalEnvironmentPolicy::class,
-            new class extends KsefOperationalEnvironmentPolicy
-            {
-                public function allows(KsefEnvironment $environment): bool
-                {
-                    return true;
-                }
-
-                public function assertAllowed(KsefEnvironment $environment): void {}
-            },
-        );
     }
 
     private function fakeOnlineApi(): KsefOnlineSessionApiFake

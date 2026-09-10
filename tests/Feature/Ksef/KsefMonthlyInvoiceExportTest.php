@@ -380,7 +380,7 @@ class KsefMonthlyInvoiceExportTest extends TestCase
         $this->assertDatabaseCount('ksef_invoice_submissions', 1);
     }
 
-    public function test_production_is_blocked_in_ui_and_post_before_http(): void
+    public function test_production_export_uses_existing_ui_and_transport(): void
     {
         $this->configure(KsefEnvironment::Production);
         $this->validAccessToken(KsefEnvironment::Production);
@@ -388,16 +388,21 @@ class KsefMonthlyInvoiceExportTest extends TestCase
 
         $response = $this->get(route('integrations.ksef.edit', ['tab' => 'export']))
             ->assertOk()
-            ->assertSee('Operacyjny transport Faktur do środowiska produkcyjnego KSeF nie został jeszcze odblokowany.');
-        $this->assertMatchesRegularExpression(
+            ->assertDontSee('Operacyjny transport Faktur do środowiska produkcyjnego KSeF nie został jeszcze odblokowany.');
+        $this->assertDoesNotMatchRegularExpression(
             '/<button(?=[^>]*type="submit")(?=[^>]*\bdisabled\b)[^>]*>Eksportuj<\/button>/s',
             $response->getContent(),
         );
 
-        $this->post(route('integrations.ksef.export'), ['month' => '2026-08'])
-            ->assertSessionHasErrors('export');
-        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
+        $fake = new KsefOnlineSessionApiFake;
+        Http::fake(['https://api.ksef.mf.gov.pl/v2/*' => fn (Request $request) => $fake($request)]);
+        $this->post(route('integrations.ksef.export'), ['month' => '2026-08'])
+            ->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $this->assertSame(1, $fake->sendCalls);
+        $this->assertSame(0, $fake->statusCalls);
+        Http::assertSentCount(4);
     }
 
     public function test_disabled_gate_blocks_ui_and_crafted_post(): void

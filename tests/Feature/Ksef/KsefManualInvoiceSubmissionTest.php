@@ -548,7 +548,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
     {
         $invoice = $this->eligibleInvoice(
             finalize: false,
-            environment: $case === 'production' ? KsefEnvironment::Production : KsefEnvironment::Test,
+            environment: KsefEnvironment::Test,
         );
 
         if ($case === 'gate_disabled') {
@@ -572,7 +572,6 @@ class KsefManualInvoiceSubmissionTest extends TestCase
     public static function blockedListFirstAttemptCases(): array
     {
         return [
-            'PRODUCTION' => ['production'],
             'deployment gate disabled' => ['gate_disabled'],
             'integration inactive' => ['inactive'],
             'series disabled' => ['series_disabled'],
@@ -840,15 +839,21 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_production_is_blocked_without_http(): void
+    public function test_production_send_uses_existing_manual_route(): void
     {
         $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Production);
+        $this->validAccessToken(KsefEnvironment::Production);
+        $fake = new KsefOnlineSessionApiFake;
+        Http::fake(['https://api.ksef.mf.gov.pl/v2/*' => fn (Request $request) => $fake($request)]);
 
         $this->post(route('invoices.ksef.submissions.store', $invoice))
-            ->assertSessionHasErrors('ksef');
+            ->assertSessionHasNoErrors();
 
-        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
-        Http::assertNothingSent();
+        $this->assertDatabaseHas('ksef_invoice_submissions', [
+            'invoice_id' => $invoice->id, 'environment' => 'production',
+        ]);
+        $this->assertSame(1, $fake->sendCalls);
+        Http::assertSentCount(5);
     }
 
     public function test_proforma_cannot_use_manual_send_route(): void
@@ -1198,7 +1203,7 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ->assertSee('Pobierz UPO z KSeF');
     }
 
-    public function test_production_panel_keeps_history_but_hides_all_remote_actions(): void
+    public function test_production_panel_keeps_history_and_exposes_status_action(): void
     {
         $invoice = $this->eligibleInvoice(environment: KsefEnvironment::Production);
         $submission = $this->createSubmission(
@@ -1213,10 +1218,10 @@ class KsefManualInvoiceSubmissionTest extends TestCase
             ->assertSee('PRODUCTION')
             ->assertSee('Wysłana')
             ->assertSee('data-ksef-submission-history', false)
-            ->assertSee('Operacyjny transport Faktur do KSeF PRODUCTION nie został jeszcze odblokowany.')
+            ->assertDontSee('Operacyjny transport Faktur do KSeF PRODUCTION nie został jeszcze odblokowany.')
             ->assertDontSee('data-ksef-demo-warning', false)
             ->assertDontSee('action="'.route('invoices.ksef.submissions.store', $invoice).'"', false)
-            ->assertDontSee(route('invoices.ksef.submissions.refresh', compact('invoice', 'submission')), false)
+            ->assertSee(route('invoices.ksef.submissions.refresh', compact('invoice', 'submission')), false)
             ->assertDontSee(route('invoices.ksef.submissions.reconcile', compact('invoice', 'submission')), false)
             ->assertDontSee(route('invoices.ksef.submissions.upo.fetch', compact('invoice', 'submission')), false);
     }

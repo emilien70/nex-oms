@@ -122,6 +122,8 @@ class KsefAccessTokenManagerTest extends TestCase
             'TEST never supplies DEMO' => [KsefEnvironment::Test, KsefEnvironment::Demo],
             'DEMO never supplies TEST' => [KsefEnvironment::Demo, KsefEnvironment::Test],
             'DEMO never supplies PRODUCTION' => [KsefEnvironment::Demo, KsefEnvironment::Production],
+            'PRODUCTION never supplies DEMO' => [KsefEnvironment::Production, KsefEnvironment::Demo],
+            'TEST never supplies PRODUCTION' => [KsefEnvironment::Test, KsefEnvironment::Production],
         ];
     }
 
@@ -170,16 +172,18 @@ class KsefAccessTokenManagerTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_expiring_access_token_is_refreshed_and_existing_refresh_token_is_preserved(): void
+    #[DataProvider('operationalEnvironments')]
+    public function test_expiring_access_token_is_refreshed_and_existing_refresh_token_is_preserved(KsefEnvironment $environment): void
     {
         Http::preventStrayRequests();
-        Http::fake(['*' => Http::response([
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/auth/token/refresh' => Http::response([
             'accessToken' => [
                 'token' => 'NEW_ACCESS_TOKEN',
                 'validUntil' => now()->addMinutes(15)->toIso8601String(),
             ],
         ])]);
-        $credential = $this->credential();
+        $credential = $this->credential($environment);
         $credential->forceFill([
             'access_token' => 'EXPIRING_ACCESS_TOKEN',
             'access_token_valid_until' => now()->addSeconds(30),
@@ -187,15 +191,21 @@ class KsefAccessTokenManagerTest extends TestCase
             'refresh_token_valid_until' => now()->addDay(),
         ])->save();
 
-        $token = app(KsefAccessTokenManager::class)->getValidAccessToken(KsefEnvironment::Test);
+        $token = app(KsefAccessTokenManager::class)->getValidAccessToken($environment);
 
         $this->assertSame('NEW_ACCESS_TOKEN', $token);
         $credential->refresh();
         $this->assertSame('NEW_ACCESS_TOKEN', $credential->access_token);
         $this->assertSame('VALID_REFRESH_TOKEN', $credential->refresh_token);
         Http::assertSentCount(1);
-        Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/auth/token/refresh')
+        Http::assertSent(fn (Request $request): bool => $request->url() === $base.'/auth/token/refresh'
+            && $request->method() === 'POST'
             && $request->hasHeader('Authorization', 'Bearer VALID_REFRESH_TOKEN'));
+    }
+
+    public static function operationalEnvironments(): array
+    {
+        return array_map(fn (KsefEnvironment $environment): array => [$environment], KsefEnvironment::cases());
     }
 
     public function test_refreshed_access_token_is_reused_after_reload_without_another_refresh(): void
@@ -388,16 +398,16 @@ class KsefAccessTokenManagerTest extends TestCase
         $this->assertSame(1, $fake->redeemCalls);
     }
 
-    private function credential(): KsefCredential
+    private function credential(KsefEnvironment $environment = KsefEnvironment::Test): KsefCredential
     {
         $settings = app(KsefSettingsService::class)->get();
         $settings->forceFill([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'context_nip' => '1234567890',
         ])->save();
 
         return KsefCredential::query()->create([
-            'environment' => KsefEnvironment::Test,
+            'environment' => $environment,
             'authentication_method' => KsefAuthenticationMethod::Token,
             'api_token' => KsefApiFake::API_TOKEN,
         ]);

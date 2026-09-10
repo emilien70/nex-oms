@@ -25,7 +25,7 @@ final class KsefOfflineSubmissionIntegrityService
         $invoice ??= Invoice::query()->find($issuance->invoice_id);
 
         if (! in_array($issuance->procedure, KsefOfflineIssuanceProcedure::cases(), true)
-            || ! in_array($issuance->environment, [KsefEnvironment::Test, KsefEnvironment::Demo], true)
+            || ! in_array($issuance->environment, KsefEnvironment::cases(), true)
             || $issuance->context_identifier_type !== KsefContextIdentifierType::Nip
             || $invoice === null
             || (! $invoice->isInvoice() && ! $invoice->isCorrection())

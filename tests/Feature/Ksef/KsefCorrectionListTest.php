@@ -150,7 +150,6 @@ class KsefCorrectionListTest extends TestCase
     public function test_current_environment_never_falls_back_to_other_environment_submission(
         KsefEnvironment $activeEnvironment,
         KsefEnvironment $historicalEnvironment,
-        bool $firstSendAvailable,
     ): void {
         $this->configure($activeEnvironment);
         $root = $this->issueKsefRoot();
@@ -165,23 +164,16 @@ class KsefCorrectionListTest extends TestCase
             ->assertSee('Nie wysłano')
             ->assertDontSee('Zaakceptowana');
 
-        if ($firstSendAvailable) {
-            $response->assertSee(route('invoices.ksef.submissions.first-attempt', $correction), false);
-        } else {
-            $response->assertDontSee(route('invoices.ksef.submissions.first-attempt', $correction), false);
-        }
+        $response->assertSee(route('invoices.ksef.submissions.first-attempt', $correction), false);
+        Http::assertNothingSent();
     }
 
     public static function crossEnvironmentCases(): array
     {
         return [
-            'TEST ignores DEMO' => [KsefEnvironment::Test, KsefEnvironment::Demo, true],
-            'DEMO ignores PRODUCTION' => [KsefEnvironment::Demo, KsefEnvironment::Production, true],
-            'PRODUCTION ignores DEMO but remains operationally blocked' => [
-                KsefEnvironment::Production,
-                KsefEnvironment::Demo,
-                false,
-            ],
+            'TEST ignores DEMO' => [KsefEnvironment::Test, KsefEnvironment::Demo],
+            'DEMO ignores PRODUCTION' => [KsefEnvironment::Demo, KsefEnvironment::Production],
+            'PRODUCTION ignores DEMO' => [KsefEnvironment::Production, KsefEnvironment::Demo],
         ];
     }
 
