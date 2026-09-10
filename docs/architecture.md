@@ -1578,6 +1578,55 @@ Celowe przyrosty audytowe to: Order `+1`, OrderItem `+1`, Invoice `+1`, InvoiceI
 
 Wynik zamyka wyłącznie `KSeF.8C.7 R1 scope for ordinary Invoice VAT: PASS / CLOSED`. Parity korekty technicznej dla `KOR` pozostaje `DEFERRED`, a Production pozostaje `BLOCKED`.
 
+### KSeF.8C.7-R2 — Technical Correction parity for Offline KOR
+
+Historyczne ograniczenie R1 do zwykłej Faktury VAT zostało domknięte przez R2 dla Korekty `KOR`. Chronologia obejmuje: `KSeF.8C.7-R2A` Contract Audit (`PASS`), `R2B` Core Infrastructure (`PASS / PUBLISHED`), `R2C` Frozen KOR Business Projection V2 (`PASS / PUBLISHED`), `R2D` hardening z fake transportem, downstream i UI (`PASS / PUBLISHED`), następnie `KSeF.8C.7-R2-LIVE-PREFLIGHT-001`, kontrolowany `KSeF.8C.7-R2-LIVE-TEST-001` oraz niezależny read-only `KSeF.8C.7-R2-LIVE-CLOSURE-AUDIT-001`. Po zamknięciu dokumentacyjnym formalny stan R2A-R2D jest `PASS / CLOSED`. R2A nie znalazł w oficjalnym kontrakcie MF ograniczenia wyłączającego `RodzajFaktury=KOR` z ogólnego mechanizmu korekty technicznej dokumentu wystawionego Offline. MF nie udostępniał dedykowanego referencyjnego E2E dla technicznego KOR, dlatego podstawą wdrożenia było `SUPPORTED_BY_GENERIC_OFFICIAL_CONTRACT`, z obowiązkową kontrolowaną walidacją LIVE na KSeF TEST.
+
+`KsefOfflineTechnicalCorrectionDocumentGenerator` jest wspólnym dispatcherem: zwykłą Fakturę VAT przekazuje do `KsefFa3DocumentGenerator`, a Korektę `KOR` do `KsefFa3CorrectionDocumentGenerator`. Pro forma pozostaje nieobsługiwana. Nie powstał drugi mapper KOR ani osobny mechanizm auth, sesji, szyfrowania, request factory, statusu lub transportu. R2 korzysta z tego samego generic technical transportu i wysyła `offlineMode=true`, hash zamrożonego artefaktu technicznego jako `invoiceHash` oraz dokładny hash odrzuconego źródłowego payloadu KOR jako `hashOfCorrectedInvoice`.
+
+Wersja fingerprintu jest częścią niezmiennego kontraktu artefaktu: zwykła Faktura VAT ma `business_fingerprint_version=1`, a `KOR` ma `business_fingerprint_version=2`. Projection V1 pozostaje niezmienna i nigdy nie jest reinterpretowana przez V2. Nieznana wersja, niezgodność typu dokumentu z wersją albo rozbieżność projekcji kończy się fail-closed. `KsefOfflineTechnicalCorrectionCorrectionBusinessProjectionV2` tworzy niezależne projekcje z zamrożonego stanu domenowego KOR i z technicznego FA(3). Obie są kanonizowane bez `float`, serializowane jako JSON UTF-8, hashowane SHA-256 i kodowane Base64. V2 chroni tożsamość dokumentu, P_1 i P_2, walutę, powód korekty, biznesową referencję do korygowanej/root Faktury, sprzedawcę, nabywcę przed i po tam, gdzie ma to zastosowanie, linie przed i po, koszyki VAT, P_15, zapisane wartości VAT w PLN i istotne adnotacje KOR. Wyłącznie techniczne `Naglowek/DataWytworzeniaFa` jest pomijane, ponieważ może legalnie zmienić się przy regeneracji; P_1 nie jest wyłączone.
+
+Źródłowy `OfflineIssuance` KOR jest właścicielem zamrożonego `correction_financial_evidence`; artefakt techniczny nie duplikuje tego dowodu. PREPARE wymaga poprawnego source evidence, zgodności evidence nowo wygenerowanego KOR ze źródłowym frozen evidence oraz zgodności technicznego XML z tym samym dowodem. `KsefFa3CorrectionFinancialEvidencePayloadValidator` jest współdzielony przez prezentację Offline i kontrolę integralności remediation, dzięki czemu ścieżka źródłowa, prezentacyjna i techniczna nie mogą stosować różnych interpretacji kwot. Dla Korekty walutowej używane są zamrożone wartości finansowe i przeliczeniowe; technical remediation nie pobiera nowego kursu NBP i wykonuje `NBP HTTP: 0`.
+
+Należy rozróżniać dwie niezależne relacje. Biznesowe `DaneFaKorygowanej` wskazuje korygowaną/root Fakturę i jej pochodzenie KSeF. Techniczne `hashOfCorrectedInvoice` wskazuje dokładne bajty odrzuconego źródłowego KOR. Relacji tych nie wolno utożsamiać. Każda próba techniczna może wykonać najwyżej jeden invoice POST, bez blind retry. Błąd niejednoznaczny daje `Uncertain` i dopuszcza wyłącznie reconciliation; nie tworzy automatycznie attemptu 3. Deterministyczne `21166` i `21167` prowadzą do `TechnicalFailed`. Te dwa kody oraz ścieżka `Uncertain` zostały pokryte regresją/fake transportem, ale nie wystąpiły w rzeczywistym teście R2.
+
+R2D zachowuje dwuetapowy workflow operatora dla kwalifikującej się odrzuconej zwykłej Faktury VAT lub Korekty KOR: najpierw `PREPARE` niezmiennego artefaktu, następnie osobne `SEND`. Obie akcje wymagają zgodności aktywnego środowiska KSeF ze środowiskiem źródłowego OfflineIssuance, co blokuje na przykład operację na dokumencie TEST przy konfiguracji ustawionej na DEMO. Po utworzeniu technicznego submissionu nie jest oferowane ponowne PREPARE/SEND ani zwykły resend; dotyczy to stanów `Accepted`, `Rejected`, `TechnicalFailed` i `Uncertain`. Terminalne techniczne `Rejected` nie tworzy automatycznie artefaktu numer 2.
+
+Downstream pozostaje wspólny dla Faktury VAT i KOR: status lifecycle, UPO, Accepted Offline PDF, KOD I, obowiązek Offline oraz UI/historia korzystają z istniejących komponentów. Accepted techniczny KOR jest prezentowany z dokładnego zamrożonego payloadu artefaktu, a nie z ponownej generacji na podstawie zmiennych danych. Jego PDF zawiera dokładnie jeden KOD I i nie zawiera KODU II. Odrzucone źródłowe OfflineIssuance zachowuje własne KODY I i II oraz source hash; akceptacja techniczna ich nie nadpisuje. Accepted submission techniczny powiązany z tym samym OfflineIssuance spełnia obowiązek transmisji Offline.
+
+Kontrolowany `KSeF.8C.7-R2-LIVE-TEST-001` wykonał 8 września 2026 rzeczywisty przebieg w środowisku TEST. Root `Invoice id=126`, `K7T 1/2026`, PLN, był wcześniej zaakceptowany przez techniczną korektę R1; resolver poprawnie wykorzystał Accepted submission `28` i numer KSeF root `6282192260-20260907-5A9BF1000000-98` jako pochodzenie nowej biznesowej Korekty. Utworzony i zamknięty KOR `Invoice id=127`, `K7R2 1/2026`, korygował root `126` z powodu „podwyższenie ceny po wystawieniu faktury” i miał deltę `net +0.81 PLN`, `VAT +0.19 PLN`, `gross +1.00 PLN`.
+
+Źródłowy `OfflineIssuance id=4` miał środowisko TEST i procedurę Offline24. Model KOR zachował `issue_date=2026-09-08`; jednorazowy kontrolowany harness zmienił wyłącznie historycznie serializowane źródłowe P_1 na `2026-09-09`, emulując dawny błąd generatora bez udostępniania takiej funkcji aplikacji. Payload pozostał zgodny z FA(3) XSD, miał `1961` bajtów oraz hash `k2my5FRiXJ8qg3J2IK8JjFvZK5zgpjhDK4+698C1iYY=`. Submission `29`, attempt `1`, został rzeczywiście odrzucony przez KSeF TEST kodem `450`, bez numeru KSeF.
+
+Niezmienny artefakt techniczny `id=2` ma `business_fingerprint_version=2`, `source_status_code=450`, `P_1=2026-09-08`, `P_2=K7R2 1/2026`, `RodzajFaktury=KOR`, rozmiar `1961` bajtów i hash `akU2wVABbC+CsK7+ilbrcWlNCNrKBNbgH35qPdPf7bc=`. Jego `hashOfCorrectedInvoice` jest dokładnie równy hashowi źródła, a hash techniczny jest od niego różny. XSD, frozen financial evidence oraz trójstronny fingerprint `DOMAIN = STORED ARTIFACT = TECHNICAL XML` przeszły weryfikację.
+
+Submission techniczny `30`, attempt `2`, został rzeczywiście zaakceptowany kodem `200` w trybie `Offline` i otrzymał numer KSeF `6282192260-20260908-8A2CF1000000-50`. Attempt `3` nie istnieje; liczba artefaktów technicznych wynosi `1`. Źródło wykonało jeden invoice POST, techniczny KOR jeden invoice POST, łącznie `2`; retry źródła i technicznego POST-u wynosiło `0`. DEMO i Production invoice POST, Accepted XML GET, NBP, Latarnia oraz QR HTTP wynosiły `0`. UPO istnieje wyłącznie dla submissionu technicznego (`id=27`, lokalna walidacja `PASS`); źródłowy submission nie ma UPO. Accepted PDF z frozen artefaktu przeszedł weryfikację i zawiera KOD I `1`, KOD II `0`. Metadane TCPDF `CreationDate/ModDate` są dynamiczne, dlatego osobne generacje kontenera PDF nie muszą być byte-for-byte identyczne; integralność opiera się na zamrożonej treści, prezentacji i wiązaniu QR. Obowiązek Offline zakończył się `FULFILLED` dzięki Accepted submissionowi `30`.
+
+Po LIVE przywrócono `environment=DEMO`, aktywną integrację i `automatic_submission=true`; testowa seria Korekt `id=9` zakończyła jako nieaktywna z transmisją KSeF wyłączoną. Późniejszy read-only `KSeF.8C.7-R2-LIVE-CLOSURE-AUDIT-001` niezależnie uzgodnił zachowany raport LIVE, bazę operatora, source i technical payload/hash, V2 fingerprint, financial evidence, submissiony, UPO, Accepted presentation/PDF, obowiązek Offline oraz odtworzenie konfiguracji. Audyt zakończył się `PASS`, bez zapisów i bez runtime HTTP. Baza miała przed i po kontroli `2646016` bajtów, SHA-256 `366E6309C0D95EF0A15E96DD6DFA31BD273F3C61BA84A55F804B2D73BDB1D12C`, `quick_check=ok` i `foreign_key_check=0`. Lokalnymi, prywatnymi dowodami są `storage/app/private/backups/ksef_8c7_r2_live_001_report_20260908_193853.json` oraz `storage/app/private/backups/database_before_ksef_8c7_r2_live_001_20260908_191027.sqlite`; nie są zależnościami aplikacji i nie zawierają publikowanych w dokumentacji sekretów.
+
+Późniejsza prośba o powtórzenie tego samego testu root `126` została prawidłowo zablokowana jako `ROOT_126_CORRECTION_CHAIN_CHANGED`, ponieważ KOR `127` już istniał. Jest to oczekiwana ochrona przed duplikacją, nie niepowodzenie pierwotnego LIVE. Ostateczne ograniczenia pozostają jawne: R2 zweryfikowano tylko na KSeF TEST i dla rzeczywistego kodu źródłowego `450`; `440` jest wspierany przez politykę i testy, lecz nie był sprawdzony LIVE. `21166`, `21167` i `Uncertain/reconciliation` były testowane lokalnie/fake-only. Accepted XML nie został niezależnie pobrany, Pro forma nie jest obsługiwana, a Production pozostaje `BLOCKED`. Wynik nie oznacza certyfikacji ani zatwierdzenia NEX-OMS przez MF.
+
+Status końcowy:
+
+```text
+KSeF.8C.7-R2A: PASS / CLOSED
+KSeF.8C.7-R2B: PASS / CLOSED
+KSeF.8C.7-R2C: PASS / CLOSED
+KSeF.8C.7-R2D: PASS / CLOSED
+KSeF.8C.7-R2-LIVE-PREFLIGHT-001: PASS
+KSeF.8C.7-R2-LIVE-TEST-001: PASS / CLOSED
+REAL KOR SOURCE REJECTION 450: PASS / VERIFIED
+KOR TECHNICAL ACCEPTED 200: PASS / VERIFIED
+KSeF.8C.7-R2-LIVE-CLOSURE-AUDIT-001: PASS
+KSeF.8C.7-R2: PASS / CLOSED / DOCUMENTED
+KSeF.8C.7 ordinary Invoice VAT technical correction: PASS / CLOSED
+KSeF.8C.7 KOR technical correction: PASS / CLOSED
+KSeF.8C.7 KOR TECHNICAL PARITY: PASS / CLOSED / DOCUMENTED
+KSeF.8C.7: PASS / CLOSED FOR VAT + KOR TECHNICAL CORRECTION SCOPE
+Pro forma: UNSUPPORTED
+Production: BLOCKED
+```
+
 Transport ma deploymentowy gate `KSEF_INVOICE_SUBMISSION_ENABLED` domyślnie `false`, jest serwisowo ograniczony do TEST i nie ma trasy ani UI. KSeF.4A.1 nie dodaje automatycznej akcji, listenera, observera, kolejki, crona, automatycznego pollingu, batch, offline, QR ani UPO. Trwałe `automatic_submission=true` nie omija deployment gate i przy braku workflow nie uruchamia transmisji. Przed przyszłym włączeniem gate trzeba zweryfikować tę wartość oraz wszystkie ścieżki triggerów. Automatyczne testy pozostają fake-only, używają `Http::fake()` i blokują stray HTTP.
 
 ### Walidacja end-to-end KSeF.4A
