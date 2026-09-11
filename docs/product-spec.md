@@ -1131,6 +1131,8 @@ Nie jest to część pierwszego etapu serii numeracji.
 
 # 30. KSeF — wybrana strategia
 
+Aktualny stan Production i siłę dowodów opisuje sekcja KSeF.8D poniżej. Wariant początkowy oraz ograniczenia poszczególnych etapów są historią wdrożenia, nie zakazem użycia funkcji dodanych później. Kod obsługuje Production od 8D.2; rzeczywisty dowód PROD dotyczy jednej ręcznej Faktury VAT Online, nie wszystkich trybów i automatyzacji.
+
 Wybrany wariant:
 
 ```text
@@ -1171,7 +1173,7 @@ Pole `include_seller_vat_prefix` domyślnie ma wartość `false`. Wartość `tru
 
 Ustawienie `include_sale_date` zostało usunięte. Data sprzedaży jest cechą dokumentu i w przyszłym FA(3) będzie mapowana z Faktury, a nie sterowana przełącznikiem transportowym.
 
-Konfiguracja KSeF nie wpływa na wystawione dokumenty, ich finalizację, snapshoty, numerację ani PDF. Nadal nie implementujemy:
+W samym etapie KSeF.1 konfiguracja nie uruchamiała operacji dokumentowych i nie zmieniała finalizacji, snapshotów, numeracji ani PDF. Poniższe elementy były poza zakresem tego historycznego etapu; późniejsze wdrożenia opisano dalej, a bieżący stan PROD w 8D:
 
 - XML FA(3),
 - wysyłki dokumentów,
@@ -1233,6 +1235,8 @@ Informacje dodatkowe są normalizowane liniowo i dzielone bez utraty znaków na 
 
 ## 30.8. Fundament transportu sesji online KSeF.4A.1
 
+Opis ograniczeń TEST-only, braku UI i niewykonywanego `automatic_submission` poniżej dotyczy chwili zamknięcia 4A.1. Dalsze etapy dodały workflow ręczny, UPO/QR, Korekty i automatykę; ograniczenie środowisk usunięto w 8D.2. Nie jest to opis bieżącej dostępności funkcji.
+
 KSeF.4A.1 obsługuje wyłącznie sfinalizowaną Fakturę VAT zakwalifikowaną przez istniejący tryb autorytatywny FA(3). Każda próba zapisuje osobny rekord `ksef_invoice_submissions` z zamrożonym środowiskiem, NIP-em kontekstu uwierzytelnienia, NIP-em sprzedawcy z `Podmiot1`, numerem próby, czasem generowania, hashami i dokładnym XML. Kontekst i sprzedawca są odrębnymi tożsamościami, ponieważ oficjalny kontrakt KSeF dopuszcza działanie w uprawnionym kontekście innym niż sprzedawca. `payload_xml` jest szyfrowany przez cast aplikacyjny i nie występuje jawnie w bazie. Pro formy i Korekty nie są obsługiwane.
 
 Fundament transportu sesji online został pierwotnie zaimplementowany według kontraktu KSeF API 2.6.1. Po udostępnieniu na środowisku TEST API 2.7.0 wykonano osobny audyt zgodności faktycznie serwowanego OpenAPI; nie wykazał on różnic wymagających zmiany kodu transportu. Implementacja nie przypina numeru wersji API, dlatego przed kolejnym kontrolowanym uruchomieniem na środowisku docelowym należy ponownie zweryfikować aktualny kontrakt OpenAPI.
@@ -1259,6 +1263,8 @@ Zamknięcie KSeF.4A oznacza zweryfikowany happy path warstwy transportowej na TE
 
 ## 30.9. Ręczny workflow TEST KSeF.4B.1
 
+Ograniczenia pierwszej wersji 4B.1 są historyczne. Kolejne etapy dodały lifecycle, świadome ponowienia i automatykę, a 8D.2 obsługę Production. Aktualny ręczny Online PROD i jego ograniczony dowód LIVE opisuje sekcja 8D; kontrakt automatic first-send opisuje 30.11.
+
 KSeF.4B.1 udostępnia na read-only ekranie sfinalizowanej Faktury VAT ręczną pierwszą wysyłkę do KSeF TEST oraz ręczne, pojedyncze sprawdzenie statusu. Akcja wysyłki jest żądaniem POST z CSRF i jawnym oznaczeniem TEST. W ramach jednego wywołania istniejący transport przygotowuje najwyżej jedną próbę, otwiera jedną sesję i wykonuje najwyżej jeden POST Faktury. Po udanym zakończeniu transportu NEX wykonuje dokładnie jeden status GET bez pollingu i retry; wynik może od razu ustawić `processing`, `accepted` albo `rejected`. Od KSeF.6G.1 sprawdzenie lub uzgodnienie wyniku `accepted` planuje osobne background UPO zamiast pobierać je w tym samym żądaniu. Niedostępne jeszcze UPO nie cofa przyjętego statusu, a ręczna operacja pobrania pozostaje dostępna. Niepowodzenie dodatkowego odczytu statusu nie cofa udanej wysyłki, nie tworzy nowej próby i pozostawia dokument w stanie pozwalającym na późniejsze ręczne sprawdzenie.
 
 Manualny orkiestrator blokuje Fakturę i bieżącą konfigurację w transakcji oraz atomowo sprawdza historię dla pary Faktura-bieżące środowisko. Każdy wcześniejszy rekord w tym samym środowisku, również `rejected` albo `technical_failed`, blokuje kolejną ręczną próbę. Historia z innego środowiska sama nie blokuje pierwszej próby w bieżącym środowisku. Przygotowanie pozostaje częścią tej transakcji, natomiast cały transport HTTP jest wykonywany dopiero po jej zatwierdzeniu.
@@ -1269,7 +1275,9 @@ Po potwierdzeniu statusu `accepted` PDF Faktury prezentuje pod numerem zamówien
 
 ### KSeF.8A — CLOSED
 
-Faktura VAT i Korekta korzystają z jednego modelu prezentacyjnego KSeF w PDF. Dla zaakceptowanego dokumentu model odczytuje wyłącznie próbę z dokładnie wybranego środowiska, a numer KSeF, data przetworzenia, NIP sprzedawcy, hash XML i link KOD I zawsze pochodzą z własnego submissionu dokumentu. Korekta używa własnej daty wystawienia i nie dziedziczy danych KSeF z Faktury źródłowej. W `production` dopuszczone jest wyłącznie środowisko Production; lokalnie i w testach używane jest dokładnie środowisko zapisane w konfiguracji, bez fallbacku między TEST, DEMO i Production.
+Faktura VAT i Korekta korzystają z jednego modelu prezentacyjnego KSeF w PDF. Dla zaakceptowanego dokumentu model odczytuje wyłącznie próbę z dokładnie wybranego środowiska, a numer KSeF, data przetworzenia, NIP sprzedawcy, hash XML i link KOD I zawsze pochodzą z własnego submissionu dokumentu. Korekta używa własnej daty wystawienia i nie dziedziczy danych KSeF z Faktury źródłowej. Od 8D.2 wybór w ogólnym presenterze wynika dokładnie z `KsefSetting.environment`, niezależnie od profilu Laravela `APP_ENV`, bez fallbacku między TEST, DEMO i Production. Dawne wymuszenie Production przez `APP_ENV` jest historyczną regułą 8A, usuniętą w 8D.2.
+
+Od 8D.5.1 data przetworzenia jest prezentowana w `Europe/Warsaw` ze strefą i offsetem właściwym dla daty w drugim wierszu. Nie zmienia to źródłowego UTC ani dokumentu. Bieżący cache VAT/KOR ma wersję `v46`; Pro forma nadal `v35`.
 
 Zaakceptowany dokument jest renderowany fail-closed: niepoprawny numer KSeF, brak wymaganych danych albo niemożność utworzenia oficjalnego linku weryfikacyjnego blokują PDF zamiast generować dokument bez poprawnego KOD I. Kod QR powstaje nadal przez istniejący `KsefInvoiceVerificationLinkBuilder`, centralny `KsefNumberValidator` i TCPDF. PDF w TEST albo DEMO zawiera czytelne oznaczenie dokumentu testowego; Production nie otrzymuje takiego oznaczenia. Jeżeli kod przechodzi na osobną stronę, strona wskazuje typ i numer dokumentu oraz cel „Weryfikacja KSeF”.
 
@@ -1291,7 +1299,7 @@ Daty `validFrom` i `validTo` certyfikatu X.509 są przechowywane jako konkretne 
 
 ### KSeF.8B.2A — CLOSED
 
-Zakładka certyfikatów Offline udostępnia ręczną akcję „Sprawdź w KSeF”. Logicznie read-only query i retrieve działają dla lokalnego certyfikatu w jego dokładnym środowisku TEST albo DEMO; Production pozostaje zablokowane przed HTTP. Certyfikat nie jest przypisywany do `context_nip`. NEX-OMS wyszukuje w MF dokładnie jeden certyfikat o tym samym numerze seryjnym i typie `Offline`, pobiera go, a następnie sprawdza Base64 DER, X.509, numer seryjny, fingerprint SHA-256 i zgodność z lokalnym kluczem prywatnym. Po doprecyzowaniu 8B.2A.3 operacja wymaga konfiguracji Certificate/XAdES w dokładnym środowisku certyfikatu Offline; Token KSeF jest blokowany lokalnie przed auth i HTTP. Samo otwarcie zakładki nie łączy się z KSeF.
+Zakładka certyfikatów Offline udostępnia ręczną akcję „Sprawdź w KSeF”. Logicznie read-only query i retrieve działają dla lokalnego certyfikatu w jego dokładnym środowisku. Pierwotna polityka 8B.2A dopuszczała TEST/DEMO; od 8D.2 dopuszcza także Production. Certyfikat nie jest przypisywany do `context_nip`. NEX-OMS wyszukuje w MF dokładnie jeden certyfikat o tym samym numerze seryjnym i typie `Offline`, pobiera go, a następnie sprawdza Base64 DER, X.509, numer seryjny, fingerprint SHA-256 i zgodność z lokalnym kluczem prywatnym. Po doprecyzowaniu 8B.2A.3 operacja wymaga konfiguracji Certificate/XAdES w dokładnym środowisku certyfikatu Offline; Token KSeF jest blokowany lokalnie przed auth i HTTP. Samo otwarcie zakładki nie łączy się z KSeF.
 
 Interfejs pokazuje zdalny status, czas ostatniej pełnej weryfikacji, zdalną datę ważności oraz gotowość. Rozpoznawane statusy MF to `Active`, `Blocked`, `Revoked` i `Expired`; każda inna wartość jest prezentowana kontrolowanie i blokuje gotowość. Certyfikat jest gotowy tylko przy kompletnej i aktualnie ważnej parze lokalnej, pełnej zgodności z certyfikatem MF, udanej weryfikacji zdalnej, statusie dokładnie `Active` i aktualnej ważności zdalnej. Wskazanie certyfikatu jako preferowanego nie oznacza gotowości.
 
@@ -1333,6 +1341,8 @@ KSeF.8C.0 nie wdraża automatycznego Offline24, `KsefOfflineIssuance`, KODU II n
 
 ### KSeF.8C.1 — CLOSED
 
+TEST/DEMO i blokada Production poniżej są historycznym zakresem 8C.1, zmienionym w kodzie w 8D.2. Nie oznacza to wykonania LIVE Offline PROD.
+
 Operator może wystawić lokalnie w trybie Offline24 wyłącznie wystawioną i sfinalizowaną Fakturę VAT z serii włączonej do KSeF. Funkcja działa dla TEST i DEMO; Production pozostaje zablokowane. Integracja musi być aktywna, ale lokalny fakt wystawienia nie zależy od deployment gate transmisji. Kontekst v1 musi być poprawnym NIP-em równym NIP-owi sprzedawcy, a dla dokładnego środowiska musi być wybrany gotowy certyfikat Offline. Brak wyboru, nieaktualna zdalna weryfikacja, status inny niż `Active`, nieważność certyfikatu lub niespójny klucz blokują operację bez HTTP.
 
 Wystawienie tworzy jeden niezmienny `KsefOfflineIssuance` dla Faktury i środowiska. Przechowuje dokładny autorytatywny XML FA(3) zaszyfrowany at rest, jego SHA-256 Base64 i rozmiar, `P_1` odczytane z tego XML, jeden czas `issuedAt`, zamrożone dane sprzedawcy i kontekstu, snapshot gotowości certyfikatu oraz URL-e KODU I i KODU II. `P_1` musi odpowiadać dacie tego samego instantu w `Europe/Warsaw`. Ten sam XML i hash są źródłem obu kodów i przyszłej transmisji; XML nie może być później regenerowany z aktualnego stanu Faktury. Klucz prywatny i certyfikat PEM nie są kopiowane do issuance.
@@ -1342,6 +1352,8 @@ Offline24 jest wzajemnie wykluczające z istniejącą historią Online i oznacze
 Ekran Faktury pokazuje `WYSTAW OFFLINE24` tylko przy pełnej kwalifikacji i wymaga potwierdzenia trwałego zamrożenia dokumentu. Po operacji widoczny jest status „Offline24 — wystawiona lokalnie”, `P_1`, czas, numer seryjny i historyczny status certyfikatu oraz „Numer KSeF: jeszcze nie nadano”. Etap wykonuje zero requestów KSeF i nie tworzy submissionu. Nie obejmuje PDF Offline, obrazów QR, potwierdzenia transakcji, doręczenia nabywcy, późniejszej transmisji `offlineMode=true`, terminów, Latarni, automatycznej wysyłki, Korekt Offline ani Production.
 
 ### KSeF.8C.2 — CLOSED
+
+Wyłączenie Production poniżej dotyczy zakresu 8C.2, przed udostępnieniem wspólnej obsługi w 8D.2.
 
 Po wystawieniu Offline24 ekran pokazuje dokładnie jedną akcję doręczenia wynikającą z zamrożonej tożsamości nabywcy. Dla nabywcy z polskim NIP-em dostępne jest `POBIERZ POTWIERDZENIE TRANSAKCJI`; dla nabywcy bez polskiego NIP-u dostępne jest `POBIERZ FAKTURĘ OFFLINE`. Klasyfikacja „bez polskiego NIP-u” jest konserwatywną polityką v1 NEX-OMS, a nie pełną oceną prawną. Dane niejednoznaczne lub niespójne blokują oba dokumenty. Ograniczenie działa po stronie serwera, nie tylko w interfejsie.
 
@@ -1360,6 +1372,8 @@ Prezentacja używa dokładnie zamrożonych URL-i KODU I i KODU II, bez ich przeb
 Potwierdzenie transakcji zawiera wyłącznie wymagany zakres biznesowy: dane identyfikacyjne sprzedawcy i nabywcy, `P_2`, `P_15` z walutą oraz KOD I i KOD II z nagłówkami `sprawdź fakturę w KSeF` i `zweryfikuj wystawcę faktury`. Nie zawiera podpisów `OFFLINE`/`CERTYFIKAT` pod kodami ani dodatkowego zdania „Ten dokument nie jest fakturą.”; techniczne oznaczenie TEST/DEMO pozostaje dla bezpieczeństwa. Polityka doręczenia z 8C.2 nie zmienia się. Etap wykonuje zero HTTP, nie modyfikuje issuance i nie dodaje migracji.
 
 ### KSeF.8C.3 — CLOSED
+
+Ograniczenie do TEST/DEMO opisuje historyczny 8C.3. Od 8D.2 Production jest obsługiwane przez wspólną politykę, ale ten etap nie dostarczył dowodu LIVE Offline PROD.
 
 Faktura wystawiona jako Offline24 może zostać później ręcznie przekazana do KSeF z poziomu konkretnego historycznego wystawienia. Submission przechowuje relację do `KsefOfflineIssuance` oraz zaszyfrowaną kopię dokładnie tego samego zamrożonego XML FA(3), hasha, rozmiaru, schematu, środowiska, kontekstu i sprzedawcy. Nie następuje ponowne generowanie FA(3), a zmiany bieżącej Faktury, serii lub certyfikatu Offline nie zmieniają treści transmisji.
 
@@ -1441,6 +1455,8 @@ Etap nie zmienia deadline engine, projektora, synchronizacji coverage ani schedu
 
 ### KSeF.8C.5 — Planned unavailability + ordinary failure
 
+Blokada Production poniżej należała do zakresu 8C.5. Usunięto ją w kodzie w 8D.2, zachowując wymagania świeżego evidence Latarni. LIVE Online 8D.5 nie potwierdza operacyjnej gotowości tych procedur PROD.
+
 NEX-OMS rozróżnia trzy procedury wystawienia Faktury Offline: `Offline24`, `Offline – niedostępność KSeF` oraz `Tryb awaryjny`. Podstawą są odpowiednio art. 106nda, 106nh i 106nf ustawy o VAT, zweryfikowane 04.09.2026 z oficjalnymi materiałami MF. Operator wybiera procedurę jawnie; system nie przełącza automatycznie pomiędzy nimi. Wszystkie trzy zamrażają ten sam XML FA(3), datę `P_1`, hash, rozmiar, certyfikat Offline oraz KOD I i KOD II, a późniejsza transmisja wysyła dokładnie te bajty z `offlineMode=true`.
 
 Akcje planowanej niedostępności i trybu awaryjnego są dostępne wyłącznie na podstawie świeżych danych zapisanych wcześniej przez Latarnię. Samo otwarcie ekranu i wystawienie nie odświeżają Latarni i nie wykonują HTTP. Planowana niedostępność wymaga bieżącego statusu `MAINTENANCE` i jednego aktywnego komunikatu przerwy; tryb awaryjny wymaga statusu `FAILURE` i jednego aktywnego zwykłego zdarzenia awarii. Dane stare, brakujące, niejednoznaczne, poznane po czasie lub niespójne ze statusem blokują operację. `TOTAL_FAILURE` także blokuje te akcje. DEMO nie ma Latarni i nie korzysta z żadnego fallbacku, a Production pozostaje operacyjnie zablokowane.
@@ -1460,6 +1476,8 @@ Zwykła awaria opublikowana podczas nadal trwającej planowanej niedostępności
 Mini-etap nie zmienia migracji `086000`, issuance core, ochrony TOCTOU, transportu, delivery policy, QR, schedulera, projekcji Total Failure ani zakresu Korekt. Nie wykonuje live HTTP ani migracji na bazie operatora.
 
 ### KSeF.8C.6 — Ordinary Offline Corrections
+
+Ograniczenia środowisk w tym etapie są historyczne, sprzed 8D.2; sukces LIVE opisany w końcowym wpisie dotyczy DEMO, nie PROD.
 
 Wydaną Korektę biznesową można jawnie wystawić jako Offline24, Offline – niedostępność albo w trybie awaryjnym. Operacja zamyka Korektę atomowo, zamraża jej własny dokument FA(3) `KOR` i dwa QR; nie wysyła jej automatycznie. Błąd nie pozostawia zamkniętej Korekty bez issuance. Data wystawienia Korekty musi być dzisiejszym dniem w Polsce; historyczne P_1 źródła nie jest używane jako data nowej Korekty.
 
@@ -1489,6 +1507,8 @@ Status po pełnej regresji kodu: `KSeF.8C.6.1: PASS / CLOSED via 8C.6.2`, `KSeF.
 
 ### KSeF.8C.6 — FINAL CLOSED
 
+Poniższe statusy i blokada Production opisują zamknięcie 8C.6 przed 8D.2. Nie są ponowną oceną obecnej polityki środowisk.
+
 Migracja `087000` ma na operatorowej bazie status `Ran` w batchu `53`; kolumna `ksef_offline_issuances.correction_financial_evidence` ma typ SQLite `TEXT`, `nullable=YES`, a backfill wyniósł `0`. `KSeF.8C.6-DB-VERIFY-001` jest `FAIL / superseded`: podczas pierwszego read-only verify inne procesy PHP zmieniały plik SQLite, przez co zmieniał się hash całej bazy; nie wykryto błędu danych KSeF. `KSeF.8C.6-DB-VERIFY-002` zakończył się `PASS / CLOSED` po zatrzymaniu procesów `php/php-cgi/httpd`, bez WAL/SHM/journal, przy SQLite `READONLY`, `PRAGMA query_only=1`, `quick_check=ok` przed i po oraz `T0=T1=T2=FINAL`. Stabilny plik miał `2502656` bajtów i SHA-256 `87789B48D5D0FAFD3AF7676343FCD2054348A250FBB42EB25FD76460549C026E`.
 
 Historyczny OfflineIssuance `id=1` dla Faktury `invoice_id=123`, `document_type=invoice`, pozostał w DEMO, procedurze `offline24` i schemacie `FA (3) 1-0E`; payload miał `1642` bajty, a evidence pozostało `NULL`. Decrypt/hash/size, presentation i integralność submissionu przeszły weryfikację. Nowa Korekta Offline wymaga evidence; zapis jest szyfrowany jako `encrypted:array`, ukryty w serializacji i niezmienny razem z issuance. XML i evidence powstają z jednego przebiegu mappera, a exact VAT pochodzi ze snapshotu, nie z mnożenia netto przez stawkę. Evidence nie trafia do FA(3), API KSeF, QR, UPO, treści PDF, UI ani logów. KOR bez evidence jest blokowany fail-closed; brak backfillu danych historycznych.
@@ -1506,6 +1526,8 @@ Ruch sieciowy R3 obejmował wyłącznie oczekiwane DEMO auth/session/invoice/sta
 Status końcowy: `KSeF.8C.6.1: PASS / CLOSED`, `KSeF.8C.6.2: PASS / CLOSED`, `KSeF.8C.6 migration 087000: PASS / CLOSED`, `KSeF.8C.6-DB-VERIFY-002: PASS / CLOSED`, `KSeF.8C.6-LIVE-AUTH-PREFLIGHT-003: PASS / CLOSED`, `KSeF.8C.6-LIVE-TEST-001: PASS / CLOSED` oraz `KSeF.8C.6: CODE + MIGRATION + DB VERIFY + LIVE DEMO E2E PASS / CLOSED`. Wynik dotyczy DEMO; Production pozostaje zablokowane przez operational environment policy. Korekta biznesowa 8C.6 zachowuje `offlineMode=true` i brak `hashOfCorrectedInvoice`.
 
 ### KSeF.8C.7-R1 — Narrow Technical Correction after rejected Offline Invoice
+
+R1 i jego wpisy hardeningowe opisują historyczny zakres VAT: KOR odroczono do R2, a Production do 8D.2. Zachowane wyniki TEST nie są dowodami PROD.
 
 Operator może ręcznie przygotować korektę techniczną wyłącznie dla zwykłej Faktury VAT wystawionej Offline, której submission zakończył się `Rejected`, nie otrzymał numeru KSeF i ma oficjalny kod kwalifikujący. Kody `440` i `450` są kwalifikujące, `410` jest niekwalifikujący, a pozostałe lub brak kodu dają nieznany wynik i bezpieczną blokadę. Treść komunikatu MF nie jest analizowana. Korekty `KOR` pozostają poza tym wąskim etapem.
 
@@ -1534,6 +1556,8 @@ Fingerprint historycznej korekty technicznej nie zależy już od bieżącego map
 V1 obejmuje pełną biznesową zawartość zwykłej Faktury FA(3): strony i adresy, PrefiksPodatnika, P_1/P_1M/P_2/P_6, walutę, pozycje, wszystkie koszyki VAT i P_14_*W, P_15, adnotacje, kontakt, odbiorcę, opisy, płatność, bank, zamówienie, GTU, REGON i BDO. Kwoty są kanonizowane do 2 miejsc, ilości do 4 miejsc bez zbędnych zer, bez `float`; wspierane są `0 KR`, `0 WDT` i `0 EX`. Jedynym wyłączeniem jest generowany technicznie `Naglowek/DataWytworzeniaFa`. PREPARE nadal korzysta z aktualnego generatora i wymaga zgodności z frozen Projection V1, lecz historyczny `assertArtifact()` nie wywołuje mappera, resolvera opcji ani generatora. Przyszła zmiana semantyki wymaga Projection V2; V1 nie może być reinterpretowana.
 
 ### KSeF.8C.7 — Technical Correction R1 deployment closure
+
+Statusy odroczeń KOR i blokady Production poniżej należą do chwili zamknięcia R1; późniejsze wdrożenia opisano w R2 i 8D.2.
 
 Implementacja korekty technicznej R1 dla zwykłej Faktury VAT jest kompletna, utwardzona przez R1.1 i oparta na frozen Invoice Business Projection V1 z R1.2. Obsługuje wyłącznie odrzuconą Fakturę Offline bez numeru KSeF: kody `440` i `450` są kwalifikujące, `410` niekwalifikujący, a inne wartości lub brak kodu kończą się bezpieczną blokadą. Źródłowe wystawienie, submission, XML, hash, KOD I i KOD II są niezmienne; osobny artefakt techniczny otrzymuje nowy XML i hash, a `hashOfCorrectedInvoice` wskazuje pierwotny odrzucony hash. Fingerprint `Base64(SHA-256(canonical JSON))` chroni frozen Business Projection V1 niezależnie od bieżącego mappera; tylko `Naglowek/DataWytworzeniaFa` jest wyłączeniem technicznym, natomiast P_1 i P_2 pozostają chronione.
 
@@ -1577,6 +1601,8 @@ NEXT: no further KSeF.8C.7 R1 implementation or LIVE test required
 
 ### KSeF.8C.7 — Technical Correction R1 LIVE closure
 
+To historyczny wynik LIVE TEST R1. Ówczesne `KOR DEFERRED` i `Production: BLOCKED` nie opisują obecnego kodu po R2/8D.2.
+
 `KSeF.8C.7-LIVE-TECHNICAL-CORRECTION-TEST-001-R2` zakończył się `PASS / CLOSED` w środowisku TEST. Po wcześniejszej próbie zatrzymanej bez invoice POST z powodu niegotowego certyfikatu Offline, osobny test readiness potwierdził gotowość certyfikatu TEST. Następnie syntetyczna zwykła Faktura VAT Offline przeszła rzeczywisty lifecycle MF: źródłowy submission `27` został odrzucony kodem `450` bez numeru KSeF, a osobny immutable artefakt techniczny `1` został wysłany jako submission `28` i zaakceptowany kodem `200` z numerem KSeF `6282192260-20260907-5A9BF1000000-98`.
 
 Wykonano dokładnie dwa invoice POST-y: jeden dla źródła i jeden dla korekty technicznej, bez resend, blind retry i trzeciej próby. Techniczny hash różnił się od hasha odrzuconego źródła, a `hashOfCorrectedInvoice` był dokładnie równy hashowi tego źródła. UPO `26` należy wyłącznie do Accepted submissionu `28`; źródłowy submission nie ma UPO. Accepted PDF został wygenerowany z zamrożonego technicznego payloadu, zawiera jeden KOD I i zero KODU II. Obowiązek Offline ma stan `FULFILLED`, a resolver źródła przyszłej zwykłej korekty biznesowej wskazuje zaakceptowany submission techniczny. Nie utworzono Korekty `KOR`.
@@ -1586,6 +1612,8 @@ Opcjonalny pojedynczy GET zaakceptowanego XML zakończył się `HTTP 406`, ponie
 Implementacja, migracja `088000`, wdrożenie DB i LIVE TEST są kompletne dla wąskiego R1 obejmującego zwykłą Fakturę VAT. Wynik nie rozszerza zakresu na kod `440`, parity technicznej korekty `KOR` ani Production: `KOR technical parity: DEFERRED`, `Production: BLOCKED`.
 
 ### KSeF.8C.7-R2 — Technical Correction parity for Offline KOR
+
+Poniższe wyniki i blokada Production opisują stan R2 sprzed 8D.2. Dowód LIVE KOR pozostaje przypisany wyłącznie do TEST.
 
 Późniejszy R2 zamyka historyczne odroczenie KOR z R1 bez zmiany znaczenia R1 dla zwykłej Faktury VAT. Etapy implementacyjne osiągnęły kolejno: `KSeF.8C.7-R2A` Contract Audit — `PASS`; `R2B` Core Infrastructure — `PASS / PUBLISHED`; `R2C` Frozen KOR Business Projection V2 — `PASS / PUBLISHED`; `R2D` hardening, fake transport, downstream i UI — `PASS / PUBLISHED`. Następnie `KSeF.8C.7-R2-LIVE-PREFLIGHT-001` zakończył się `PASS`, `KSeF.8C.7-R2-LIVE-TEST-001` — `PASS / CLOSED`, a niezależny `KSeF.8C.7-R2-LIVE-CLOSURE-AUDIT-001` — `PASS`; po zamknięciu dokumentacyjnym formalny stan R2A-R2D jest `PASS / CLOSED`. Oficjalny mechanizm MF jest ogólny dla dokumentów wystawionych Offline i nie zawiera wyłączenia `RodzajFaktury=KOR`; nie było jednak dedykowanego referencyjnego KOR E2E od MF, dlatego wdrożenie o statusie `SUPPORTED_BY_GENERIC_OFFICIAL_CONTRACT` wymagało rzeczywistej walidacji KSeF TEST.
 
@@ -1636,7 +1664,60 @@ Production: BLOCKED
 
 Na karcie zamówienia zaakceptowana Faktura jest oznaczona jako `KSeF: <numer OMS>`. Kliknięcie pobiera autorytatywny XML Faktury z jej zamrożonego środowiska KSeF, weryfikuje hash odpowiedzi i uruchamia pobranie PDF wygenerowanego lokalnie przez oficjalny generator MF. XML źródłowy nie jest utrwalany ponownie w bazie.
 
-Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur eager-loaduje najnowszą próbę i pokazuje wyłącznie kompaktowy badge. Deployment gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie ma wartość `false`, workflow jest ograniczony do TEST, a historia pozostaje widoczna przy wyłączonym gate. `automatic_submission` pozostaje nieaktywną deklaracją konfiguracji: nie istnieje trigger, listener, observer, kolejka ani harmonogram automatycznej transmisji. KSeF.4B.1 nie implementuje retry, reconciliation, UPO, QR, offline, batch, Korekt, Pro form, DEMO ani PRODUCTION.
+Źródłem prawdy pozostaje `ksef_invoice_submissions`; Faktura nie otrzymuje osobnej kolumny statusu. Lista Faktur pokazuje kompaktowy status, a historia pozostaje dostępna przy wyłączonym deployment gate. Historyczne 4B.1 było TEST-only i nie miało wykonawcy `automatic_submission`, retry, reconciliation, UPO, QR ani Offline. Nie opisuje to obecnego zakresu: automatykę wdrożono w 6G (sekcja 30.11), a wspólną obsługę Production w 8D.2. Gate `KSEF_INVOICE_SUBMISSION_ENABLED` nadal domyślnie wynosi `false`.
+
+### KSeF.8D — Production: stan wdrożenia i dowód ręcznego Online
+
+`KSeF.8D-DOC-CLOSURE-001: PASS`. Opis jest aktualny dla udokumentowanego zakresu 8D.1–8D.5.1 na `main`, HEAD `96f033963e80514c0c4f5747c455844c632c910f`. Nie zamyka całego 8D ani rollout'u bez nadzoru. Szczegółowe metadane czterech zachowanych raportów i lokalnie sprawdzone SHA-256 znajdują się w sekcji 8D `docs/architecture.md`; raporty pozostały prywatne i nie były zmieniane.
+
+#### Chronologia i siła dowodu
+
+| Etap | Udokumentowany wynik |
+| --- | --- |
+| 8D.1 | `AUDIT COMPLETED / FINDINGS RESOLVED BY 8D.2`. Historyczny audyt zakończył się `BLOCKED / CURRENT_ARCHITECTURE_ENVIRONMENT_LEAK`: rozproszone ograniczenia TEST/DEMO i zależność PDF od `APP_ENV`. Nie był potrzebny osobny stos PROD. |
+| 8D.2 | `PASS / SHARED PRODUCTION CODE / PUBLISHED`, commit `b6ea62547263b4924f05e3ccd7937cce24687492`; rozwiązanie findings: `CODE VERIFIED`. |
+| 8D.3 | `CERTIFICATE AUTH + INVOICEWRITE + OFFLINE READINESS VERIFIED`, według udanego przebiegu Certificate z 10.09.2026, raport 184005 (`PRESERVED LIVE REPORT`). Wcześniejszy raport 155304 dotyczy nieudanego Token auth. |
+| 8D.4 | `MANUAL PATH VERIFIED`; historyczny `BLOCKED / BACKUP_RECOVERY_PLAN_INCOMPLETE` zachowany. Później `RECOVERY BACKUP CONFIRMED BY OPERATOR`; `RESTORE TEST NOT PERFORMED`. Bez fikcyjnego rerunu z PASS. |
+| 8D.5 | `PASS / ONE REAL VAT INVOICE ONLINE ACCEPTED IN PROD`, 11.09.2026; `PRESERVED LIVE REPORT`. |
+| 8D.5.1 | `PASS / WARSAW TIME PRESENTATION / CACHE V46 / PUBLISHED`, commit `96f033963e80514c0c4f5747c455844c632c910f`; `CODE VERIFIED`. |
+
+`LOCAL TEST REPORT` (wcześniejsze wyniki Codexa, nie nowe testy closure ani GitHub CI): 8D.2 ma 2459 testów / 16311 asercji, 8D.5.1 ma 2471 / 16557; zgłoszono zero failures/errors/skips i Pint/lint/diff-check PASS. `OPERATOR CONFIRMED` nie oznacza niezależnej kontroli, a `NOT VERIFIED / NOT RUN` jawnie wskazuje niewykonaną czynność. Closure nie prowadzi nowego audytu MF; wcześniejsze rewizje oficjalnych źródeł pozostają baseline'ami swoich etapów.
+
+#### Środowisko i uprawnienia
+
+Production korzysta z tych samych serwisów co TEST/DEMO: centralnej operational policy, dispatchera follow-up, integralności i prezentacji Offline, presentera PDF oraz polityki zdalnej weryfikacji certyfikatów. Dostępność akcji certyfikatów wynika z backendu. Nie dodano osobnego transportu ani migracji. Pozostaje jeden gate `KSEF_INVOICE_SUBMISSION_ENABLED`, bez `KSEF_PRODUCTION_SUBMISSION_ENABLED` lub drugiego odpowiednika.
+
+`APP_ENV` jest profilem Laravela, nie wyborem serwera KSeF. `KsefSetting.environment` określa środowisko nowych operacji i filtr ogólnego presentera PDF; historyczne submission/issuance/artifact zachowują własne środowisko. Credentiale, runtime tokeny i certyfikaty są rozdzielone, bez kopiowania DEMO do PROD. Zmiana ustawień nie przepina oczekującego first-send; follow-up, reconciliation i UPO używają środowiska zapisanej próby. Ogólny presenter nie wybiera dowolnego historycznego Accepted: obowiązuje dokładny filtr, bez cross-environment fallback.
+
+Wcześniejszy Token auth z raportu 155304 zakończył się terminalnym **AUTH 450**, bez access tokena i z `InvoiceWrite UNKNOWN`; to nie odrzucenie Faktury. Późniejszy Certificate PASS nie wyjaśnia szczegółowej przyczyny ani nie dowodzi naprawienia starego lub przetestowania nowego Tokena. Oba raporty zachowują historyczny identyfikator `001`, a przebiegi rozróżnia czas i metoda.
+
+Certificate/XAdES PROD użył credentiala `2`, EC P-256. Odczytany ContextToken miał właściwy typ, kontekst NIP `6282192260`, Owner i brak wyłączenia InvoiceWrite (`pec=[]`); puste `rol/pep` nie były odmową i nie wymagały dodatkowego query. Sam napis Owner nie wystarcza bez właściwego kontekstu i oceny wyłączeń. JWT odczytano lokalnie bez osobnej kryptograficznej weryfikacji podpisu, a provenance wynikało ze świeżego flow PROD z weryfikowanym TLS. Osobny preferowany Offline PROD `3` miał poprawny materiał/parę kluczy Non-Repudiation, remote Active i identity match: READY w chwili kontroli. Sześć requestów PROD tego udanego przebiegu obejmowało auth i query/retrieve certyfikatu, bez sesji fakturowej i invoice POST. To nie bezterminowa gwarancja ani dowód emisji Offline PROD.
+
+#### Jedna rzeczywista Faktura i ręczna obsługa
+
+11.09.2026 `KSeF.8D.5-PROD-K7T-2-2026-001` potwierdził ręczny Online: Invoice `128`, `K7T 2/2026`, Order `115`, seria `8` (`KSEF-8C7-TECH-LIVE-20260907105305`), data wystawienia 11.09.2026, netto `0,81 PLN`, VAT `0,19 PLN`, brutto `1,00 PLN`. Seria była wtedy aktywna i włączona do KSeF; w przebiegu nie zmieniano jej konfiguracji. Rzeczywistą sprzedaż i brak duplikatu poza OMS potwierdził operator, bez niezależnego audytu innych systemów. Nie był to syntetyczny fixture.
+
+Submission `31`, attempt `1`, environment `production`, `Online`, `Accepted / 200`, numer KSeF `6282192260-20260911-428158C00000-96`; UPO `28` należy do tej próby. Payload `1625 bytes` przeszedł FA(3)/XSD i kontrolę integralności; dokładny hash zawiera opis 8D.5 w architekturze. Request użył `offlineMode=false`, bez `hashOfCorrectedInvoice`. Jeden invoice POST, bez retry, drugiej próby, emisji Offline, artefaktu technicznego, celowego 450 i nowej fikcyjnej transakcji. Dane biznesowe nie zmieniły się; finalizacja zmieniła wyłącznie `finalized_at` i `updated_at` dokumentu.
+
+Siedem requestów PROD raportu 8D.5 to po jednym: refresh, publiczny klucz, otwarcie sesji, invoice POST, zamknięcie sesji, status i UPO. Pełne auth, reconciliation, retry invoice POST, TEST/DEMO, NBP, Latarnia, QR HTTP oraz Accepted XML GET: `0`. To osobny przebieg od sześciu requestów udanego 8D.3. Ręczne wysłanie, sprawdzenie/uzgodnienie wyniku, pobranie UPO i PDF są dostępne bez workera; samo reconciliation nie było potrzebne w tym LIVE.
+
+UPO przeszło hash, XSD, tożsamość i kontrolę obecności podpisu, **nie** kryptograficzną weryfikację podpisu. Historyczny PDF `storage/app/private/invoices/128/invoice-v45-ksef-production.pdf` przeszedł kontrolę wizualną: właściwy numer i kwoty, numer KSeF, jeden KOD I na `qr.ksef.mf.gov.pl`, bez KODU II i oznaczeń TEST/DEMO. Skan telefonem, niezależne pobranie Accepted XML i porównanie jego hasha: `NOT VERIFIED / NOT RUN`.
+
+#### Czas PDF i bezpieczeństwo wznowienia
+
+Historyczny LIVE PDF pokazywał `11.09.2026 07:27:30` UTC bez strefy. 8D.5.1 przelicza immutable instant przez `setTimezone('Europe/Warsaw')`: `11.09.2026 09:27:30`, drugi wiersz `Europe/Warsaw, UTC+02:00`. `processed_at` i `processed_at_timezone` zależą od daty, nie od stałego +2 h. Nie zmieniono UTC storage, `KsefUtcInstantCast`, `acquisition_date`, `P_1`, XML, hashów, QR, numeru KSeF, statusu ani UPO.
+
+VAT/KOR mają cache `v46` z sufiksem środowiska, Pro forma nadal `v35`. Lokalna regresja obejmowała lato, zimę, zmianę dnia, oba przejścia DST, wejściowy offset, mikrosekundy i brak mutacji modelu; obejrzano syntetyczne PDF-y VAT/KOR. Nie odczytano operatorowej DB ani nie regenerowano rzeczywistego PDF Invoice `128` w poprawce lub closure. Następna normalna generacja wybierze `v46`; nie deklarujemy istnienia takiego pliku w historycznym LIVE zamiast `v45`.
+
+8D.4 pierwotnie blokował brak potwierdzenia zabezpieczonej kopii klucza do odszyfrowania backupu. Późniejsze `RECOVERY_KEY_BACKUP: OPERATOR_CONFIRMED` nie oznacza sprawdzenia lokalizacji/zawartości ani testu odtworzenia (`RESTORE TEST: NOT PERFORMED`). Metadane prywatnego backupu sprzed 8D.5 pozostają w architekturze; backupu nie otwierano w closure. Po możliwym invoice POST najpierw rozstrzyga się istniejącą próbę, bez automatycznego odtworzenia starej DB i blind resend.
+
+#### Otwarty rollout
+
+Obserwacja raportów 10–11.09.2026: aktywne PROD, `automatic_submission=false`, workerów nie uruchamiano i failed jobs TEST/DEMO nie ponawiano. Nie jest to nowa kontrola runtime. Reguła `id=9` po statusie „Wysłane” mogła wywołać URL i wystawić Fakturę, również po błędzie kroku URL; wyłączenie automatic submission nie wyłącza wszystkich automatyzacji ani nie dowodzi wykonania tej reguły w LIVE. Po 8D.5 pozostały dwa nieuruchomione joby na `automation/ksef` i dwa locki, nie kolejne invoice POST. Nie zostały tutaj wykonane/wyczyszczone ani uznane za bezwarunkowo pozbawione skutków ubocznych.
+
+Latarnia: TEST do TEST, PROD do PROD, DEMO bez fallbacku. Według 8D.4 sync PROD był wyłączony i lokalnego coverage nie było; nie blokowało to zwykłego Online, lecz nie potwierdza gotowości planowanej niedostępności/awarii. W tym LIVE PROD nie sprawdzono KOR, Offline24/innych Offline, korekty technicznej, batch, automatyki bez nadzoru ani celowych 440/450/21166/21167 lub Uncertain. Zachowano wcześniejsze dowody kodowe/fake i TEST/DEMO bez przenoszenia ich na PROD. Nie jest wymagana celowa awaria PROD dla dokumentacyjnego closure.
+
+`PRODUCTION CODE: ENABLED / SHARED IMPLEMENTATION`; `PRODUCTION MANUAL ONLINE: LIVE VERIFIED FOR K7T 2/2026`; `PROD MANUAL ONLINE VAT: LIVE VERIFIED / DOCUMENTED`; `PDF TIMESTAMP: EUROPE/WARSAW / DOCUMENTED`. `PRODUCTION AUTOMATIC FIRST-SEND: IMPLEMENTED / NOT ACTIVATED IN REPORTED INSTALLATION` (kontrakt 30.11). `AUTOMATIC / UNATTENDED ROLLOUT: OPEN`; `UNATTENDED OPERATIONS: OPEN`. Następny 8D.6 obejmuje kolejki, scheduler, automatyzacje i rollout po odrębnej decyzji operatora; nie uruchomiono go teraz. Nie jest to certyfikacja MF ani zamknięcie całego 8D. W closure: `TRACKED CODE CHANGES: 0`, `OPERATOR DB ACCESS / WRITES: 0 / 0`, `RUNTIME HTTP: 0`, bez generowania PDF i nowych transmisji.
 
 ## 30.10. Audyt gotowości KSeF
 
@@ -1654,11 +1735,13 @@ Audyt gotowości KSeF jest prowadzony etapowo i obejmuje:
 - niezmienność dokumentów,
 - możliwość mapowania do aktualnej struktury KSeF.
 
-Kontrolowany happy path transportu KSeF.4A został pozytywnie zweryfikowany na TEST. Przed udostępnieniem workflow użytkownika lub rolloutem produkcyjnym wymagany jest kolejny audyt aktualnego kontraktu API, danych, triggerów i granic operacyjnych.
+Kontrolowany happy path transportu KSeF.4A został pozytywnie zweryfikowany na TEST. Wtedy dalszy audyt był warunkiem udostępnienia workflow i rollout'u produkcyjnego. Późniejszą chronologię audytu 8D.1, implementacji i jednego ręcznego LIVE PROD opisuje sekcja 8D; automatyczny rollout nadal wymaga odrębnej decyzji i weryfikacji operacyjnej.
 
 ## 30.11. Automatyczne przekazywanie nowych Faktur
 
-Włączenie `automatic_submission` powoduje, że nowa Faktura VAT wystawiona centralnie przez `InvoiceIssuingService`, także przez istniejącą akcję Automation, otrzymuje po zatwierdzeniu transakcji trwały job na dedykowanym połączeniu `ksef_submit` i kolejce `ksef-submit`. Automatyczna wysyłka wymaga jednocześnie deployment gate, aktywnej integracji, środowiska TEST albo DEMO i dokładnie tej serii numeracji włączonej w konfiguracji KSeF. Pro formy, Korekty i PRODUCTION pozostają wyłączone.
+Włączenie `automatic_submission` powoduje, że nowa Faktura VAT wystawiona centralnie przez `InvoiceIssuingService`, także przez istniejącą akcję Automation, otrzymuje po zatwierdzeniu transakcji trwały job na dedykowanym połączeniu `ksef_submit` i kolejce `ksef-submit`. Automatyczna wysyłka wymaga jednocześnie deployment gate, aktywnej integracji, środowiska dopuszczonego przez `KsefOperationalEnvironmentPolicy` i dokładnie tej serii numeracji włączonej w konfiguracji KSeF. Pierwotne 6G obejmowało TEST/DEMO; od 8D.2 wspólna polityka dopuszcza także Production. Pro formy i Korekty pozostają wyłączone z automatic first-send.
+
+Obsługa PROD w kodzie nie oznacza jej uruchomienia. W raportach z 10–11.09.2026 aktywne było PROD z `automatic_submission=false`; workerów nie uruchamiano, a ręczna obsługa była dostępna bez nich. Nie oznacza to wyłączenia wszystkich reguł Automation. Pełny rollout kolejek, schedulera i automatyzacji bez nadzoru pozostaje otwarty jako odrębny 8D.6. Poniższe komendy opisują istniejący kontrakt workerów, nie dyspozycję uruchomienia ich w closure dokumentacyjnym.
 
 Job przechowuje snapshot środowiska i NIP-u kontekstu. Worker przed wykonaniem HTTP ponownie sprawdza całą kwalifikację, zgodność obu wartości oraz brak próby w bieżącym środowisku. Wyłączenie gate, integracji, automatycznej wysyłki lub serii, a także zmiana środowiska albo kontekstu, anuluje oczekującą wysyłkę bez recovery i bez backfillu. Faktura pozostaje edytowalna do startu workera; dopiero wtedy aktualna wersja jest finalizowana i staje się autorytatywnym payloadem FA(3).
 
