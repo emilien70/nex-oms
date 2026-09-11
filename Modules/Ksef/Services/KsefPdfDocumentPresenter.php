@@ -23,6 +23,7 @@ class KsefPdfDocumentPresenter
      *     environment: string,
      *     number: ?string,
      *     processed_at: ?string,
+     *     processed_at_timezone: ?string,
      *     status: ?string,
      *     verification_url: ?string,
      *     test_mark: ?string,
@@ -57,6 +58,7 @@ class KsefPdfDocumentPresenter
             'environment' => $environment->value,
             'number' => null,
             'processed_at' => null,
+            'processed_at_timezone' => null,
             'status' => $latest?->status->label(),
             'verification_url' => null,
             'test_mark' => null,
@@ -92,6 +94,7 @@ class KsefPdfDocumentPresenter
      *     environment: string,
      *     number: string,
      *     processed_at: string,
+     *     processed_at_timezone: string,
      *     status: string,
      *     verification_url: string,
      *     test_mark: ?string,
@@ -130,10 +133,13 @@ class KsefPdfDocumentPresenter
             );
         }
 
+        $processedAt = $submission->acquisition_date->setTimezone('Europe/Warsaw');
+
         return [
             'environment' => $environment->value,
             'number' => $number,
-            'processed_at' => $submission->acquisition_date->format('d.m.Y H:i:s'),
+            'processed_at' => $processedAt->format('d.m.Y H:i:s'),
+            'processed_at_timezone' => 'Europe/Warsaw, UTC'.$processedAt->format('P'),
             'status' => $submission->status->label(),
             'verification_url' => $verificationUrl,
             'test_mark' => match ($environment) {

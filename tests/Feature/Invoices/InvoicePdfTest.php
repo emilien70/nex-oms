@@ -5,6 +5,7 @@ namespace Tests\Feature\Invoices;
 use App\Models\Currency;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
@@ -19,15 +20,18 @@ use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\Services\InvoicePdfFontResolver;
 use Modules\Invoices\Services\InvoicePdfRenderer;
+use Modules\Invoices\Services\InvoicePdfService;
 use Modules\Invoices\Services\InvoicePdfStorage;
 use Modules\Invoices\Services\InvoicePdfViewModelFactory;
 use Modules\Invoices\Services\ProformaService;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\KsefOfflineStandardPdfGuard;
+use Modules\Ksef\Services\KsefPdfDocumentPresenter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\KsefUpoFixture;
@@ -42,6 +46,7 @@ class InvoicePdfTest extends TestCase
     {
         parent::setUp();
 
+        Http::preventStrayRequests();
         Storage::fake('local');
         Storage::fake('public');
     }
@@ -224,7 +229,7 @@ class InvoicePdfTest extends TestCase
         $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
 
-        $this->assertStringEndsWith('/invoice-v45-ksef-test.pdf', $newPath);
+        $this->assertStringEndsWith('/invoice-v46-ksef-test.pdf', $newPath);
         $this->assertSame($first, $second);
         Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($newPath);
@@ -239,7 +244,7 @@ class InvoicePdfTest extends TestCase
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
         $this->assertStringEndsWith('/proforma-v35.pdf', $filenames->storagePath($proforma));
-        $this->assertStringEndsWith('/correction-v45-ksef-test.pdf', $filenames->storagePath($correction));
+        $this->assertStringEndsWith('/correction-v46-ksef-test.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
 
@@ -303,14 +308,16 @@ class InvoicePdfTest extends TestCase
 
         $this->assertSame($number, $document['ksef']['number']);
         $this->assertSame(KsefEnvironment::Demo->value, $document['ksef']['environment']);
-        $this->assertSame('24.08.2026 09:51:15', $document['ksef']['processed_at']);
+        $this->assertSame('24.08.2026 11:51:15', $document['ksef']['processed_at']);
+        $this->assertSame('Europe/Warsaw, UTC+02:00', $document['ksef']['processed_at_timezone']);
         $this->assertSame('Zaakceptowana', $document['ksef']['status']);
         $this->assertSame($verificationUrl, $document['ksef']['verification_url']);
         $this->assertSame('KSeF DEMO — DOKUMENT TESTOWY', $document['ksef']['test_mark']);
         $this->assertStringContainsString('Numer KSeF:', $html);
         $this->assertStringContainsString($number, $html);
         $this->assertStringContainsString('Data przetworzenia w KSeF:', $html);
-        $this->assertStringContainsString('24.08.2026 09:51:15', $html);
+        $this->assertStringContainsString('24.08.2026 11:51:15', $html);
+        $this->assertStringContainsString('(Europe/Warsaw, UTC+02:00)', $html);
         $this->assertStringContainsString('Status KSeF:', $html);
         $this->assertStringContainsString('Zaakceptowana', $html);
         $this->assertStringContainsString('KSeF DEMO — DOKUMENT TESTOWY', $html);
@@ -323,6 +330,181 @@ class InvoicePdfTest extends TestCase
 
         $this->assertStringStartsWith('%PDF-', $pdf);
         $this->assertStringContainsString($verificationUrl, $pdf);
+    }
+
+    #[DataProvider('ksefProcessingInstants')]
+    public function test_ksef_processing_time_uses_date_specific_warsaw_offset_without_mutating_utc(
+        string $input,
+        string $expectedTime,
+        string $expectedOffset,
+    ): void {
+        $invoice = $this->issueInvoice();
+        $this->configureKsefEnvironment(KsefEnvironment::Production);
+        $instant = CarbonImmutable::parse($input);
+        $submission = $this->createKsefSubmission(
+            $invoice,
+            KsefEnvironment::Production,
+            KsefInvoiceSubmissionStatus::Accepted,
+            '<Faktura>SYNTHETIC TIMESTAMP</Faktura>',
+            ['acquisition_date' => $instant],
+        );
+        if ($instant->micro !== 0) {
+            $submission->setDateFormat('Y-m-d H:i:s.u');
+            $submission->update(['acquisition_date' => $instant]);
+        }
+        $rawBefore = (array) DB::table('ksef_invoice_submissions')->find($submission->id);
+        $invoiceBefore = $invoice->getRawOriginal();
+        $retrieved = [];
+
+        // Capture the actual hydrated instances used by the presenter, not a separate model.
+        KsefInvoiceSubmission::retrieved(function (KsefInvoiceSubmission $model) use ($submission, &$retrieved): void {
+            if ($model->id === $submission->id) {
+                $model->setDateFormat($submission->getDateFormat());
+                $retrieved[] = [$model, $model->getRawOriginal('acquisition_date'), $model->getDirty()];
+            }
+        });
+
+        $presenter = app(KsefPdfDocumentPresenter::class);
+        $first = $presenter->present($invoice);
+        $second = $presenter->present($invoice);
+
+        $this->assertSame($expectedTime, $first['processed_at']);
+        $this->assertSame('Europe/Warsaw, UTC'.$expectedOffset, $first['processed_at_timezone']);
+        $this->assertSame($first, $second);
+        $this->assertCount(2, $retrieved);
+        foreach ($retrieved as [$model, $rawOriginal, $dirtyBefore]) {
+            $this->assertSame($rawOriginal, $model->getRawOriginal('acquisition_date'));
+            $this->assertSame($rawBefore['acquisition_date'], $rawOriginal);
+            $this->assertSame($instant->getTimestamp(), $model->acquisition_date->getTimestamp());
+            $this->assertSame($instant->format('U.u'), $model->acquisition_date->format('U.u'));
+            $this->assertSame('UTC', $model->acquisition_date->getTimezone()->getName());
+            $this->assertSame($dirtyBefore, $model->getDirty());
+        }
+        $this->assertSame($rawBefore, (array) DB::table('ksef_invoice_submissions')->find($submission->id));
+        $this->assertSame($invoiceBefore, $invoice->fresh()->getRawOriginal());
+        $this->assertSame(
+            'https://qr.ksef.mf.gov.pl/invoice/'.$submission->seller_nip
+                .'/'.$invoice->issue_date->format('d-m-Y').'/'.$this->base64UrlHash('<Faktura>SYNTHETIC TIMESTAMP</Faktura>'),
+            $first['verification_url'],
+        );
+        Http::assertNothingSent();
+    }
+
+    public static function ksefProcessingInstants(): array
+    {
+        return [
+            'summer' => ['2026-09-11T07:27:30Z', '11.09.2026 09:27:30', '+02:00'],
+            'winter' => ['2026-01-15T07:27:30Z', '15.01.2026 08:27:30', '+01:00'],
+            'next local day' => ['2026-09-11T22:30:00Z', '12.09.2026 00:30:00', '+02:00'],
+            'spring before' => ['2026-03-29T00:59:59Z', '29.03.2026 01:59:59', '+01:00'],
+            'spring after' => ['2026-03-29T01:00:00Z', '29.03.2026 03:00:00', '+02:00'],
+            'fall first hour' => ['2026-10-25T00:30:00Z', '25.10.2026 02:30:00', '+02:00'],
+            'fall second hour' => ['2026-10-25T01:30:00Z', '25.10.2026 02:30:00', '+01:00'],
+            'explicit input offset' => ['2026-09-11T09:27:30+02:00', '11.09.2026 09:27:30', '+02:00'],
+            'microseconds' => ['2026-09-11T07:27:30.123456Z', '11.09.2026 09:27:30', '+02:00'],
+        ];
+    }
+
+    public function test_ksef_processing_time_does_not_depend_on_php_or_application_timezone(): void
+    {
+        $invoice = $this->issueInvoice();
+        $this->configureKsefEnvironment(KsefEnvironment::Test);
+        $this->createKsefSubmission(
+            $invoice,
+            KsefEnvironment::Test,
+            KsefInvoiceSubmissionStatus::Accepted,
+            '<Faktura>SYNTHETIC TIMEZONE</Faktura>',
+            ['acquisition_date' => CarbonImmutable::parse('2026-01-15T07:27:30Z')],
+        );
+        $originalPhpTimezone = date_default_timezone_get();
+        $originalAppTimezone = config('app.timezone');
+        $before = app(KsefPdfDocumentPresenter::class)->present($invoice);
+
+        try {
+            date_default_timezone_set('America/Los_Angeles');
+            config()->set('app.timezone', 'Asia/Tokyo');
+            $after = app(KsefPdfDocumentPresenter::class)->present($invoice);
+
+            $this->assertSame('15.01.2026 08:27:30', $after['processed_at']);
+            $this->assertSame('Europe/Warsaw, UTC+01:00', $after['processed_at_timezone']);
+            $this->assertSame($before, $after);
+        } finally {
+            date_default_timezone_set($originalPhpTimezone);
+            config()->set('app.timezone', $originalAppTimezone);
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_invoice_and_correction_v46_cache_renders_warsaw_timestamp_and_preserves_attachments(): void
+    {
+        $invoice = $this->issueInvoice();
+        $correction = $this->createCorrection($invoice);
+        $this->configureKsefEnvironment(KsefEnvironment::Production);
+        $filenames = app(InvoicePdfFilenameGenerator::class);
+
+        foreach ([$invoice, $correction] as $document) {
+            $kind = $document->isCorrection() ? 'correction' : 'invoice';
+            $this->createKsefSubmission(
+                $document,
+                KsefEnvironment::Production,
+                KsefInvoiceSubmissionStatus::Accepted,
+                '<Faktura>SYNTHETIC CACHE '.$kind.'</Faktura>',
+                ['acquisition_date' => CarbonImmutable::parse('2026-09-11T07:27:30Z')],
+            );
+            $oldPath = 'invoices/'.$document->id.'/'.$kind.'-v45-ksef-production.pdf';
+            $attachmentPath = 'invoices/'.$document->id.'/attachment.pdf';
+            Storage::disk('local')->put($oldPath, '%PDF-OLD-UTC-CACHE');
+            Storage::disk('local')->put($attachmentPath, 'SYNTHETIC ATTACHMENT');
+            $renderer = \Mockery::mock(InvoicePdfRenderer::class, [
+                app(InvoicePdfViewModelFactory::class),
+                app(InvoicePdfFontResolver::class),
+                app(KsefOfflineStandardPdfGuard::class),
+            ])->makePartial();
+            $renderer->shouldReceive('render')->once()->with($document)->passthru();
+            $service = new InvoicePdfService($renderer, app(InvoicePdfStorage::class), app(KsefOfflineStandardPdfGuard::class));
+            $downloadName = $filenames->downloadName($document);
+
+            $contents = $service->contents($document);
+            $cached = $service->contents($document);
+            $html = $renderer->html($document);
+            $newPath = $filenames->storagePath($document);
+
+            $this->assertSame('invoices/'.$document->id.'/'.$kind.'-v46-ksef-production.pdf', $newPath);
+            $this->assertStringStartsWith('%PDF-', $contents);
+            $this->assertNotSame('%PDF-OLD-UTC-CACHE', $contents);
+            $this->assertSame($contents, $cached);
+            $this->assertSame($contents, Storage::disk('local')->get($newPath));
+            Storage::disk('local')->assertMissing($oldPath);
+            $this->assertSame('SYNTHETIC ATTACHMENT', Storage::disk('local')->get($attachmentPath));
+            $this->assertSame($downloadName, $filenames->downloadName($document));
+            $this->assertStringContainsString('11.09.2026 09:27:30<br><span style="font-size: 7pt;">(Europe/Warsaw, UTC+02:00)</span>', $html);
+            Storage::disk('local')->put('timestamp-review/'.$kind.'.pdf', $contents);
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_online_pdf_presenter_rejects_accepted_offline_submission(): void
+    {
+        $invoice = $this->issueInvoice();
+        $this->configureKsefEnvironment(KsefEnvironment::Test);
+        $this->createKsefSubmission(
+            $invoice,
+            KsefEnvironment::Test,
+            KsefInvoiceSubmissionStatus::Accepted,
+            '<Faktura>SYNTHETIC OFFLINE</Faktura>',
+            ['invoicing_mode' => KsefInvoicingMode::Offline],
+        );
+
+        try {
+            app(KsefPdfDocumentPresenter::class)->present($invoice);
+            $this->fail('Online presenter must reject an Offline submission.');
+        } catch (InvoiceDomainException $exception) {
+            $this->assertSame('invoice_pdf_ksef_unexpected_offline_mode', $exception->errorCode());
+        }
+
+        Http::assertNothingSent();
     }
 
     public function test_non_accepted_ksef_invoice_is_a_preview_without_final_metadata_or_qr(): void
@@ -478,6 +660,9 @@ class InvoicePdfTest extends TestCase
             KsefEnvironment::Production => 'qr.ksef.mf.gov.pl',
         };
         $this->assertSame($environment->value, $document['ksef']['environment']);
+        $this->assertSame('24.08.2026 11:51:15', $document['ksef']['processed_at']);
+        $this->assertSame('Europe/Warsaw, UTC+02:00', $document['ksef']['processed_at_timezone']);
+        $this->assertStringContainsString('(Europe/Warsaw, UTC+02:00)', $html);
         $this->assertSame($host, parse_url($document['ksef']['verification_url'], PHP_URL_HOST));
         $this->assertStringContainsString($this->base64UrlHash('<Faktura>'.$environment->value.'</Faktura>'), $document['ksef']['verification_url']);
         $this->assertSame($environment !== KsefEnvironment::Production, $document['ksef']['test_mark'] !== null);
@@ -554,13 +739,17 @@ class InvoicePdfTest extends TestCase
             KsefEnvironment::Demo,
             KsefInvoiceSubmissionStatus::Accepted,
             $rootPayload,
-            ['seller_nip' => '1111111111'],
+            [
+                'seller_nip' => '1111111111',
+                'acquisition_date' => CarbonImmutable::parse('2026-01-15T07:27:30Z'),
+            ],
         );
         $correctionSubmission = $this->createKsefSubmission(
             $correction,
             KsefEnvironment::Demo,
             KsefInvoiceSubmissionStatus::Accepted,
             $correctionPayload,
+            ['acquisition_date' => CarbonImmutable::parse('2026-09-11T22:30:00Z')],
         );
 
         $document = app(InvoicePdfViewModelFactory::class)->make(
@@ -571,6 +760,11 @@ class InvoicePdfTest extends TestCase
             .'/'.$correction->issue_date->format('d-m-Y').'/'.$this->base64UrlHash($correctionPayload);
 
         $this->assertSame($correctionSubmission->ksef_number, $document['ksef']['number']);
+        $this->assertSame('12.09.2026 00:30:00', $document['ksef']['processed_at']);
+        $this->assertSame('Europe/Warsaw, UTC+02:00', $document['ksef']['processed_at_timezone']);
+        $this->assertStringContainsString('12.09.2026 00:30:00', $html);
+        $this->assertStringContainsString('(Europe/Warsaw, UTC+02:00)', $html);
+        $this->assertStringNotContainsString('15.01.2026 08:27:30', $html);
         $this->assertNotSame($rootSubmission->ksef_number, $document['ksef']['number']);
         $this->assertSame($expected, $document['ksef']['verification_url']);
         $this->assertStringNotContainsString($root->issue_date->format('d-m-Y'), $document['ksef']['verification_url']);
@@ -587,7 +781,7 @@ class InvoicePdfTest extends TestCase
         Http::preventStrayRequests();
         $this->configureKsefEnvironment(KsefEnvironment::Test);
 
-        foreach (['seller_nip', 'invoice_hash', 'ksef_number', 'verification_url'] as $invalidField) {
+        foreach (['seller_nip', 'invoice_hash', 'ksef_number', 'acquisition_date', 'verification_url'] as $invalidField) {
             $invoice = $this->issueInvoice();
             $submission = $this->createKsefSubmission(
                 $invoice,
@@ -602,6 +796,8 @@ class InvoicePdfTest extends TestCase
                 $submission->update(['invoice_hash' => 'INVALID-HASH']);
             } elseif ($invalidField === 'ksef_number') {
                 $submission->update(['ksef_number' => 'INVALID-KSEF-NUMBER']);
+            } elseif ($invalidField === 'acquisition_date') {
+                $submission->update(['acquisition_date' => null]);
             } else {
                 config()->set('ksef.qr_base_urls.test', 'http://invalid.example');
             }
@@ -646,6 +842,8 @@ class InvoicePdfTest extends TestCase
 
             $this->assertNull($document['ksef']['verification_url']);
             $this->assertNull($document['ksef']['number']);
+            $this->assertNull($document['ksef']['processed_at']);
+            $this->assertNull($document['ksef']['processed_at_timezone']);
             $this->assertStringContainsString($warningFragment, $document['ksef']['preview_warning']);
             $this->assertStringContainsString($warningFragment, $html);
             $this->assertStringNotContainsString('OFFLINE', $html);
@@ -665,6 +863,8 @@ class InvoicePdfTest extends TestCase
         $invoiceHtml = app(InvoicePdfRenderer::class)->html($invoice->fresh());
 
         $this->assertStringContainsString('oczekuje na przyjęcie', $invoiceDocument['ksef']['preview_warning']);
+        $this->assertNull($invoiceDocument['ksef']['processed_at']);
+        $this->assertNull($invoiceDocument['ksef']['processed_at_timezone']);
         $this->assertStringContainsString('Nie przekazywać nabywcy', $invoiceHtml);
 
         $order = $this->createDocumentOrder();
