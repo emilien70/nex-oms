@@ -66,6 +66,7 @@ final class KsefOfflineTechnicalCorrectionSubmissionService
                     ->max('attempt_number')) + 1;
 
                 return KsefInvoiceSubmission::query()->create([
+                    ...KsefSubmissionExecution::initialAttributes(),
                     'invoice_id' => $managedArtifact->invoice_id,
                     'offline_issuance_id' => $managedArtifact->offline_issuance_id,
                     'offline_technical_correction_id' => $managedArtifact->getKey(),

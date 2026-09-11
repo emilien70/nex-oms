@@ -68,6 +68,7 @@ final class KsefOfflineInvoiceSubmissionService
                     ->max('attempt_number')) + 1;
 
                 return KsefInvoiceSubmission::query()->create([
+                    ...KsefSubmissionExecution::initialAttributes(),
                     'invoice_id' => $managedIssuance->invoice_id,
                     'offline_issuance_id' => $managedIssuance->getKey(),
                     'environment' => $managedIssuance->environment,

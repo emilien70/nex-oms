@@ -47,6 +47,7 @@ class KsefInvoiceSubmissionService
         private readonly KsefSubmissionFollowUpPolicy $followUp,
         private readonly KsefOfflineSubmissionIntegrityService $offlineIntegrity,
         private readonly KsefOfflineTechnicalCorrectionIntegrityService $technicalCorrectionIntegrity,
+        private readonly KsefSubmissionExecution $execution,
     ) {}
 
     public function prepare(
@@ -226,6 +227,7 @@ class KsefInvoiceSubmissionService
             $sellerNip = $this->frozenSellerNip($managed);
 
             return KsefInvoiceSubmission::query()->create([
+                ...KsefSubmissionExecution::initialAttributes(),
                 'invoice_id' => $managed->getKey(),
                 'environment' => $environment,
                 'context_nip' => $contextNip,
@@ -265,6 +267,10 @@ class KsefInvoiceSubmissionService
         $this->environments->assertAllowed($submission->environment);
         $this->assertStatus($submission, [KsefInvoiceSubmissionStatus::Preparing]);
 
+        // Claim outside the failure handlers: a competing caller must not fail the owner.
+        $submission = $this->execution->claim($submission);
+        $owner = $submission->execution_owner;
+
         try {
             $contextNip = $this->submissionContextNip($submission);
             $this->submissionSellerNip($submission);
@@ -295,14 +301,15 @@ class KsefInvoiceSubmissionService
                 KsefPublicKeyUsage::SymmetricKeyEncryption,
             );
             $encryption = $this->encryption->encrypt($plaintext, $certificate);
-            $submission = $this->storeEncryptionMetadata($submission, $encryption);
+            $submission = $this->storeEncryptionMetadata($submission, $encryption, $owner);
             $open = $this->onlineSession->openSession(
                 $submission->environment,
                 $accessToken,
                 $this->requests->openSession($encryption),
             );
-            $submission = $this->transition(
+            $submission = $this->execution->phase(
                 $submission,
+                $owner,
                 KsefInvoiceSubmissionStatus::SessionOpened,
                 [
                     'session_reference_number' => $open->referenceNumber,
@@ -312,7 +319,7 @@ class KsefInvoiceSubmissionService
                 ],
             );
         } catch (KsefApiException $exception) {
-            $this->markTechnicalFailure($submission, $exception);
+            $this->markTechnicalFailure($submission, $exception, $owner);
 
             throw $exception;
         } catch (Throwable) {
@@ -320,30 +327,49 @@ class KsefInvoiceSubmissionService
                 'Nie udało się rozpocząć sesji fakturowej KSeF.',
                 'ksef_submission_pre_send_failed',
             );
-            $this->markTechnicalFailure($submission, $exception);
+            $this->markTechnicalFailure($submission, $exception, $owner);
 
             throw $exception;
         }
 
         try {
             if ($transportMode->isTechnicalCorrection()) {
-                $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
                 $this->assertCurrentTechnicalCorrectionContext($submission);
                 $artifact = $this->technicalCorrectionIntegrity->linkedArtifact($submission, $plaintext);
                 $issuance = $artifact->offlineIssuance()->firstOrFail();
                 $invoice = $artifact->invoice()->firstOrFail();
                 $this->technicalCorrectionIntegrity->assertNoAcceptedSibling($invoice, $issuance);
             } elseif ($transportMode->isOffline()) {
-                $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
                 $this->offlineIntegrity->linkedIssuance($submission, $plaintext);
             } else {
                 $this->assertOnlineIssueDateIsToday($this->issueDates->read($plaintext));
             }
+            $this->assertTransportEnabled();
+            $this->assertPayloadIntegrity($submission);
+            $request = match ($transportMode) {
+                KsefInvoiceTransportMode::Online => $this->requests->sendInvoice($submission, $encryption),
+                KsefInvoiceTransportMode::OrdinaryOffline => $this->requests->sendOfflineInvoice($submission, $encryption),
+                KsefInvoiceTransportMode::OfflineTechnicalCorrection => $this->requests->sendTechnicalCorrection(
+                    $submission, $encryption, $artifact->hash_of_corrected_invoice,
+                ),
+            };
         } catch (KsefApiException $exception) {
-            $submission = $this->closeSessionBestEffort($submission, $accessToken);
-            $this->markTechnicalFailure($submission, $exception);
+            $submission = $this->closeSessionBestEffort($submission, $accessToken, $owner);
+            $this->markTechnicalFailure($submission, $exception, $owner);
 
             throw $exception;
+        }
+
+        // Committed conditional write before HTTP; never retry this POST, even after a crash.
+        try {
+            $submission = $this->execution->consumePost($submission, $owner, $request);
+        } catch (KsefApiException $exception) {
+            throw $exception;
+        } catch (Throwable) {
+            throw new KsefApiException(
+                'Nie można potwierdzić utrwalenia granicy wysyłki. Sprawdź stan istniejącej próby.',
+                'ksef_submission_post_boundary_persistence_failed',
+            );
         }
 
         try {
@@ -351,22 +377,14 @@ class KsefInvoiceSubmissionService
                 $submission->environment,
                 $accessToken,
                 $submission->session_reference_number,
-                match ($transportMode) {
-                    KsefInvoiceTransportMode::Online => $this->requests->sendInvoice($submission, $encryption),
-                    KsefInvoiceTransportMode::OrdinaryOffline => $this->requests->sendOfflineInvoice($submission, $encryption),
-                    KsefInvoiceTransportMode::OfflineTechnicalCorrection => $this->requests->sendTechnicalCorrection(
-                        $submission,
-                        $encryption,
-                        $artifact->hash_of_corrected_invoice,
-                    ),
-                },
+                $request,
             );
         } catch (KsefApiException $exception) {
             $exception = $this->technicalCorrectionSendException($exception, $transportMode);
             if ($this->isUncertainSendFailure($exception)) {
-                $this->markUncertain($submission, $exception);
+                $this->markUncertain($submission, $exception, $owner);
             } else {
-                $this->markTechnicalFailure($submission, $exception);
+                $this->markTechnicalFailure($submission, $exception, $owner);
             }
 
             throw $exception;
@@ -375,27 +393,39 @@ class KsefInvoiceSubmissionService
                 'Nie można potwierdzić wyniku wysłania Faktury do KSeF.',
                 'ksef_invoice_delivery_uncertain',
             );
-            $this->markUncertain($submission, $exception);
+            $this->markUncertain($submission, $exception, $owner);
 
             throw $exception;
         }
 
-        $submission = $this->transition(
-            $submission,
-            KsefInvoiceSubmissionStatus::Submitted,
-            [
-                'invoice_reference_number' => $invoiceReference,
-                'next_follow_up_at' => $this->followUp->nextAttemptAt(0),
-                'follow_up_attempts' => 0,
-                'last_follow_up_at' => null,
-                'last_follow_up_error_code' => null,
-                'last_follow_up_error_message' => null,
-                'safe_error_code' => null,
-                'safe_error_message' => null,
-            ],
-        );
+        try {
+            $submission = $this->execution->phase(
+                $submission,
+                $owner,
+                KsefInvoiceSubmissionStatus::Submitted,
+                [
+                    'invoice_reference_number' => $invoiceReference,
+                    'next_follow_up_at' => $this->followUp->nextAttemptAt(0),
+                    'follow_up_attempts' => 0,
+                    'last_follow_up_at' => null,
+                    'last_follow_up_error_code' => null,
+                    'last_follow_up_error_message' => null,
+                    'safe_error_code' => null,
+                    'safe_error_message' => null,
+                ],
+            );
+        } catch (Throwable) {
+            // Session/hash and the POST fence survive even if saving the response fails.
+            $exception = new KsefApiException(
+                'Nie można utrwalić wyniku transmisji. Ustal wynik istniejącej próby KSeF.',
+                'ksef_invoice_delivery_uncertain',
+            );
+            $this->markUncertain($submission, $exception, $owner);
 
-        return $this->closeSessionBestEffort($submission, $accessToken);
+            throw $exception;
+        }
+
+        return $this->closeSessionBestEffort($submission, $accessToken, $owner);
     }
 
     public function refreshStatus(KsefInvoiceSubmission $submission): KsefInvoiceSubmission
@@ -702,8 +732,9 @@ class KsefInvoiceSubmissionService
     private function storeEncryptionMetadata(
         KsefInvoiceSubmission $submission,
         KsefOnlineSessionEncryptionData $encryption,
+        string $owner,
     ): KsefInvoiceSubmission {
-        return $this->updateWithoutTransition($submission, [
+        return $this->execution->encryptionMetadata($submission, $owner, [
             'public_key_id' => $encryption->publicKeyId,
             'encrypted_invoice_hash' => $encryption->encryptedInvoiceHash,
             'encrypted_invoice_size' => $encryption->encryptedInvoiceSize,
@@ -713,9 +744,15 @@ class KsefInvoiceSubmissionService
     private function markTechnicalFailure(
         KsefInvoiceSubmission $submission,
         KsefApiException $exception,
+        string $owner,
     ): KsefInvoiceSubmission {
-        return $this->transition(
+        if (! $this->execution->owns($submission, $owner)) {
+            return $submission->fresh();
+        }
+
+        return $this->execution->phase(
             $submission,
+            $owner,
             KsefInvoiceSubmissionStatus::TechnicalFailed,
             [
                 'next_follow_up_at' => null,
@@ -728,20 +765,28 @@ class KsefInvoiceSubmissionService
     private function markUncertain(
         KsefInvoiceSubmission $submission,
         KsefApiException $exception,
-    ): KsefInvoiceSubmission {
-        return $this->transition(
-            $submission,
-            KsefInvoiceSubmissionStatus::Uncertain,
-            [
-                'next_follow_up_at' => $this->followUp->nextAttemptAt(0),
-                'follow_up_attempts' => 0,
-                'last_follow_up_at' => null,
-                'last_follow_up_error_code' => null,
-                'last_follow_up_error_message' => null,
-                'safe_error_code' => $this->safeErrorCode($exception),
-                'safe_error_message' => $this->safeMessage($exception),
-            ],
-        );
+        string $owner,
+    ): void {
+        try {
+            if ($this->execution->owns($submission, $owner)) {
+                $this->execution->phase(
+                    $submission,
+                    $owner,
+                    KsefInvoiceSubmissionStatus::Uncertain,
+                    [
+                        'next_follow_up_at' => $this->followUp->nextAttemptAt(0),
+                        'follow_up_attempts' => 0,
+                        'last_follow_up_at' => null,
+                        'last_follow_up_error_code' => null,
+                        'last_follow_up_error_message' => null,
+                        'safe_error_code' => $this->safeErrorCode($exception),
+                        'safe_error_message' => $this->safeMessage($exception),
+                    ],
+                );
+            }
+        } catch (Throwable) {
+            // The committed POST fence survives a failed diagnostic write; keep the safe send error.
+        }
     }
 
     private function markStatusUncertain(
@@ -806,20 +851,6 @@ class KsefInvoiceSubmissionService
         }, 3);
     }
 
-    private function updateWithoutTransition(
-        KsefInvoiceSubmission $submission,
-        array $attributes,
-    ): KsefInvoiceSubmission {
-        return DB::transaction(function () use ($submission, $attributes): KsefInvoiceSubmission {
-            $managed = KsefInvoiceSubmission::query()
-                ->lockForUpdate()
-                ->findOrFail($submission->getKey());
-            $managed->forceFill($attributes)->save();
-
-            return $managed->refresh();
-        }, 3);
-    }
-
     private function recordLookupFailure(
         KsefInvoiceSubmission $submission,
         KsefApiException $exception,
@@ -872,7 +903,7 @@ class KsefInvoiceSubmissionService
 
     private function isUncertainSendFailure(KsefApiException $exception): bool
     {
-        return in_array($exception->safeCode, [
+        return $exception->httpStatus === null || in_array($exception->safeCode, [
             'network_error',
             'malformed_response',
             'ksef_invoice_send_response_incomplete',
@@ -991,7 +1022,11 @@ class KsefInvoiceSubmissionService
     private function closeSessionBestEffort(
         KsefInvoiceSubmission $submission,
         string $accessToken,
+        string $owner,
     ): KsefInvoiceSubmission {
+        if (! $this->execution->owns($submission, $owner)) {
+            return $submission->fresh();
+        }
         try {
             $this->onlineSession->closeSession(
                 $submission->environment,
@@ -999,22 +1034,24 @@ class KsefInvoiceSubmissionService
                 $submission->session_reference_number,
             );
 
-            return $this->updateWithoutTransition($submission, [
+            $attributes = [
                 'session_closed_at' => CarbonImmutable::now('UTC'),
                 'session_close_error_code' => null,
                 'session_close_error_message' => null,
-            ]);
+            ];
         } catch (KsefApiException $exception) {
-            return $this->updateWithoutTransition($submission, [
+            $attributes = [
                 'session_close_error_code' => $this->safeErrorCode($exception),
                 'session_close_error_message' => $this->safeMessage($exception),
-            ]);
+            ];
         } catch (Throwable) {
-            return $this->updateWithoutTransition($submission, [
+            $attributes = [
                 'session_close_error_code' => 'ksef_session_close_failed',
                 'session_close_error_message' => 'Nie udało się zamknąć sesji KSeF.',
-            ]);
+            ];
         }
+
+        return $this->execution->sessionMetadata($submission, $owner, $attributes);
     }
 
     /** @return array{0: ?KsefInvoicingMode, 1: array{code: string, message: string}|null} */

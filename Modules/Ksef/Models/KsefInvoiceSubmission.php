@@ -14,6 +14,12 @@ use Modules\Ksef\Enums\KsefInvoicingMode;
 class KsefInvoiceSubmission extends Model
 {
     protected $fillable = [
+        'execution_protocol_version',
+        'execution_owner',
+        'execution_expires_at',
+        'invoice_post_started_at',
+        'recovery_code',
+        'recovered_at',
         'invoice_id',
         'offline_issuance_id',
         'offline_technical_correction_id',
@@ -54,10 +60,15 @@ class KsefInvoiceSubmission extends Model
     ];
 
     protected $hidden = [
+        'execution_owner',
         'payload_xml',
     ];
 
     protected $casts = [
+        'execution_protocol_version' => 'integer',
+        'execution_expires_at' => KsefUtcInstantCast::class,
+        'invoice_post_started_at' => KsefUtcInstantCast::class,
+        'recovered_at' => KsefUtcInstantCast::class,
         'environment' => KsefEnvironment::class,
         'attempt_number' => 'integer',
         'status' => KsefInvoiceSubmissionStatus::class,

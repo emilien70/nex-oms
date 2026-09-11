@@ -62,6 +62,7 @@ use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionBusinessFingerprintServi
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionIntegrityService;
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionService;
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionSubmissionService;
+use Modules\Ksef\Services\KsefSubmissionRecoveryService;
 use Modules\Ksef\Services\PolishBusinessDayCalendar;
 use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -626,6 +627,8 @@ class KsefOfflineCorrectionTest extends TestCase
             ->submitAttempt($correction, $artifact);
 
         $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
+        $this->assertSame(1, $submission->execution_protocol_version);
+        $this->assertNotNull($submission->invoice_post_started_at);
         $this->assertSame('FAKE_CLOSE_FAILURE', $submission->session_close_error_code);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->closeCalls);
@@ -642,6 +645,22 @@ class KsefOfflineCorrectionTest extends TestCase
         $this->assertSame(1, $fake->statusCalls);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(2, $correction->ksefSubmissions()->count());
+    }
+
+    public function test_interrupted_technical_kor_recovery_does_not_allow_second_attempt(): void
+    {
+        [$correction, , , $artifact] = $this->preparedTechnicalKor();
+        $service = app(KsefOfflineTechnicalCorrectionSubmissionService::class);
+        $submission = $service->prepare($correction, $artifact);
+        $this->assertSame(1, $submission->execution_protocol_version);
+        $this->assertSame(2, $artifact->business_fingerprint_version);
+        $this->travel(301)->seconds();
+        $result = app(KsefSubmissionRecoveryService::class)->apply($submission->id);
+        $this->assertSame('BEFORE_POST', $result['decision']);
+        $this->assertTrue($result['applied']);
+        $this->assertError('ksef_technical_correction_submission_attempt_blocked', fn () => $service->prepare($correction, $artifact));
+        $this->assertSame(1, $artifact->submission()->count());
+        Http::assertNothingSent();
     }
 
     public function test_kor_technical_upo_unavailable_preserves_accepted_without_resend(): void
@@ -1273,6 +1292,8 @@ class KsefOfflineCorrectionTest extends TestCase
         $base = config('ksef.base_urls.'.$environment->value);
         Http::fake([$base.'/*' => fn (Request $request) => $fake($request)]);
         $submission = app(KsefOfflineInvoiceSubmissionService::class)->submitAttempt($correction, $issuance);
+        $this->assertSame(1, $submission->execution_protocol_version);
+        $this->assertNotNull($submission->invoice_post_started_at);
         $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
         $this->assertSame(true, $fake->sendPayload['offlineMode']);
         $this->assertArrayNotHasKey('hashOfCorrectedInvoice', $fake->sendPayload);

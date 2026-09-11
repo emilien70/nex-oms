@@ -56,6 +56,7 @@ use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionIntegrityService;
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionService;
 use Modules\Ksef\Services\KsefOfflineTechnicalCorrectionSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
+use Modules\Ksef\Services\KsefSubmissionRecoveryService;
 use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
@@ -285,14 +286,16 @@ class KsefOfflineSubmissionTest extends TestCase
         });
 
         $this->expectKsefError(
-            'ksef_offline_submission_integrity_invalid',
+            'ksef_submission_execution_lost',
             fn () => app(KsefInvoiceSubmissionService::class)->submitOffline($submission),
         );
 
         $this->assertSame(1, $fake->openCalls);
         $this->assertSame(0, $fake->sendCalls);
-        $this->assertSame(1, $fake->closeCalls);
-        $this->assertSame(KsefInvoiceSubmissionStatus::TechnicalFailed, $submission->refresh()->status);
+        $this->assertSame(0, $fake->closeCalls);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Preparing, $submission->refresh()->status);
+        $this->assertSame('REVIEW_REQUIRED', app(KsefSubmissionRecoveryService::class)->inspect($submission->id)['decision']);
+        $this->assertNull($submission->invoice_post_started_at);
     }
 
     public function test_double_click_sends_once_and_technical_failure_allows_exact_manual_retry(): void
@@ -317,6 +320,40 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->assertSame($issuance->invoice_hash, $retry->invoice_hash);
         $this->assertSame($issuance->invoice_size, $retry->invoice_size);
         $this->assertSame($issuance->getKey(), $retry->offline_issuance_id);
+    }
+
+    public function test_interrupted_ordinary_offline_prepare_allows_only_existing_explicit_retry_contract(): void
+    {
+        [$invoice, $issuance] = $this->issueOffline();
+        $service = app(KsefOfflineInvoiceSubmissionService::class);
+        $submission = $service->prepare($invoice, $issuance);
+        $this->assertSame(1, $submission->execution_protocol_version);
+        $this->travel(301)->seconds();
+        $result = app(KsefSubmissionRecoveryService::class)->apply($submission->id);
+        $this->assertTrue($result['applied']);
+        $this->assertSame('BEFORE_POST', $result['decision']);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 1);
+        $retry = $service->prepare($invoice, $issuance);
+        $this->assertSame(2, $retry->attempt_number);
+        $this->assertSame(1, $retry->execution_protocol_version);
+        $this->assertSame($submission->payload_xml, $retry->payload_xml);
+        Http::assertNothingSent();
+    }
+
+    public function test_interrupted_technical_vat_never_releases_second_artifact_attempt(): void
+    {
+        [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+        $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+        $service = app(KsefOfflineTechnicalCorrectionSubmissionService::class);
+        $submission = $service->prepare($invoice, $artifact);
+        $this->assertSame(1, $submission->execution_protocol_version);
+        $this->travel(301)->seconds();
+        $result = app(KsefSubmissionRecoveryService::class)->apply($submission->id);
+        $this->assertTrue($result['applied']);
+        $this->assertSame('BEFORE_POST', $result['decision']);
+        $this->expectKsefError('ksef_technical_correction_submission_attempt_blocked', fn () => $service->prepare($invoice, $artifact));
+        $this->expectKsefError('ksef_offline_submission_technical_remediation_exists', fn () => app(KsefOfflineInvoiceSubmissionService::class)->prepare($invoice, $issuance));
+        Http::assertNothingSent();
     }
 
     #[DataProvider('blindRetryBlockingStatuses')]
@@ -801,6 +838,8 @@ class KsefOfflineSubmissionTest extends TestCase
         }
         $this->assertSame(2, $submission->attempt_number);
         $this->assertSame($artifact->getKey(), $submission->offline_technical_correction_id);
+        $this->assertSame(1, $submission->execution_protocol_version);
+        $this->assertNotNull($submission->invoice_post_started_at);
         $this->assertSame($issuance->getKey(), $submission->offline_issuance_id);
         $this->assertSame(KsefInvoiceSubmissionStatus::Submitted, $submission->status);
         $this->assertTrue($fake->sendPayload['offlineMode']);

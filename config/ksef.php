@@ -8,6 +8,10 @@ return [
 
     'invoice_submission_enabled' => env('KSEF_INVOICE_SUBMISSION_ENABLED', false),
 
+    'submission_execution' => [
+        'lease_seconds' => 300,
+    ],
+
     'base_urls' => [
         'test' => env('KSEF_TEST_BASE_URL', 'https://api-test.ksef.mf.gov.pl/v2'),
         'demo' => env('KSEF_DEMO_BASE_URL', 'https://api-demo.ksef.mf.gov.pl/v2'),
