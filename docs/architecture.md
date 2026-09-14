@@ -1916,15 +1916,132 @@ PDF z LIVE pokazywał `11.09.2026 07:27:30` UTC bez oznaczenia strefy. Opublikow
 
 Bez zmian pozostały UTC storage, `KsefUtcInstantCast`, `acquisition_date`, `P_1`, XML, hashe, QR, numer KSeF, status i UPO. VAT i KOR używają cache `v46` z zachowaniem sufiksu środowiska; Pro forma `v35` bez zmian. Lokalny raport testów obejmował lato, zimę, zmianę dnia, oba przejścia DST, wejściowy offset, mikrosekundy i brak mutacji modelu. Obejrzano PDF-y syntetycznych VAT/KOR, bez odczytu operatorowej DB i bez regeneracji rzeczywistego PDF Invoice `128`. Nowy kod wybierze `v46` przy następnej normalnej generacji; historycznej ścieżki `v45` nie zastępuje się w dowodzie LIVE ścieżką rzekomo istniejącego `v46`.
 
-#### Zakres otwarty: 8D.6
+#### 8D.6.1-8D.6.2A.1: recovery przerwanych prób i granica transakcji
+
+`KSeF.8D.6.2A-DOC-CLOSURE-001: PASS`. Zamknięcie dokumentacyjne obejmuje audyt kolejek i automatyzacji 8D.6.1, recovery core 8D.6.2A, hardening granicy transakcji 8D.6.2A.1 oraz migrację 089 zweryfikowaną kolejno na kopii i w bazie operatora. Nie oznacza uruchomienia recovery, workerów, schedulera ani automatycznej transmisji.
+
+Dowody mają trzy rozłączne poziomy. `CODE VERIFIED` oznacza odczyt kodu i historii Git. `LOCAL TEST REPORT` oznacza zachowany wynik testów lokalnych z etapu implementacyjnego, a nie test uruchomiony w tym closure ani CI. `PRESERVED OPERATIONAL REPORT` oznacza odczyt bezpiecznych pól istniejącego raportu JSON; pliki bazy i kopie nie były w tym closure otwierane ani ponownie hashowane.
+
+| Etap | Wynik i granica dowodu |
+| --- | --- |
+| 8D.6.1 | `AUDIT COMPLETED WITH FINDINGS`. Punktowy audyt kolejek, schedulera i Automation nie uruchamiał workerów, jobów ani recovery. Wykrył lukę dla przerwanej próby w `Preparing`/`SessionOpened`, gdy brakowało trwałego rozróżnienia, czy invoice POST mógł już nastąpić. |
+| 8D.6.2A | `RECOVERY CORE IMPLEMENTED / CODE PUBLISHED`, commit `7a4844596dc0fe366e133e218d4ba632e64e88e8`. Dodano wersjonowany protokół wykonania, lease, jednokierunkowy fence invoice POST, politykę recovery i komendę inspekcji pojedynczego submissionu. |
+| 8D.6.2A.1 | `TRANSACTION BOUNDARY ENFORCED / CODE PUBLISHED`, commit `b43eb8ba28722492e1b3ed42c412302152f93f07`. Wspólny transport odrzuca wykonanie wewnątrz aktywnej transakcji bazy. |
+| Migration 089 dry-run copy | `PASS`. Migrację wykonano dokładnie raz na odizolowanej kopii; źródło pozostawało read-only. |
+| Migration 089 operator | `OPERATOR EXECUTED / RAN / BATCH 55`. Migrację wykonał operator poza closure dokumentacyjnym. |
+| Migration 089 post-verify | `PASS / SCHEMA AND DATA PRESERVATION VERIFIED`. Kontrola była read-only i potwierdziła schemat, zachowanie danych oraz brak backfillu historycznych prób. |
+
+Zachowane raporty dowodowe:
+
+| Zakres | Plik w `storage/app/private/backups/` | SHA-256 |
+| --- | --- | --- |
+| 8D.6.1 queue/automation audit | `ksef_8d6_1_queue_automation_audit_001_report_20260911_102504Z.json` | `5c8991a813f2e489e2b3a22fb10a5eb7e81bb4d934fd5bfe7e3b877041886006` |
+| Migration 089 dry-run copy | `ksef_8d6_2a_migration_089_dryrun_copy_001_report_20260914_103534.json` | `fe984f54e340ada89ea417e99b6a55236ad939bee718fa0baca0dd98d146aefe` |
+| Migration 089 post-verify | `ksef_8d6_2a_migration_089_post_verify_001_report_20260914_140108.json` | `ff326b6e6b906493660b96ff1bc0ec583864de841a46f0484cdcc807f600766a` |
+
+Raporty zawierają również metadane dowodowe kopii, bez ponownego dostępu do ich zawartości w tym closure: snapshot `database_before_ksef_8d6_2a_089_dryrun_20260914_103534.sqlite` sprzed dry-run miał SHA-256 `3412e03a1fd31ceedf7d2f1f15bdd306dbe08e210c1a75745edbd3f3a26d6926`; bezpośrednia kopia operatora `database_before_089_manual_20260914_123002_981.sqlite` sprzed migracji (`IMMEDIATE_PRE_MIGRATION_BACKUP`) miała SHA-256 `7b6c0a65826b75d3c310cdab17bf6f48829f3e547c4e1c60e5ffecac7c7619b7`; plik operatora `database/database.sqlite` w chwili post-verify miał SHA-256 `7152c558d1c3fb4f76bbf0eff45d5c1dd52848e4c67fb140fcd4332b2ab92c57`.
+
+Migracja `2026_08_13_089000_add_ksef_submission_execution_protocol.php` ma zweryfikowany blob Git `9003cde76e120672084d8aa223991877a63efa46` i dodaje sześć nullable pól bez defaultów i bez backfillu:
+
+| Pole | Kontrakt |
+| --- | --- |
+| `execution_protocol_version` | Nowe próby protokołu recovery otrzymują jawnie `1`. Historyczne `NULL` oznacza legacy/unknown, nigdy domyślne v1. |
+| `execution_owner` | Identyfikator właściciela bieżącego wykonania; jest ukryty w serializacji modelu. |
+| `execution_expires_at` | Lease wykonania, domyślnie 300 sekund i odnawiany podczas pracy. Nie jest heartbeat'em procesu ani dowodem, że proces żyje lub umarł. |
+| `invoice_post_started_at` | Trwały, jednokierunkowy fence ustawiany przed invoice POST. Oznacza „POST mógł nastąpić”, a nie „MF otrzymało dokument”. |
+| `recovery_code` | Bezpieczna lokalna klasyfikacja decyzji recovery. |
+| `recovered_at` | Lokalny znacznik czasu zastosowania recovery. |
+
+Nowe timestampy zachowują instants UTC przez istniejący cast. `execution_owner` i zamrożony payload nie są publiczną diagnostyką.
+
+##### Protokół wykonania i CAS
+
+Nowa próba dostaje `execution_protocol_version=1`. Wykonawca atomowo claimuje rekord, otrzymuje właściciela i lease, a kolejne kroki odnawiają lease. Zapisy używają compare-and-swap względem zaobserwowanego surowego stanu rekordu; warunkowy update musi zmienić dokładnie jeden wiersz. Gotowość requestu, ciphertext i wymagane metadane są sprawdzane przed zużyciem prawa do POST.
+
+Bezpośrednio przed HTTP `invoice_post_started_at` jest utrwalany jako fence. Dla tej próby nie powstaje drugie prawo do invoice POST. Nie jest to jednak rozproszona gwarancja exactly-once: brak numeru referencyjnego nie dowodzi, że nic nie wysłano, wygaśnięcie lease nie dowodzi śmierci procesu, a recovery nie odwraca skutków zewnętrznych. Przed fence bezpieczne recovery unieważnia poprzednie wykonanie tak, aby spóźniony worker nie mógł wykonać POST. Po fence próba pozostaje `Uncertain` i podlega istniejącemu reconciliation, bez blind resend i bez czyszczenia fence.
+
+Polityka recovery pojedynczego submissionu:
+
+| Stan zastany | Decyzja |
+| --- | --- |
+| Lease aktywny / próba niestara | Brak mutacji recovery. |
+| Protokół v1, stale, przed `invoice_post_started_at` | Zwolnienie właściciela, `TechnicalFailed` i bezpieczny powód przerwania przed POST. |
+| Protokół v1, `invoice_post_started_at` ustawione | `Uncertain`; zachowanie sesji, hasha i fence oraz przekazanie do istniejącego reconciliation. |
+| Legacy, unknown albo niespójny stan | `REVIEW_REQUIRED`; bez automatycznego odblokowania lub reinterpretacji. |
+| `Submitted` / `Processing` | Istniejący follow-up statusu, nie recovery first-send. |
+| `Accepted` | Brak zmiany historii; ewentualny istniejący follow-up UPO. |
+| `Rejected` / `TechnicalFailed` | Brak resetu i brak reinterpretacji wyniku. |
+
+Komenda operatora działa wyłącznie dla jednego submissionu:
+
+```text
+php artisan ksef:recover-submission --submission=<id>
+php artisan ksef:recover-submission --submission=<id> --apply
+```
+
+Pierwsza forma tylko ponownie ocenia rekord i niczego nie zapisuje. `--apply` jeszcze raz ocenia stan i stosuje wyłącznie dozwoloną lokalną decyzję; nie tworzy nowej próby, nie wykonuje invoice POST, nie uruchamia HTTP i nie dispatchuje transportu. Dla `Uncertain` zapisuje plan istniejącego reconciliation, który dopiero później może zostać obsłużony przez normalny worker/scheduler. Nie ma `--all`, masowego recovery ani przełącznika omijającego integralność. Sam exit code komendy nie dowodzi, że dokument został naprawiony lub zaakceptowany; operator musi odczytać `decision` i `applied`. Zaakceptowanego submissionu `31` nie należy używać jako przykładu `--apply`.
+
+##### Granica transakcji
+
+Transport faktury musi działać poza aktywną transakcją na połączeniu submissionu. Guard sprawdza zarówno Laravel `transactionLevel()`, jak i `inTransaction()` writer PDO: przed claim/auth na wspólnym wejściu transportu, wewnątrz `consumePost()` przed utrwaleniem fence oraz bezpośrednio przed `sendInvoice()`. Rekord jest przeładowywany przez write PDO na tym samym połączeniu.
+
+Kod `ksef_submission_transaction_active` oznacza wykrytą aktywną transakcję, a `ksef_submission_transaction_state_unavailable` brak bezpiecznej możliwości ustalenia jej stanu. Błąd na wejściu oznacza brak claimu i brak HTTP. Późny błąd gwarantuje brak invoice POST i brak cleanup HTTP, choć wcześniejsze auth, pobranie klucza lub otwarcie sesji mogły już nastąpić. Guard nie czyści fence, nie wykonuje commit/rollback transakcji callera, nie omija stanu drugim PDO i nie ma obejścia testowego. Krótkie transakcje PREPARE/recovery są dozwolone, ale caller musi zatwierdzić PREPARE przed wejściem w transport. Udokumentowany przypadek błędu transakcyjnego był syntetycznym testem, nie zdarzeniem w bazie operatora.
+
+##### Migracja i testy regresyjne
+
+Dry-run wykonał migrację raz z exit code `0` i batch `55`; tabela `ksef_invoice_submissions` wzrosła z 40 do 46 kolumn. Wszystkie 31 historycznych submissionów zachowało dane, a sześć nowych pól pozostało `NULL`. Zachowano 3 foreign keys, 4 indeksy, 28 Accepted i 28 UPO; nie pojawiły się triggery, widoki ani tabele tymczasowe. Pięć wcześniejszych nieudanych inicjalizacji runnera zakończyło się przed uruchomieniem migratora i nie oznacza pięciu wykonań migracji. Dokładne czasy i pełny output tych prób nie zostały utrwalone z powodu problemu cleanup otwartego pliku.
+
+Read-only post-verify potwierdził wzrost tabeli migracji z 81 do 82 rekordów, migrację 089 dokładnie raz w batch `55`, zgodność 43 porównanych tabel oraz brak nieoczekiwanych różnic schematu i danych. SQLite zgłosił integralność OK i 0 naruszeń foreign keys. W chwili audytu nie było submissionów utworzonych po migracji. Historyczne 31 wierszy nadal miało sześć nowych pól `NULL`, zgodnie z kontraktem bez backfillu.
+
+Chroniony łańcuch PROD pozostał niezmieniony: Invoice `128` (`K7T 2/2026`), submission `31`, environment `production`, tryb Online, `Accepted`, numer KSeF i UPO `28` wraz z wartościami, hashem i rozmiarem. Jest to dowód lokalnego zachowania danych, nie nowe zaakceptowanie przez MF ani ponowna walidacja XML, podpisu lub UPO.
+
+`LOCAL TEST REPORT` dla 8D.6.2A: 2531 testów / 17083 asercji. Dla 8D.6.2A.1: 2587 testów / 17766 asercji. Oba raporty wskazują 0 failures/errors/skips oraz Pint, PHP lint i diff-check PASS. Zakres obejmował odrębne procesy na współdzielonym SQLite, hard crash, race i late worker, awarie zapisu, widoczność fence, Laravel/PDO/nested transaction, zachowanie transakcji callera, VAT/KOR/Offline/technical oraz fake TEST/DEMO/PROD. Testy używają `UsesAutocommitDatabase` zamiast bypassu guardu i obejmują `APP_DEBUG=true` oraz `false`. Raportowane środowisko: Laravel 12.63.0, PHP 8.2.12, SQLite 3.39.2. Nie jest to CI, test serwera ani test docelowej bazy innej niż SQLite; w tym closure testów nie uruchamiano.
+
+```text
+KSeF.8D.6.1:
+AUDIT COMPLETED WITH FINDINGS
+
+KSeF.8D.6.2A:
+RECOVERY CORE IMPLEMENTED / CODE PUBLISHED
+
+KSeF.8D.6.2A.1:
+TRANSACTION BOUNDARY ENFORCED / CODE PUBLISHED
+
+MIGRATION 089 COPY TEST:
+PASS
+
+MIGRATION 089 OPERATOR:
+OPERATOR EXECUTED / RAN / BATCH 55
+
+MIGRATION 089 POST-VERIFY:
+PASS / SCHEMA AND DATA PRESERVATION VERIFIED
+
+HISTORICAL SUBMISSIONS:
+31 ROWS / SIX NEW FIELDS NULL / NO BACKFILL
+
+RECOVERY CORE + OPERATOR SCHEMA:
+IMPLEMENTED / VERIFIED / DOCUMENTED
+
+REAL RECOVERY EXECUTION:
+NOT RUN IN DOCUMENTED STAGES
+
+UNATTENDED SERVER ROLLOUT:
+OPEN
+```
+
+#### Zakres nadal otwarty po 8D.6.2A.1
 
 `PRODUCTION AUTOMATIC FIRST-SEND: IMPLEMENTED / NOT ACTIVATED IN REPORTED INSTALLATION`. Wspólna polityka obsługuje PROD, dedykowany first-send działa na `ksef_submit` / `ksef-submit`, odczytowy follow-up na `database` / `ksef`. Pozostają snapshot środowiska/kontekstu, ponowna kwalifikacja, `tries=1`, brak blind retry invoice POST i brak hurtowego backfillu historii. Pro forma i KOR nie są dodane do automatic first-send. `automatic_submission=false` oraz brak workera nie blokują ręcznej ścieżki.
 
-Po 8D.5 raport zachował dwa nieuruchomione joby: `530` na `automation` (`EvaluateAutomationEventJob`) i `531` na `ksef` (`KsefSubmissionFollowUpJob`), oba `attempts=0`, oraz dwa locki. Nie oznacza to kolejnych invoice POST. W closure nie sprawdzano ich ponownie, nie wykonywano ani nie czyszczono; nie deklaruje się też, że każdy z tych jobów na pewno nie ma skutków ubocznych. Kolejki, scheduler, reguły Automation i rollout bez nadzoru należą do odrębnego 8D.6, po decyzji operatora.
+Po 8D.5 raport zachował dwa nieuruchomione joby: `530` na `automation` (`EvaluateAutomationEventJob`) i `531` na `ksef` (`KsefSubmissionFollowUpJob`), oba `attempts=0`, oraz dwa locki. Nie oznacza to kolejnych invoice POST. W closure nie sprawdzano ich ponownie, nie wykonywano ani nie czyszczono; nie deklaruje się też, że każdy z tych jobów na pewno nie ma skutków ubocznych.
+
+Punktowy audyt 8D.6.1 z 11.09.2026 odnotował kolejki ready/delayed/reserved `0`, aktywne/wygasłe locki `0/0`, 27 failed jobs (`integrations=4`, `automation=3`, `ksef-submit=20`), w tym 3 błędy `database is locked`, aktywną regułę Automation `9` i nieaktywną `11`. W chwili pomiaru nie wykryto workera, schedulera ani odpowiadającego zadania Windows. To stan historyczny raportu, nie aktualny monitoring instalacji.
+
+Nadal otwarte są: docelowy deployment serwerowy, wybór systemu operacyjnego, bazy i nadzoru usług, testy na wybranej bazie, uruchomienie workerów i całego schedulera OMS, monitoring backlogu oraz `Uncertain`, decyzja o `automatic_submission`, przegląd Automation i failed jobs oraz gotowość wszystkich ścieżek Offline na serwerze. Nie wybrano ani nie potwierdzono SEOHOST, MariaDB, Linux, supervisor, systemd lub Docker. Brak PCNTL w lokalnym Windows/XAMPP jest ograniczeniem platformy lokalnej, a nie dowodem wadliwości recovery core. Implementacja nie wykonuje automatycznego wykrywania i recovery wszystkich starych prób.
 
 Latarnia pozostaje exact-environment: TEST do TEST, PROD do PROD, DEMO bez fallbacku. W raporcie 8D.4 sync PROD był wyłączony i brakowało lokalnego coverage PROD. Nie blokowało to zwykłego ręcznego Online, ale nie potwierdza gotowości planowanej niedostępności/awarii. Certyfikat Offline READY nie dowodzi wykonania Offline PROD. W zakresie tego LIVE nie sprawdzono rzeczywistej KOR PROD, Offline24 i innych procedur Offline PROD, korekty technicznej PROD, batch, automatyki bez nadzoru ani celowych 440/450/21166/21167 lub Uncertain PROD. Wcześniejsze dowody kodowe/fake i LIVE TEST/DEMO pozostają przypisane do swoich środowisk; nie wymagano celowych błędów PROD dla closure.
 
-`PRODUCTION MANUAL ONLINE: LIVE VERIFIED FOR K7T 2/2026`; `PDF TIMESTAMP: EUROPE/WARSAW / DOCUMENTED`; `UNATTENDED OPERATIONS: OPEN`. Nie jest to certyfikacja MF ani zamknięcie całego 8D. W bieżącym docs-only: `TRACKED CODE CHANGES: 0`, `OPERATOR DB ACCESS / WRITES: 0 / 0`, `RUNTIME HTTP: 0`; bez generowania PDF, nowych transmisji, uruchamiania workerów i zmian konfiguracji.
+`PRODUCTION MANUAL ONLINE: LIVE VERIFIED FOR K7T 2/2026`; `PDF TIMESTAMP: EUROPE/WARSAW / DOCUMENTED`; `RECOVERY CORE + OPERATOR SCHEMA: IMPLEMENTED / VERIFIED / DOCUMENTED`; `UNATTENDED OPERATIONS: OPEN`. Nie jest to certyfikacja MF ani zamknięcie całego 8D. W bieżącym docs-only: `TRACKED CODE CHANGES: 0`, `OPERATOR DB ACCESS / WRITES: 0 / 0`, `RUNTIME HTTP: 0`; bez generowania PDF, nowych transmisji, recovery, uruchamiania workerów i zmian konfiguracji.
 
 ### Historyczna granica KSeF.2A
 
