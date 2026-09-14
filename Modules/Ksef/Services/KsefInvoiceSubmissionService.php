@@ -263,7 +263,8 @@ class KsefInvoiceSubmissionService
         KsefInvoiceTransportMode $transportMode,
     ): KsefInvoiceSubmission {
         $this->assertTransportEnabled();
-        $submission = KsefInvoiceSubmission::query()->findOrFail($submission->getKey());
+        $this->execution->assertOutsideTransaction($submission);
+        $submission = $submission->newQuery()->useWritePdo()->findOrFail($submission->getKey());
         $this->environments->assertAllowed($submission->environment);
         $this->assertStatus($submission, [KsefInvoiceSubmissionStatus::Preparing]);
 
@@ -372,6 +373,7 @@ class KsefInvoiceSubmissionService
             );
         }
 
+        $this->execution->assertOutsideTransaction($submission);
         try {
             $invoiceReference = $this->onlineSession->sendInvoice(
                 $submission->environment,

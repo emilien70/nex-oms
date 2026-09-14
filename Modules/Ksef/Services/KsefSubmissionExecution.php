@@ -12,6 +12,31 @@ class KsefSubmissionExecution
 {
     public const VERSION = 1;
 
+    public function assertOutsideTransaction(KsefInvoiceSubmission $submission): void
+    {
+        try {
+            $connection = $submission->getConnection();
+            $level = $connection->transactionLevel();
+            if (! is_int($level) || $level < 0) {
+                throw new \LogicException;
+            }
+            // Use the existing writer, including transactions opened directly through PDO.
+            $active = $level > 0 || $connection->getPdo()->inTransaction();
+        } catch (\Throwable) {
+            throw new KsefApiException(
+                'Nie można potwierdzić stanu transakcji bazy danych. Transmisja KSeF została zablokowana.',
+                'ksef_submission_transaction_state_unavailable',
+            );
+        }
+
+        if ($active) {
+            throw new KsefApiException(
+                'Transmisja KSeF nie może zostać rozpoczęta wewnątrz aktywnej transakcji bazy danych. Zakończ operację lokalną przed uruchomieniem wysyłki.',
+                'ksef_submission_transaction_active',
+            );
+        }
+    }
+
     public static function initialAttributes(): array
     {
         return [
@@ -101,6 +126,7 @@ class KsefSubmissionExecution
 
     public function consumePost(KsefInvoiceSubmission $submission, #[\SensitiveParameter] string $owner, array $request): KsefInvoiceSubmission
     {
+        $this->assertOutsideTransaction($submission);
         $ciphertext = base64_decode($request['encryptedInvoiceContent'] ?? '', true);
         if ($submission->status !== Status::SessionOpened
             || ! is_string($submission->session_reference_number) || trim($submission->session_reference_number) === ''

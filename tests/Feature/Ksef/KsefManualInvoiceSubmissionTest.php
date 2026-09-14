@@ -3,7 +3,6 @@
 namespace Tests\Feature\Ksef;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -36,6 +35,7 @@ use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
+use Tests\Support\Ksef\UsesAutocommitDatabase;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\Support\KsefUpoFixture;
 use Tests\TestCase;
@@ -43,7 +43,7 @@ use Tests\TestCase;
 class KsefManualInvoiceSubmissionTest extends TestCase
 {
     use CreatesInvoiceStage2CDocuments;
-    use RefreshDatabase;
+    use UsesAutocommitDatabase;
 
     protected function setUp(): void
     {

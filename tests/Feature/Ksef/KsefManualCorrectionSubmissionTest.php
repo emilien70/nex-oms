@@ -3,8 +3,8 @@
 namespace Tests\Feature\Ksef;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -26,6 +26,7 @@ use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use Modules\Ksef\Services\KsefAccessTokenManager;
 use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionPolicy;
 use Modules\Ksef\Services\KsefInvoiceSourceService;
 use Modules\Ksef\Services\KsefInvoiceStatusFollowUpService;
@@ -38,6 +39,7 @@ use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\Ksef\CreatesKsefFa3CorrectionScenarios;
+use Tests\Support\Ksef\UsesAutocommitDatabase;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\Support\KsefUpoFixture;
 use Tests\TestCase;
@@ -47,7 +49,7 @@ class KsefManualCorrectionSubmissionTest extends TestCase
 {
     use CreatesInvoiceStage2CDocuments;
     use CreatesKsefFa3CorrectionScenarios;
-    use RefreshDatabase;
+    use UsesAutocommitDatabase;
 
     protected function setUp(): void
     {
@@ -290,6 +292,34 @@ class KsefManualCorrectionSubmissionTest extends TestCase
     public static function operationalEnvironments(): array
     {
         return array_map(fn (KsefEnvironment $environment): array => [$environment], KsefEnvironment::cases());
+    }
+
+    #[DataProvider('operationalEnvironments')]
+    public function test_correction_first_send_refuses_the_outer_transaction_without_committing_prepare(KsefEnvironment $environment): void
+    {
+        $this->configure($environment);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, $environment);
+        $correction = $this->issueKsefFinancialCorrection($root);
+        $before = KsefInvoiceSubmission::query()->count();
+        $this->mock(KsefAccessTokenManager::class)->shouldNotReceive('getValidAccessToken');
+        DB::beginTransaction();
+        try {
+            try {
+                app(KsefManualCorrectionSubmissionService::class)->submitFirstAttempt($correction, $environment, KsefUpoFixture::CONTEXT_NIP);
+                $this->fail('SEND inside the caller transaction must be refused.');
+            } catch (KsefApiException $exception) {
+                $this->assertSame('ksef_submission_transaction_active', $exception->safeCode);
+            }
+            $this->assertTrue($correction->fresh()->isFinalized());
+            $this->assertSame($before + 1, KsefInvoiceSubmission::query()->count());
+            $this->assertSame(1, DB::transactionLevel());
+        } finally {
+            DB::rollBack();
+        }
+        $this->assertFalse($correction->fresh()->isFinalized());
+        $this->assertSame($before, KsefInvoiceSubmission::query()->count());
+        Http::assertNothingSent();
     }
 
     public function test_failed_source_resolution_rolls_back_finalization_slot_and_submission_without_http(): void

@@ -4,7 +4,6 @@ namespace Tests\Feature\Ksef;
 
 use Carbon\CarbonImmutable;
 use DomainException;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -60,6 +59,7 @@ use Modules\Ksef\Services\KsefSubmissionRecoveryService;
 use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
+use Tests\Support\Ksef\UsesAutocommitDatabase;
 use Tests\Support\KsefCertificateFixtureFactory;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\Support\KsefUpoFixture;
@@ -68,7 +68,7 @@ use Tests\TestCase;
 class KsefOfflineSubmissionTest extends TestCase
 {
     use CreatesInvoiceStage2CDocuments;
-    use RefreshDatabase;
+    use UsesAutocommitDatabase;
 
     /** @var array<string, mixed> */
     private array $offlineFixture;
@@ -338,6 +338,36 @@ class KsefOfflineSubmissionTest extends TestCase
         $this->assertSame(1, $retry->execution_protocol_version);
         $this->assertSame($submission->payload_xml, $retry->payload_xml);
         Http::assertNothingSent();
+    }
+
+    #[DataProvider('transactionTransportModes')]
+    public function test_ordinary_and_technical_vat_transport_refuse_caller_transaction(bool $technicalMode): void
+    {
+        if ($technicalMode) {
+            [$invoice, $issuance, $source] = $this->rejectedOfflineSource(450);
+            $artifact = app(KsefOfflineTechnicalCorrectionService::class)->prepare($invoice, $issuance, $source);
+            $submission = app(KsefOfflineTechnicalCorrectionSubmissionService::class)->prepare($invoice, $artifact);
+            $this->assertSame(1, $artifact->business_fingerprint_version);
+        } else {
+            [$invoice, $issuance] = $this->issueOffline();
+            $submission = app(KsefOfflineInvoiceSubmissionService::class)->prepare($invoice, $issuance);
+        }
+        $method = $technicalMode ? 'submitTechnicalCorrection' : 'submitOffline';
+        $before = $submission->fresh()->getRawOriginal();
+        DB::beginTransaction();
+        try {
+            $this->expectKsefError('ksef_submission_transaction_active', fn () => app(KsefInvoiceSubmissionService::class)->{$method}($submission));
+            $this->assertSame(1, DB::transactionLevel());
+            $this->assertSame($before, $submission->fresh()->getRawOriginal());
+        } finally {
+            DB::rollBack();
+        }
+        Http::assertNothingSent();
+    }
+
+    public static function transactionTransportModes(): array
+    {
+        return ['ordinary' => [false], 'technical V1' => [true]];
     }
 
     public function test_interrupted_technical_vat_never_releases_second_artifact_attempt(): void

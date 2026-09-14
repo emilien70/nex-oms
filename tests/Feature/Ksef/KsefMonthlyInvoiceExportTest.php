@@ -3,7 +3,6 @@
 namespace Tests\Feature\Ksef;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Enums\InvoiceDocumentType;
@@ -22,13 +21,14 @@ use Modules\Ksef\Services\KsefMonthlyInvoiceExportService;
 use Modules\Ksef\Services\KsefSettingsService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
+use Tests\Support\Ksef\UsesAutocommitDatabase;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\TestCase;
 
 class KsefMonthlyInvoiceExportTest extends TestCase
 {
     use CreatesInvoiceStage2CDocuments;
-    use RefreshDatabase;
+    use UsesAutocommitDatabase;
 
     protected function setUp(): void
     {

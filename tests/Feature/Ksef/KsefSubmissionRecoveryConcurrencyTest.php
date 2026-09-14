@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus as Status;
+use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefAccessTokenManager;
 use Modules\Ksef\Services\KsefInvoiceSubmissionService;
@@ -65,12 +66,15 @@ class KsefSubmissionRecoveryConcurrencyTest extends TestCase
         $fake = new KsefOnlineSessionApiFake;
         Http::fake(function (Request $request) use ($fake, $submission, $observer) {
             $this->assertSame(0, DB::connection()->transactionLevel());
+            $this->assertFalse($submission->getConnection()->getPdo()->inTransaction());
             if ($request->method() === 'POST' && str_ends_with($request->url(), '/invoices')) {
-                $query = $observer->prepare('SELECT invoice_post_started_at, session_reference_number FROM ksef_invoice_submissions WHERE id = ?');
+                $query = $observer->prepare('SELECT id, invoice_hash, invoice_post_started_at, session_reference_number FROM ksef_invoice_submissions WHERE id = ?');
                 $query->execute([$submission->id]);
                 $persisted = $query->fetch(\PDO::FETCH_ASSOC);
                 $this->assertNotNull($persisted['invoice_post_started_at']);
-                $this->assertNotEmpty($persisted['session_reference_number']);
+                $this->assertSame($fake->openResponse['referenceNumber'], $persisted['session_reference_number']);
+                $this->assertSame($submission->id, $persisted['id']);
+                $this->assertSame($submission->invoice_hash, $persisted['invoice_hash']);
             }
 
             return $fake($request);
@@ -78,6 +82,26 @@ class KsefSubmissionRecoveryConcurrencyTest extends TestCase
         $result = app(KsefInvoiceSubmissionService::class)->submit($submission);
         $this->assertSame(Status::Submitted, $result->status);
         $this->assertSame(1, $fake->sendCalls);
+    }
+
+    public function test_outer_rollback_cannot_erase_the_fence_after_an_external_post(): void
+    {
+        $submission = $this->preparing();
+        $before = $submission->fresh()->getRawOriginal();
+        $this->mock(KsefAccessTokenManager::class)->shouldNotReceive('getValidAccessToken');
+        DB::beginTransaction();
+        try {
+            app(KsefInvoiceSubmissionService::class)->submit($submission);
+            $this->fail('The caller transaction must block transport.');
+        } catch (KsefApiException $exception) {
+            $this->assertSame('ksef_submission_transaction_active', $exception->safeCode);
+        } finally {
+            DB::rollBack();
+        }
+
+        // No external effect survives rollback because transport never starts.
+        Http::assertNothingSent();
+        $this->assertSame($before, $submission->fresh()->getRawOriginal());
     }
 
     public function test_two_processes_only_one_claim_and_invoice_post(): void

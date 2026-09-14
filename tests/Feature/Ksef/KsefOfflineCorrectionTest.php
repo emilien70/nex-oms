@@ -6,7 +6,6 @@ use Carbon\CarbonImmutable;
 use Closure;
 use DomainException;
 use Illuminate\Database\Events\QueryExecuted;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -68,6 +67,7 @@ use phpseclib3\Crypt\RSA;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\Ksef\CreatesKsefFa3CorrectionScenarios;
+use Tests\Support\Ksef\UsesAutocommitDatabase;
 use Tests\Support\KsefCertificateFixtureFactory;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\Support\KsefUpoFixture;
@@ -77,7 +77,7 @@ class KsefOfflineCorrectionTest extends TestCase
 {
     use CreatesInvoiceStage2CDocuments;
     use CreatesKsefFa3CorrectionScenarios;
-    use RefreshDatabase;
+    use UsesAutocommitDatabase;
 
     private CarbonImmutable $instant;
 
@@ -645,6 +645,36 @@ class KsefOfflineCorrectionTest extends TestCase
         $this->assertSame(1, $fake->statusCalls);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(2, $correction->ksefSubmissions()->count());
+    }
+
+    #[DataProvider('transactionTransportModes')]
+    public function test_ordinary_and_v2_technical_kor_transport_refuse_caller_transaction(bool $technicalMode): void
+    {
+        if ($technicalMode) {
+            [$correction, , , $artifact] = $this->preparedTechnicalKor();
+            $submission = app(KsefOfflineTechnicalCorrectionSubmissionService::class)->prepare($correction, $artifact);
+            $this->assertSame(2, $artifact->business_fingerprint_version);
+        } else {
+            [, $correction] = $this->scenario();
+            $issuance = $this->issue($correction);
+            $submission = app(KsefOfflineInvoiceSubmissionService::class)->prepare($correction, $issuance);
+        }
+        $method = $technicalMode ? 'submitTechnicalCorrection' : 'submitOffline';
+        $before = $submission->fresh()->getRawOriginal();
+        DB::beginTransaction();
+        try {
+            $this->assertError('ksef_submission_transaction_active', fn () => app(KsefInvoiceSubmissionService::class)->{$method}($submission));
+            $this->assertSame(1, DB::transactionLevel());
+            $this->assertSame($before, $submission->fresh()->getRawOriginal());
+        } finally {
+            DB::rollBack();
+        }
+        Http::assertNothingSent();
+    }
+
+    public static function transactionTransportModes(): array
+    {
+        return ['ordinary KOR' => [false], 'technical KOR V2' => [true]];
     }
 
     public function test_interrupted_technical_kor_recovery_does_not_allow_second_attempt(): void

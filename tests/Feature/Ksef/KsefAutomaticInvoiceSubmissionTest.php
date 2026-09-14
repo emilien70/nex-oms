@@ -5,8 +5,8 @@ namespace Tests\Feature\Ksef;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Modules\Invoices\Enums\InvoiceDocumentType;
@@ -24,12 +24,15 @@ use Modules\Ksef\Jobs\KsefSubmissionFollowUpJob;
 use Modules\Ksef\Models\KsefCredential;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
+use Modules\Ksef\Services\KsefAccessTokenManager;
 use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionProcessor;
 use Modules\Ksef\Services\KsefInvoiceProvenanceService;
+use Modules\Ksef\Services\KsefManualInvoiceSubmissionService;
 use Modules\Ksef\Services\KsefSettingsService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpProcessor;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
+use Tests\Support\Ksef\UsesAutocommitDatabase;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\Support\KsefUpoFixture;
 use Tests\TestCase;
@@ -37,7 +40,7 @@ use Tests\TestCase;
 class KsefAutomaticInvoiceSubmissionTest extends TestCase
 {
     use CreatesInvoiceStage2CDocuments;
-    use RefreshDatabase;
+    use UsesAutocommitDatabase;
 
     protected function setUp(): void
     {
@@ -429,6 +432,40 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         $this->assertDatabaseCount('ksef_invoice_submissions', 1);
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->statusCalls);
+    }
+
+    #[DataProvider('environments')]
+    public function test_manual_and_automatic_first_send_leave_outer_prepare_uncommitted(KsefEnvironment $environment): void
+    {
+        Queue::fake();
+        $invoice = $this->issueInvoice(environment: $environment);
+        Queue::fake();
+        $this->mock(KsefAccessTokenManager::class)->shouldNotReceive('getValidAccessToken');
+        foreach ([false, true] as $automatic) {
+            DB::beginTransaction();
+            try {
+                try {
+                    $automatic
+                        ? $this->runJob($invoice, $environment)
+                        : app(KsefManualInvoiceSubmissionService::class)->submitFirstAttempt($invoice, $environment, '9876543210');
+                    $this->fail('SEND inside the caller transaction must be refused.');
+                } catch (KsefApiException $exception) {
+                    $this->assertSame('ksef_submission_transaction_active', $exception->safeCode);
+                }
+                $this->assertTrue($invoice->fresh()->isFinalized());
+                $submission = KsefInvoiceSubmission::query()->sole();
+                $this->assertSame(KsefInvoiceSubmissionStatus::Preparing, $submission->status);
+                $this->assertNull($submission->execution_owner);
+                $this->assertNull($submission->invoice_post_started_at);
+                $this->assertSame(1, DB::transactionLevel());
+            } finally {
+                DB::rollBack();
+            }
+            $this->assertFalse($invoice->fresh()->isFinalized());
+            $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        }
+        Http::assertNothingSent();
+        Queue::assertNothingPushed();
     }
 
     public function test_immediate_acceptance_schedules_upo_without_fetching_it_in_first_send_job(): void
