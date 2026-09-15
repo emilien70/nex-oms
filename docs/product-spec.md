@@ -1111,6 +1111,25 @@ Pro formy nie zwiększają rejestru sprzedaży.
 
 Duplikaty nie tworzą nowej sprzedaży.
 
+## RS.1A.2 — dane i podsumowania (backend)
+
+Wdrożono wspólny mechanizm danych rejestru, niezależny od HTTP i formatu wydruku. Formularz, przycisk, trasy i eksport HTML nie są jeszcze dostępne. Nie utworzono tabel raportowych ani nie zmieniono dokumentów historycznych.
+
+- Rejestr łączy wskazane serie Faktur i Korekt jednego właściciela, bez wyboru i grupowania sprzedawcy. Serie ukryte są dozwolone.
+- Kwalifikują się wyłącznie `invoice` i `correction` ze statusem `issued`. Finalizacja, płatność, `issued_at`, istnienie zamówienia i wysyłka do KSeF nie są warunkami kwalifikacji.
+- Wybór okresowy wymaga miesiąca albo kompletnego zakresu dat wystawienia i niepustej listy serii. Ręczny zakres zastępuje miesiąc; granice są włączne. Daty sprzedaży, obecność identyfikatora podatkowego (również zagranicznego), waluta i kraj są dodatkowymi warunkami AND, serie łączone są przez OR.
+- Wybór jawnych ID jest niezależny od filtrów i paginacji listy. Pusty lub błędny wybór jest odrzucany; brakujące, robocze i niekwalifikujące się dokumenty powodują kontrolowany błąd z listą ID.
+- Jeden dokument daje jeden rekord i jedno Lp. Kolejność: data wystawienia, numer porównany tekstowo, ID. Kilka grup VAT daje jedną wartość, np. `23%, 8%, 0%, ZW`; stawki malejąco, następnie kody alfabetycznie. To reguła NEX-OMS. Wewnętrzne grupy nie mnożą wartości dokumentu.
+- Nabywca pochodzi ze snapshotów dokumentu, wspólnych dla filtrów, prezentacji i kraju. Nazwa firmy ma pierwszeństwo przed imieniem/nazwiskiem zgodnie z zapisem dokumentu. Brak klucza nazwy/NIP pozwala użyć osobnego historycznego pola z ostrzeżeniem. Jawnie pusta wartość nie uruchamia fallbacku; konflikt z niepustym polem osobnym daje nieznaną wartość i ostrzeżenie. Nieznany identyfikator nie przechodzi filtra „z” ani „bez”. Brak kraju oznacza „Nieustalony kraj”, nie PL.
+- Kwoty dokumentu to zapisane `total_*`, grupy to `tax_summary_snapshot`. Korekta wnosi podpisaną różnicę, nie stan AFTER; sprzeczność z zapisaną różnicą jest raportowana. Brak dodatkowego snapshotu Korekty jest widoczny w ostrzeżeniach, bez odtwarzania danych ze źródła. Dokumenty powiązane są informacyjne i nie zwiększają zakresu ani sum.
+- Waluty oryginalne i kombinacje kraj/waluta mają osobne sumy. Nie stosuje się katalogu bieżących walut ani fallbacku PLN. Kwoty to stringi dziesiętne ze skalą 2; brak i uszkodzenie nie są zerem. Niezgodne grupy VAT nie unieważniają samych poprawnych sum dokumentu.
+- Kwoty PLN walut obcych pochodzą wyłącznie z poprawnego zapisanego przeliczenia. Zachowana jest pełna precyzja historycznego kursu za jedną jednostkę. Korekta rzeczywiście bez skutków finansowych i bez zmian kwot grup VAT może nie mieć kursu; samo zerowe brutto nie wystarcza.
+- „W tym wysyłka” jest częścią sumy. Dla Faktury odczytywane są pozycje `shipping`, dla Korekty różnica ich stanów AFTER minus BEFORE, również przy zmianie typu i grupy VAT. Pomocnicze PLN wysyłki jest jawnie oznaczone jako obliczone z utrwalonych pozycji i własnego kursu dokumentu: per dokument i grupa, netto/VAT oddzielnie `half_up` do 2 miejsc, brutto jako ich suma. Cały dokument nie jest ponownie przeliczany.
+- Numer KSeF jest opcjonalnym lokalnym odczytem wyłącznie zaakceptowanego powiązania `production`, niezależnym od konfiguracji integracji. Brak PROD nie wyklucza dokumentu. Powtórzenia tego samego numeru są dozwolone; różne numery lub niespójne powiązania dają brak numeru i ostrzeżenie. Numer Faktury nie jest kopiowany do Korekty.
+- Każda część sum ma informację o kompletności, liczbie i ID uwzględnionych/nieuwzględnionych dokumentów. Poprawne części są sumowane, ale częściowa suma nie jest przedstawiana jako kompletna. Puste zestawienie daje zera; niepuste zestawienie bez znanych kwot daje `null`. Ostrzeżenia wskazują dokument, sekcję i stabilny kod.
+
+Mechanizm nie pobiera kursów NBP, nie wykonuje transportu KSeF, nie generuje PDF ani nie ustala okresu rozliczenia VAT. Wybór dotyczy dat dokumentów, nie kwalifikacji podatkowej do JPK.
+
 ---
 
 # 29. Wysyłka e-mail

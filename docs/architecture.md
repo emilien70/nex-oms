@@ -1154,6 +1154,47 @@ Na początku można generować rejestr zapytaniem.
 
 Osobne tabele agregacyjne należy rozważyć dopiero przy realnym problemie wydajności.
 
+## RS.1A.2 — wspólny kontrakt backendu
+
+`SalesRegisterFilters` jest niemutowalnym VO, bez Form Requestu i zależności HTTP. `SalesRegisterDataService::build()` zwraca jawne tablice, nie modele Eloquent. Nowe komponenty należą do `Modules/Invoices`; nie ma nowego modułu, providera, trasy, eksportera, tabeli ani publicznego API.
+
+```php
+use Modules\Invoices\Services\SalesRegisterDataService;
+use Modules\Invoices\ValueObjects\SalesRegisterFilters;
+
+$period = SalesRegisterFilters::forPeriod([
+    'month' => '2026-08',
+    'series_ids' => [1, 2], // Przykładowe ID istniejących serii Faktur/Korekt.
+    'tax_id_presence' => 'all', // all / with / without
+    'currency' => null, // null lub historyczny kod 3-literowy
+    'country' => null, // null lub kod 2-literowy
+    'include_ksef' => true,
+]);
+$report = app(SalesRegisterDataService::class)->build($period);
+$selected = app(SalesRegisterDataService::class)->build(
+    SalesRegisterFilters::forDocuments([101, 102], includeKsef: false),
+);
+```
+
+Kompletne `issue_from`/`issue_to` zastępują `month`; częściowy ręczny zakres jest błędem. Opcjonalne `sale_from`/`sale_to` mogą ograniczać każdą granicę niezależnie. Walidacja ścisłych dat odrzuca daty nieistniejące i zakresy odwrotne. Listy ID są niepuste, deduplikowane i sortowane; nieprawidłowe wejście daje `sales_register_filters_invalid`. Brakujące/niekwalifikujące ID dają `sales_register_documents_invalid`, niewłaściwe serie `sales_register_series_invalid`, z ID w metadanych błędu. Nie istnieje parametr środowiska KSeF.
+
+Odpowiedzialności:
+
+- `SalesRegisterDataService`: kwalifikacja `invoice/correction + issued`, odczyt partiami po 200 ID, ograniczone kolumny, eager loading pozycji i wystawionych Korekt, wspólne filtry nabywcy, końcowe sortowanie i numeracja. Wynik materializuje wszystkie rekordy i ID pokrycia, więc zużycie pamięci rośnie z rozmiarem raportu. Brak ukrytego limitu i zależności od paginacji.
+- `SalesRegisterDocumentReader`: jeden odczyt snapshotu nabywcy, kontrola sprzeczności osobnych pól, kwoty i podpisane różnice Korekt, powiązania informacyjne, wysyłka BEFORE/AFTER i kompletność sekcji. Relacja do aktualnego zamówienia ani konfiguracja serii nie uzupełniają danych.
+- `SalesRegisterValues`: kontrola obecności i formatu kwot przed kalkulatorem, suma netto+VAT=brutto, normalizacja tożsamości VAT istniejącym `InvoiceTaxIdentityNormalizer`, unikalność grup i deterministyczna kolejność. Arytmetyka używa `InvoiceDecimalCalculator`; numeryczne skalary PDO SQLite są najpierw zamieniane na tekst, bez działań float ani SQL SUM. Limit pojedynczego dokumentu nie ogranicza agregacji.
+- Zapisana konwersja jest sprawdzana przez czystą metodę `InvoicePdfCurrencyConversionPresenter::presentSnapshots()`, dopiero po kontroli typów grup. Nie uruchamia to PDF, fallbacku Korekty, pobrania kursu ani żadnej operacji domenowej. Całe sumy PLN są odczytywane, nie mnożone ponownie. Pomocnicza wysyłka używa `multiplyAndRound()` per dokument/grupa i ma źródło `computed_from_stored_items_and_historical_rate`.
+- `SalesRegisterKsefNumberReader`: zbiorczy odczyt wyłącznie metadanych zaakceptowanych transmisji `KsefEnvironment::Production`. Sprawdza numer przez istniejący validator, powiązanie dokumentu, NIP i kontekst, hash oraz metadane online/offline. Offline wymaga własnego issuance z właściwym środowiskiem/datą/hash/rozmiarem; korekta techniczna wymaga zgodnego artefaktu i odrzuconej transmisji źródłowej. Konflikt provenance, różne zaakceptowane numery albo uszkodzone powiązanie dają kontrolowane ostrzeżenie i `null`. Nie odczytuje payloadu XML, certyfikatów, credentiali ani aktualnego środowiska konfiguracji. Nie przeprowadza ponownego kryptograficznego audytu treści XML. `include_ksef=false` pomija wszystkie zapytania do tabel KSeF.
+- `SalesRegisterSummaryService`: oryginalne waluty i grupy VAT, wysyłka jako podzbiór, waluty obce w PLN, łączne PLN oraz kraj/waluta. Bez grupowania sprzedawcy i bez łączenia kwot różnych walut.
+
+Wynik ma klucze `selection`, `records`, `summaries`, `warnings`. `selection.selected_count` liczy kwalifikujące typ/status dokumenty wskazane ID albo objęte seriami/datami, przed dodatkowymi filtrami nabywcy/waluty. `qualified_count` i `record_count` liczą rekordy po wszystkich filtrach. Nieustalony NIP wykluczony przez filtr obecności daje ostrzeżenie `sales_register_tax_id_filter_unresolved`.
+
+Rekord zawiera `ordinal`, `id`, `type`, `number`, `series`, `issue_date`, `sale_date`, `buyer`, `currency`, `totals`, `vat_labels`, `vat_groups`, `related_documents`, `ksef_number`, `shipping`, `pln`, `shipping_pln`, `exchange_rate`, `completeness`, `warnings`. Wszystkie kwoty mają skalę 2 i zachowują znak. Nieznana kwota/data/numer/waluta pozostaje `null`; brak kraju ma kategorię `unknown` z etykietą „Nieustalony kraj”. Stan nazwy/NIP rozróżnia `value`, `empty`, `missing`, `legacy`, `conflict`, `invalid`.
+
+`summaries` zawiera `currencies`, `countries`, `foreign_in_pln`, `combined_pln`, `exchange_rates`, `completeness`. Każdy koszyk udostępnia `document_count`, `totals`, `vat_groups`, `shipping` i `coverage` dla sum/VAT/wysyłki. Pokrycie zawiera `complete`, `included_count`, `excluded_count`, `included_ids`, `excluded_ids`. Dostępne kwoty są sumowane oddzielnie od informacji o pominięciach; gdy wszystkie kwoty niepustego koszyka są nieznane, `totals=null`. Brak poprawnych grup daje pustą listę wraz z niekompletnym pokryciem VAT, nie deklarację zerowego podatku. Ostrzeżenie ma `code` z prefiksem `sales_register_`, `document_id` i `section`, bez raw snapshotów/sekretów.
+
+Nowe testy rejestru używają wyłącznie izolowanego SQLite `:memory:`, fikcyjnych dokumentów, `Http::preventStrayRequests()`, fake HTTP/kolejki i kontroli zapytań tylko SELECT. Nie ma trwałych zapisów raportu ani operacji KSeF/NBP. Następnym osobnym etapem może być formularz i renderer HTML; RS.1A.2 nie udostępnia jeszcze rejestru w UI.
+
 ---
 
 # 26. KSeF — przygotowanie architektury
