@@ -559,6 +559,14 @@
                 <input type="hidden" name="per_page" value="{{ $perPage }}">
             </form>
 
+            @if ($showSalesRegisterAction)
+                <form id="salesRegisterSelectionForm" method="POST" action="{{ route('invoices.sales-register.selected') }}">
+                    @csrf
+                    <input type="hidden" name="document_ids" value="[]" data-register-selection>
+                    <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                    <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+                </form>
+            @endif
             <form id="bulkInvoicePrintForm" method="POST" action="{{ $bulkPdfRoute }}" target="_blank">
                 @csrf
                 <input type="hidden" name="selection" value="[]" data-bulk-print-selection>
@@ -798,17 +806,13 @@
                         DRUKUJ ZAZNACZONE
                     </button>
                     @if ($showSalesRegisterAction)
-                        <button
-                            class="btn btn-sm btn-outline-secondary"
-                            type="button"
-                            disabled
-                            title="Rejestr sprzedaży nie jest jeszcze dostępny"
-                            aria-label="Rejestr sprzedaży nie jest jeszcze dostępny"
-                        >
-                            <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
-                            REJESTR SPRZEDAŻY
-                            <i class="bi bi-chevron-down" aria-hidden="true"></i>
-                        </button>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-file-earmark-text" aria-hidden="true"></i> REJESTR SPRZEDAŻY</button>
+                            <div class="dropdown-menu">
+                                <a class="dropdown-item" href="{{ route('invoices.sales-register.create', $returnContext->parameters()) }}">Według okresu i filtrów</a>
+                                <button class="dropdown-item" type="submit" form="salesRegisterSelectionForm" data-register-selected disabled>Dla zaznaczonych dokumentów</button>
+                            </div>
+                        </div>
                     @endif
                     <button
                         class="btn btn-sm btn-outline-secondary"
@@ -878,6 +882,8 @@
             const selectAll = document.querySelector('[data-invoice-select-all]');
             const selectAllButton = document.querySelector('[data-select-all-button]');
             const printButton = document.querySelector('[data-bulk-print]');
+            const registerButton = document.querySelector('[data-register-selected]');
+            const registerForm = document.getElementById('salesRegisterSelectionForm');
             const deleteButton = document.querySelector('[data-bulk-delete]');
             const status = document.querySelector('[data-selection-status]');
             const printForm = document.getElementById('bulkInvoicePrintForm');
@@ -1065,6 +1071,9 @@
                 if (printButton) {
                     printButton.disabled = checked === 0;
                 }
+                if (registerButton) {
+                    registerButton.disabled = checked === 0;
+                }
                 if (deleteButton) {
                     deleteButton.disabled = checked === 0;
                 }
@@ -1113,6 +1122,16 @@
 
                 printSelection.value = JSON.stringify(
                     selected.map((checkbox) => Number.parseInt(checkbox.dataset.invoiceId, 10))
+                );
+            });
+            registerForm?.addEventListener('submit', (event) => {
+                const selected = selectedCheckboxes();
+                if (selected.length === 0) {
+                    event.preventDefault();
+                    return;
+                }
+                registerForm.querySelector('[data-register-selection]').value = JSON.stringify(
+                    selected.map(checkbox => Number.parseInt(checkbox.dataset.invoiceId, 10))
                 );
             });
             deleteForm?.addEventListener('submit', (event) => {

@@ -1193,7 +1193,19 @@ Rekord zawiera `ordinal`, `id`, `type`, `number`, `series`, `issue_date`, `sale_
 
 `summaries` zawiera `currencies`, `countries`, `foreign_in_pln`, `combined_pln`, `exchange_rates`, `completeness`. Każdy koszyk udostępnia `document_count`, `totals`, `vat_groups`, `shipping` i `coverage` dla sum/VAT/wysyłki. Pokrycie zawiera `complete`, `included_count`, `excluded_count`, `included_ids`, `excluded_ids`. Dostępne kwoty są sumowane oddzielnie od informacji o pominięciach; gdy wszystkie kwoty niepustego koszyka są nieznane, `totals=null`. Brak poprawnych grup daje pustą listę wraz z niekompletnym pokryciem VAT, nie deklarację zerowego podatku. Ostrzeżenie ma `code` z prefiksem `sales_register_`, `document_id` i `section`, bez raw snapshotów/sekretów.
 
-Nowe testy rejestru używają wyłącznie izolowanego SQLite `:memory:`, fikcyjnych dokumentów, `Http::preventStrayRequests()`, fake HTTP/kolejki i kontroli zapytań tylko SELECT. Nie ma trwałych zapisów raportu ani operacji KSeF/NBP. Następnym osobnym etapem może być formularz i renderer HTML; RS.1A.2 nie udostępnia jeszcze rejestru w UI.
+Nowe testy rejestru używają wyłącznie izolowanego SQLite `:memory:`, fikcyjnych dokumentów, `Http::preventStrayRequests()`, fake HTTP/kolejki i kontroli zapytań tylko SELECT. Nie ma trwałych zapisów raportu ani operacji KSeF/NBP. Warstwę HTTP i HTML dodano w RS.1B bez zmiany tego kontraktu.
+
+## RS.1B — adapter HTTP i prezentacja HTML
+
+Centralne trasy `GET /invoices/sales-register`, `POST /invoices/sales-register/selected` i `POST /invoices/sales-register/export` prowadzą do `SalesRegisterController`, w istniejącej grupie `web`. POST wymaga CSRF. Trasy zachowują granicę dostępu faktur; obecnie brak na nich auth/policy, co jest ograniczeniem wdrożenia, nie nowym publicznym API rejestru.
+
+`SalesRegisterRequest` waliduje jawne `period/ids`, format `html`, booleany i daty. Puste granice wystawienia usuwa przed `SalesRegisterFilters::forPeriod()`. Tryb ID dekoduje jedną tablicę JSON dodatnich integerów i nie mapuje filtrów okresowych. Niepełny JSON jest odrzucany bez eksportu podzbioru. Kontrolowane błędy kwalifikacji backendu oraz walidacji zwracają formularz HTTP 422 z zachowanym wejściem; nie są maskowane inne wyjątki. Nie ma przekierowań na dowolny URL. `InvoiceReturnContext` zachowuje wyłącznie dozwolony kontekst listy Faktur/Korekt.
+
+`SalesRegisterFormData` odczytuje dostępne serie oraz historyczne lata/kody walut/kraje bez relacji do bieżących zamówień. Kontroler eksportu wywołuje istniejący `SalesRegisterDataService::build()`. `SalesRegisterHtmlPresenter` wyłącznie formatuje tekst dat/kwot, opis filtrów, etykiety ostrzeżeń i nazwy krajów: jedna zgodna nazwa ze snapshotów, przy konflikcie kod, przy braku kodu „Nieustalony kraj”. Nie wykonuje zapytań ani arytmetyki finansowej.
+
+Blade `invoices/sales-register/export` nie używa layoutu panelu. Ma inline CSS, kolumny 10/11 zależnie od KSeF, jedno Lp./dokument, wyrównane podsumowania i jawne pokrycie. Wszystkie dane są escapowane; raport nie zawiera raw modeli/snapshotów, tokenów CSRF, zewnętrznych zasobów ani skryptów. Wysyłka PLN zachowuje opis pochodzenia z backendu. Nazwa pliku jest generowana przez serwer; odpowiedź: `text/html; charset=UTF-8`, `Content-Disposition: inline`, `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`. Nie powstaje publiczny plik ani trwały raport.
+
+Regresje HTTP obejmują rzeczywiście włączone middleware CSRF, walidację i zachowanie formularza, wybór ID ponad próg partii 200, XSS, zakres 10/11 kolumn, historyczne kursy, podsumowania i pokrycie, brak zapytań KSeF przy wyłączonej opcji oraz brak zapisów domenowych/HTTP/jobów. Opcjonalne lokalne podglądy testowe korzystają wyłącznie z fixture w `:memory:`. Brak migracji, nowych zależności i zmian finansowego backendu RS.1A.2.
 
 ---
 

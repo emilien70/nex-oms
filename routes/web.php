@@ -32,6 +32,7 @@ use Modules\Invoices\Http\Controllers\InvoiceSeriesController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesNextNumberController;
 use Modules\Invoices\Http\Controllers\OrderInvoiceController;
 use Modules\Invoices\Http\Controllers\OrderProformaController;
+use Modules\Invoices\Http\Controllers\SalesRegisterController;
 use Modules\Ksef\Http\Controllers\KsefConnectionTestController;
 use Modules\Ksef\Http\Controllers\KsefInvoiceSubmissionController;
 use Modules\Ksef\Http\Controllers\KsefLatarniaSyncController;
@@ -123,6 +124,9 @@ Route::delete('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderSta
 Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])->name('settings.variables.index');
 
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+Route::get('/invoices/sales-register', [SalesRegisterController::class, 'create'])->name('invoices.sales-register.create');
+Route::post('/invoices/sales-register/selected', [SalesRegisterController::class, 'selected'])->name('invoices.sales-register.selected');
+Route::post('/invoices/sales-register/export', [SalesRegisterController::class, 'export'])->name('invoices.sales-register.export');
 Route::post('/invoices/print-selected', InvoiceBulkPdfController::class)->name('invoices.bulk-pdf');
 Route::delete('/invoices/delete-selected', InvoiceBulkDeletionController::class)->name('invoices.bulk-delete');
 Route::get('/invoices/proformas', [InvoiceController::class, 'proformas'])->name('invoices.proformas.index');

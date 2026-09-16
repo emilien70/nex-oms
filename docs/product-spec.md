@@ -1113,7 +1113,7 @@ Duplikaty nie tworzą nowej sprzedaży.
 
 ## RS.1A.2 — dane i podsumowania (backend)
 
-Wdrożono wspólny mechanizm danych rejestru, niezależny od HTTP i formatu wydruku. Formularz, przycisk, trasy i eksport HTML nie są jeszcze dostępne. Nie utworzono tabel raportowych ani nie zmieniono dokumentów historycznych.
+Wdrożono wspólny mechanizm danych rejestru, niezależny od HTTP i formatu wydruku. Formularz i eksport HTML dodano w RS.1B opisanym poniżej. Nie utworzono tabel raportowych ani nie zmieniono dokumentów historycznych.
 
 - Rejestr łączy wskazane serie Faktur i Korekt jednego właściciela, bez wyboru i grupowania sprzedawcy. Serie ukryte są dozwolone.
 - Kwalifikują się wyłącznie `invoice` i `correction` ze statusem `issued`. Finalizacja, płatność, `issued_at`, istnienie zamówienia i wysyłka do KSeF nie są warunkami kwalifikacji.
@@ -1129,6 +1129,18 @@ Wdrożono wspólny mechanizm danych rejestru, niezależny od HTTP i formatu wydr
 - Każda część sum ma informację o kompletności, liczbie i ID uwzględnionych/nieuwzględnionych dokumentów. Poprawne części są sumowane, ale częściowa suma nie jest przedstawiana jako kompletna. Puste zestawienie daje zera; niepuste zestawienie bez znanych kwot daje `null`. Ostrzeżenia wskazują dokument, sekcję i stabilny kod.
 
 Mechanizm nie pobiera kursów NBP, nie wykonuje transportu KSeF, nie generuje PDF ani nie ustala okresu rozliczenia VAT. Wybór dotyczy dat dokumentów, nie kwalifikacji podatkowej do JPK.
+
+## RS.1B — formularz i rejestr HTML
+
+Na listach Faktur i Korekt przycisk `REJESTR SPRZEDAŻY` otwiera formularz według okresu i filtrów albo dla zaznaczonych dokumentów. Pro forma nie udostępnia tej funkcji. Zaznaczenie jest przekazywane jako jedna pełna lista JSON przez POST, niezależnie od filtrów i paginacji listy; puste, nieprawidłowe albo niekwalifikujące się ID dają błąd, nigdy cały rejestr.
+
+Formularz domyślnie wybiera bieżący miesiąc i rok oraz wszystkie widoczne serie Faktur/Korekt. Uwzględnia także ukryte serie mające dokumenty historyczne. Obie puste daty wystawienia oznaczają miesiąc; obie wypełnione zastępują go własnym zakresem; jedna jest błędem. Daty sprzedaży ograniczają zakres niezależnie. Filtry NIP, historycznej waluty i kraju nabywcy działają zgodnie z RS.1A.2. Zmiana miesiąca lub roku czyści własny zakres wystawienia. Powrót zachowuje bezpieczny kontekst listy.
+
+`Generuj` otwiera w nowej karcie samodzielny HTML z jedną pozycją na dokument, historycznym nabywcą, datami, kwotami i informacyjnymi powiązaniami. Dostępny jest wyłącznie HTML. Opcje: nagłówek (domyślnie Tak), tabela historycznych kursów (Nie), numer KSeF dokumentu (Tak). Wyłączenie KSeF usuwa całą kolumnę i pomija odczyt tabel KSeF; nie wybiera się środowiska. Tabela kursów nie steruje podsumowaniami PLN.
+
+Raport pokazuje oddzielne waluty, grupy VAT, wysyłkę jako podzbiór, waluty obce w PLN, łączne PLN oraz kraj/walutę. Nie miesza walut, nie pobiera nowych kursów i nie przelicza ponownie dokumentów. Nieznana kwota jest kreską, nie zerem; nieustalony kraj/waluta pozostają jawne. Częściowe sumy pokazują pokrycie, pominięte dokumenty i przyczyny. Ostrzeżenia pozostają widoczne bez nagłówka, po zapisaniu HTML i na wydruku. Raport ma lokalne style, nie wymaga skryptów ani zasobów zewnętrznych, a nagłówki tabeli powtarzają się przy drukowaniu.
+
+RS.1B nie zapisuje raportów ani preferencji w bazie, nie zmienia dokumentów i nie uruchamia integracji. Eksport jest prywatną odpowiedzią bez cache. Dostęp pozostaje taki jak do istniejących list faktur: obecna aplikacja nie ma na tych trasach logowania ani polityk użytkowników; przed udostępnieniem poza zaufanym środowiskiem potrzebna jest osobna warstwa kontroli dostępu. Inne formaty, JPK, OSS i eksport PDF pozostają poza etapem.
 
 ---
 
@@ -2115,7 +2127,7 @@ Pozycje Korekty zapisują kompletne snapshoty stanu przed zmianą, po zmianie i 
 
 PDF Korekty jest generowany z zapisanych snapshotów przez istniejący prywatny renderer. Rzeczywista zmiana danych Nabywcy jest prezentowana w układzie „Było / Powinno być”, bez odczytu bieżących danych zamówienia. Bieżąca, niezfinalizowana Korekta może być edytowana przez nadpisanie jej bieżącego stanu bez zmiany numeru oraz usunięta przy użyciu wspólnego, transakcyjnego mechanizmu usuwania dokumentów. Zapis identycznego stanu kanonicznego jest operacją no-op: nie zwiększa `lock_version`, nie przebudowuje pozycji i nie unieważnia cache PDF. Starsza Korekta w niekanonicznym formacie może zostać jednokrotnie znormalizowana przy pierwszej poprawnej aktualizacji; następny identyczny zapis jest już no-op. Usunięcie obejmuje pozycje, slot, prywatny cache PDF, zdarzenie zamówienia i ewentualne cofnięcie wolnego końca licznika. Zwykła Korekta walutowa korzysta z historycznego kursu Faktury źródłowej, zapisuje różnice w walucie dokumentu i PLN oraz nie wykonuje nowego żądania do NBP. Kwoty dokumentów prezentowane w interfejsie modułu Invoices są formatowane jako dokładne wartości dziesiętne bez konwersji do `float`. Automatyzacje, JPK, KSeF i szczególne korekty rabatów zbiorczych pozostają poza zakresem.
 
-Zakładka `Korekty` udostępnia listę wystawionych Korekt z filtrowaniem, sortowaniem, paginacją, podglądem PDF, przejściem do edycji oraz usuwaniem pojedynczym i zbiorczym. Zaznaczone Korekty można wydrukować w jednym zbiorczym PDF. Korekta jest dokumentem księgowym i zostanie ujęta razem z Fakturami VAT w rejestrze sprzedaży wdrażanym w Etapie 3A; obecny przycisk rejestru jest wyłącznie nieaktywną zapowiedzią tej funkcji.
+Zakładka `Korekty` udostępnia listę wystawionych Korekt z filtrowaniem, sortowaniem, paginacją, podglądem PDF, przejściem do edycji oraz usuwaniem pojedynczym i zbiorczym. Zaznaczone Korekty można wydrukować w jednym zbiorczym PDF. Korekta jest dokumentem księgowym i jest ujmowana razem z Fakturami VAT w rejestrze sprzedaży RS.1A.2/RS.1B; przycisk rejestru udostępnia formularz i eksport HTML.
 
 ## Dalsze etapy
 

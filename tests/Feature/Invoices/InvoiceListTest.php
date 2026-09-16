@@ -78,10 +78,9 @@ class InvoiceListTest extends TestCase
         preg_match('/<button\b[^>]*data-bulk-print[^>]*>(.*?)<\/button>/s', $html, $printButton);
         $this->assertStringNotContainsString('dropdown-toggle', $printButton[0]);
         $this->assertStringNotContainsString('bi-chevron-down', $printButton[1]);
-        $this->assertMatchesRegularExpression(
-            '/<button\b[^>]*disabled[^>]*title="Rejestr sprzedaży nie jest jeszcze dostępny"[^>]*>.*?REJESTR SPRZEDAŻY.*?<\/button>/s',
-            $html,
-        );
+        $this->assertStringContainsString('Według okresu i filtrów', $html);
+        $this->assertStringContainsString('Dla zaznaczonych dokumentów', $html);
+        $this->assertStringContainsString('data-register-selected disabled', $html);
     }
 
     public function test_invoice_list_actions_preserve_the_sanitized_list_query(): void
