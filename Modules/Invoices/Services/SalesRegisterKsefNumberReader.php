@@ -66,10 +66,16 @@ final class SalesRegisterKsefNumberReader
     private function valid(Invoice $document, object $submission, Collection $issuances, Collection $technical, Collection $rejected): bool
     {
         $seller = $document->seller_snapshot;
-        $nip = is_array($seller) && array_key_exists('tax_id', $seller)
-            ? $this->identities->normalizePolishNip($seller['tax_id'])
-            : $this->identities->normalizePolishNip($document->seller_tax_id_snapshot);
-        $scalarNip = $this->identities->normalizePolishNip($document->seller_tax_id_snapshot);
+        $scalarTaxId = $document->seller_tax_id_snapshot;
+        $taxId = is_array($seller) && array_key_exists('tax_id', $seller) ? $seller['tax_id'] : $scalarTaxId;
+        if (! is_string($taxId) || ($scalarTaxId !== null && ! is_string($scalarTaxId))) {
+            return false;
+        }
+        $nip = $this->identities->normalizePolishNip($taxId);
+        $scalarNip = $scalarTaxId !== null ? $this->identities->normalizePolishNip($scalarTaxId) : null;
+        if ($this->values->text($scalarTaxId) !== null && $scalarNip === null) {
+            return false;
+        }
         $hash = base64_decode((string) $submission->invoice_hash, true);
         if ($nip === null || ($scalarNip !== null && $nip !== $scalarNip)
             || $submission->seller_nip !== $nip || $submission->context_nip !== $nip

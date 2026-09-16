@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Ksef;
 
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Contracts\Encryption\Encrypter;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +19,7 @@ use Modules\Ksef\Services\KsefSubmissionRecoveryService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Process\Process;
 use Tests\Support\Ksef\CreatesSubmissionRecoveryScenario;
+use Tests\Support\Ksef\SubmissionRecoveryProcessEnvironment;
 use Tests\Support\KsefOnlineSessionApiFake;
 use Tests\TestCase;
 
@@ -28,34 +31,91 @@ class KsefSubmissionRecoveryConcurrencyTest extends TestCase
 
     private array $children = [];
 
-    protected function setUp(): void
+    private array $environmentBefore = [];
+
+    private ?Encrypter $modelEncrypterBefore = null;
+
+    public function createApplication()
     {
-        parent::setUp();
         $this->directory = sys_get_temp_dir().'/ksef-recovery-test-'.bin2hex(random_bytes(8));
         mkdir($this->directory);
         touch($this->directory.'/isolated.sqlite');
-        config()->set('database.connections.sqlite.database', $this->directory.'/isolated.sqlite');
-        DB::purge('sqlite');
+        touch($this->directory.'/.env');
+        $this->modelEncrypterBefore = KsefInvoiceSubmission::$encrypter;
+        foreach (SubmissionRecoveryProcessEnvironment::variables($this->directory) as $key => $value) {
+            $this->environmentBefore[$key] = [getenv($key), $_ENV[$key] ?? null, $_SERVER[$key] ?? null];
+            putenv($key.'='.$value);
+            $_ENV[$key] = $_SERVER[$key] = $value;
+        }
+        $app = require dirname(__DIR__, 3).'/bootstrap/app.php';
+        $app->useEnvironmentPath($this->directory);
+        $this->traitsUsedByTest = array_flip(class_uses_recursive(static::class));
+        $app->make(Kernel::class)->bootstrap();
+        SubmissionRecoveryProcessEnvironment::configureEncryption($app);
+
+        return $app;
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->assertTrue(app()->environment('testing'));
+        $this->assertSame(realpath($this->directory.'/isolated.sqlite'), realpath(DB::connection()->getDatabaseName()));
+        $this->assertTrue(KsefInvoiceSubmission::currentEncrypter()->getKey() === SubmissionRecoveryProcessEnvironment::encrypter()->getKey());
+        $this->assertSame([], KsefInvoiceSubmission::currentEncrypter()->getPreviousKeys());
         Http::preventStrayRequests();
         Http::fake([]);
         Queue::fake();
-        Artisan::call('migrate', ['--force' => true]);
+        $this->assertSame(0, Artisan::call('migrate', ['--force' => true]));
     }
 
     protected function tearDown(): void
     {
-        foreach ($this->children as $process) {
-            if ($process->isRunning()) {
-                $process->stop(0);
+        try {
+            foreach ($this->children as $process) {
+                if ($process->isRunning()) {
+                    $process->stop(0);
+                }
+            }
+            DB::disconnect('sqlite');
+            $path = realpath($this->directory);
+            if ($path !== false && str_starts_with(basename($path), 'ksef-recovery-test-')
+                && dirname($path) === realpath(sys_get_temp_dir())) {
+                File::deleteDirectory($path);
+            }
+        } finally {
+            try {
+                parent::tearDown();
+            } finally {
+                KsefInvoiceSubmission::encryptUsing($this->modelEncrypterBefore);
+                foreach ($this->environmentBefore as $key => [$process, $env, $server]) {
+                    putenv($process === false ? $key : $key.'='.$process);
+                    if ($env === null) {
+                        unset($_ENV[$key]);
+                    } else {
+                        $_ENV[$key] = $env;
+                    }
+                    if ($server === null) {
+                        unset($_SERVER[$key]);
+                    } else {
+                        $_SERVER[$key] = $server;
+                    }
+                }
             }
         }
-        DB::disconnect('sqlite');
-        $path = realpath($this->directory);
-        if ($path !== false && str_starts_with(basename($path), 'ksef-recovery-test-')
-            && dirname($path) === realpath(sys_get_temp_dir())) {
-            File::deleteDirectory($path);
-        }
-        parent::tearDown();
+    }
+
+    public function test_child_reads_parent_encrypted_fixture_with_the_isolated_encrypter(): void
+    {
+        $submission = $this->preparing();
+        $before = $submission->fresh()->getRawOriginal();
+        $this->assertTrue($submission->payload_xml !== $submission->getRawOriginal('payload_xml'));
+        $result = $this->finish($this->start($submission, 'reader', 'read_payload'));
+        $this->assertChildIsolation($result);
+        $this->assertSame($before, $submission->fresh()->getRawOriginal());
+        $this->assertCount(0, glob($this->directory.'/*.invoice-post'));
+        Http::assertNothingSent();
+        Queue::assertNothingPushed();
     }
 
     public function test_common_transport_commits_post_boundary_before_http(): void
@@ -168,11 +228,25 @@ class KsefSubmissionRecoveryConcurrencyTest extends TestCase
         $this->release('a');
         $this->release('b');
         $results = [$this->finish($a), $this->finish($b)];
-        $this->assertCount(1, array_filter($results, fn ($result) => ($result['applied'] ?? false) === true));
+        foreach ($results as $result) {
+            $this->assertChildIsolation($result);
+            $this->assertTrue($result['lease_expired']);
+        }
+        $this->assertCount(1, array_filter($results, fn ($result) => ($result['applied'] ?? false) === true), json_encode($results, JSON_THROW_ON_ERROR));
         $this->assertSame(Status::TechnicalFailed, $submission->fresh()->status);
         $this->assertNotNull($submission->fresh()->recovered_at);
         $this->assertCount(0, glob($this->directory.'/*.invoice-post'));
         $this->assertDatabaseCount('jobs', 0);
+        Http::assertNothingSent();
+        Queue::assertNothingPushed();
+    }
+
+    private function assertChildIsolation(array $result): void
+    {
+        foreach (['payload_readable', 'payload_matches', 'effective_key_is_test_key', 'cipher_is_test_cipher', 'database_is_isolated'] as $field) {
+            $this->assertTrue($result[$field], $field);
+        }
+        $this->assertNull($result['payload_error_class']);
     }
 
     public function test_recovery_races_with_post_boundary_without_regranting_a_post(): void

@@ -11,6 +11,7 @@ use Modules\Ksef\Exceptions\KsefApiException;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefSubmissionExecution;
 use Modules\Ksef\Services\KsefSubmissionRecoveryService;
+use Tests\Support\Ksef\SubmissionRecoveryProcessEnvironment;
 
 require dirname(__DIR__, 3).'/vendor/autoload.php';
 [$script, $directory, $id, $name, $stage, $now] = $argv;
@@ -19,13 +20,7 @@ if ($realDirectory === false || ! str_starts_with(basename($realDirectory), 'kse
     || ! is_file($realDirectory.'/isolated.sqlite')) {
     exit(90);
 }
-$variables = [
-    'APP_ENV' => 'testing', 'APP_KEY' => 'base64:QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=',
-    'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => $realDirectory.'/isolated.sqlite', 'DB_URL' => '',
-    'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync', 'MAIL_MAILER' => 'array', 'SESSION_DRIVER' => 'array',
-    'LOG_CHANNEL' => 'null', 'APP_CONFIG_CACHE' => $realDirectory.'/absent-config.php',
-    'LARAVEL_STORAGE_PATH' => $realDirectory.'/storage',
-];
+$variables = SubmissionRecoveryProcessEnvironment::variables($realDirectory);
 foreach ($variables as $key => $value) {
     putenv($key.'='.$value);
     $_ENV[$key] = $_SERVER[$key] = $value;
@@ -33,6 +28,7 @@ foreach ($variables as $key => $value) {
 $app = require dirname(__DIR__, 3).'/bootstrap/app.php';
 $app->useEnvironmentPath($realDirectory);
 $app->make(Kernel::class)->bootstrap();
+SubmissionRecoveryProcessEnvironment::configureEncryption($app);
 Http::preventStrayRequests();
 Http::fake(fn () => throw new RuntimeException('Network forbidden in recovery process.'));
 Queue::fake();
@@ -55,9 +51,33 @@ function barrier(string $directory, string $name): void
 try {
     $execution = $app->make(KsefSubmissionExecution::class);
     $submission = KsefInvoiceSubmission::query()->findOrFail((int) $id);
-    if ($stage === 'apply') {
-        barrier($directory, $name);
-        $result = $app->make(KsefSubmissionRecoveryService::class)->apply((int) $id);
+    if (in_array($stage, ['apply', 'read_payload'], true)) {
+        $payloadReadable = false;
+        $payloadMatches = false;
+        $payloadErrorClass = null;
+        try {
+            $payload = $submission->payload_xml;
+            $payloadReadable = is_string($payload) && $payload !== '';
+            $payloadMatches = $payloadReadable && strlen($payload) === $submission->invoice_size
+                && base64_encode(hash('sha256', $payload, true)) === $submission->invoice_hash;
+        } catch (Throwable $exception) {
+            $payloadErrorClass = $exception::class;
+        }
+        $diagnostics = [
+            'payload_readable' => $payloadReadable, 'payload_matches' => $payloadMatches,
+            'payload_error_class' => $payloadErrorClass,
+            'effective_key_is_test_key' => KsefInvoiceSubmission::currentEncrypter()->getKey() === SubmissionRecoveryProcessEnvironment::encrypter()->getKey()
+                && KsefInvoiceSubmission::currentEncrypter()->getPreviousKeys() === [],
+            'cipher_is_test_cipher' => config('app.cipher') === SubmissionRecoveryProcessEnvironment::CIPHER,
+            'database_is_isolated' => realpath(DB::connection()->getDatabaseName()) === realpath($realDirectory.'/isolated.sqlite'),
+            'lease_expired' => $submission->execution_expires_at?->lte(CarbonImmutable::now('UTC')),
+        ];
+        if ($stage === 'apply') {
+            barrier($directory, $name);
+            $result = $app->make(KsefSubmissionRecoveryService::class)->apply((int) $id) + $diagnostics;
+        } else {
+            $result = $diagnostics;
+        }
     } else {
         if ($stage === 'before_claim') {
             barrier($directory, $name);

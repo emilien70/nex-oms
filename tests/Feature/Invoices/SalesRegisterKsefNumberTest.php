@@ -98,6 +98,75 @@ class SalesRegisterKsefNumberTest extends TestCase
         ];
     }
 
+    #[DataProvider('invalidSellerTaxIds')]
+    public function test_invalid_seller_tax_id_keeps_both_documents_and_totals(array $attributes): void
+    {
+        $invalid = $this->invoice($attributes);
+        $valid = $this->invoice();
+        $this->submission($invalid);
+        $this->submission($valid, ['ksef_number' => $this->number('2')]);
+        $before = DB::table('invoices')->orderBy('id')->get()->toArray();
+        $submissionsBefore = DB::table('ksef_invoice_submissions')->orderBy('id')->get()->toArray();
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        try {
+            $report = app(SalesRegisterDataService::class)->build(SalesRegisterFilters::forDocuments([$invalid->id, $valid->id]));
+            $queries = DB::getQueryLog();
+        } finally {
+            DB::disableQueryLog();
+        }
+
+        $rows = array_column($report['records'], null, 'id');
+        $this->assertCount(2, $rows);
+        $this->assertNull($rows[$invalid->id]['ksef_number']);
+        $this->assertContains('sales_register_ksef_link_invalid', array_column($rows[$invalid->id]['warnings'], 'code'));
+        $this->assertSame($this->number('2'), $rows[$valid->id]['ksef_number']);
+        foreach ($rows as $row) {
+            $this->assertSame(['net' => '1.00', 'vat' => '0.23', 'gross' => '1.23'], $row['totals']);
+        }
+        $this->assertSame(['net' => '2.00', 'vat' => '0.46', 'gross' => '2.46'], $report['summaries']['currencies']['PLN']['totals']);
+        foreach ($queries as $query) {
+            $this->assertMatchesRegularExpression('/^select\b/i', $query['query']);
+        }
+        $this->assertEquals($before, DB::table('invoices')->orderBy('id')->get()->toArray());
+        $this->assertEquals($submissionsBefore, DB::table('ksef_invoice_submissions')->orderBy('id')->get()->toArray());
+        Http::assertNothingSent();
+        Bus::assertNothingDispatched();
+    }
+
+    public static function invalidSellerTaxIds(): array
+    {
+        return [
+            'array' => [['seller_snapshot' => ['tax_id' => ['1234563218']]]],
+            'boolean true' => [['seller_snapshot' => ['tax_id' => true]]],
+            'boolean false' => [['seller_snapshot' => ['tax_id' => false]]],
+            'JSON object decoded as structure' => [['seller_snapshot' => ['tax_id' => (object) ['value' => '1234563218']]]],
+            'explicit null' => [['seller_snapshot' => ['tax_id' => null]]],
+            'explicit empty' => [['seller_snapshot' => ['tax_id' => '']]],
+            'invalid scalar text' => [['seller_tax_id_snapshot' => 'not-a-nip']],
+            'scalar persisted in TEXT column' => [['seller_tax_id_snapshot' => true]],
+            'conflicting valid scalar' => [['seller_tax_id_snapshot' => '5260250995']],
+        ];
+    }
+
+    #[DataProvider('validSellerTaxIds')]
+    public function test_valid_seller_tax_id_normalization_and_missing_key_fallback_are_preserved(array $attributes): void
+    {
+        $invoice = $this->invoice($attributes);
+        $this->submission($invoice);
+        $this->assertSame($this->number(), $this->row($invoice)['ksef_number']);
+    }
+
+    public static function validSellerTaxIds(): array
+    {
+        return [
+            'missing snapshot key' => [['seller_snapshot' => []]],
+            'formatted snapshot and scalar' => [['seller_snapshot' => ['tax_id' => 'PL 123-456-32-18'], 'seller_tax_id_snapshot' => 'PL 123-456-32-18']],
+            'snapshot without scalar' => [['seller_tax_id_snapshot' => null]],
+        ];
+    }
+
     public function test_conflicting_provenance_or_seller_snapshot_never_selects_arbitrary_number(): void
     {
         $invoice = $this->invoice();
