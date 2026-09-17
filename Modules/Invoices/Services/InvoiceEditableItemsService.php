@@ -46,7 +46,7 @@ class InvoiceEditableItemsService
             'unit_name' => trim((string) $data['unit_name']),
             'quantity' => $quantity,
             ...$identity,
-            'gtu_codes' => $item?->gtu_codes ?? [],
+            'gtu_codes' => array_key_exists('gtu_codes', $data) ? InvoiceGtuCodes::normalize($data['gtu_codes']) : ($item?->gtu_codes ?? []),
             'product_snapshot' => $item?->product_snapshot,
             'metadata' => $item?->metadata ?? ['source' => 'manual_invoice_edit'],
         ], $this->totals->calculateLine(

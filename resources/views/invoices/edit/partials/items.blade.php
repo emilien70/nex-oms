@@ -8,7 +8,9 @@
             <tbody>
             @foreach($invoice->items as $item)
                 <tr class="invoice-item-row" data-invoice-item-row="{{ $item->id }}">
-                    <td><div>{{ $item->name }}</div>@if($item->description)<small class="text-muted">{{ $item->description }}</small>@endif</td>
+                    <td><div>{{ $item->name }}</div>@if($item->description)<small class="text-muted">{{ $item->description }}</small>@endif
+                        <button class="btn btn-link btn-sm p-0 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#invoiceItemGtu{{ $item->id }}" aria-expanded="false" aria-controls="invoiceItemGtu{{ $item->id }}">GTU: {{ implode(', ', $item->gtu_codes ?? []) ?: 'Brak zapisanych GTU' }}</button>
+                    </td>
                     <td class="text-end">{{ rtrim(rtrim($item->quantity, '0'), '.') }}</td>
                     <td class="text-end">{{ $moneyFormatter->format($item->unit_price_gross) }} {{ $invoice->currency }}</td>
                     <td class="text-end">{{ $item->vat_code ?: rtrim(rtrim($item->vat_rate, '0'), '.').'%' }}</td>
@@ -71,6 +73,23 @@
                                 </div>
                             </form>
                         </div>
+                    </td>
+                </tr>
+                <tr class="collapse invoice-item-editor-row" id="invoiceItemGtu{{ $item->id }}" data-invoice-gtu-editor>
+                    <td colspan="6">
+                        <form method="POST" action="{{ route('invoices.items.update', [$invoice, $item]) }}" data-invoice-ajax-form class="invoice-item-inline-form">
+                            @csrf @method('PATCH')
+                            <input type="hidden" name="expected_lock_version" value="{{ $invoice->lock_version }}" data-lock-version-input>
+                            <input type="hidden" name="gtu_only" value="1">
+                            <input type="hidden" name="gtu_codes_present" value="1">
+                            <div class="alert alert-danger invoice-edit-error" data-form-error hidden></div>
+                            <div class="d-flex flex-wrap gap-3 mb-3" role="group" aria-label="GTU pozycji {{ $item->position }}">
+                                @foreach (\Modules\Invoices\Services\InvoiceGtuCodes::ALLOWED as $code)
+                                    <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="gtu_codes[]" value="{{ $code }}" @checked(in_array($code, $item->gtu_codes ?? [], true))><span class="form-check-label">{{ $code }}</span></label>
+                                @endforeach
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary" type="submit">Zapisz GTU</button>
+                        </form>
                     </td>
                 </tr>
             @endforeach

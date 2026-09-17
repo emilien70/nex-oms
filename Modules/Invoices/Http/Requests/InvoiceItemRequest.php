@@ -2,15 +2,24 @@
 
 namespace Modules\Invoices\Http\Requests;
 
+use Closure;
+use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
 use Modules\Invoices\Rules\InvoiceVatPercentageRule;
 use Modules\Invoices\Services\InvoiceFinancialLimits;
 use Modules\Invoices\Services\InvoiceFinancialValueValidator;
+use Modules\Invoices\Services\InvoiceGtuCodes;
 
 class InvoiceItemRequest extends InvoiceEditRequest
 {
     protected function prepareForValidation(): void
     {
+        if ($this->input('gtu_codes_present') === '1' && ! $this->exists('gtu_codes')) {
+            $this->merge(['gtu_codes' => []]);
+        }
+        if ($this->boolean('gtu_only')) {
+            return;
+        }
         $code = strtoupper(trim((string) $this->input('vat_code')));
         $this->merge([
             'vat_code' => $code === '' ? null : $code,
@@ -21,7 +30,22 @@ class InvoiceItemRequest extends InvoiceEditRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        return [
+        $gtuRules = ['gtu_only' => ['sometimes', 'boolean'], 'gtu_codes' => [
+            $this->boolean('gtu_only') ? 'present' : 'sometimes',
+            'array', 'list',
+            function (string $attribute, mixed $value, Closure $fail): void {
+                try {
+                    InvoiceGtuCodes::normalize($value);
+                } catch (InvoiceDomainException $exception) {
+                    $fail($exception->getMessage());
+                }
+            },
+        ]];
+        if ($this->boolean('gtu_only') && $this->routeIs('invoices.items.update')) {
+            return $gtuRules + ['expected_lock_version' => ['required', 'integer', 'min:1']];
+        }
+
+        return $gtuRules + [
             'expected_lock_version' => ['required', 'integer', 'min:1'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:1000'],

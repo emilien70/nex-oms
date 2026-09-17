@@ -9,6 +9,7 @@ use Illuminate\Support\MessageBag;
 use Illuminate\Support\ViewErrorBag;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Http\Requests\SalesRegisterRequest;
+use Modules\Invoices\Services\JpkTaxpayerProfileService;
 use Modules\Invoices\Services\JpkV7m3Context;
 use Modules\Invoices\Services\JpkV7m3Exporter;
 use Modules\Invoices\Services\SalesRegisterDataService;
@@ -31,6 +32,16 @@ class SalesRegisterController extends Controller
             $data->build($request->filters());
         } catch (InvoiceDomainException $exception) {
             return $this->invalid($request, $form, $exception);
+        }
+
+        return $this->create($request, $form);
+    }
+
+    public function loadProfile(Request $request, SalesRegisterFormData $form, JpkTaxpayerProfileService $profiles): Response
+    {
+        $profile = $profiles->current();
+        if ($profile !== null) {
+            $request->merge($profile->formValues());
         }
 
         return $this->create($request, $form);

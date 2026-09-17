@@ -112,6 +112,14 @@ class SalesRegisterRequest extends FormRequest
         ];
     }
 
+    public function attributes(): array
+    {
+        return ['jpk_type' => 'Typ podatnika', 'jpk_nip' => 'NIP podatnika', 'jpk_office' => 'Urząd skarbowy',
+            'jpk_email' => 'E-mail', 'jpk_phone' => 'Telefon', 'jpk_name' => 'Pełna nazwa podatnika',
+            'jpk_first_name' => 'Pierwsze imię', 'jpk_last_name' => 'Nazwisko', 'jpk_birth_date' => 'Data urodzenia',
+            'jpk_year' => 'Rok JPK', 'jpk_month' => 'Miesiąc JPK', 'jpk_purpose' => 'Cel pliku'];
+    }
+
     protected function failedValidation(Validator $validator): void
     {
         throw new HttpResponseException(response()->view('invoices.sales-register.form',

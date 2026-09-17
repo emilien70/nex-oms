@@ -163,6 +163,15 @@ class KsefOfflineIssuanceTest extends TestCase
         $this->assertDatabaseCount('ksef_invoice_provenances', 0);
         $this->assertFalse(Schema::hasColumn('ksef_offline_issuances', 'private_key_pem'));
         $this->assertFalse(Schema::hasColumn('ksef_offline_issuances', 'certificate_pem'));
+        $invoice->refresh();
+        $item = $invoice->items()->first();
+        $before = $item->gtu_codes;
+        $this->patchJson(route('invoices.items.update', [$invoice, $item]), [
+            'expected_lock_version' => $invoice->lock_version, 'gtu_only' => true, 'gtu_codes' => ['GTU_06'],
+        ])->assertUnprocessable()->assertJsonPath('code', 'invoice_finalized');
+        $this->assertSame($before, $item->fresh()->gtu_codes);
+        $this->assertSame($xml, $issuance->fresh()->payload_xml);
+        $this->get(route('invoices.edit', $invoice))->assertOk()->assertDontSee('Zapisz GTU');
         Http::assertNothingSent();
     }
 

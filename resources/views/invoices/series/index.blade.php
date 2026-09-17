@@ -523,6 +523,7 @@
 
     <div class="invoice-series-page">
         @include('invoices._navigation')
+        @include('invoices._settings-navigation')
 
         <div class="invoice-series-info" role="note">
             <i class="bi bi-info-circle me-2" aria-hidden="true"></i>

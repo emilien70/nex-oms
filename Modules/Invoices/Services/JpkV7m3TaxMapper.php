@@ -20,11 +20,13 @@ final class JpkV7m3TaxMapper
         $tax = data_get($metadata, $correction ? 'ksef_correction' : 'ksef_tax');
         if (! is_array($tax) || ($tax['version'] ?? null) !== 1 || ($tax['profile'] ?? null) !== ($correction ? 'correction' : 'ordinary')
             || ! is_array($tax['line_treatments'] ?? null) || ! array_is_list($tax['line_treatments'])) {
-            JpkV7m3Context::fail($id, 'klasyfikacja VAT', 'Brak utrwalonej, wersjonowanej klasyfikacji pozycji.');
+            JpkV7m3Context::fail($id, 'klasyfikacja VAT', 'Brak utrwalonej, wersjonowanej klasyfikacji pozycji.', 'classification_missing');
         }
         foreach (['jpk_procedures', 'procedures', 'document_type', 'oss', 'margin_scheme', 'reverse_charge', 'bad_debt_relief'] as $key) {
             if (! empty($metadata[$key])) {
-                JpkV7m3Context::fail($id, $key, 'Procedura szczególna nie jest obsługiwana w tym profilu.');
+                $detected = is_array($metadata[$key]) ? $metadata[$key] : [$metadata[$key]];
+                $detected = array_values(array_filter($detected, static fn ($code) => is_string($code) && strlen($code) <= 40));
+                JpkV7m3Context::fail($id, $key, 'Procedura szczególna nie jest obsługiwana w tym profilu.', 'procedure_unsupported', ['detected_codes' => $detected]);
             }
         }
         $annotations = data_get($metadata, 'ksef_tax.annotations', []);
@@ -33,11 +35,11 @@ final class JpkV7m3TaxMapper
         }
         foreach ($annotations as $key => $value) {
             if ($key !== 'split_payment' && $value !== false && $value !== null) {
-                JpkV7m3Context::fail($id, 'annotations.'.$key, 'Procedura szczególna wymaga odrębnego mapowania JPK.');
+                JpkV7m3Context::fail($id, 'annotations.'.$key, 'Procedura szczególna wymaga odrębnego mapowania JPK.', 'procedure_unsupported');
             }
         }
         if ($record['totals'] === null || $record['vat_groups'] === null || $record['pln'] === null || $record['pln']['groups'] === null) {
-            JpkV7m3Context::fail($id, 'kwoty PLN', 'Brak spójnych kwot, grup VAT lub historycznego przeliczenia PLN.');
+            JpkV7m3Context::fail($id, 'kwoty PLN', 'Brak spójnych kwot, grup VAT lub historycznego przeliczenia PLN.', 'pln_invalid');
         }
         if ($correction) {
             foreach ($record['warnings'] as $warning) {
@@ -77,18 +79,21 @@ final class JpkV7m3TaxMapper
             $states = $correction ? [[$item->correction_before_snapshot, $entry['before'] ?? null, -1], [$item->correction_after_snapshot, $entry['after'] ?? null, 1]]
                 : [[$item->getAttributes(), array_diff_key($entry, array_flip(['invoice_item_id', 'position'])), 1]];
             foreach ($states as [$state, $meaning, $sign]) {
+                if (is_array($meaning) && ($meaning['status'] ?? null) === 'unsupported') {
+                    JpkV7m3Context::fail($id, 'VAT', 'Zapisana stawka lub klasyfikacja nie jest obsługiwana w tym profilu.', 'vat_unsupported');
+                }
                 if (! is_array($state) || ! is_array($meaning) || ($meaning['status'] ?? null) !== 'resolved'
                     || ($totals = $this->values->totals($state, 'total_')) === null || ($identity = $this->values->identity($state)) === null
                     || ! $this->canonical($state, $meaning)) {
-                    JpkV7m3Context::fail($id, 'pozycja '.$item->id, 'Brak spójnego stanu i jednoznacznej klasyfikacji VAT.');
+                    JpkV7m3Context::fail($id, 'pozycja '.$item->id, 'Brak spójnego stanu i jednoznacznej klasyfikacji VAT.', 'classification_missing');
                 }
                 $fields = match ($meaning['treatment']) {
                     'standard' => match ($identity['vat_rate']) {
                         '23.00', '22.00' => ['K_19', 'K_20'], '8.00', '7.00' => ['K_17', 'K_18'], '5.00' => ['K_15', 'K_16'],
-                        default => JpkV7m3Context::fail($id, 'VAT', 'Nieobsługiwana stawka krajowa.'),
+                        default => JpkV7m3Context::fail($id, 'VAT', 'Nieobsługiwana stawka krajowa.', 'vat_unsupported'),
                     },
                     'domestic_zero' => ['K_13'], 'wdt' => ['K_21'], 'export' => ['K_22'],
-                    default => JpkV7m3Context::fail($id, 'VAT', 'Nieobsługiwana klasyfikacja podatkowa.'),
+                    default => JpkV7m3Context::fail($id, 'VAT', 'Nieobsługiwana klasyfikacja podatkowa.', 'vat_unsupported'),
                 };
                 if (count($fields) === 1 && $totals['vat'] !== '0.00') {
                     JpkV7m3Context::fail($id, 'VAT', 'Niezgodny podatek przy stawce zerowej.');
@@ -111,7 +116,7 @@ final class JpkV7m3TaxMapper
             if ($correction && ! $changed && $codes !== []) {
                 foreach (['name', 'description', 'unit_name'] as $field) {
                     if (($states[0][0][$field] ?? null) !== ($states[1][0][$field] ?? null)) {
-                        JpkV7m3Context::fail($id, 'GTU', 'Korekta formalna pozycji z GTU wymaga odrębnego ustalenia oznaczeń.');
+                        JpkV7m3Context::fail($id, 'GTU', 'Korekta formalna pozycji z GTU wymaga odrębnego ustalenia oznaczeń.', 'formal_gtu_unresolved');
                     }
                 }
             }
@@ -122,7 +127,7 @@ final class JpkV7m3TaxMapper
             }
         }
         if ($correction && $hasGtu && ! $hasChangedItem) {
-            JpkV7m3Context::fail($id, 'GTU', 'Korekta wyłącznie formalna z GTU wymaga odrębnego ustalenia oznaczeń.');
+            JpkV7m3Context::fail($id, 'GTU', 'Korekta wyłącznie formalna z GTU wymaga odrębnego ustalenia oznaczeń.', 'formal_gtu_unresolved');
         }
         // Reconcile persisted line states against the common report, ignoring absent zero-delta groups only.
         $expected = array_column($record['vat_groups'], null, 'key');
@@ -134,13 +139,13 @@ final class JpkV7m3TaxMapper
         if ($record['currency'] !== 'PLN') {
             foreach ($categories as $options) {
                 if (count($options) !== 1) {
-                    JpkV7m3Context::fail($id, 'grupy PLN', 'Zapisane przeliczenie nie rozdziela kategorii JPK o tej samej tożsamości VAT.');
+                    JpkV7m3Context::fail($id, 'grupy PLN', 'Zapisane przeliczenie nie rozdziela kategorii JPK o tej samej tożsamości VAT.', 'pln_invalid');
                 }
             }
             foreach ($record['pln']['groups'] as $group) {
                 $options = $categories[$group['key']] ?? [];
                 if (count($options) !== 1) {
-                    JpkV7m3Context::fail($id, 'grupy PLN', 'Brak jednoznacznego powiązania grupy z kategorią JPK.');
+                    JpkV7m3Context::fail($id, 'grupy PLN', 'Brak jednoznacznego powiązania grupy z kategorią JPK.', 'pln_invalid');
                 }
                 $fields = reset($options);
                 $amounts[$fields[0]] = $this->decimal->add($amounts[$fields[0]] ?? '0.00', $group['net']);

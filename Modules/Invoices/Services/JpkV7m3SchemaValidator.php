@@ -69,7 +69,8 @@ final class JpkV7m3SchemaValidator
             $error = $errors[0];
             $id = $documentIds[($error['row'] ?? 0) - 1] ?? null;
             throw new InvoiceDomainException('sales_register_jpk_invalid', ($id === null ? '' : 'Dokument ID '.$id.', ')
-                .'pole '.($error['field'] ?? 'XML').': plik nie przeszedł walidacji oficjalnym XSD JPK_V7M(3) (kod '.$error['code'].', wiersz '.$error['line'].'). Sprawdź wymaganą wartość, długość i format.');
+                .'pole '.($error['field'] ?? 'XML').': plik nie przeszedł walidacji oficjalnym XSD JPK_V7M(3) (kod '.$error['code'].', wiersz '.$error['line'].'). Sprawdź wymaganą wartość, długość i format.',
+                ['reason' => 'xsd_invalid', 'field' => $error['field'] ?? 'XML', 'document_id' => $id]);
         }
     }
 }

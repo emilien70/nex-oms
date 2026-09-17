@@ -30,6 +30,7 @@ use Modules\Invoices\Http\Controllers\InvoiceOrderItemsCopyController;
 use Modules\Invoices\Http\Controllers\InvoicePdfController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesController;
 use Modules\Invoices\Http\Controllers\InvoiceSeriesNextNumberController;
+use Modules\Invoices\Http\Controllers\JpkTaxpayerProfileController;
 use Modules\Invoices\Http\Controllers\OrderInvoiceController;
 use Modules\Invoices\Http\Controllers\OrderProformaController;
 use Modules\Invoices\Http\Controllers\SalesRegisterController;
@@ -166,6 +167,10 @@ Route::patch('/invoices/{invoice}/items/{invoiceItem}', [InvoiceItemController::
 Route::delete('/invoices/{invoice}/items/{invoiceItem}', [InvoiceItemController::class, 'destroy'])->name('invoices.items.destroy');
 Route::get('/invoices/{invoice}/pdf', [InvoicePdfController::class, 'show'])->name('invoices.pdf');
 Route::get('/invoices/settings/series', [InvoiceSeriesController::class, 'index'])->name('invoices.series.index');
+Route::get('/invoices/settings/jpk', [JpkTaxpayerProfileController::class, 'form'])->name('invoices.jpk-profile.edit');
+Route::post('/invoices/settings/jpk', [JpkTaxpayerProfileController::class, 'save'])->name('invoices.jpk-profile.save');
+Route::post('/invoices/settings/jpk/suggest', [JpkTaxpayerProfileController::class, 'suggest'])->name('invoices.jpk-profile.suggest');
+Route::post('/invoices/sales-register/profile', [SalesRegisterController::class, 'loadProfile'])->name('invoices.sales-register.profile');
 Route::get('/invoices/settings/series/form', [InvoiceSeriesController::class, 'form'])->name('invoices.series.form');
 Route::post('/invoices/settings/series', [InvoiceSeriesController::class, 'store'])->name('invoices.series.store');
 Route::get('/invoices/settings/series/{series}/edit', [InvoiceSeriesController::class, 'edit'])->name('invoices.series.edit');

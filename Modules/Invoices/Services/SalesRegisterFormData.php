@@ -45,13 +45,17 @@ final class SalesRegisterFormData
             'jpk_email' => '', 'jpk_phone' => '', 'jpk_purpose' => '1', 'jpk_name' => '',
             'jpk_first_name' => '', 'jpk_last_name' => '', 'jpk_birth_date' => '',
         ];
+        $jpkProfile = app(JpkTaxpayerProfileService::class)->current();
+        $values = array_replace($values, $jpkProfile?->formValues() ?? []);
         if ($request->isMethod('post')) {
             foreach ($values as $field => $default) {
                 $value = $request->input($field);
                 if ($field === 'series_ids') {
                     $values[$field] = is_array($value) ? array_filter($value, 'is_scalar') : [];
-                } elseif (is_scalar($value)) {
-                    $values[$field] = (string) $value;
+                } elseif ($request->exists($field)) {
+                    $values[$field] = is_scalar($value) ? (string) $value : '';
+                } elseif (str_starts_with($field, 'jpk_') && ! $request->routeIs('invoices.sales-register.selected')) {
+                    $values[$field] = '';
                 }
             }
             $values['mode'] = $request->routeIs('invoices.sales-register.selected') || $request->input('mode') === 'ids' ? 'ids' : 'period';
@@ -69,7 +73,8 @@ final class SalesRegisterFormData
         $returnContext = InvoiceReturnContext::fromRequest($returnRequest, InvoiceReturnContext::INVOICES);
         $ids = json_decode($values['document_ids'], true);
 
-        return compact('series', 'years', 'currencies', 'countries', 'values', 'returnContext') + [
+        return compact('series', 'years', 'currencies', 'countries', 'values', 'returnContext', 'jpkProfile') + [
+            'offices' => app(JpkTaxOfficeCatalog::class)->all(),
             'selectedCount' => is_array($ids) && array_is_list($ids) ? count(array_unique($ids, SORT_REGULAR)) : 0,
             'months' => [1 => 'Styczeń', 'Luty', 'Marzec', 'Kwiecień', 'Maj', 'Czerwiec', 'Lipiec', 'Sierpień', 'Wrzesień', 'Październik', 'Listopad', 'Grudzień'],
         ];

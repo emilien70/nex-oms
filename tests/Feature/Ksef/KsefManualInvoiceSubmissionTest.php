@@ -70,6 +70,14 @@ class KsefManualInvoiceSubmissionTest extends TestCase
         $this->assertSame(1, $fake->sendCalls);
         $this->assertSame(1, $fake->closeCalls);
         $this->assertSame(1, $fake->statusCalls);
+        $invoice->refresh();
+        $item = $invoice->items()->first();
+        $before = $item->gtu_codes;
+        $this->patchJson(route('invoices.items.update', [$invoice, $item]), [
+            'expected_lock_version' => $invoice->lock_version, 'gtu_only' => true, 'gtu_codes' => ['GTU_06'],
+        ])->assertUnprocessable()->assertJsonPath('code', 'invoice_finalized');
+        $this->assertSame($before, $item->fresh()->gtu_codes);
+        $this->get(route('invoices.edit', $invoice))->assertOk()->assertDontSee('Zapisz GTU');
     }
 
     public function test_demo_manual_send_uses_demo_credential_host_and_dynamic_success_message(): void

@@ -17,6 +17,7 @@ use Modules\Invoices\Services\CorrectionTotalsCalculator;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceTotalsCalculator;
+use Modules\Invoices\Services\JpkTaxpayerProfileService;
 use Modules\Invoices\Services\JpkV7m3Exporter;
 use Modules\Invoices\Services\JpkV7m3SchemaValidator;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
@@ -600,7 +601,11 @@ class SalesRegisterJpkTest extends TestCase
         $this->createDocumentItem($order, ['product_name' => 'Fictional B', 'unit_price_gross' => '61.50', 'total_price_gross' => '61.50']);
         $series = $this->createDocumentSeries(attributes: ['seller_tax_id' => '1234563218', 'include_shipping' => false]);
         $source = app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext('2026-09-01 12:00:00'));
-        $source->items()->orderBy('position')->first()->update(['gtu_codes' => ['GTU_06']]);
+        $sourceItem = $source->items()->orderBy('position')->first();
+        $this->patchJson(route('invoices.items.update', [$source, $sourceItem]), [
+            'expected_lock_version' => $source->lock_version, 'gtu_only' => true, 'gtu_codes' => ['GTU_06'],
+        ])->assertOk();
+        $source->refresh();
         $items = $source->items()->orderBy('position')->get()->map(fn ($item, $index) => [
             'source_item_id' => $item->id, 'order_item_id' => $item->order_item_id, 'line_type' => 'product',
             'position' => $item->position, 'name' => $item->name, 'description' => $item->description,
@@ -625,6 +630,90 @@ class SalesRegisterJpkTest extends TestCase
         $this->assertSame('-10.00', $xp->evaluate('string(//j:K_19)'));
         $this->assertSame('-2.30', $xp->evaluate('string(//j:K_20)'));
         Http::assertNothingSent();
+    }
+
+    public function test_review_distinguishes_empty_gtu_invalid_data_and_unsupported_procedures(): void
+    {
+        $valid = $this->invoice();
+        $invalid = $this->invoice();
+        $invalid->update(['tax_metadata_snapshot' => []]);
+        $unsupported = $this->invoice(['number' => '<script>alert(1)</script>']);
+        $unsupported->update(['tax_metadata_snapshot' => $unsupported->tax_metadata_snapshot + ['jpk_procedures' => ['MPP', '<svg onload=alert(1)>']]]);
+        $response = $this->post(route('invoices.sales-register.export'), $this->payload([$valid->id, $invalid->id, $unsupported->id]))
+            ->assertOk()->assertSee('Brak zapisanych GTU')->assertSee('Nie ustalono — błąd danych')->assertSee('Wykryte, nieeksportowane:')
+            ->assertDontSee('<script>alert(1)</script>', false)->assertDontSee('<svg onload=alert(1)>', false);
+        $rows = array_column($response->viewData('jpkReview')['documents'], null, 'id');
+        $this->assertSame([], $rows[$valid->id]['gtu']);
+        $this->assertNull($rows[$invalid->id]['gtu']);
+        $this->assertSame('classification_missing', $rows[$invalid->id]['diagnostics'][0]['code']);
+        $this->assertNull($rows[$unsupported->id]['markers']);
+        $this->assertSame('procedure_unsupported', $rows[$unsupported->id]['diagnostics'][0]['code']);
+        $this->assertSame(['MPP', '<svg onload=alert(1)>'], $rows[$unsupported->id]['diagnostics'][0]['detected_codes']);
+        $this->blocked($this->payload([$valid->id, $invalid->id, $unsupported->id]));
+    }
+
+    #[DataProvider('reviewDiagnostics')]
+    public function test_review_exposes_structured_actionable_problem(string $case, string $expected): void
+    {
+        $invoice = $this->invoice();
+        $payload = $this->payload([$invoice->id]);
+        if ($case === 'pln') {
+            $invoice->update(['currency' => 'EUR']);
+        } elseif ($case === 'confirmation') {
+            $payload['jpk_markers'] = [];
+        } elseif ($case === 'ksef') {
+            $this->submission($invoice);
+        } elseif ($case === 'xsd') {
+            $invoice->update(['number' => str_repeat('A', 300)]);
+        } elseif ($case === 'formal') {
+            $state = $this->state();
+            $invoice = $this->correctionLines([$state], [$state], [['GTU_06']]);
+            $payload = $this->payload([$invoice->id]);
+        } else {
+            $invoice = $this->invoice([], [$this->state('24.00', '124')]);
+            $payload = $this->payload([$invoice->id]);
+        }
+        $review = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
+        $issues = $case === 'xsd' ? $review['diagnostics'] : $review['documents'][0]['diagnostics'];
+        $this->assertSame($expected, $issues[0]['code']);
+        $this->assertNotEmpty($issues[0]['hint']);
+        $this->assertStringContainsString('Dokument ID '.$invoice->id, $issues[0]['message']);
+    }
+
+    public static function reviewDiagnostics(): array
+    {
+        return [['pln', 'pln_invalid'], ['confirmation', 'ksef_confirmation_required'], ['ksef', 'ksef_unresolved'],
+            ['xsd', 'xsd_invalid'], ['formal', 'formal_gtu_unresolved'], ['rate', 'vat_unsupported']];
+    }
+
+    public function test_changed_gtu_taxpayer_or_manual_marker_requires_fresh_review_and_hidden_gtu_is_ignored(): void
+    {
+        $invoice = $this->invoice();
+        $payload = $this->payload([$invoice->id]);
+        $review = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
+        $download = array_replace($payload, ['jpk_action' => 'download', 'jpk_confirm' => '1', 'jpk_fingerprint' => $review['fingerprint']]);
+        $this->post(route('invoices.sales-register.export'), array_replace($download, ['jpk_name' => 'Inny podatnik']))->assertStatus(422);
+        $this->post(route('invoices.sales-register.export'), array_replace($download, ['jpk_markers' => [$invoice->id => 'DI']]))->assertStatus(422);
+        $invoice->items()->first()->update(['gtu_codes' => ['GTU_06']]);
+        $this->post(route('invoices.sales-register.export'), $download)->assertStatus(422);
+        $xml = $this->export($payload + ['gtu_codes' => ['GTU_13'], 'jpk_gtu' => [$invoice->id => ['GTU_13']]]);
+        $xp = $this->xpath($xml);
+        $this->assertSame(0, $xp->query('//j:GTU_13')->length);
+        $this->assertSame(1, $xp->query('//j:GTU_06')->length);
+    }
+
+    public function test_profile_changes_do_not_silently_replace_confirmed_export_parameters(): void
+    {
+        $payload = $this->payload([$this->invoice()->id]);
+        $this->post(route('invoices.jpk-profile.save'), $payload + ['expected_lock_version' => 0])->assertRedirect();
+        $review = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
+        $this->post(route('invoices.jpk-profile.save'), array_replace($payload, ['expected_lock_version' => 1, 'jpk_email' => 'changed@example.test']))->assertRedirect();
+        $again = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
+        $this->assertSame($review['fingerprint'], $again['fingerprint']);
+        $xml = $this->export($payload);
+        $this->assertStringContainsString('<Email>test@example.test</Email>', $xml);
+        $this->assertStringNotContainsString('changed@example.test', $xml);
+        $this->assertSame('changed@example.test', app(JpkTaxpayerProfileService::class)->current()->email);
     }
 
     private function quantityState(string $quantity, string $unitGross, string $rate = '23.00'): array
@@ -711,6 +800,19 @@ class SalesRegisterJpkTest extends TestCase
         $this->assertFileExists($path);
         $xml = file_get_contents($path);
         $this->assertSame([], app(JpkV7m3SchemaValidator::class)->errors($xml));
+        $xp = $this->xpath($xml);
+        foreach ($review['documents'] as $index => $document) {
+            $row = $xp->query('//j:SprzedazWiersz')->item($index);
+            $gtu = [];
+            foreach ($xp->query('./*[starts-with(local-name(), "GTU_")]', $row) as $element) {
+                $gtu[] = $element->localName;
+            }
+            $this->assertSame($document['gtu'], $gtu);
+            $this->assertSame([], $document['markers']);
+            foreach ($document['choice'] as $field => $value) {
+                $this->assertSame($value, $xp->evaluate('string(j:'.$field.')', $row));
+            }
+        }
         ob_start();
         try {
             $response->baseResponse->sendContent();

@@ -155,6 +155,15 @@ class InvoiceEditService
     {
         return $this->mutate($invoice, (int) $data['expected_lock_version'], function (Invoice $managed) use ($item, $data): bool {
             $managedItem = InvoiceItem::query()->lockForUpdate()->where('invoice_id', $managed->getKey())->findOrFail($item->getKey());
+            if ($data['gtu_only'] ?? false) {
+                $codes = InvoiceGtuCodes::normalize($data['gtu_codes']);
+                if ($codes === $managedItem->gtu_codes) {
+                    return false;
+                }
+                $managedItem->fill(['gtu_codes' => $codes])->save();
+
+                return true;
+            }
             $attributes = $this->editableItems->manualAttributes($data, $managedItem);
             if (! $this->attributesDiffer($managedItem, $attributes)) {
                 return false;

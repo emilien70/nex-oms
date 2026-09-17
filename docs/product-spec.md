@@ -1174,7 +1174,7 @@ Nieblokujące ograniczenia opisują komentarze XML NEX-OMS po dokumentach (równ
 
 W rejestrze dostępny jest odrębny format `JPK_V7M (3) – KSeF`. Jest to eksport części sprzedażowej do programu księgowego, bez deklaracji VAT, zakupów, podpisu, wysyłki do MF i UPO. Zgodność XML/XSD nie oznacza kompletności rozliczenia, akceptacji urzędu ani potwierdzonej zgodności z konkretnym importerem księgowym. Nie przeprowadzono testu importu do programu księgowego.
 
-Użytkownik wskazuje jawny miesiąc/rok JPK od lutego 2026, niezależny od filtrów dat wybierających dokumenty. Dokumenty wcześniejsze są dozwolone i nie są automatycznie przenoszone do innego okresu. Parametry bieżącego eksportu obejmują typ podatnika, NIP zgodny z wystawcą wszystkich wybranych dokumentów, kod urzędu, e-mail, opcjonalny telefon, cel pliku oraz pełną nazwę osoby niefizycznej albo imię, nazwisko i datę urodzenia osoby fizycznej. Nie ma domyślnego podatnika z pierwszej serii, sztucznych danych ani zapisu tych parametrów w bazie/URL.
+Użytkownik wskazuje jawny miesiąc/rok JPK od lutego 2026, niezależny od filtrów dat wybierających dokumenty. Dokumenty wcześniejsze są dozwolone i nie są automatycznie przenoszone do innego okresu. Parametry bieżącego eksportu obejmują typ podatnika, NIP zgodny z wystawcą wszystkich wybranych dokumentów, kod urzędu, e-mail, opcjonalny telefon, cel pliku oraz pełną nazwę osoby niefizycznej albo imię, nazwisko i datę urodzenia osoby fizycznej. Nie ma domyślnego podatnika z pierwszej serii ani sztucznych danych. Eksport nie zapisuje parametrów w bazie/URL; od RS.1E-JPK-UX-001 dane podatnika można zapisać odrębną operacją jako jeden profil.
 
 `Sprawdź eksport` przedstawia dokładną listę dokumentów, ich liczbę i braki. Pobranie wymaga jawnego potwierdzenia zestawu i okresu do dalszej weryfikacji/importu. Nie jest to deklaracja kompletności ewidencji podatnika. Zmiana danych lub zakresu po kontroli wymaga ponownego potwierdzenia. Błąd choćby jednego dokumentu blokuje cały plik, bez pomijania problematycznych wierszy.
 
@@ -1191,6 +1191,20 @@ Każdy eksport jest walidowany lokalnie niezmienionym finalnym XSD `14090`, wari
 GTU Korekty obejmuje tylko pozycje rzeczywiście korygowane według ich własnych zapisanych BEFORE/AFTER: ilość, ceny jednostkowe, netto/VAT/brutto, tożsamość VAT lub utrwalona kwalifikacja podatkowa. Pełny zwrot, dodana pozycja i zmiany kompensujące się kwotowo nadal kwalifikują GTU. Równoważny zapis liczby, kolejność kluczy i techniczna pozycja nie tworzą zmiany. Kody pochodzą wyłącznie z `gtu_codes` samej pozycji Korekty; niezmienione pozycje nadal podlegają pełnej walidacji i uzgodnieniu kwot. Reguła odpowiada [wyjaśnieniu MF o GTU na fakturach korygujących](https://www.podatki.gov.pl/podatki-firmowe/jednolity-plik-kontrolny/jpk_vat-z-deklaracja/pytania-i-odpowiedzi).
 
 Granica: sam model nie przechowuje historycznych zestawów GTU BEFORE/AFTER. Korekta wyłącznie formalna z GTU (np. nabywca, opis albo samo oznaczenie), jak również formalnie zmieniona pozycja z GTU bez zmiany ilości/kwot/VAT, wymaga odrębnego ustalenia oznaczeń i blokuje ten eksport kontrolowanym błędem. Nie przyjmuje się automatycznie ani wszystkich, ani żadnych GTU. Nie dodano systemu korekt formalnych. Testy eksportów korzystają z prywatnych katalogów scenariusza i procesu, bez zasobów użytkownika.
+
+### RS.1E-JPK-UX-001
+
+`Faktury -> Ustawienia -> Dane podatnika JPK` przechowuje jeden profil obecnej firmy: osoba fizyczna/JDG albo osoba niefizyczna. Zapis jest jawny, atomowy i chroniony wersją przed nadpisaniem zmian z innej karty. Przełączenie typu usuwa nieaktywne dane drugiego typu. Nie zapisuje okresu, celu, filtrów, GTU ani potwierdzeń KSeF. Początkowa podpowiedź JDG nie zmienia istniejącego profilu.
+
+Profil wypełnia początkowy formularz rejestru. Własne wartości eksportu, także jawnie puste po błędzie, mają pierwszeństwo i nie aktualizują profilu ani dokumentów. `Wczytaj profil` wymaga potwierdzenia nadpisania; `Uzupełnij z danych firmy` korzysta wyłącznie z jawnie wskazanej serii i pozwala sprawdzić dane przed zapisem. Nie zgaduje imienia, nazwiska, daty urodzenia ani urzędu. Bez profilu nadal działa jednorazowy eksport.
+
+Urząd wybiera się po nazwie lub kodzie z lokalnego `KodyUrzedowSkarbowych_v8-0E.xsd`. Wyszukiwanie obsługuje klawiaturę, bez JavaScriptu dostępna jest pełna lista. Kod zachowuje zera wiodące, nieznany kod wymaga ponownego wyboru. Słownik schematu nie potwierdza właściwości urzędu dla podatnika.
+
+Podgląd pokazuje GTU z tego samego wyniku mapowania co XML, status, numer/oznaczenie KSeF i blokady z bezpiecznymi wskazówkami. Brak zapisanych GTU nie oznacza podatkowego potwierdzenia „nie dotyczy”. Nieobsługiwane procedury są oznaczone jako wykryte, ale nieeksportowane; jeden błąd nadal blokuje cały plik. Zmiana danych lub ręcznego oznaczenia KSeF po kontroli wymaga ponownego sprawdzenia.
+
+W edycji wystawionej, nadal modyfikowalnej Faktury VAT można rozwinąć GTU konkretnej pozycji i jawnie zapisać GTU_01–GTU_13. Zapis samych oznaczeń nie zmienia kwot, kursu ani snapshotów finansowych. Finalizacja, KSeF Online/Offline, provenance, Korekty i konflikt wersji zachowują blokady. Korekta korzysta z utrwalonych kodów i dotychczasowej reguły zakresu rzeczywistej zmiany; formalne Korekty z nierozstrzygniętym GTU pozostają zablokowane. Nadawanie GTU przed automatyczną finalizacją/wysyłką wymaga osobnego etapu i nie jest rozwiązane tym edytorem.
+
+Wdrożenie wymaga migracji `2026_09_17_010000_create_jpk_taxpayer_profiles_table.php`; nie uzupełnia ona profilu automatycznie ani nie zmienia dokumentów. Migracja podczas implementacji jest wykonywana wyłącznie w izolowanej bazie testowej.
 
 # 29. Wysyłka e-mail
 

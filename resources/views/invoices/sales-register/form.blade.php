@@ -21,9 +21,9 @@
     .sr-jpk-table td { overflow-wrap: anywhere; }
     @media (max-width: 700px) {
         .sr-jpk-table thead { display: none; }
-        .sr-jpk-table tr { display: grid; grid-template-columns: 36px minmax(0, 1fr) 100px; padding: 8px 0; border-bottom: 1px solid #dfe3e8; }
-        .sr-jpk-table td { border: 0; }
-        .sr-jpk-table td:last-child { grid-column: 1 / -1; }
+        .sr-jpk-table tr { display: block; padding: 8px 0; border-bottom: 1px solid #dfe3e8; }
+        .sr-jpk-table td { display: block; border: 0; }
+        .sr-jpk-table td[data-label]::before { content: attr(data-label) ': '; font-weight: 600; }
     }
     @media (max-width: 700px) { .sales-register { padding: 16px; } .sr-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } .sr-range { gap: 6px; } }
 </style>
@@ -116,13 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     form.querySelectorAll('[name="format"]').forEach(input => input.addEventListener('change', updateFormat));
     updateFormat();
-    const taxpayer = form.querySelector('[name="jpk_type"]');
-    const updateTaxpayer = () => form.querySelectorAll('[data-taxpayer]').forEach(row => {
-        row.hidden = row.dataset.taxpayer !== taxpayer.value;
-        row.querySelector('input').disabled = row.hidden;
-    });
-    taxpayer.addEventListener('change', updateTaxpayer);
-    updateTaxpayer();
     form.querySelectorAll('[data-series-toggle]').forEach(button => button.addEventListener('click', () => {
         const boxes = [...form.querySelectorAll('[data-series-type]')].filter(box => button.dataset.seriesToggle === 'all' || box.dataset.seriesType === button.dataset.seriesToggle);
         const checked = !boxes.every(box => box.checked);
@@ -135,4 +128,5 @@ document.addEventListener('DOMContentLoaded', () => {
     ['sr-month', 'sr-year'].forEach(id => document.getElementById(id)?.addEventListener('change', () => { from.value = ''; to.value = ''; updateRange(); }));
 });
 </script>
+@include('invoices.jpk-profile._script')
 @endsection

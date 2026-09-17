@@ -26,12 +26,12 @@ final class JpkV7m3Exporter
                 JpkV7m3Context::fail(0, 'potwierdzenia KSeF', 'Potwierdzenia muszą dotyczyć dokładnie wybranych dokumentów.');
             }
         }
-        $rows = $review = $errors = $evidenceHash = [];
+        $rows = $review = $errors = $diagnostics = $evidenceHash = [];
         foreach (array_chunk($report['records'], SalesRegisterDataService::BATCH_SIZE) as $batch) {
             $batchIds = array_column($batch, 'id');
             $documents = Invoice::query()->whereIn('id', $batchIds)->select([
                 'id', 'number', 'document_type', 'buyer_snapshot', 'buyer_name_snapshot', 'buyer_tax_id_snapshot',
-                'seller_snapshot', 'seller_tax_id_snapshot', 'tax_metadata_snapshot',
+                'seller_snapshot', 'seller_tax_id_snapshot', 'tax_metadata_snapshot', 'status', 'finalized_at',
             ])->with(['items' => fn ($q) => $q->select(['id', 'invoice_id', 'source_invoice_item_id', 'position', 'vat_rate', 'vat_code',
                 'total_net', 'total_vat', 'total_gross', 'gtu_codes', 'correction_before_snapshot', 'correction_after_snapshot'])])->get()->keyBy('id');
             $outside = DB::table('ksef_invoice_provenances')->whereIn('invoice_id', $batchIds)->where('environment', 'production')
@@ -49,6 +49,8 @@ final class JpkV7m3Exporter
                 }
                 $evidenceHash[] = [$record, $document?->getAttributes(), $document?->items->map->getAttributes()->all(), $evidence];
                 $problem = [];
+                $issues = [];
+                $amounts = null;
                 $choice = [];
                 $manual = false;
                 try {
@@ -62,20 +64,27 @@ final class JpkV7m3Exporter
                     $amounts = $this->tax->map($record, $document);
                     $rows[] = $fields + $choice + $amounts;
                     if ($choice === []) {
-                        $problem[] = 'Dokument ID '.$id.': potwierdź faktyczny sposób wystawienia (KSeF).';
+                        JpkV7m3Context::fail($id, 'KSeF', 'Potwierdź faktyczny sposób wystawienia (KSeF).', 'ksef_confirmation_required');
                     }
                 } catch (InvoiceDomainException $exception) {
                     if (! str_starts_with($exception->errorCode(), 'sales_register_jpk_')) {
                         throw $exception;
                     }
                     $problem[] = $exception->getMessage();
+                    $issues[] = JpkV7m3Diagnostic::from($exception);
                 }
                 array_push($errors, ...$problem);
                 $review[] = ['id' => $id, 'number' => $record['number'], 'issue_date' => $record['issue_date'], 'choice' => $choice,
-                    'manual' => $manual, 'confirmation' => $confirmations[$id] ?? '', 'errors' => $problem];
+                    'manual' => $manual, 'confirmation' => $confirmations[$id] ?? '', 'errors' => $problem,
+                    'gtu' => $amounts === null ? null : array_values(array_intersect(array_keys($amounts), InvoiceGtuCodes::ALLOWED)),
+                    'markers' => $amounts === null ? null : array_values(array_filter(array_keys($amounts),
+                        static fn ($key) => ! in_array($key, InvoiceGtuCodes::ALLOWED, true) && ! str_starts_with($key, 'K_'))),
+                    'diagnostics' => $issues, 'status' => $document?->status->label(), 'finalized' => $document?->isFinalized() ?? false,
+                    'url' => route($record['type'] === 'correction' ? 'invoices.corrections.edit' : 'invoices.edit', $id)];
             }
         }
-        $fingerprint = hash_hmac('sha256', serialize([$context->data, $evidenceHash, $report['selection']]), (string) config('app.key'));
+        $effectiveChoices = array_column($review, 'choice', 'id');
+        $fingerprint = hash_hmac('sha256', serialize([$context->data, $evidenceHash, $report['selection'], $effectiveChoices]), (string) config('app.key'));
         $xml = null;
         if ($errors === []) {
             try {
@@ -83,10 +92,11 @@ final class JpkV7m3Exporter
                 $this->schema->validate($xml, $ids);
             } catch (InvoiceDomainException $exception) {
                 $errors[] = $exception->getMessage();
+                $diagnostics[] = JpkV7m3Diagnostic::from($exception);
             }
         }
 
-        return ['documents' => $review, 'errors' => $errors, 'fingerprint' => $fingerprint, 'xml' => $xml,
+        return ['documents' => $review, 'errors' => $errors, 'diagnostics' => $diagnostics, 'fingerprint' => $fingerprint, 'xml' => $xml,
             'selection' => $report['selection'], 'selection_warnings' => array_values(array_filter($report['warnings'], static fn ($warning) => $warning['section'] === 'selection'))];
     }
 
