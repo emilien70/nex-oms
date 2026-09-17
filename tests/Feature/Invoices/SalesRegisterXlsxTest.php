@@ -21,11 +21,13 @@ use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Tests\Support\Invoices\IsolatesSalesRegisterFiles;
 use Tests\TestCase;
 use ZipArchive;
 
 class SalesRegisterXlsxTest extends TestCase
 {
+    use IsolatesSalesRegisterFiles;
     use RefreshDatabase;
 
     private int $sequence = 0;
@@ -354,6 +356,8 @@ class SalesRegisterXlsxTest extends TestCase
     private function bytes(BinaryFileResponse $response): string
     {
         $path = $response->getFile()->getPathname();
+        $this->assertFileExists($path);
+        $expected = file_get_contents($path);
         $this->assertSame(realpath(storage_path('app/private/sales-register-exports')), realpath(dirname($path)));
         ob_start();
         try {
@@ -363,6 +367,7 @@ class SalesRegisterXlsxTest extends TestCase
             ob_end_clean();
         }
         $this->assertFileDoesNotExist($path);
+        $this->assertSame($expected, $bytes);
         $this->assertStringStartsWith('PK', $bytes);
 
         return $bytes;
@@ -370,11 +375,15 @@ class SalesRegisterXlsxTest extends TestCase
 
     private function loadBytes(string $bytes): Spreadsheet
     {
-        $path = tempnam(sys_get_temp_dir(), 'rs-xlsx-test-');
+        $path = tempnam($this->exportWorkspace->root.'/scratch', 'rs-xlsx-test-');
+        $zip = null;
+        $zipOpened = false;
         try {
             file_put_contents($path, $bytes);
             $zip = new ZipArchive;
-            $this->assertTrue($zip->open($path));
+            $opened = $zip->open($path);
+            $zipOpened = $opened === true;
+            $this->assertTrue($opened);
             foreach (['[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml'] as $part) {
                 $this->assertNotFalse($zip->locateName($part));
             }
@@ -389,11 +398,15 @@ class SalesRegisterXlsxTest extends TestCase
                 }
             }
             $zip->close();
+            $zipOpened = false;
             $book = (new Xlsx)->load($path);
             $this->books[] = $book;
 
             return $book;
         } finally {
+            if ($zipOpened) {
+                $zip->close();
+            }
             unlink($path);
         }
     }

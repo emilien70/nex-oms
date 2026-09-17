@@ -57,6 +57,7 @@ final class JpkV7m3TaxMapper
             JpkV7m3Context::fail($id, 'line_treatments', 'Klasyfikacja nie obejmuje dokładnie wszystkich pozycji.');
         }
         $groups = $categories = $amounts = $gtu = [];
+        $hasChangedItem = $hasGtu = false;
         foreach ($document->items as $item) {
             $entry = $entries[$item->id] ?? null;
             if ($entry === null || ($entry['position'] ?? null) !== $item->position
@@ -71,8 +72,8 @@ final class JpkV7m3TaxMapper
                 if (! is_string($code) || ! preg_match('/^GTU_(0[1-9]|1[0-3])$/D', $code)) {
                     JpkV7m3Context::fail($id, 'GTU', 'Nieobsługiwane oznaczenie GTU.');
                 }
-                $gtu[$code] = '1';
             }
+            $hasGtu = $hasGtu || $codes !== [];
             $states = $correction ? [[$item->correction_before_snapshot, $entry['before'] ?? null, -1], [$item->correction_after_snapshot, $entry['after'] ?? null, 1]]
                 : [[$item->getAttributes(), array_diff_key($entry, array_flip(['invoice_item_id', 'position'])), 1]];
             foreach ($states as [$state, $meaning, $sign]) {
@@ -105,6 +106,23 @@ final class JpkV7m3TaxMapper
                     }
                 }
             }
+            $changed = ! $correction || $this->correctionItemChanged($id, $states);
+            $hasChangedItem = $hasChangedItem || $changed;
+            if ($correction && ! $changed && $codes !== []) {
+                foreach (['name', 'description', 'unit_name'] as $field) {
+                    if (($states[0][0][$field] ?? null) !== ($states[1][0][$field] ?? null)) {
+                        JpkV7m3Context::fail($id, 'GTU', 'Korekta formalna pozycji z GTU wymaga odrębnego ustalenia oznaczeń.');
+                    }
+                }
+            }
+            if ($changed) {
+                foreach ($codes as $code) {
+                    $gtu[$code] = '1';
+                }
+            }
+        }
+        if ($correction && $hasGtu && ! $hasChangedItem) {
+            JpkV7m3Context::fail($id, 'GTU', 'Korekta wyłącznie formalna z GTU wymaga odrębnego ustalenia oznaczeń.');
         }
         // Reconcile persisted line states against the common report, ignoring absent zero-delta groups only.
         $expected = array_column($record['vat_groups'], null, 'key');
@@ -140,6 +158,28 @@ final class JpkV7m3TaxMapper
     private function add(string $left, string $right, int $sign): string
     {
         return $sign === 1 ? $this->decimal->add($left, $right) : $this->decimal->subtract($left, $right);
+    }
+
+    private function correctionItemChanged(int $id, array $states): bool
+    {
+        $normalized = [];
+        foreach ($states as [$state, $meaning]) {
+            $values = [];
+            foreach (['quantity', 'unit_price_net', 'unit_price_gross'] as $field) {
+                $value = $state[$field] ?? null;
+                if ((! is_string($value) && ! is_int($value)) || ! preg_match('/^\d+(?:\.\d{1,4}0*)?$/D', (string) $value)) {
+                    JpkV7m3Context::fail($id, $field, 'Brak poprawnej ilości lub ceny w stanie Korekty.');
+                }
+                $values[$field] = $this->decimal->normalize($value, 4);
+            }
+            // Both states have already passed complete amount and persisted tax-semantic validation.
+            $normalized[] = $values + $this->values->totals($state, 'total_') + [
+                'identity' => $this->values->identity($state)['key'],
+                'treatment' => $meaning['treatment'],
+            ];
+        }
+
+        return $normalized[0] !== $normalized[1];
     }
 
     private function canonical(array $state, array $meaning): bool

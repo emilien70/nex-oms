@@ -1186,6 +1186,12 @@ Nieobsługiwane szczególne procedury (FP/RO/WEW, OSS, marża, odwrotne obciąż
 
 Każdy eksport jest walidowany lokalnie niezmienionym finalnym XSD `14090`, wariant 3, `1-0E`, przed prywatnym pobraniem. Pusty zakres daje zero wierszy i zerowe kontrole; zerowy ZakupCtrl dotyczy tylko tego pliku. Załącznik referencyjny potwierdził 291 wierszy, 29 NrKSeF, 262 braki oznaczeń, podatek kontrolny 14674.41 i brak deklaracji. Jego walidacja dała 264 błędy: 262 brakujące wybory NrKSeF/OFF/BFK/DI oraz dwa naruszenia ograniczeń pustego Email. Tych braków nie skopiowano. Źródła i SHA-256 schematów są w `Modules/Invoices/Resources/Schemas/JPK_V7M3/1-0E/SOURCES.md`. Dane prywatnego przykładu nie zostały dodane do repozytorium.
 
+### RS.1E-JPK-V7M3-FIX-001
+
+GTU Korekty obejmuje tylko pozycje rzeczywiście korygowane według ich własnych zapisanych BEFORE/AFTER: ilość, ceny jednostkowe, netto/VAT/brutto, tożsamość VAT lub utrwalona kwalifikacja podatkowa. Pełny zwrot, dodana pozycja i zmiany kompensujące się kwotowo nadal kwalifikują GTU. Równoważny zapis liczby, kolejność kluczy i techniczna pozycja nie tworzą zmiany. Kody pochodzą wyłącznie z `gtu_codes` samej pozycji Korekty; niezmienione pozycje nadal podlegają pełnej walidacji i uzgodnieniu kwot. Reguła odpowiada [wyjaśnieniu MF o GTU na fakturach korygujących](https://www.podatki.gov.pl/podatki-firmowe/jednolity-plik-kontrolny/jpk_vat-z-deklaracja/pytania-i-odpowiedzi).
+
+Granica: sam model nie przechowuje historycznych zestawów GTU BEFORE/AFTER. Korekta wyłącznie formalna z GTU (np. nabywca, opis albo samo oznaczenie), jak również formalnie zmieniona pozycja z GTU bez zmiany ilości/kwot/VAT, wymaga odrębnego ustalenia oznaczeń i blokuje ten eksport kontrolowanym błędem. Nie przyjmuje się automatycznie ani wszystkich, ani żadnych GTU. Nie dodano systemu korekt formalnych. Testy eksportów korzystają z prywatnych katalogów scenariusza i procesu, bez zasobów użytkownika.
+
 # 29. Wysyłka e-mail
 
 Docelowo dokument może być wysłany e-mailem.

@@ -23,10 +23,12 @@ use Modules\Invoices\ValueObjects\SalesRegisterFilters;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Tests\Support\Invoices\IsolatesSalesRegisterFiles;
 use Tests\TestCase;
 
 class SalesRegisterXmlTest extends TestCase
 {
+    use IsolatesSalesRegisterFiles;
     use RefreshDatabase;
 
     private int $sequence = 0;
@@ -279,37 +281,40 @@ class SalesRegisterXmlTest extends TestCase
             $html = $this->post(route('invoices.sales-register.export'), array_replace($payload, ['format' => 'html', 'include_header' => 1, 'include_exchange_rates' => 0]))->assertOk();
             $records = $html->viewData('report')['records'];
             $xlsxResponse = $this->post(route('invoices.sales-register.export'), array_replace($payload, ['format' => 'xlsx']))->assertOk();
-            $path = tempnam(sys_get_temp_dir(), 'rs-xml-xlsx-');
+            $path = tempnam($this->exportWorkspace->root.'/scratch', 'rs-xml-xlsx-');
             try {
                 file_put_contents($path, $this->bytes($xlsxResponse->baseResponse));
                 $book = (new Xlsx)->load($path);
             } finally {
                 unlink($path);
             }
-            DB::flushQueryLog();
-            DB::enableQueryLog();
-            $xml = $this->parse($this->bytes($this->post(route('invoices.sales-register.export'), $payload)->assertOk()->baseResponse));
-            $queries = DB::getQueryLog();
-            DB::disableQueryLog();
-            $this->assertLessThan(22, count($queries));
-            foreach ($queries as $query) {
-                $this->assertMatchesRegularExpression('/^select\b/i', $query['query']);
-                $this->assertDoesNotMatchRegularExpression('/ksef_|from "orders"|from "order_items"|from "products"/', $query['query']);
-            }
-            $this->assertSame(205, $xml->getElementsByTagName('invoice')->length);
-            $this->assertSame(0, $xml->getElementsByTagName('ksef_id')->length);
-            $this->assertEqualsCanonicalizing($ids, array_column($records, 'id'));
-            foreach ($records as $index => $record) {
-                $node = $xml->getElementsByTagName('invoice')->item($index);
-                $this->assertSame('Faktura '.$record['number'], $node->getElementsByTagName('invoice_number')->item(0)->textContent);
-                $this->assertSame((string) $record['ordinal'], $node->getElementsByTagName('no')->item(0)->textContent);
-                $this->assertSame($record['number'], $book->getActiveSheet()->getCell('C'.($index + 2))->getValue());
-                foreach (['total_price_netto' => ['net', 'K'], 'total_tax' => ['vat', 'M'], 'total_price_brutto' => ['gross', 'N']] as $field => [$amount, $column]) {
-                    $this->assertSame($record['totals'][$amount], $node->getElementsByTagName($field)->item(0)->textContent);
-                    $this->assertSame($record['totals'][$amount], sprintf('%.2F', $book->getActiveSheet()->getCell($column.($index + 2))->getValue()));
+            try {
+                DB::flushQueryLog();
+                DB::enableQueryLog();
+                $xml = $this->parse($this->bytes($this->post(route('invoices.sales-register.export'), $payload)->assertOk()->baseResponse));
+                $queries = DB::getQueryLog();
+                DB::disableQueryLog();
+                $this->assertLessThan(22, count($queries));
+                foreach ($queries as $query) {
+                    $this->assertMatchesRegularExpression('/^select\b/i', $query['query']);
+                    $this->assertDoesNotMatchRegularExpression('/ksef_|from "orders"|from "order_items"|from "products"/', $query['query']);
                 }
+                $this->assertSame(205, $xml->getElementsByTagName('invoice')->length);
+                $this->assertSame(0, $xml->getElementsByTagName('ksef_id')->length);
+                $this->assertEqualsCanonicalizing($ids, array_column($records, 'id'));
+                foreach ($records as $index => $record) {
+                    $node = $xml->getElementsByTagName('invoice')->item($index);
+                    $this->assertSame('Faktura '.$record['number'], $node->getElementsByTagName('invoice_number')->item(0)->textContent);
+                    $this->assertSame((string) $record['ordinal'], $node->getElementsByTagName('no')->item(0)->textContent);
+                    $this->assertSame($record['number'], $book->getActiveSheet()->getCell('C'.($index + 2))->getValue());
+                    foreach (['total_price_netto' => ['net', 'K'], 'total_tax' => ['vat', 'M'], 'total_price_brutto' => ['gross', 'N']] as $field => [$amount, $column]) {
+                        $this->assertSame($record['totals'][$amount], $node->getElementsByTagName($field)->item(0)->textContent);
+                        $this->assertSame($record['totals'][$amount], sprintf('%.2F', $book->getActiveSheet()->getCell($column.($index + 2))->getValue()));
+                    }
+                }
+            } finally {
+                $book->disconnectWorksheets();
             }
-            $book->disconnectWorksheets();
         }
         $this->assertSame($before, DB::table('invoices')->get()->toJson().DB::table('invoice_items')->get()->toJson());
         Http::assertNothingSent();
@@ -418,6 +423,8 @@ class SalesRegisterXmlTest extends TestCase
     private function bytes(BinaryFileResponse $response): string
     {
         $path = $response->getFile()->getPathname();
+        $this->assertFileExists($path);
+        $expected = file_get_contents($path);
         $this->assertSame(realpath(storage_path('app/private/sales-register-exports')), realpath(dirname($path)));
         ob_start();
         try {
@@ -427,6 +434,7 @@ class SalesRegisterXmlTest extends TestCase
             ob_end_clean();
         }
         $this->assertFileDoesNotExist($path);
+        $this->assertSame($expected, $bytes);
 
         return $bytes;
     }

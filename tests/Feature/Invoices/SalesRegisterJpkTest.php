@@ -12,17 +12,23 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\CorrectionTotalsCalculator;
+use Modules\Invoices\Services\InvoiceDecimalCalculator;
+use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceTotalsCalculator;
 use Modules\Invoices\Services\JpkV7m3Exporter;
 use Modules\Invoices\Services\JpkV7m3SchemaValidator;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Services\KsefFa3TaxTreatmentResolver;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\Invoices\IsolatesSalesRegisterFiles;
 use Tests\TestCase;
 
 class SalesRegisterJpkTest extends TestCase
 {
+    use Concerns\CreatesInvoiceStage2CDocuments;
+    use IsolatesSalesRegisterFiles;
     use RefreshDatabase;
 
     private int $sequence = 0;
@@ -428,6 +434,232 @@ class SalesRegisterJpkTest extends TestCase
         $this->assertSame('1', $xp->evaluate('string(//j:BFK)'));
     }
 
+    public function test_correction_gtu_excludes_unchanged_goods_without_changing_amounts(): void
+    {
+        $a = $this->state('23.00', '123');
+        $b = $this->state('23.00', '61.50');
+        $invoice = $this->correctionLines([$a, $b], [$a, $this->state('23.00', '49.20')], [['GTU_06'], []]);
+        $xp = $this->xpath($this->export($this->payload([$invoice->id])));
+        $this->assertSame('-10.00', $xp->evaluate('string(//j:K_19)'));
+        $this->assertSame('-2.30', $xp->evaluate('string(//j:K_20)'));
+        $this->assertSame('-2.30', $xp->evaluate('string(//j:PodatekNalezny)'));
+        $this->assertSame('1', $xp->evaluate('string(//j:LiczbaWierszySprzedazy)'));
+        $this->assertSame(1, $xp->query('//j:SprzedazWiersz')->length);
+        $this->assertSame(0, $xp->query('//j:GTU_06')->length);
+    }
+
+    #[DataProvider('gtuCorrectionCases')]
+    public function test_gtu_correction_matrix_preserves_financial_xml(string $case, array $expectedGtu, array $expectedAmounts): void
+    {
+        $a = $this->quantityState('2', '123');
+        $b = $this->state('23.00', '61.50');
+        $before = [$a, $b];
+        $after = [$a, $b];
+        $codes = [['GTU_06'], ['GTU_01']];
+        $beforeTreatments = $afterTreatments = [];
+        switch ($case) {
+            case 'partial': $after[0] = $this->quantityState('1', '123');
+                break;
+            case 'full': $after[0] = $this->quantityState('0', '123');
+                break;
+            case 'increase_quantity': $after[0] = $this->quantityState('3', '123');
+                break;
+            case 'increase_price': $after[0] = $this->quantityState('2', '184.50');
+                break;
+            case 'offsetting':
+                $after = [$this->quantityState('1', '123'), $this->state('23.00', '184.50')];
+                break;
+            case 'vat': $after[0] = $this->quantityState('2', '123', '8.00');
+                break;
+            case 'quantity_price': $after[0] = $this->quantityState('1', '246');
+                break;
+            case 'same_name_reordered':
+                $before[0]['position'] = 1;
+                $after[0]['position'] = 2;
+                $after[1] = $this->state('23.00', '49.20');
+                $after[1]['position'] = 1;
+                break;
+            case 'duplicates':
+                $after = [$this->quantityState('1', '123'), $this->state('23.00', '49.20')];
+                $codes = [['GTU_06', 'GTU_01', 'GTU_06'], ['GTU_06']];
+                break;
+            case 'equivalent':
+                $before[0]['quantity'] = '2';
+                $before[0]['unit_price_gross'] = '123.0';
+                $before[0]['total_net'] = '200';
+                $before[0]['vat_rate'] = '23';
+                $after[0] = array_reverse($after[0], true);
+                $after[1] = $this->state('23.00', '49.20');
+                break;
+            case 'added':
+                $before[0] = $this->quantityState('0', '123');
+                break;
+            case 'treatment':
+                $before[0] = $after[0] = $this->state('0.00', '100');
+                $beforeTreatments = ['wdt'];
+                $afterTreatments = ['export'];
+                break;
+        }
+        $invoice = $this->correctionLines($before, $after, $codes, $beforeTreatments, $afterTreatments);
+        $xp = $this->xpath($this->export($this->payload([$invoice->id])));
+        $actualGtu = [];
+        foreach ($xp->query('//j:SprzedazWiersz/*[starts-with(local-name(), "GTU_")]') as $node) {
+            $actualGtu[$node->localName] = $node->textContent;
+        }
+        $this->assertSame(array_fill_keys($expectedGtu, '1'), $actualGtu);
+        foreach ($expectedAmounts as $field => $value) {
+            $this->assertSame($value, $xp->evaluate('string(//j:'.$field.')'), $case.' '.$field);
+        }
+        $this->assertSame('1', $xp->evaluate('string(//j:LiczbaWierszySprzedazy)'));
+        $financial = fn (DOMXPath $query) => array_map(static fn ($node) => [$node->localName, $node->textContent],
+            iterator_to_array($query->query('//j:SprzedazWiersz/*[starts-with(local-name(), "K_")] | //j:SprzedazCtrl/*')));
+        // Removing only GTU in the test fixture must leave every K_* and control total unchanged.
+        $invoice->items()->update(['gtu_codes' => []]);
+        $withoutGtu = $this->xpath($this->export($this->payload([$invoice->id])));
+        $this->assertSame($financial($xp), $financial($withoutGtu));
+        Http::assertNothingSent();
+        Bus::assertNothingDispatched();
+    }
+
+    public static function gtuCorrectionCases(): array
+    {
+        return [
+            'B/C partial' => ['partial', ['GTU_06'], ['K_19' => '-100.00', 'K_20' => '-23.00']],
+            'C full return' => ['full', ['GTU_06'], ['K_19' => '-200.00', 'K_20' => '-46.00']],
+            'D quantity' => ['increase_quantity', ['GTU_06'], ['K_19' => '100.00', 'K_20' => '23.00']],
+            'D price' => ['increase_price', ['GTU_06'], ['K_19' => '100.00', 'K_20' => '23.00']],
+            'E offsetting' => ['offsetting', ['GTU_01', 'GTU_06'], ['K_19' => '0.00', 'K_20' => '0.00']],
+            'F VAT identity' => ['vat', ['GTU_06'], ['K_19' => '-200.00', 'K_20' => '-46.00', 'K_17' => '227.78', 'K_18' => '18.22']],
+            'G same total' => ['quantity_price', ['GTU_06'], ['K_19' => '0.00', 'K_20' => '0.00']],
+            'I same name and reordered' => ['same_name_reordered', ['GTU_01'], ['K_19' => '-10.00', 'K_20' => '-2.30']],
+            'J duplicates' => ['duplicates', ['GTU_01', 'GTU_06'], ['K_19' => '-110.00', 'K_20' => '-25.30']],
+            'K decimal and key equivalence' => ['equivalent', ['GTU_01'], ['K_19' => '-10.00', 'K_20' => '-2.30']],
+            'added item' => ['added', ['GTU_06'], ['K_19' => '200.00', 'K_20' => '46.00']],
+            'persisted treatment' => ['treatment', ['GTU_06'], ['K_21' => '-100.00', 'K_22' => '100.00']],
+        ];
+    }
+
+    public function test_next_correction_gtu_uses_own_states_not_original_or_previous_document(): void
+    {
+        $source = $this->invoice();
+        $a = $this->state();
+        $changed = $this->state('23.00', '246');
+        $previous = $this->correctionLines([$a], [$changed], [['GTU_06']]);
+        $next = $this->correctionLines([$changed, $a], [$changed, $this->state('23.00', '61.50')], [['GTU_06'], ['GTU_01']]);
+        $next->update(['corrected_invoice_id' => $source->id, 'previous_correction_id' => $previous->id]);
+        $source->items()->update(['gtu_codes' => ['GTU_13']]);
+        $xp = $this->xpath($this->export($this->payload([$next->id])));
+        $this->assertSame(0, $xp->query('//j:GTU_06 | //j:GTU_13')->length);
+        $this->assertSame('1', $xp->evaluate('string(//j:GTU_01)'));
+        $this->assertSame('-50.00', $xp->evaluate('string(//j:K_19)'));
+    }
+
+    #[DataProvider('invalidUnchangedStates')]
+    public function test_unchanged_gtu_item_still_requires_complete_valid_snapshot(string $field, mixed $value): void
+    {
+        $a = $this->state();
+        $invoice = $this->correctionLines([$a, $a], [$a, $this->state('23.00', '61.50')], [['GTU_06'], []]);
+        $item = $invoice->items()->orderBy('position')->first();
+        if ($field === 'gtu_codes') {
+            $item->update([$field => $value]);
+        } else {
+            $state = $item->correction_before_snapshot;
+            $state[$field] = $value;
+            $item->update(['correction_before_snapshot' => $state]);
+        }
+        $this->blocked($this->payload([$invoice->id]));
+    }
+
+    public static function invalidUnchangedStates(): array
+    {
+        return [['gtu_codes', ['GTU_99']], ['quantity', null], ['unit_price_net', []], ['unit_price_gross', false],
+            ['total_net', null], ['vat_rate', 'invalid']];
+    }
+
+    #[DataProvider('formalGtuCases')]
+    public function test_formal_only_gtu_correction_is_not_guessed(string $field): void
+    {
+        $before = $after = $this->state();
+        if ($field !== 'buyer') {
+            $after[$field] = 'Changed formal text';
+        }
+        $invoice = $this->correctionLines([$before], [$after], [['GTU_06']]);
+        $invoice->update(['buyer_name_snapshot' => 'Changed buyer', 'buyer_snapshot' => ['name' => 'Changed buyer', 'tax_id' => null]]);
+        $this->blocked($this->payload([$invoice->id]), 'formalna');
+    }
+
+    public static function formalGtuCases(): array
+    {
+        return [['buyer'], ['name'], ['description']];
+    }
+
+    public function test_domain_correction_keeps_unchanged_gtu_item_but_export_does_not_mark_it(): void
+    {
+        $order = $this->createDocumentOrder(['billing_tax_id' => null]);
+        $this->createDocumentItem($order, ['product_name' => 'Fictional A', 'unit_price_gross' => '123.00', 'total_price_gross' => '123.00']);
+        $this->createDocumentItem($order, ['product_name' => 'Fictional B', 'unit_price_gross' => '61.50', 'total_price_gross' => '61.50']);
+        $series = $this->createDocumentSeries(attributes: ['seller_tax_id' => '1234563218', 'include_shipping' => false]);
+        $source = app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext('2026-09-01 12:00:00'));
+        $source->items()->orderBy('position')->first()->update(['gtu_codes' => ['GTU_06']]);
+        $items = $source->items()->orderBy('position')->get()->map(fn ($item, $index) => [
+            'source_item_id' => $item->id, 'order_item_id' => $item->order_item_id, 'line_type' => 'product',
+            'position' => $item->position, 'name' => $item->name, 'description' => $item->description,
+            'unit_name' => $item->unit_name, 'quantity' => 1, 'unit_price_gross' => $index === 0 ? '123.00' : '49.20',
+            'vat_rate' => '23', 'vat_code' => null,
+        ])->all();
+        $correction = app(CorrectionService::class)->issue($source, InvoiceSeries::where('system_key', 'correction')->firstOrFail(),
+            $source->id, $source->lock_version, ['reason' => 'invoice_error', 'issue_date' => '2026-09-02', 'sale_date' => '2026-09-01',
+                'payment_method' => 'Przelew', 'change_items' => true, 'change_buyer' => false, 'items' => $items],
+            $this->documentContext('2026-09-02 12:00:00'));
+        $this->assertCount(2, $correction->items);
+        $this->assertSame(['GTU_06'], $correction->items->first()->gtu_codes);
+        $this->assertArrayNotHasKey('gtu_codes', $correction->items->first()->correction_before_snapshot);
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $xp = $this->xpath($this->export($this->payload([$correction->id])));
+        foreach (DB::getQueryLog() as $query) {
+            $this->assertDoesNotMatchRegularExpression('/^\s*(insert|update|delete|replace|create|alter|drop)\b/i', $query['query']);
+        }
+        DB::disableQueryLog();
+        $this->assertSame(0, $xp->query('//j:GTU_06')->length);
+        $this->assertSame('-10.00', $xp->evaluate('string(//j:K_19)'));
+        $this->assertSame('-2.30', $xp->evaluate('string(//j:K_20)'));
+        Http::assertNothingSent();
+    }
+
+    private function quantityState(string $quantity, string $unitGross, string $rate = '23.00'): array
+    {
+        $gross = app(InvoiceDecimalCalculator::class)->multiplyAndRound($quantity, $unitGross);
+
+        return array_replace($this->state($rate, $gross), ['quantity' => $quantity],
+            app(InvoiceTotalsCalculator::class)->calculateLine($unitGross, $gross, $rate));
+    }
+
+    private function correctionLines(array $before, array $after, array $codes, array $beforeTreatments = [], array $afterTreatments = []): Invoice
+    {
+        $lines = [];
+        foreach ($before as $index => $state) {
+            $lines[] = ['correction_before_snapshot' => $state, 'correction_after_snapshot' => $after[$index]];
+        }
+        $totals = app(CorrectionTotalsCalculator::class)->calculate($lines);
+        $invoice = $this->invoice(['document_type' => 'correction', 'total_net' => $totals['difference']['net'],
+            'total_vat' => $totals['difference']['vat'], 'total_gross' => $totals['difference']['gross'],
+            'tax_summary_snapshot' => $totals['difference']['tax_summary_snapshot'], 'correction_totals_snapshot' => $totals], $after);
+        $entries = [];
+        foreach ($invoice->items()->orderBy('position')->get() as $index => $item) {
+            // The domain stores GTU on the correction item, not separate BEFORE/AFTER GTU sets.
+            $item->update(['gtu_codes' => $codes[$index],
+                'correction_before_snapshot' => array_diff_key($before[$index], ['gtu_codes' => true]),
+                'correction_after_snapshot' => array_diff_key($after[$index], ['gtu_codes' => true])]);
+            $entries[] = ['invoice_item_id' => $item->id, 'source_invoice_item_id' => null, 'position' => $item->position,
+                'before' => $this->meaning($before[$index], $beforeTreatments[$index] ?? 'standard'),
+                'after' => $this->meaning($after[$index], $afterTreatments[$index] ?? 'standard')];
+        }
+        $invoice->update(['tax_metadata_snapshot' => ['ksef_correction' => ['version' => 1, 'profile' => 'correction', 'line_treatments' => $entries]]]);
+
+        return $invoice;
+    }
+
     private function blocked(array $payload, ?string $message = null): void
     {
         $review = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
@@ -476,11 +708,13 @@ class SalesRegisterJpkTest extends TestCase
         $this->assertStringContainsString('private', $response->headers->get('Cache-Control'));
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
         $path = $response->baseResponse->getFile()->getPathname();
+        $this->assertFileExists($path);
         $xml = file_get_contents($path);
         $this->assertSame([], app(JpkV7m3SchemaValidator::class)->errors($xml));
         ob_start();
         try {
             $response->baseResponse->sendContent();
+            $this->assertSame($xml, ob_get_contents());
         } finally {
             ob_end_clean();
         }
