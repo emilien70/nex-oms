@@ -105,6 +105,7 @@ final class SalesRegisterDocumentReader
             }
         }
         $related = $this->related($invoice, $warnings);
+        $paymentMethod = $this->paymentMethod($invoice, $warnings);
 
         return [
             'id' => (int) $invoice->getKey(), 'type' => $invoice->document_type->value, 'number' => $number,
@@ -112,6 +113,7 @@ final class SalesRegisterDocumentReader
             'issue_date' => $issueDate, 'sale_date' => $saleDate, 'buyer' => $buyer, 'currency' => $currency,
             'totals' => $totals, 'vat_labels' => $groups !== null ? implode(', ', array_column($groups, 'label')) : null,
             'vat_groups' => $groups, 'related_documents' => $related, 'ksef_number' => $ksef['number'],
+            'ksef_authorization_date' => $ksef['authorization_date'] ?? null, 'payment_method' => $paymentMethod,
             'shipping' => $shipping, 'pln' => $conversion['pln'], 'shipping_pln' => $conversion['shipping_pln'],
             'exchange_rate' => $conversion['rate'],
             'completeness' => [
@@ -148,6 +150,25 @@ final class SalesRegisterDocumentReader
         }
 
         return [$nestedText, $nestedText === null ? 'empty' : 'value'];
+    }
+
+    private function paymentMethod(Invoice $invoice, array &$warnings): ?string
+    {
+        $payment = $invoice->payment_snapshot;
+        if (! is_array($payment) || ! array_key_exists('effective_payment_method', $payment)) {
+            $warnings[] = $this->warning($invoice, 'payment_method_missing', 'payment');
+
+            return null;
+        }
+        $method = $payment['effective_payment_method'];
+        if ($method !== null && ! is_string($method)) {
+            $warnings[] = $this->warning($invoice, 'payment_method_invalid', 'payment');
+
+            return null;
+        }
+
+        // An explicit null/empty value also represents the persisted "do not show" choice.
+        return is_string($method) && trim($method) === '' ? null : $method;
     }
 
     private function shipping(Invoice $invoice): ?array

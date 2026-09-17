@@ -40,6 +40,6 @@
     <a class="invoice-module-tab {{ request()->routeIs('invoices.index') ? 'active' : '' }}" href="{{ route('invoices.index') }}">Faktury</a>
     <a class="invoice-module-tab {{ request()->routeIs('invoices.proformas.*') ? 'active' : '' }}" href="{{ route('invoices.proformas.index') }}">Faktury pro forma</a>
     <a class="invoice-module-tab {{ request()->routeIs('invoices.corrections.*') ? 'active' : '' }}" href="{{ route('invoices.corrections.index') }}">Korekty</a>
-    <span class="invoice-module-tab disabled" aria-disabled="true">Rejestr sprzedaży</span>
+    <a class="invoice-module-tab {{ request()->routeIs('invoices.sales-register.*') ? 'active' : '' }}" href="{{ route('invoices.sales-register.create') }}" @if (request()->routeIs('invoices.sales-register.*')) aria-current="page" @endif>Rejestr sprzedaży</a>
     <a class="invoice-module-tab {{ request()->routeIs('invoices.series.*') ? 'active' : '' }}" href="{{ route('invoices.series.index') }}">Ustawienia</a>
 </nav>

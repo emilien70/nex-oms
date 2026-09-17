@@ -11,6 +11,7 @@ final class SalesRegisterHtmlPresenter
         'pln' => 'Przeliczenie PLN', 'pln_vat' => 'Grupy VAT w PLN', 'shipping_pln' => 'Wysyłka w PLN',
         'country' => 'Podział na kraje', 'buyer' => 'Nabywca', 'document' => 'Dokument',
         'correction' => 'Korekta', 'related_documents' => 'Powiązania', 'ksef' => 'Numer KSeF', 'selection' => 'Wybór dokumentów',
+        'payment' => 'Sposób płatności', 'exchange_rate' => 'Kurs waluty',
     ];
 
     private const WARNINGS = [
@@ -33,6 +34,19 @@ final class SalesRegisterHtmlPresenter
         'tax_id_filter_unresolved' => 'Dokument pominięty: nie można ustalić obecności identyfikatora podatkowego.',
         'ksef_link_invalid' => 'Niespójne powiązanie produkcyjnego numeru KSeF.',
         'ksef_number_ambiguous' => 'Więcej niż jeden produkcyjny numer KSeF.',
+        'ksef_authorization_date_unavailable' => 'Brak prawidłowej daty autoryzacji przy zaakceptowanym numerze KSeF.',
+        'ksef_authorization_date_conflict' => 'Sprzeczne daty autoryzacji tego samego numeru KSeF.',
+        'payment_method_missing' => 'Brak zapisanej metody płatności dokumentu.',
+        'payment_method_invalid' => 'Nieprawidłowa zapisana metoda płatności dokumentu.',
+        'exchange_rate_unavailable' => 'Brak poprawnego historycznego kursu waluty dokumentu.',
+        'xlsx_amount_as_text' => 'Kwota zapisana jako tekst, aby zachować dokładność poza bezpieczną precyzją liczb Excela.',
+        'xml_order_id_conflict' => 'Sprzeczne historyczne identyfikatory zamówienia; pole pozostawiono puste.',
+        'xml_order_id_unavailable' => 'Brak jednoznacznego historycznego ID zamówienia OMS.',
+        'xml_shop_order_id_unavailable' => 'Brak potwierdzonego historycznego identyfikatora zamówienia sklepu.',
+        'xml_order_items_unavailable' => 'Brak pełnego historycznego snapshotu pozycji zamówienia; order_items pozostaje puste.',
+        'xml_item_identifiers_unavailable' => 'Co najmniej jedna pozycja nie ma historycznego ID produktu lub SKU; brakujące pola pozostają puste.',
+        'xml_seller_unavailable' => 'Brak własnych zapisanych danych sprzedawcy.',
+        'xml_recipient_country_unavailable' => 'Brak poprawnego historycznego kraju odbiorcy; nie zastąpiono go krajem nabywcy.',
     ];
 
     public function present(array $report, SalesRegisterFilters $filters, array $options): array

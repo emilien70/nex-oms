@@ -9,8 +9,10 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Enums\KsefInvoicingMode;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Services\KsefFa3BuyerIdentityResolver;
 use Modules\Ksef\Services\KsefNumberValidator;
+use UnexpectedValueException;
 
 /** Reads only local acceptance metadata; never loads encrypted payloads or credentials. */
 final class SalesRegisterKsefNumberReader
@@ -29,7 +31,7 @@ final class SalesRegisterKsefNumberReader
             ->whereIn('invoice_id', $ids)->where('environment', $production)
             ->where('status', KsefInvoiceSubmissionStatus::Accepted->value)
             ->get(['id', 'invoice_id', 'environment', 'offline_issuance_id', 'offline_technical_correction_id',
-                'seller_nip', 'context_nip', 'schema_id', 'invoice_hash', 'invoice_size', 'invoicing_mode', 'ksef_number']);
+                'seller_nip', 'context_nip', 'schema_id', 'invoice_hash', 'invoice_size', 'invoicing_mode', 'ksef_number', 'acquisition_date']);
         $issuances = DB::table('ksef_offline_issuances')->whereIn('id', $submissions->pluck('offline_issuance_id')->filter())
             ->get(['id', 'invoice_id', 'environment', 'issue_date', 'seller_nip', 'context_identifier_value', 'schema_id', 'invoice_hash', 'invoice_size'])->keyBy('id');
         $technical = DB::table('ksef_offline_technical_corrections')->whereIn('id', $submissions->pluck('offline_technical_correction_id')->filter())
@@ -52,15 +54,41 @@ final class SalesRegisterKsefNumberReader
             }
             $numbers = array_values(array_unique($numbers));
             $code = $invalid ? 'ksef_link_invalid' : (count($numbers) > 1 ? 'ksef_number_ambiguous' : null);
+            $number = $code === null && count($numbers) === 1 ? $numbers[0] : null;
+            [$date, $dateCode] = $number !== null ? $this->authorizationDate($candidates) : [null, null];
             $result[$document->id] = [
-                'number' => $code === null && count($numbers) === 1 ? $numbers[0] : null,
-                'warnings' => $code !== null ? [[
-                    'code' => 'sales_register_'.$code, 'document_id' => (int) $document->id, 'section' => 'ksef',
-                ]] : [],
+                'number' => $number, 'authorization_date' => $date,
+                'warnings' => array_map(fn (string $warning) => [
+                    'code' => 'sales_register_'.$warning, 'document_id' => (int) $document->id, 'section' => 'ksef',
+                ], array_values(array_filter([$code, $dateCode]))),
             ];
         }
 
         return $result;
+    }
+
+    private function authorizationDate(Collection $candidates): array
+    {
+        $instants = [];
+        foreach ($candidates as $submission) {
+            try {
+                // Reuse the submission's strict UTC cast, without loading payloads or relations.
+                $instant = (new KsefInvoiceSubmission)->newFromBuilder([
+                    'acquisition_date' => $submission->acquisition_date,
+                ])->acquisition_date;
+            } catch (UnexpectedValueException) {
+                return [null, 'ksef_authorization_date_unavailable'];
+            }
+            if ($instant === null) {
+                return [null, 'ksef_authorization_date_unavailable'];
+            }
+            $instants[$instant->format('Y-m-d H:i:s.u')] = $instant;
+        }
+        if (count($instants) !== 1) {
+            return [null, 'ksef_authorization_date_conflict'];
+        }
+
+        return [reset($instants)->setTimezone(config('app.timezone'))->format('Y-m-d'), null];
     }
 
     private function valid(Invoice $document, object $submission, Collection $issuances, Collection $technical, Collection $rejected): bool

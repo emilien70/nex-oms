@@ -32,7 +32,7 @@ final class SalesRegisterDataService
             'id', 'invoice_series_id', 'series_name_snapshot', 'document_type', 'status', 'number', 'issue_date', 'sale_date',
             'buyer_snapshot', 'buyer_name_snapshot', 'buyer_tax_id_snapshot', 'seller_snapshot', 'seller_tax_id_snapshot',
             'currency', 'total_net', 'total_vat', 'total_gross', 'tax_summary_snapshot', 'tax_metadata_snapshot',
-            'corrected_invoice_id', 'correction_totals_snapshot', 'order_snapshot',
+            'corrected_invoice_id', 'correction_totals_snapshot', 'order_snapshot', 'payment_snapshot',
         ])->with([
             'items:id,invoice_id,line_type,vat_rate,vat_code,total_net,total_vat,total_gross,correction_before_snapshot,correction_after_snapshot',
             'corrections' => fn ($related) => $related->where('status', InvoiceDocumentStatus::Issued->value)

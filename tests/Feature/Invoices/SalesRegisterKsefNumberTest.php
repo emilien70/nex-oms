@@ -72,6 +72,44 @@ class SalesRegisterKsefNumberTest extends TestCase
         $this->assertContains('sales_register_ksef_number_ambiguous', array_column($row['warnings'], 'code'));
     }
 
+    public function test_authorization_date_uses_same_production_link_utc_cast_and_application_timezone(): void
+    {
+        config(['app.timezone' => 'Europe/Warsaw']);
+        $invoice = $this->invoice();
+        $this->submission($invoice, ['acquisition_date' => '2026-08-21 23:30:00']);
+        $this->submission($invoice, ['environment' => 'demo', 'acquisition_date' => '2026-09-01 12:00:00']);
+        $this->submission($invoice, ['acquisition_date' => '2026-08-21 23:30:00']);
+        $this->assertSame('2026-08-22', $this->row($invoice)['ksef_authorization_date']);
+        $this->assertSame($this->number(), $this->row($invoice)['ksef_number']);
+        $correction = $this->invoice(['document_type' => 'correction', 'corrected_invoice_id' => $invoice->id]);
+        $this->assertNull($this->row($correction)['ksef_authorization_date']);
+        $this->submission($correction, ['ksef_number' => $this->number('2'), 'acquisition_date' => '2026-08-25 23:30:00']);
+        $this->assertSame('2026-08-26', $this->row($correction)['ksef_authorization_date']);
+        $this->assertSame('2026-08-21', $this->row($correction)['issue_date']);
+    }
+
+    #[DataProvider('invalidAuthorizationDates')]
+    public function test_unknown_or_conflicting_authorization_dates_keep_valid_number(?string $date, string $code): void
+    {
+        $invoice = $this->invoice();
+        $this->submission($invoice, ['acquisition_date' => '2026-08-21 12:00:00']);
+        $this->submission($invoice, ['acquisition_date' => $date]);
+        $row = $this->row($invoice);
+        $this->assertSame($this->number(), $row['ksef_number']);
+        $this->assertNull($row['ksef_authorization_date']);
+        $this->assertContains('sales_register_ksef_authorization_date_'.$code, array_column($row['warnings'], 'code'));
+    }
+
+    public static function invalidAuthorizationDates(): array
+    {
+        return [
+            'absent' => [null, 'unavailable'], 'invalid' => ['NOT A DATE', 'unavailable'],
+            'normalized invalid date' => ['2026-02-30 12:00:00', 'unavailable'],
+            'different instant same day' => ['2026-08-21 12:00:01', 'conflict'],
+            'different day' => ['2026-08-22 12:00:00', 'conflict'],
+        ];
+    }
+
     #[DataProvider('invalidAcceptedMetadata')]
     public function test_invalid_accepted_metadata_is_reported_without_a_number(array $attributes): void
     {
@@ -79,6 +117,7 @@ class SalesRegisterKsefNumberTest extends TestCase
         $this->submission($invoice, $attributes);
         $row = $this->row($invoice);
         $this->assertNull($row['ksef_number']);
+        $this->assertNull($row['ksef_authorization_date']);
         $this->assertContains('sales_register_ksef_link_invalid', array_column($row['warnings'], 'code'));
         $this->assertTrue($row['completeness']['original']);
     }

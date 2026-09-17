@@ -51,9 +51,24 @@ class SalesRegisterRequest extends FormRequest
             ];
         }
         if (! $this->routeIs('invoices.sales-register.selected')) {
-            $rules += ['format' => ['required', Rule::in(['html'])]];
-            foreach (['include_header', 'include_exchange_rates', 'include_ksef'] as $field) {
-                $rules[$field] = ['required', 'boolean'];
+            $rules += ['format' => ['required', Rule::in(['html', 'xlsx', 'xml', 'jpk_v7m3'])], 'include_ksef' => ['required_unless:format,jpk_v7m3', 'boolean']];
+            foreach (['include_header', 'include_exchange_rates'] as $field) {
+                $rules[$field] = ['exclude_if:format,xlsx,xml,jpk_v7m3', 'required', 'boolean'];
+            }
+            if ($this->input('format') === 'jpk_v7m3') {
+                foreach (['year', 'month', 'type', 'nip', 'office', 'email', 'purpose'] as $field) {
+                    $rules['jpk_'.$field] = ['required', 'string', 'max:255'];
+                }
+                foreach (['phone', 'name', 'first_name', 'last_name', 'birth_date'] as $field) {
+                    $rules['jpk_'.$field] = ['nullable', 'string', 'max:512'];
+                }
+                $rules += [
+                    'jpk_action' => ['required', Rule::in(['review', 'download'])],
+                    'jpk_fingerprint' => ['required_if:jpk_action,download', 'string', 'regex:/^[a-f0-9]{64}$/D'],
+                    'jpk_confirm' => ['accepted_if:jpk_action,download'],
+                    'jpk_markers' => ['sometimes', 'array'],
+                    'jpk_markers.*' => ['nullable', 'string', Rule::in(['BFK', 'OFF', 'DI'])],
+                ];
             }
         }
 
@@ -70,7 +85,7 @@ class SalesRegisterRequest extends FormRequest
     public function filters(): SalesRegisterFilters
     {
         $input = $this->validated();
-        $includeKsef = (bool) ($input['include_ksef'] ?? false);
+        $includeKsef = ($input['format'] ?? null) === 'jpk_v7m3' || (bool) ($input['include_ksef'] ?? false);
         if ($input['mode'] === 'ids') {
             return SalesRegisterFilters::forDocuments(json_decode($input['document_ids'], true), $includeKsef);
         }

@@ -71,6 +71,25 @@ class SalesRegisterHttpTest extends TestCase
         $this->assertSame(0, $this->dom($proforma->getContent())->query('//form[@id="salesRegisterSelectionForm"]')->length);
     }
 
+    public function test_module_navigation_opens_register_and_marks_its_form_as_active(): void
+    {
+        $url = route('invoices.sales-register.create');
+        foreach (['invoices.index', 'invoices.proformas.index', 'invoices.corrections.index', 'invoices.sales-register.create'] as $route) {
+            $response = $this->get(route($route))->assertOk();
+            $dom = $this->dom($response->getContent());
+            $links = $dom->query('//nav[@class="invoice-module-tabs"]/a[@href="'.$url.'"]');
+            $this->assertSame(1, $links->length);
+            $link = $links->item(0);
+            $this->assertSame('Rejestr sprzedaży', trim($link->textContent));
+            $this->assertFalse($link->hasAttribute('aria-disabled'));
+            $this->assertStringNotContainsString('disabled', $link->getAttribute('class'));
+            $this->assertSame($route === 'invoices.sales-register.create', str_contains($link->getAttribute('class'), 'active'));
+            $this->assertSame($route === 'invoices.sales-register.create' ? 'page' : '', $link->getAttribute('aria-current'));
+        }
+        $response = $this->export($this->period())->assertOk();
+        $this->assertSame(0, $this->dom($response->getContent())->query('//nav')->length);
+    }
+
     public function test_selected_form_and_export_use_only_ids_not_period_or_list_filters(): void
     {
         $a = $this->invoice(['issue_date' => '2020-01-01']);
@@ -174,6 +193,29 @@ class SalesRegisterHttpTest extends TestCase
         }
     }
 
+    public function test_report_title_sits_above_columns_without_displacing_the_ksef_column(): void
+    {
+        $invoice = $this->invoice();
+        foreach ([0, 1] as $includeKsef) {
+            foreach ([0, 1] as $includeHeader) {
+                $response = $this->export(array_replace($this->period(), ['include_ksef' => $includeKsef, 'include_header' => $includeHeader]))->assertOk();
+                $dom = $this->dom($response->getContent());
+                $this->assertSame($includeHeader, $dom->query('//thead/tr[@class="report-title"]')->length);
+                $this->assertSame(10 + $includeKsef, $dom->query('//thead/tr[@class="column-headings"]/th')->length);
+                $this->assertSame(2, $dom->query('//thead/tr[@class="column-headings"]/th[@class="date"]/br')->length);
+                $this->assertSame($includeHeader * $includeKsef, $dom->query('//thead/tr/td[@class="title-gap"]')->length);
+                $this->assertSame($includeHeader, $dom->query('//div[@class="report-metadata"]/p[@class="description"]')->length);
+                $this->assertSame(1, $dom->query('//table[@class="register"]/following-sibling::div[@class="report-metadata"]/p[@class="count"]')->length);
+                if ($includeHeader) {
+                    $this->assertSame('10', $dom->evaluate('string(//thead/tr[@class="report-title"]/td[1]/@colspan)'));
+                    $this->assertSame('Rejestr faktur sprzedaży za okres 01.09.2026 do 30.09.2026', $dom->evaluate('string(//h1)'));
+                }
+            }
+        }
+        $response = $this->export($this->selected([$invoice->id]))->assertOk();
+        $this->assertSame('Rejestr faktur sprzedaży — wybrane dokumenty', $this->dom($response->getContent())->evaluate('string(//h1)'));
+    }
+
     public function test_original_foreign_combined_country_shipping_and_rates_match_backend(): void
     {
         $this->invoice();
@@ -194,6 +236,13 @@ class SalesRegisterHttpTest extends TestCase
         $this->assertSame(1, $report['summaries']['foreign_in_pln']['coverage']['totals']['included_count']);
         $this->assertSame('492.00', $report['summaries']['foreign_in_pln']['shipping']['totals']['gross']);
         $response->assertSee('Kwoty: uwzględniono 1 z 2; pominięto 1.')->assertSee('Kwoty: uwzględniono 2 z 3; pominięto 1.');
+        $dom = $this->dom($response->getContent());
+        $summaries = $dom->query('//tbody[@class="summary"]');
+        $this->assertGreaterThan(0, $summaries->length);
+        foreach ($summaries as $summary) {
+            $this->assertSame(1, $dom->query('./tr[@class="coverage"]', $summary)->length);
+            $this->assertSame(3, $dom->query('./tr[@class="coverage"]/td/span[@class="coverage-item"]', $summary)->length);
+        }
         $without = $this->export($this->period())->assertOk()->assertDontSee('<h2>Tabela walut</h2>', false)->assertSee('ŁĄCZNE PODSUMOWANIE W PLN');
         $this->assertSame($report['summaries'], $without->viewData('report')['summaries']);
     }

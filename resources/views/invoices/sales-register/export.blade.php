@@ -5,25 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ $title }}</title>
     <style>
-        body { font-family: "Times New Roman", Times, serif; color: #171717; background: white; margin: 16px; font-size: 14px; }
-        h1 { font-size: 23px; margin: 0 0 10px; }
-        h2 { font-size: 17px; }
-        .description, .count { margin: 8px 0 14px; }
-        table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-        th { background: #d1d5dc; padding: 5px; text-align: left; }
-        td { border-top: 1px solid #777; vertical-align: top; padding: 5px; overflow-wrap: anywhere; }
+        body { font-family: "Times New Roman", Times, serif; color: #171717; background: white; margin: 3px 7px; font-size: 14px; line-height: 1.15; }
+        h1 { font-size: 32px; line-height: 1.15; margin: 0; }
+        h2 { font-size: 16px; margin: 10px 0 5px; }
+        .description, .count { margin: 4px 0 6px; }
+        table { border-collapse: collapse; width: auto; max-width: 100%; table-layout: auto; }
+        th { background: #d1d5dc; padding: 3px 5px; text-align: left; }
+        td { border-top: 1px solid #777; vertical-align: top; padding: 2px 5px; overflow-wrap: anywhere; }
         th { overflow-wrap: anywhere; }
-        .ordinal { width: 3%; } .number { width: 10%; } .buyer { width: 18%; } .date { width: 8%; } .tax { width: 5%; }
-        .money { text-align: right; font-weight: bold; font-variant-numeric: tabular-nums; }
-        .summary-heading td { background: #e9eaec; padding-top: 12px; font-weight: bold; }
-        .coverage td, .note td { border-top: 0; font-size: 12px; }
+        .number { width: 132px; } .buyer { width: 200px; } .date { width: 78px; } .ksef { width: 288px; }
+        .report-title td, .empty-heading { background: #d1d5dc; text-align: center; padding: 8px 5px 24px; border: 0; border-bottom: 2px solid white; }
+        .report-title .title-gap { background: white; }
+        .column-headings th { text-align: center; font-size: 16px; line-height: 1.15; padding: 5px; border-right: 2px solid white; }
+        .column-headings th:last-child { border-right: 0; }
+        .column-headings .number, .column-headings .date { white-space: nowrap; }
+        .report-metadata { margin-top: 8px; }
+        .money { text-align: right; font-weight: bold; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .summary-heading td { background: #e9eaec; padding: 4px 5px; font-weight: bold; }
+        .coverage td, .note td { border-top: 0; font-size: 11px; }
+        .coverage-item + .coverage-item::before { content: " | "; color: #777; }
         .total td { border-top: 2px solid #555; font-weight: bold; }
         .partial { color: #8b3400; font-weight: bold; }
-        .warnings { margin-top: 24px; border-top: 2px solid #777; }
-        .warnings li { margin-bottom: 6px; overflow-wrap: anywhere; }
-        .rates { margin-top: 24px; }
+        .warnings { margin-top: 12px; border-top: 2px solid #777; }
+        .warnings ul { margin: 5px 0; padding-left: 20px; }
+        .warnings li { margin-bottom: 3px; overflow-wrap: anywhere; }
+        .rates { margin-top: 12px; }
         tr { break-inside: avoid; }
-        @media (max-width: 800px) { body { margin: 10px; } .register { min-width: 950px; } }
+        @media (max-width: 800px) { .register { min-width: 950px; } }
         @media print {
             @page { size: A4 landscape; margin: 10mm; }
             body { margin: 0; font-size: 10px; }
@@ -36,19 +44,23 @@
     </style>
 </head>
 <body>
-@if ($options['include_header'])
-    <header><h1>{{ $title }}</h1><p class="description">{{ $description }}</p></header>
-@endif
-<p class="count">Liczba dokumentów: {{ $report['selection']['record_count'] }}</p>
 @if ($report['records'] === [])
+    @if ($options['include_header'])<header class="empty-heading"><h1>{{ $title }}</h1></header>@endif
     <p>Brak dokumentów spełniających wybrane kryteria.</p>
 @else
     <table class="register">
-        <thead><tr>
+        <thead>
+        @if ($options['include_header'])
+            <tr class="report-title">
+                <td colspan="10"><header><h1>{{ $title }}</h1></header></td>
+                @if ($options['include_ksef'])<td class="title-gap" aria-hidden="true"></td>@endif
+            </tr>
+        @endif
+        <tr class="column-headings">
             <th class="ordinal" scope="col">Lp.</th><th class="number" scope="col">Numer dokumentu</th><th class="buyer" scope="col">Nabywca</th>
-            <th class="date" scope="col">Data wystawienia</th><th class="date" scope="col">Data sprzedaży</th><th scope="col">Netto</th>
+            <th class="date" scope="col">Data<br>wystawienia</th><th class="date" scope="col">Data<br>sprzedaży</th><th scope="col">Netto</th>
             <th class="tax" scope="col">VAT</th><th scope="col">Kwota VAT</th><th scope="col">Brutto</th><th scope="col">Dokument powiązany</th>
-            @if ($options['include_ksef'])<th scope="col">Numer KSeF</th>@endif
+            @if ($options['include_ksef'])<th class="ksef" scope="col">Numer KSeF</th>@endif
         </tr></thead>
         <tbody>
         @foreach ($report['records'] as $record)
@@ -89,6 +101,10 @@
         </section>
     @endif
 @endif
+<div class="report-metadata">
+    @if ($options['include_header'])<p class="description">{{ $description }}</p>@endif
+    <p class="count">Liczba dokumentów: {{ $report['selection']['record_count'] }}</p>
+</div>
 @if ($report['warnings'] !== [])
     <section class="warnings"><h2>Kompletność danych i ostrzeżenia</h2>
         <ul>@foreach ($report['summaries']['completeness'] as $section => $coverage)@if (! $coverage['complete'])<li><strong>{{ $presenter->section($section) }}:</strong> uwzględniono {{ $coverage['included_count'] }}, pominięto {{ $coverage['excluded_count'] }}. Dokumenty: {{ implode(', ', array_map(fn ($id) => $labels[$id] ?? 'ID '.$id, $coverage['excluded_ids'])) }}.</li>@endif @endforeach</ul>

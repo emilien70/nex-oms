@@ -1,11 +1,13 @@
 <tbody class="summary">
 <tr class="summary-heading"><td colspan="{{ $columns }}">{{ $heading }}</td></tr>
-@foreach ($bucket['coverage'] as $section => $coverage)
-    <tr class="coverage"><td colspan="{{ $columns }}">
+<tr class="coverage"><td colspan="{{ $columns }}">
+    @foreach ($bucket['coverage'] as $section => $coverage)
+    <span class="coverage-item">
         {{ $presenter->section($section) }}: uwzględniono {{ $coverage['included_count'] }} z {{ $bucket['document_count'] }}; pominięto {{ $coverage['excluded_count'] }}.
         @if (! $coverage['complete'])<span class="partial">Suma częściowa.</span> Dokumenty: {{ implode(', ', array_map(fn ($id) => $labels[$id] ?? 'ID '.$id, $coverage['excluded_ids'])) }}.@endif
-    </td></tr>
-@endforeach
+    </span>
+    @endforeach
+</td></tr>
 @include('invoices.sales-register.amounts', ['label' => $bucket['coverage']['totals']['complete'] ? 'Razem' : 'Razem — suma częściowa', 'amounts' => $bucket['totals'], 'vatLabel' => '', 'rowClass' => ''])
 <tr class="note"><td colspan="{{ $columns }}">Podsumowanie stawek VAT</td></tr>
 @foreach ($bucket['vat_groups'] as $group)

@@ -1,11 +1,13 @@
 @extends('layouts.app')
 @section('title', 'Rejestr sprzedaży - NEX-OMS')
 @section('content')
+@include('invoices._navigation')
 <style>
     .sales-register { background: #fff; border: 1px solid #dfe3e8; border-radius: 6px; padding: 24px; font-size: 13px; }
     .sales-register h1 { font-size: 19px; margin: 0 0 28px; }
     .sales-register h1::before { content: ''; display: inline-block; width: 8px; height: 8px; background: #0878cf; border-radius: 50%; margin-right: 12px; }
     .sr-row { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(0, 2fr); gap: 20px; margin-bottom: 18px; align-items: start; }
+    .sr-row[hidden] { display: none; }
     .sr-label { padding-top: 8px; color: #424c58; }
     .sr-range { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 14px; }
     .sr-range > div { min-width: 0; }
@@ -16,6 +18,13 @@
     .sr-series { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
     .sr-actions { display: flex; gap: 12px; align-items: center; }
     .sr-error { color: #b42318; margin-top: 5px; }
+    .sr-jpk-table td { overflow-wrap: anywhere; }
+    @media (max-width: 700px) {
+        .sr-jpk-table thead { display: none; }
+        .sr-jpk-table tr { display: grid; grid-template-columns: 36px minmax(0, 1fr) 100px; padding: 8px 0; border-bottom: 1px solid #dfe3e8; }
+        .sr-jpk-table td { border: 0; }
+        .sr-jpk-table td:last-child { grid-column: 1 / -1; }
+    }
     @media (max-width: 700px) { .sales-register { padding: 16px; } .sr-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } .sr-range { gap: 6px; } }
 </style>
 <div class="sales-register">
@@ -23,7 +32,7 @@
     @if ($errors->any())
         <div class="alert alert-danger" role="alert"><strong>Nie można wygenerować rejestru.</strong><ul class="mb-0">@foreach ($errors->all() as $message)<li>{{ $message }}</li>@endforeach</ul></div>
     @endif
-    <form method="POST" action="{{ route('invoices.sales-register.export') }}" target="_blank" id="salesRegisterForm">
+    <form method="POST" action="{{ route('invoices.sales-register.export') }}" target="{{ $values['format'] === 'html' ? '_blank' : '_self' }}" id="salesRegisterForm">
         @csrf
         <input type="hidden" name="mode" value="{{ $values['mode'] }}">
         <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
@@ -74,16 +83,46 @@
                 <div class="sr-row"><label class="sr-label" for="sr-{{ $field }}">{{ $label }}</label><div><select class="form-select" id="sr-{{ $field }}" name="{{ $field }}">@foreach ($choices as $value => $text)<option value="{{ $value }}" @selected($values[$field] === (string) $value)>{{ $text }}</option>@endforeach</select><div class="sr-error">{{ $errors->first($field) }}</div></div></div>
             @endforeach
         @endif
-        <div class="sr-row sr-options"><span class="sr-label">Format eksportu</span><div><label class="form-check mt-2"><input type="radio" class="form-check-input" name="format" value="html" checked><span class="form-check-label">HTML</span></label><div class="sr-error">{{ $errors->first('format') }}</div></div></div>
+        <div class="sr-row sr-options"><span class="sr-label">Format eksportu</span><div>
+            @foreach (['html' => 'HTML', 'xlsx' => 'XLSX', 'xml' => 'XML', 'jpk_v7m3' => 'JPK_V7M (3) – KSeF'] as $format => $label)
+                <label class="form-check mt-2"><input type="radio" class="form-check-input" name="format" value="{{ $format }}" @checked($values['format'] === $format)><span class="form-check-label">{{ $label }}</span></label>
+            @endforeach
+            <div class="sr-error">{{ $errors->first('format') }}</div>
+        </div></div>
         @foreach (['include_header' => 'Dodaj nagłówek', 'include_exchange_rates' => 'Dodaj tabelę walut', 'include_ksef' => 'Dodaj numer KSeF dokumentu'] as $field => $label)
-            <div class="sr-row"><label class="sr-label" for="sr-{{ $field }}">{{ $label }}</label><div><select class="form-select" id="sr-{{ $field }}" name="{{ $field }}"><option value="1" @selected($values[$field] === '1')>Tak</option><option value="0" @selected($values[$field] === '0')>Nie</option></select><div class="sr-error">{{ $errors->first($field) }}</div></div></div>
+            <div class="sr-row" @if ($field !== 'include_ksef') data-html-option @if ($values['format'] !== 'html') hidden @endif @else data-ksef-option @if ($values['format'] === 'jpk_v7m3') hidden @endif @endif><label class="sr-label" for="sr-{{ $field }}">{{ $label }}</label><div><select class="form-select" id="sr-{{ $field }}" name="{{ $field }}" @disabled($field !== 'include_ksef' && $values['format'] !== 'html')><option value="1" @selected($values[$field] === '1')>Tak</option><option value="0" @selected($values[$field] === '0')>Nie</option></select><div class="sr-error">{{ $errors->first($field) }}</div></div></div>
         @endforeach
-        <div class="sr-row"><span></span><div class="sr-actions"><button class="btn btn-primary" type="submit">Generuj</button><a href="{{ $returnContext->url(0) }}" class="btn btn-link">Powrót do listy</a></div></div>
+        @include('invoices.sales-register._jpk')
+        <div class="sr-row"><span></span><div class="sr-actions"><button class="btn btn-primary" type="submit" name="jpk_action" value="review" id="sr-generate">{{ $values['format'] === 'jpk_v7m3' ? 'Sprawdź eksport' : 'Generuj' }}</button><a href="{{ $returnContext->url(0) }}" class="btn btn-link">Powrót do listy</a></div></div>
     </form>
 </div>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('salesRegisterForm');
+    const updateFormat = () => {
+        const download = form.querySelector('[name="format"]:checked')?.value !== 'html';
+        form.target = download ? '_self' : '_blank';
+        form.querySelectorAll('[data-html-option]').forEach(row => {
+            row.hidden = download;
+            row.querySelector('select').disabled = download;
+        });
+        const jpk = form.querySelector('[name="format"]:checked')?.value === 'jpk_v7m3';
+        const section = document.getElementById('sr-jpk');
+        section.hidden = !jpk;
+        section.disabled = !jpk;
+        const ksef = form.querySelector('[data-ksef-option]');
+        ksef.hidden = jpk;
+        document.getElementById('sr-generate').textContent = jpk ? 'Sprawdź eksport' : 'Generuj';
+    };
+    form.querySelectorAll('[name="format"]').forEach(input => input.addEventListener('change', updateFormat));
+    updateFormat();
+    const taxpayer = form.querySelector('[name="jpk_type"]');
+    const updateTaxpayer = () => form.querySelectorAll('[data-taxpayer]').forEach(row => {
+        row.hidden = row.dataset.taxpayer !== taxpayer.value;
+        row.querySelector('input').disabled = row.hidden;
+    });
+    taxpayer.addEventListener('change', updateTaxpayer);
+    updateTaxpayer();
     form.querySelectorAll('[data-series-toggle]').forEach(button => button.addEventListener('click', () => {
         const boxes = [...form.querySelectorAll('[data-series-type]')].filter(box => button.dataset.seriesToggle === 'all' || box.dataset.seriesType === button.dataset.seriesToggle);
         const checked = !boxes.every(box => box.checked);
