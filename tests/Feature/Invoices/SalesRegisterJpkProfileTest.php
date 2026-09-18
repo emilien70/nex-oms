@@ -162,6 +162,35 @@ class SalesRegisterJpkProfileTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_offices_are_alphabetical_by_polish_name_and_keep_saved_code_in_both_forms(): void
+    {
+        $names = [
+            'DOLNOŚLĄSKI URZĄD SKARBOWY WE WROCŁAWIU',
+            'DRUGI URZĄD SKARBOWY W BIAŁYMSTOKU',
+            'URZĄD SKARBOWY W BIAŁEJ PODLASKIEJ',
+            'URZĄD SKARBOWY W BOLESŁAWCU',
+            'URZĄD SKARBOWY W LUBINIE',
+            'URZĄD SKARBOWY W ŁASKU',
+            'URZĄD SKARBOWY W MILICZU',
+            'URZĄD SKARBOWY W ZABRZU',
+            'URZĄD SKARBOWY W ZAMOŚCIU',
+            'URZĄD SKARBOWY W ZĄBKOWICACH ŚLĄSKICH',
+            'URZĄD SKARBOWY W ZŁOTORYI',
+            'URZĄD SKARBOWY W ŻAGANIU',
+        ];
+        $offices = app(JpkTaxOfficeCatalog::class)->all();
+        $this->assertSame($names, array_values(array_intersect($offices, $names)));
+        $this->assertSame('URZĄD SKARBOWY W BOLESŁAWCU', $offices['0202']);
+        $this->savePerson();
+
+        foreach (['invoices.jpk-profile.edit', 'invoices.sales-register.create'] as $route) {
+            $response = $this->get(route($route))->assertOk()->assertSeeInOrder($names)
+                ->assertSee('value="0202" selected', false);
+            $this->assertSame('0202', $response->viewData('values')['jpk_office']);
+        }
+        Http::assertNothingSent();
+    }
+
     public function test_profile_pages_escape_values_and_have_separate_post_forms(): void
     {
         $this->post(route('invoices.jpk-profile.save'), array_replace($this->person(), ['jpk_first_name' => '<img src=x onerror=alert(1)>']))->assertRedirect();

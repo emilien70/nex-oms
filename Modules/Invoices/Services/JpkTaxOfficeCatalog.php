@@ -22,6 +22,15 @@ final class JpkTaxOfficeCatalog
                 $code = $entry->getAttribute('value');
                 $this->offices[$code] = trim($xpath->evaluate('string(xsd:annotation/xsd:documentation)', $entry));
             }
+
+            // Preserve codes and Polish alphabetical order independently of the host locale.
+            $this->offices = collect($this->offices)->sortBy(
+                fn (string $name): string => strtr(mb_strtolower($name, 'UTF-8'), [
+                    'ą' => 'a~', 'ć' => 'c~', 'ę' => 'e~', 'ł' => 'l~', 'ń' => 'n~',
+                    'ó' => 'o~', 'ś' => 's~', 'ź' => 'z~', 'ż' => 'z~~',
+                ]),
+                SORT_STRING,
+            )->all();
         }
 
         return $this->offices;
