@@ -18,5 +18,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'api_token',
             'authentication_private_key_passphrase',
             'offline_private_key_passphrase',
+            'smtp_password',
         ]);
     })->create();

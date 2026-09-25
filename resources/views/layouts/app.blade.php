@@ -301,7 +301,8 @@
 
         .app-shell.has-orders-context .content > .orders-page,
         .app-shell.has-orders-context .content > .status-settings-page,
-        .app-shell.has-orders-context .content > .automatic-actions-page {
+        .app-shell.has-orders-context .content > .automatic-actions-page,
+        .app-shell.has-orders-context .content > .email-settings-page {
             margin-left: -1rem !important;
         }
 
@@ -1248,6 +1249,7 @@
                         <a class="nav-flyout-link" href="#">Zwroty</a>
                         <a class="nav-flyout-link {{ request()->routeIs('settings.order-statuses.index') ? 'active' : '' }}" href="{{ route('settings.order-statuses.index') }}">Statusy zam&oacute;wie&#324;</a>
                         <a class="nav-flyout-link {{ request()->routeIs('orders.automatic-actions.index') ? 'active' : '' }}" href="{{ route('orders.automatic-actions.index') }}">Automatyczne akcje</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('orders.email-templates.*', 'orders.email-accounts.*') ? 'active' : '' }}" href="{{ route('orders.email-templates.index') }}">Szablony E-Mail</a>
                         <a class="nav-flyout-link {{ request()->routeIs('settings.variables.index') ? 'active' : '' }}" href="{{ route('settings.variables.index') }}">Zmienne</a>
                     </div>
                 </div>

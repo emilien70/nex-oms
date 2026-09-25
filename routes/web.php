@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\EmailAccountController;
+use App\Http\Controllers\EmailTemplateController;
 use App\Http\Controllers\GusCompanyController;
 use App\Http\Controllers\Integrations\AllegroShippingParcelTemplateController;
 use App\Http\Controllers\Integrations\CourierIntegrationController;
@@ -192,6 +194,17 @@ Route::get('/orders/automatic-actions/{automationRule}/edit', [AutomationRuleCon
 Route::put('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'update'])->name('orders.automatic-actions.update');
 Route::patch('/orders/automatic-actions/{automationRule}/toggle', [AutomationRuleController::class, 'toggle'])->name('orders.automatic-actions.toggle');
 Route::delete('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'destroy'])->name('orders.automatic-actions.destroy');
+Route::get('/orders/email-templates', [EmailTemplateController::class, 'index'])->name('orders.email-templates.index');
+Route::post('/orders/email-templates', [EmailTemplateController::class, 'store'])->name('orders.email-templates.store');
+Route::patch('/orders/email-templates/{emailTemplate}', [EmailTemplateController::class, 'update'])->name('orders.email-templates.update');
+Route::post('/orders/email-templates/{emailTemplate}/duplicate', [EmailTemplateController::class, 'duplicate'])->name('orders.email-templates.duplicate');
+Route::delete('/orders/email-templates/{emailTemplate}', [EmailTemplateController::class, 'destroy'])->name('orders.email-templates.destroy');
+Route::get('/orders/email-accounts', [EmailAccountController::class, 'index'])->name('orders.email-accounts.index');
+Route::post('/orders/email-accounts', [EmailAccountController::class, 'store'])->name('orders.email-accounts.store');
+Route::patch('/orders/email-accounts/{emailAccount}', [EmailAccountController::class, 'update'])->name('orders.email-accounts.update');
+Route::post('/orders/email-accounts/{emailAccount}/duplicate', [EmailAccountController::class, 'duplicate'])->name('orders.email-accounts.duplicate');
+Route::post('/orders/email-accounts/{emailAccount}/test', [EmailAccountController::class, 'test'])->name('orders.email-accounts.test');
+Route::delete('/orders/email-accounts/{emailAccount}', [EmailAccountController::class, 'destroy'])->name('orders.email-accounts.destroy');
 Route::get('/orders/create', [OrdersController::class, 'create'])->name('orders.create');
 Route::post('/orders', [OrdersController::class, 'store'])->name('orders.store');
 Route::post('/orders/empty', [OrdersController::class, 'storeEmpty'])->name('orders.empty-store');

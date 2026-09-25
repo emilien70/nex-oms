@@ -127,9 +127,10 @@
             <header class="variables-header">
                 <h1 class="variables-title">Zmienne</h1>
                 <p class="variables-intro">
-                    Zmiennych mo&#380;na u&#380;ywa&#263; w automatycznych akcjach, a w przysz&#322;o&#347;ci tak&#380;e w wiadomo&#347;ciach e-mail i innych szablonach OMS.
+                    Zmiennych mo&#380;na u&#380;ywa&#263; w automatycznych akcjach oraz w temacie i tre&#347;ci wiadomo&#347;ci e-mail. Brakuj&#261;ce dane s&#261; zast&#281;powane pust&#261; warto&#347;ci&#261;.
                 </p>
                 <code class="variables-example">https://multi-click.pl/sndb/add.php?serial=[uwagi_sprzedawcy]&amp;sale_date=[data_zamowienia]&amp;key=SNDB700</code>
+                <code class="variables-example">Temat: Zam&oacute;wienie [numer_w_sklepie] zosta&#322;o wys&#322;ane</code>
             </header>
 
             @foreach ($variableGroups as $group => $variables)
