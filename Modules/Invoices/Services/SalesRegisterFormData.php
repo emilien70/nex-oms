@@ -41,7 +41,7 @@ final class SalesRegisterFormData
             'series_ids' => $series->pluck('id')->all(), 'tax_id_presence' => 'all', 'currency' => '', 'country' => '',
             'format' => 'html', 'include_header' => '1', 'include_exchange_rates' => '0', 'include_ksef' => '1',
             'document_ids' => '[]',
-            'jpk_year' => '', 'jpk_month' => '', 'jpk_type' => '', 'jpk_nip' => '', 'jpk_office' => '',
+            'jpk_bfk_outside_ksef' => '1', 'jpk_type' => '', 'jpk_nip' => '', 'jpk_office' => '',
             'jpk_email' => '', 'jpk_phone' => '', 'jpk_purpose' => '1', 'jpk_name' => '',
             'jpk_first_name' => '', 'jpk_last_name' => '', 'jpk_birth_date' => '',
         ];
@@ -54,6 +54,8 @@ final class SalesRegisterFormData
                     $values[$field] = is_array($value) ? array_filter($value, 'is_scalar') : [];
                 } elseif ($request->exists($field)) {
                     $values[$field] = is_scalar($value) ? (string) $value : '';
+                } elseif ($field === 'jpk_bfk_outside_ksef') {
+                    $values[$field] = $request->routeIs('invoices.sales-register.selected') ? '1' : '0';
                 } elseif (str_starts_with($field, 'jpk_') && ! $request->routeIs('invoices.sales-register.selected')) {
                     $values[$field] = '';
                 }

@@ -17,7 +17,7 @@ final class JpkV7m3Exporter
         private readonly JpkV7m3SchemaValidator $schema, private readonly KsefFa3BuyerIdentityResolver $identities,
         private readonly InvoiceDecimalCalculator $decimal) {}
 
-    public function prepare(array $report, JpkV7m3Context $context, array $confirmations): array
+    public function prepare(array $report, JpkV7m3Context $context, array $confirmations, bool $bfkOutsideKsef = false): array
     {
         $ids = array_column($report['records'], 'id');
         foreach ($confirmations as $id => $value) {
@@ -26,7 +26,7 @@ final class JpkV7m3Exporter
                 JpkV7m3Context::fail(0, 'potwierdzenia KSeF', 'Potwierdzenia muszą dotyczyć dokładnie wybranych dokumentów.');
             }
         }
-        $rows = $review = $errors = $diagnostics = $evidenceHash = [];
+        $rows = $review = $errors = $diagnostics = [];
         foreach (array_chunk($report['records'], SalesRegisterDataService::BATCH_SIZE) as $batch) {
             $batchIds = array_column($batch, 'id');
             $documents = Invoice::query()->whereIn('id', $batchIds)->select([
@@ -47,7 +47,6 @@ final class JpkV7m3Exporter
                 foreach (['outside' => $outside, 'offline' => $offline, 'submissions' => $submissions] as $key => $collection) {
                     $evidence[$key] = $collection->get($id, collect())->map(static fn ($row) => (array) $row)->all();
                 }
-                $evidenceHash[] = [$record, $document?->getAttributes(), $document?->items->map->getAttributes()->all(), $evidence];
                 $problem = [];
                 $issues = [];
                 $amounts = null;
@@ -58,9 +57,10 @@ final class JpkV7m3Exporter
                         JpkV7m3Context::fail($id, 'dokument', 'Dokument nie jest już dostępny.');
                     }
                     $nip = $this->seller($document, $context);
-                    $choice = $this->ksef->resolve($record, $evidence, $nip, ($confirmations[$id] ?? '') ?: null);
-                    $manual = $record['ksef_number'] === null && $evidence === ['outside' => [], 'offline' => [], 'submissions' => []];
                     $fields = $this->row($record, $document);
+                    $choice = $this->ksef->resolve($record, $evidence, $nip, ($confirmations[$id] ?? '') ?: null,
+                        $bfkOutsideKsef);
+                    $manual = $record['ksef_number'] === null && $evidence === ['outside' => [], 'offline' => [], 'submissions' => []];
                     $amounts = $this->tax->map($record, $document);
                     $rows[] = $fields + $choice + $amounts;
                     if ($choice === []) {
@@ -83,8 +83,6 @@ final class JpkV7m3Exporter
                     'url' => route($record['type'] === 'correction' ? 'invoices.corrections.edit' : 'invoices.edit', $id)];
             }
         }
-        $effectiveChoices = array_column($review, 'choice', 'id');
-        $fingerprint = hash_hmac('sha256', serialize([$context->data, $evidenceHash, $report['selection'], $effectiveChoices]), (string) config('app.key'));
         $xml = null;
         if ($errors === []) {
             try {
@@ -96,7 +94,7 @@ final class JpkV7m3Exporter
             }
         }
 
-        return ['documents' => $review, 'errors' => $errors, 'diagnostics' => $diagnostics, 'fingerprint' => $fingerprint, 'xml' => $xml,
+        return ['documents' => $review, 'errors' => $errors, 'diagnostics' => $diagnostics, 'xml' => $xml,
             'selection' => $report['selection'], 'selection_warnings' => array_values(array_filter($report['warnings'], static fn ($warning) => $warning['section'] === 'selection'))];
     }
 

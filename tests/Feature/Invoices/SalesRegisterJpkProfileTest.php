@@ -31,7 +31,7 @@ class SalesRegisterJpkProfileTest extends TestCase
         $this->get(route('invoices.jpk-profile.edit'))->assertOk()->assertSee('Osoba fizyczna / JDG');
         $this->get(route('invoices.sales-register.create'))->assertOk();
         $this->assertDatabaseCount('jpk_taxpayer_profiles', 0);
-        $this->post(route('invoices.jpk-profile.save'), $this->person() + ['jpk_year' => '2026', 'jpk_month' => '9',
+        $this->post(route('invoices.jpk-profile.save'), $this->person() + ['year' => '2026', 'month' => '9',
             'jpk_purpose' => '2', 'jpk_markers' => [1 => 'DI'], 'document_ids' => '[1]', 'gtu_codes' => ['GTU_06']])->assertRedirect();
         $profile = app(JpkTaxpayerProfileService::class)->current();
         $this->assertSame('0202', $profile->office);
@@ -59,6 +59,32 @@ class SalesRegisterJpkProfileTest extends TestCase
         ]))->assertRedirect();
         $this->assertNull(app(JpkTaxpayerProfileService::class)->current()->name);
         $this->assertDatabaseCount('jpk_taxpayer_profiles', 1);
+    }
+
+    #[DataProvider('defaultTaxpayers')]
+    public function test_sales_register_loads_default_taxpayer_without_profile_controls(array $changes): void
+    {
+        $this->post(route('invoices.jpk-profile.save'), array_replace($this->person(), $changes))->assertRedirect();
+        $profile = app(JpkTaxpayerProfileService::class)->current();
+        $before = $profile->getAttributes();
+
+        $response = $this->get(route('invoices.sales-register.create'))->assertOk()
+            ->assertDontSee('Profil JPK:')->assertDontSee('Dane wczytane z profilu.')
+            ->assertDontSee('Wczytaj profil')->assertDontSee('Wczytanie profilu zastąpi')
+            ->assertDontSee('formaction="'.route('invoices.sales-register.profile').'"', false)
+            ->assertDontSee('Edytuj dane podatnika JPK')
+            ->assertDontSee('href="'.route('invoices.jpk-profile.edit').'"', false);
+        foreach ($profile->formValues() as $field => $value) {
+            $this->assertSame($value, $response->viewData('values')[$field]);
+        }
+        $this->assertSame($before, app(JpkTaxpayerProfileService::class)->current()->getAttributes());
+        $this->assertDatabaseCount('jpk_taxpayer_profiles', 1);
+        Http::assertNothingSent();
+    }
+
+    public static function defaultTaxpayers(): array
+    {
+        return ['person' => [[]], 'organization' => [['jpk_type' => 'organization', 'jpk_name' => 'Fikcyjna spółka']]];
     }
 
     public function test_stale_creation_and_update_cannot_overwrite_profile(): void
@@ -110,16 +136,18 @@ class SalesRegisterJpkProfileTest extends TestCase
         $this->savePerson();
         $response = $this->get(route('invoices.sales-register.create'))->assertOk();
         $this->assertSame('jan@example.test', $response->viewData('values')['jpk_email']);
-        $this->assertSame('', $response->viewData('values')['jpk_month']);
+        $this->assertSame(now()->format('m'), $response->viewData('values')['month']);
         $payload = ['mode' => 'ids', 'document_ids' => '[]', 'format' => 'jpk_v7m3', 'jpk_action' => 'review',
-            'jpk_email' => '', 'jpk_nip' => '', 'jpk_first_name' => 'Zmienione', 'jpk_month' => '3', 'jpk_purpose' => '2'];
+            'jpk_email' => '', 'jpk_nip' => '', 'jpk_first_name' => 'Zmienione', 'month' => '3', 'year' => '2026', 'jpk_purpose' => '2', 'jpk_bfk_outside_ksef' => '1'];
         $response = $this->post(route('invoices.sales-register.export'), $payload)->assertStatus(422);
-        foreach (['jpk_email', 'jpk_nip', 'jpk_first_name', 'jpk_month', 'jpk_purpose'] as $key) {
+        foreach (['jpk_email', 'jpk_nip', 'jpk_first_name', 'month', 'year', 'jpk_purpose', 'jpk_bfk_outside_ksef'] as $key) {
             $this->assertSame($payload[$key], $response->viewData('values')[$key]);
         }
         $response = $this->post(route('invoices.sales-register.profile'), $payload)->assertOk();
         $this->assertSame('jan@example.test', $response->viewData('values')['jpk_email']);
-        $this->assertSame('3', $response->viewData('values')['jpk_month']);
+        $this->assertSame('3', $response->viewData('values')['month']);
+        $this->assertSame('2026', $response->viewData('values')['year']);
+        $this->assertSame('1', $response->viewData('values')['jpk_bfk_outside_ksef']);
         $this->assertSame('2', $response->viewData('values')['jpk_purpose']);
         $this->assertSame(1, app(JpkTaxpayerProfileService::class)->current()->lock_version);
     }

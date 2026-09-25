@@ -41,8 +41,8 @@
             <input type="hidden" name="document_ids" value="{{ $values['document_ids'] }}">
             <p>Wybrane dokumenty: <strong>{{ $selectedCount }}</strong></p>
             @error('document_ids')<p class="sr-error">{{ $message }}</p>@enderror
-        @else
-            <div class="sr-row">
+        @endif
+            <div class="sr-row" @if ($values['mode'] === 'ids') data-jpk-period @if ($values['format'] !== 'jpk_v7m3') hidden @endif @endif>
                 <label class="sr-label" for="sr-month">Okres — miesiąc</label>
                 <div class="sr-range">
                     <div><select class="form-select" name="month" id="sr-month" aria-describedby="sr-month-error">@foreach ($months as $number => $name)<option value="{{ $number }}" @selected((int) $values['month'] === $number)>{{ $name }}</option>@endforeach</select><div class="sr-error" id="sr-month-error">{{ $errors->first('month') }}</div></div>
@@ -50,6 +50,7 @@
                     <div><select class="form-select" name="year" id="sr-year" aria-label="Rok" aria-describedby="sr-year-error">@foreach (array_unique([...$years, (int) $values['year']]) as $year)<option value="{{ $year }}" @selected((int) $values['year'] === $year)>{{ $year }}</option>@endforeach</select><div class="sr-error" id="sr-year-error">{{ $errors->first('year') }}</div></div>
                 </div>
             </div>
+        @if ($values['mode'] !== 'ids')
             @foreach (['issue' => 'Data wystawienia', 'sale' => 'Data sprzedaży'] as $prefix => $label)
                 <div class="sr-row">
                     <label class="sr-label" for="sr-{{ $prefix }}-from">{{ $label }} od</label>
@@ -93,7 +94,11 @@
             <div class="sr-row" @if ($field !== 'include_ksef') data-html-option @if ($values['format'] !== 'html') hidden @endif @else data-ksef-option @if ($values['format'] === 'jpk_v7m3') hidden @endif @endif><label class="sr-label" for="sr-{{ $field }}">{{ $label }}</label><div><select class="form-select" id="sr-{{ $field }}" name="{{ $field }}" @disabled($field !== 'include_ksef' && $values['format'] !== 'html')><option value="1" @selected($values[$field] === '1')>Tak</option><option value="0" @selected($values[$field] === '0')>Nie</option></select><div class="sr-error">{{ $errors->first($field) }}</div></div></div>
         @endforeach
         @include('invoices.sales-register._jpk')
-        <div class="sr-row"><span></span><div class="sr-actions"><button class="btn btn-primary" type="submit" name="jpk_action" value="review" id="sr-generate">{{ $values['format'] === 'jpk_v7m3' ? 'Sprawdź eksport' : 'Generuj' }}</button><a href="{{ $returnContext->url(0) }}" class="btn btn-link">Powrót do listy</a></div></div>
+        <div class="sr-row"><span></span><div class="sr-actions flex-wrap">
+            <button class="btn btn-primary" type="submit" name="jpk_action" value="download" id="sr-generate">Generuj</button>
+            <button class="btn btn-outline-secondary" type="submit" name="jpk_action" value="review" data-jpk-review @if ($values['format'] !== 'jpk_v7m3') hidden @endif>Sprawdź eksport</button>
+            <a href="{{ $returnContext->url(0) }}" class="btn btn-link">Powrót do listy</a>
+        </div></div>
     </form>
 </div>
 <script>
@@ -112,7 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
         section.disabled = !jpk;
         const ksef = form.querySelector('[data-ksef-option]');
         ksef.hidden = jpk;
-        document.getElementById('sr-generate').textContent = jpk ? 'Sprawdź eksport' : 'Generuj';
+        form.querySelector('[data-jpk-review]').hidden = !jpk;
+        form.querySelectorAll('[data-jpk-period]').forEach(row => row.hidden = !jpk);
     };
     form.querySelectorAll('[name="format"]').forEach(input => input.addEventListener('change', updateFormat));
     updateFormat();
@@ -125,7 +131,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const to = document.getElementById('sr-issue-to');
     const updateRange = () => document.getElementById('sr-custom-range').hidden = !from.value && !to.value;
     [from, to].forEach(input => input?.addEventListener('input', updateRange));
-    ['sr-month', 'sr-year'].forEach(id => document.getElementById(id)?.addEventListener('change', () => { from.value = ''; to.value = ''; updateRange(); }));
+    if (from && to) {
+        ['sr-month', 'sr-year'].forEach(id => document.getElementById(id)?.addEventListener('change', () => { from.value = ''; to.value = ''; updateRange(); }));
+    }
 });
 </script>
 @include('invoices.jpk-profile._script')

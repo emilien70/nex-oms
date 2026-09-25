@@ -56,16 +56,17 @@ class SalesRegisterRequest extends FormRequest
                 $rules[$field] = ['exclude_if:format,xlsx,xml,jpk_v7m3', 'required', 'boolean'];
             }
             if ($this->input('format') === 'jpk_v7m3') {
-                foreach (['year', 'month', 'type', 'nip', 'office', 'email', 'purpose'] as $field) {
+                $rules['month'] = ['required', 'integer', 'between:1,12'];
+                $rules['year'] = ['required', 'integer', 'between:2026,2090'];
+                foreach (['type', 'nip', 'office', 'email', 'purpose'] as $field) {
                     $rules['jpk_'.$field] = ['required', 'string', 'max:255'];
                 }
                 foreach (['phone', 'name', 'first_name', 'last_name', 'birth_date'] as $field) {
                     $rules['jpk_'.$field] = ['nullable', 'string', 'max:512'];
                 }
                 $rules += [
-                    'jpk_action' => ['required', Rule::in(['review', 'download'])],
-                    'jpk_fingerprint' => ['required_if:jpk_action,download', 'string', 'regex:/^[a-f0-9]{64}$/D'],
-                    'jpk_confirm' => ['accepted_if:jpk_action,download'],
+                    'jpk_action' => ['sometimes', Rule::in(['review', 'download'])],
+                    'jpk_bfk_outside_ksef' => ['sometimes', 'boolean'],
                     'jpk_markers' => ['sometimes', 'array'],
                     'jpk_markers.*' => ['nullable', 'string', Rule::in(['BFK', 'OFF', 'DI'])],
                 ];
@@ -117,7 +118,7 @@ class SalesRegisterRequest extends FormRequest
         return ['jpk_type' => 'Typ podatnika', 'jpk_nip' => 'NIP podatnika', 'jpk_office' => 'Urząd skarbowy',
             'jpk_email' => 'E-mail', 'jpk_phone' => 'Telefon', 'jpk_name' => 'Pełna nazwa podatnika',
             'jpk_first_name' => 'Pierwsze imię', 'jpk_last_name' => 'Nazwisko', 'jpk_birth_date' => 'Data urodzenia',
-            'jpk_year' => 'Rok JPK', 'jpk_month' => 'Miesiąc JPK', 'jpk_purpose' => 'Cel pliku'];
+            'year' => 'Rok', 'month' => 'Miesiąc', 'jpk_purpose' => 'Cel pliku'];
     }
 
     protected function failedValidation(Validator $validator): void

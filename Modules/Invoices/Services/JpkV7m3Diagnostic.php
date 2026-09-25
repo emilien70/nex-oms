@@ -20,7 +20,7 @@ final class JpkV7m3Diagnostic
                 'vat_unsupported' => 'Zweryfikuj faktyczną stawkę i klasyfikację dokumentu z księgowością.',
                 'formal_gtu_unresolved' => 'Ustal oznaczenia formalnej Korekty z księgowością; ten profil ich nie rozstrzyga.',
                 'ksef_unresolved' => 'Wyjaśnij lokalny stan i powiązanie KSeF dokumentu. Ręczne oznaczenie nie zastępuje sprzecznych dowodów.',
-                'ksef_confirmation_required' => 'Potwierdź rzeczywisty sposób wystawienia tego dokumentu, następnie sprawdź eksport ponownie.',
+                'ksef_confirmation_required' => 'Wybierz właściwe oznaczenie BFK, OFF albo DI dla tego dokumentu i wygeneruj plik ponownie.',
                 'xsd_invalid' => 'Sprawdź wskazane pole, jego format i długość. Pobranie wymaga zgodności z przypiętym XSD.',
                 default => 'Sprawdź wskazane dane w dokumencie lub formularzu. Dane historyczne nie są naprawiane przez eksport.',
             }];

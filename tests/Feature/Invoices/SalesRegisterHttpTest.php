@@ -95,7 +95,7 @@ class SalesRegisterHttpTest extends TestCase
         $a = $this->invoice(['issue_date' => '2020-01-01']);
         $b = $this->invoice();
         $payload = $this->selected([$a->id]) + ['month' => 'bad', 'year' => 'bad', 'series_ids' => [], 'currency' => 'EUR', 'country' => 'FR', 'tax_id_presence' => 'without', 'page' => 999];
-        $form = $this->post(route('invoices.sales-register.selected'), $payload)->assertOk()->assertSee('Wybrane dokumenty:')->assertDontSee('name="series_ids[]"', false)->assertDontSee('name="month"', false);
+        $form = $this->post(route('invoices.sales-register.selected'), $payload)->assertOk()->assertSee('Wybrane dokumenty:')->assertDontSee('name="series_ids[]"', false)->assertSee('data-jpk-period  hidden', false);
         $this->assertSame('[1]', $form->viewData('values')['document_ids']);
         $response = $this->export($payload)->assertOk();
         $this->assertSame([$a->id], array_column($response->viewData('report')['records'], 'id'));

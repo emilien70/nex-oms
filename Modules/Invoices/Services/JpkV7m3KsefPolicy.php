@@ -4,7 +4,7 @@ namespace Modules\Invoices\Services;
 
 final class JpkV7m3KsefPolicy
 {
-    public function resolve(array $record, array $evidence, string $nip, ?string $confirmation): array
+    public function resolve(array $record, array $evidence, string $nip, ?string $confirmation, bool $bfkOutsideKsef = false): array
     {
         $id = $record['id'];
         foreach ($record['warnings'] as $warning) {
@@ -59,7 +59,7 @@ final class JpkV7m3KsefPolicy
             JpkV7m3Context::fail($id, 'KSeF', 'Transmisja produkcyjna nie ma wiarygodnego numeru ani potwierdzonego trybu offline. Najpierw wyjaśnij jej stan.');
         }
         if ($confirmation === null) {
-            return [];
+            return $bfkOutsideKsef ? ['BFK' => '1'] : [];
         }
         if (! in_array($confirmation, ['BFK', 'OFF', 'DI'], true)) {
             JpkV7m3Context::fail($id, 'KSeF', 'Nieprawidłowe potwierdzenie sposobu wystawienia.');

@@ -53,14 +53,14 @@ class SalesRegisterController extends Controller
             $filters = $request->filters();
             $report = $data->build($filters);
             if ($request->validated('format') === 'jpk_v7m3') {
-                $context = new JpkV7m3Context($request->safe()->only(['jpk_year', 'jpk_month', 'jpk_type', 'jpk_nip', 'jpk_office',
-                    'jpk_email', 'jpk_phone', 'jpk_purpose', 'jpk_name', 'jpk_first_name', 'jpk_last_name', 'jpk_birth_date']));
+                $context = new JpkV7m3Context($request->safe()->only(['jpk_type', 'jpk_nip', 'jpk_office',
+                    'jpk_email', 'jpk_phone', 'jpk_purpose', 'jpk_name', 'jpk_first_name', 'jpk_last_name', 'jpk_birth_date']) + [
+                        'jpk_year' => (string) $request->validated('year'), 'jpk_month' => (string) $request->validated('month'),
+                    ]);
                 $markers = array_map(static fn ($value) => $value ?? '', $request->validated('jpk_markers', []));
-                $review = $jpk->prepare($report, $context, $markers);
-                $download = $request->validated('jpk_action') === 'download';
-                if ($download && ! hash_equals($review['fingerprint'], $request->validated('jpk_fingerprint'))) {
-                    $review['errors'][] = 'Dane lub zakres eksportu zmieniły się. Sprawdź ponownie listę i potwierdź pobranie.';
-                } elseif ($download && $review['errors'] === []) {
+                $review = $jpk->prepare($report, $context, $markers, (bool) $request->validated('jpk_bfk_outside_ksef', false));
+                $download = $request->validated('jpk_action', 'download') === 'download';
+                if ($download && $review['errors'] === []) {
                     return $jpk->download($review, $context);
                 }
 

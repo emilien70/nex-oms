@@ -95,7 +95,7 @@ class SalesRegisterJpkTest extends TestCase
 
     public static function invalidContexts(): array
     {
-        return array_map(static fn ($changes) => [$changes], [['jpk_month' => '1'], ['jpk_year' => '2025'], ['jpk_month' => ''], ['jpk_type' => ''], ['jpk_email' => ''],
+        return array_map(static fn ($changes) => [$changes], [['month' => '1'], ['year' => '2025'], ['month' => ''], ['month' => []], ['year' => []], ['jpk_type' => ''], ['jpk_email' => ''],
             ['jpk_type' => 'person'], ['jpk_type' => 'person', 'jpk_first_name' => 'A', 'jpk_last_name' => 'B', 'jpk_birth_date' => '1980-02-30'],
             ['jpk_nip' => '1234563219'], ['jpk_purpose' => '3']]);
     }
@@ -125,15 +125,145 @@ class SalesRegisterJpkTest extends TestCase
         $this->assertStringContainsString('nadpisywać', implode(' ', $review->viewData('jpkReview')['errors']));
     }
 
-    public function test_download_requires_review_confirmation_and_unchanged_data(): void
+    public function test_download_does_not_require_review_and_reads_current_document(): void
     {
         $invoice = $this->invoice();
         $payload = $this->payload([$invoice->id]);
-        $review = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
-        $download = array_replace($payload, ['jpk_action' => 'download', 'jpk_fingerprint' => $review['fingerprint']]);
-        $this->post(route('invoices.sales-register.export'), $download)->assertStatus(422);
         $invoice->update(['number' => 'CHANGED']);
-        $this->post(route('invoices.sales-register.export'), $download + ['jpk_confirm' => '1'])->assertStatus(422)->assertSee('Dane lub zakres eksportu zmieniły się');
+        unset($payload['jpk_action']);
+        $xp = $this->xpath($this->export($payload, false));
+        $this->assertSame('CHANGED', $xp->evaluate('string(//j:DowodSprzedazy)'));
+    }
+
+    public function test_jpk_uses_main_period_even_with_custom_dates_and_ignores_legacy_jpk_period(): void
+    {
+        $invoice = $this->invoice(['issue_date' => '2026-08-10']);
+        $payload = array_replace($this->period(), ['month' => '10', 'year' => '2026',
+            'issue_from' => '2026-08-01', 'issue_to' => '2026-08-31', 'jpk_month' => '7', 'jpk_year' => '2027',
+            'jpk_markers' => [], 'jpk_bfk_outside_ksef' => '1']);
+        $xp = $this->xpath($this->export($payload, false));
+        $this->assertSame('10', $xp->evaluate('string(//j:Miesiac)'));
+        $this->assertSame('2026', $xp->evaluate('string(//j:Rok)'));
+        $this->assertSame($invoice->number, $xp->evaluate('string(//j:DowodSprzedazy)'));
+    }
+
+    #[DataProvider('buyersEligibleForConfirmedOutsideKsef')]
+    public function test_bfk_option_allows_direct_download_independently_of_buyer_nip_and_never_changes_invoice(array $attributes, string $identifier): void
+    {
+        $invoice = $this->invoice($attributes)->fresh();
+        $before = $invoice->getAttributes();
+        $items = $invoice->items()->get()->map->getAttributes()->all();
+        $payload = array_replace($this->payload([$invoice->id]), ['jpk_markers' => [], 'jpk_bfk_outside_ksef' => '1']);
+        unset($payload['jpk_action']);
+        $xp = $this->xpath($this->export($payload, false));
+        $this->assertSame($identifier, $xp->evaluate('string(//j:NrKontrahenta)'));
+        $this->assertSame('1', $xp->evaluate('string(//j:BFK)'));
+        $this->assertSame(0, $xp->query('//j:NrKSeF | //j:OFF | //j:DI')->length);
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
+        $this->assertSame($items, $invoice->items()->get()->map->getAttributes()->all());
+        Http::assertNothingSent();
+        Bus::assertNothingDispatched();
+    }
+
+    public static function buyersEligibleForConfirmedOutsideKsef(): array
+    {
+        return [
+            'no identifier' => [[], 'BRAK'],
+            'polish nip' => [['buyer_tax_id_snapshot' => '1234563218', 'buyer_snapshot' => ['name' => 'Klient fikcyjny', 'tax_id' => '1234563218',
+                'tax_identity' => ['version' => 1, 'status' => 'resolved', 'type' => 'pl_nip', 'country_code' => 'PL', 'identifier' => '1234563218']]], '1234563218'],
+            'foreign vat' => [['buyer_tax_id_snapshot' => 'DE123456789', 'buyer_snapshot' => ['name' => 'Klient fikcyjny', 'tax_id' => 'DE123456789',
+                'tax_identity' => ['version' => 1, 'status' => 'resolved', 'type' => 'eu_vat', 'country_code' => 'DE', 'identifier' => '123456789']]], '123456789'],
+        ];
+    }
+
+    public function test_bfk_option_defaults_to_checked_for_new_period_and_selected_forms(): void
+    {
+        $invoice = $this->invoice();
+        $responses = [
+            $this->get(route('invoices.sales-register.create')),
+            $this->post(route('invoices.sales-register.selected'), ['mode' => 'ids', 'document_ids' => json_encode([$invoice->id])]),
+        ];
+        foreach ($responses as $response) {
+            $response->assertOk()->assertSee('id="sr-jpk-bfk-outside-ksef" name="jpk_bfk_outside_ksef" value="1" checked', false);
+            $this->assertSame('1', $response->viewData('values')['jpk_bfk_outside_ksef']);
+        }
+    }
+
+    public function test_bfk_option_preserves_unchecked_value_after_validation_error(): void
+    {
+        $payload = array_replace($this->payload([$this->invoice()->id]), ['jpk_email' => '', 'jpk_bfk_outside_ksef' => '0']);
+        $response = $this->post(route('invoices.sales-register.export'), $payload)->assertStatus(422)
+            ->assertDontSee('id="sr-jpk-bfk-outside-ksef" name="jpk_bfk_outside_ksef" value="1" checked', false);
+        $this->assertSame('0', $response->viewData('values')['jpk_bfk_outside_ksef']);
+    }
+
+    public function test_bfk_option_respects_posted_value_and_validates_input(): void
+    {
+        $payload = array_replace($this->payload([$this->invoice()->id]), ['jpk_markers' => [], 'jpk_action' => 'download']);
+        foreach ([null, '0', 'invalid', ['1']] as $option) {
+            $input = $option === null ? $payload : $payload + ['jpk_bfk_outside_ksef' => $option];
+            $this->post(route('invoices.sales-register.export'), $input)->assertStatus(422)->assertHeaderMissing('Content-Disposition');
+        }
+    }
+
+    public function test_legacy_bfk_option_does_not_imply_outside_ksef_confirmation(): void
+    {
+        $payload = array_replace($this->payload([$this->invoice()->id]), ['jpk_markers' => [], 'jpk_bfk_without_nip' => '1']);
+        $this->blocked($payload);
+    }
+
+    #[DataProvider('invalidBfkBuyerIdentities')]
+    public function test_bfk_option_does_not_mask_invalid_tax_identity(array $attributes): void
+    {
+        $invoice = $this->invoice($attributes);
+        $payload = array_replace($this->payload([$invoice->id]), ['jpk_markers' => [], 'jpk_bfk_outside_ksef' => '1']);
+        $this->blocked($payload);
+    }
+
+    public static function invalidBfkBuyerIdentities(): array
+    {
+        return [
+            'conflict' => [['buyer_tax_id_snapshot' => '1234563218']],
+            'missing' => [['buyer_snapshot' => ['name' => 'Klient fikcyjny']]],
+            'malformed' => [['buyer_snapshot' => ['name' => 'Klient fikcyjny', 'tax_id' => ['invalid']]]],
+        ];
+    }
+
+    public function test_bfk_option_keeps_production_number_and_does_not_use_demo_number(): void
+    {
+        $accepted = $this->invoice();
+        $outside = $this->invoice();
+        $this->submission($accepted);
+        $this->submission($outside, ['environment' => 'demo', 'ksef_number' => '1234563218-20260901-000000000002-CB']);
+        $payload = array_replace($this->payload([$accepted->id, $outside->id]), ['jpk_markers' => [], 'jpk_bfk_outside_ksef' => '1']);
+        $xp = $this->xpath($this->export($payload, false));
+        $this->assertSame('1234563218-20260901-000000000001-CA', $xp->evaluate('string(//j:SprzedazWiersz[1]/j:NrKSeF)'));
+        $this->assertSame(0, $xp->query('//j:SprzedazWiersz[1]/j:BFK')->length);
+        $this->assertSame('1', $xp->evaluate('string(//j:SprzedazWiersz[2]/j:BFK)'));
+        $this->assertSame(0, $xp->query('//j:SprzedazWiersz[2]/j:NrKSeF')->length);
+    }
+
+    #[DataProvider('conflictingTransmissions')]
+    public function test_bfk_option_cannot_hide_conflicting_production_submission(array $attributes, bool $second): void
+    {
+        $invoice = $this->invoice();
+        $this->submission($invoice, $attributes);
+        if ($second) {
+            $this->submission($invoice, ['ksef_number' => '1234563218-20260901-000000000002-CB']);
+        }
+        $this->blocked(array_replace($this->payload([$invoice->id]), ['jpk_markers' => [], 'jpk_bfk_outside_ksef' => '1']));
+    }
+
+    public function test_bfk_option_does_not_override_explicit_off_or_di_confirmation(): void
+    {
+        $invoice = $this->invoice();
+        foreach (['OFF', 'DI'] as $marker) {
+            $payload = array_replace($this->payload([$invoice->id]), ['jpk_markers' => [$invoice->id => $marker], 'jpk_bfk_outside_ksef' => '1']);
+            $xp = $this->xpath($this->export($payload, false));
+            $this->assertSame('1', $xp->evaluate('string(//j:'.$marker.')'));
+            $this->assertSame(0, $xp->query('//j:BFK')->length);
+            $this->assertSame(1, $xp->query('//j:OFF | //j:DI')->length);
+        }
     }
 
     public function test_multiple_rates_and_zero_classifications_use_one_row_and_gtu(): void
@@ -294,6 +424,9 @@ class SalesRegisterJpkTest extends TestCase
         $xp = $this->xpath($this->export($payload));
         $this->assertSame('1', $xp->evaluate('string(//j:'.$marker.')'));
         $this->assertSame(1, $xp->query('//j:OFF | //j:BFK | //j:DI | //j:NrKSeF')->length);
+        $withBfk = $this->xpath($this->export($payload + ['jpk_bfk_outside_ksef' => '1'], false));
+        $this->assertSame('1', $withBfk->evaluate('string(//j:'.$marker.')'));
+        $this->assertSame(1, $withBfk->query('//j:OFF | //j:BFK | //j:DI | //j:NrKSeF')->length);
     }
 
     public static function procedures(): array
@@ -372,7 +505,7 @@ class SalesRegisterJpkTest extends TestCase
         $mock->shouldReceive('download')->once()->andThrow(new \RuntimeException('FAKE INTERNAL DETAILS'));
         app()->instance(ResponseFactory::class, $mock);
         $this->post(route('invoices.sales-register.export'), array_replace($payload, [
-            'jpk_action' => 'download', 'jpk_fingerprint' => $review['fingerprint'], 'jpk_confirm' => '1',
+            'jpk_action' => 'download',
         ]))->assertStatus(422)->assertDontSee('FAKE INTERNAL DETAILS');
         $this->assertSame($before, glob(storage_path('app/private/sales-register-exports/jpk-*.xml')));
     }
@@ -384,8 +517,16 @@ class SalesRegisterJpkTest extends TestCase
         $payload['jpk_markers'] = [];
         $response = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()
             ->assertSee('Eksport części sprzedażowej do programu księgowego.')
-            ->assertSee('Kontrola eksportu. Liczba dokumentów: 1')->assertSee('JPK_V7M (3) – KSeF');
+            ->assertSee('Kontrola eksportu. Liczba dokumentów: 1')->assertSee('JPK_V7M (3) – KSeF')
+            ->assertDontSee('name="jpk_month"', false)->assertDontSee('name="jpk_year"', false)
+            ->assertDontSee('name="jpk_fingerprint"', false)->assertDontSee('name="jpk_confirm"', false)
+            ->assertSeeInOrder(['Urząd skarbowy', 'Oznacz faktury wystawione poza KSeF jako BFK'])
+            ->assertDontSee('name="jpk_bfk_without_nip"', false)
+            ->assertSee('value="download" id="sr-generate">Generuj', false);
+        $this->assertSame(1, substr_count($response->getContent(), 'name="month"'));
+        $this->assertSame(1, substr_count($response->getContent(), 'name="year"'));
         $this->assertSame('0', $response->viewData('values')['include_ksef']);
+        $this->assertSame('0', $response->viewData('values')['jpk_bfk_outside_ksef']);
         $this->assertArrayNotHasKey('xml', $response->viewData('jpkReview'));
         $directory = getenv('SALES_REGISTER_PREVIEW_DIR');
         if (is_string($directory) && is_dir($directory)) {
@@ -686,18 +827,17 @@ class SalesRegisterJpkTest extends TestCase
             ['xsd', 'xsd_invalid'], ['formal', 'formal_gtu_unresolved'], ['rate', 'vat_unsupported']];
     }
 
-    public function test_changed_gtu_taxpayer_or_manual_marker_requires_fresh_review_and_hidden_gtu_is_ignored(): void
+    public function test_download_uses_current_gtu_taxpayer_and_marker_without_review_and_ignores_hidden_gtu(): void
     {
         $invoice = $this->invoice();
         $payload = $this->payload([$invoice->id]);
-        $review = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
-        $download = array_replace($payload, ['jpk_action' => 'download', 'jpk_confirm' => '1', 'jpk_fingerprint' => $review['fingerprint']]);
-        $this->post(route('invoices.sales-register.export'), array_replace($download, ['jpk_name' => 'Inny podatnik']))->assertStatus(422);
-        $this->post(route('invoices.sales-register.export'), array_replace($download, ['jpk_markers' => [$invoice->id => 'DI']]))->assertStatus(422);
+        $this->post(route('invoices.sales-register.export'), $payload)->assertOk();
         $invoice->items()->first()->update(['gtu_codes' => ['GTU_06']]);
-        $this->post(route('invoices.sales-register.export'), $download)->assertStatus(422);
-        $xml = $this->export($payload + ['gtu_codes' => ['GTU_13'], 'jpk_gtu' => [$invoice->id => ['GTU_13']]]);
+        $xml = $this->export(array_replace($payload, ['jpk_name' => 'Inna nazwa podatnika', 'jpk_markers' => [$invoice->id => 'DI'],
+            'gtu_codes' => ['GTU_13'], 'jpk_gtu' => [$invoice->id => ['GTU_13']]]), false);
         $xp = $this->xpath($xml);
+        $this->assertSame('Inna nazwa podatnika', $xp->evaluate('string(//j:PelnaNazwa)'));
+        $this->assertSame('1', $xp->evaluate('string(//j:DI)'));
         $this->assertSame(0, $xp->query('//j:GTU_13')->length);
         $this->assertSame(1, $xp->query('//j:GTU_06')->length);
     }
@@ -709,7 +849,7 @@ class SalesRegisterJpkTest extends TestCase
         $review = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
         $this->post(route('invoices.jpk-profile.save'), array_replace($payload, ['expected_lock_version' => 1, 'jpk_email' => 'changed@example.test']))->assertRedirect();
         $again = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
-        $this->assertSame($review['fingerprint'], $again['fingerprint']);
+        $this->assertSame($review['documents'], $again['documents']);
         $xml = $this->export($payload);
         $this->assertStringContainsString('<Email>test@example.test</Email>', $xml);
         $this->assertStringNotContainsString('changed@example.test', $xml);
@@ -757,7 +897,7 @@ class SalesRegisterJpkTest extends TestCase
             $this->assertStringContainsString($message, implode(' ', $review['errors']));
         }
         $this->post(route('invoices.sales-register.export'), array_replace($payload, [
-            'jpk_action' => 'download', 'jpk_fingerprint' => $review['fingerprint'], 'jpk_confirm' => '1',
+            'jpk_action' => 'download',
         ]))->assertStatus(422)->assertHeaderMissing('Content-Disposition');
     }
 
@@ -786,13 +926,18 @@ class SalesRegisterJpkTest extends TestCase
         ]);
     }
 
-    private function export(array $payload): string
+    private function export(array $payload, bool $reviewFirst = true): string
     {
-        $review = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()->viewData('jpkReview');
-        $this->assertSame([], $review['errors']);
-        $response = $this->post(route('invoices.sales-register.export'), array_replace($payload, [
-            'jpk_action' => 'download', 'jpk_fingerprint' => $review['fingerprint'], 'jpk_confirm' => '1',
-        ]))->assertOk()->assertDownload('jpk_v7m_3_sprzedaz_2026_09.xml')
+        $review = null;
+        if ($reviewFirst) {
+            $review = $this->post(route('invoices.sales-register.export'), array_replace($payload, ['jpk_action' => 'review']))->assertOk()->viewData('jpkReview');
+            $this->assertSame([], $review['errors']);
+        }
+        if (($payload['jpk_action'] ?? null) === 'review') {
+            $payload['jpk_action'] = 'download';
+        }
+        $response = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()
+            ->assertDownload(sprintf('jpk_v7m_3_sprzedaz_%04d_%02d.xml', $payload['year'], $payload['month']))
             ->assertHeader('Content-Type', 'application/xml; charset=UTF-8')->assertHeader('X-Content-Type-Options', 'nosniff');
         $this->assertStringContainsString('private', $response->headers->get('Cache-Control'));
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
@@ -801,7 +946,7 @@ class SalesRegisterJpkTest extends TestCase
         $xml = file_get_contents($path);
         $this->assertSame([], app(JpkV7m3SchemaValidator::class)->errors($xml));
         $xp = $this->xpath($xml);
-        foreach ($review['documents'] as $index => $document) {
+        foreach ($review['documents'] ?? [] as $index => $document) {
             $row = $xp->query('//j:SprzedazWiersz')->item($index);
             $gtu = [];
             foreach ($xp->query('./*[starts-with(local-name(), "GTU_")]', $row) as $element) {
@@ -839,7 +984,7 @@ class SalesRegisterJpkTest extends TestCase
     private function payload(array $ids): array
     {
         return ['mode' => 'ids', 'document_ids' => json_encode($ids), 'format' => 'jpk_v7m3', 'include_ksef' => 0,
-            'jpk_action' => 'review', 'jpk_year' => '2026', 'jpk_month' => '9', 'jpk_type' => 'organization', 'jpk_nip' => '1234563218',
+            'jpk_action' => 'review', 'year' => '2026', 'month' => '9', 'jpk_type' => 'organization', 'jpk_nip' => '1234563218',
             'jpk_name' => 'Podatnik fikcyjny', 'jpk_email' => 'test@example.test', 'jpk_office' => '0202', 'jpk_purpose' => '1',
             'jpk_markers' => array_fill_keys($ids, 'BFK')];
     }
