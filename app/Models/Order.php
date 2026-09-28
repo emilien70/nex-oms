@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\OrderDocumentSlot;
@@ -14,6 +16,9 @@ use Modules\Shipments\Models\ShipmentCreationAttempt;
 class Order extends Model
 {
     use SoftDeletes;
+
+    /** @var list<int> */
+    private array $emailMessageIdsPendingDeletion = [];
 
     public const STATUS_NEW = 'new';
 
@@ -82,6 +87,26 @@ class Order extends Model
         'purchased_at' => 'datetime',
         'paid_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::forceDeleting(function (self $order): void {
+            $order->emailMessageIdsPendingDeletion = $order->emailMessages()
+                ->pluck('id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+        });
+
+        static::forceDeleted(function (self $order): void {
+            $messageIds = $order->emailMessageIdsPendingDeletion;
+
+            DB::afterCommit(static function () use ($messageIds): void {
+                foreach ($messageIds as $messageId) {
+                    Storage::disk('local')->deleteDirectory("order-email-messages/{$messageId}");
+                }
+            });
+        });
+    }
 
     public static function statuses(): array
     {
@@ -183,6 +208,11 @@ class Order extends Model
     public function automationRuns(): HasMany
     {
         return $this->hasMany(AutomationRun::class);
+    }
+
+    public function emailMessages(): HasMany
+    {
+        return $this->hasMany(OrderEmailMessage::class);
     }
 
     public function invoices(): HasMany

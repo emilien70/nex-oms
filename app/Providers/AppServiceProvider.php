@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Contracts\OrderEmailTransport;
 use App\Events\OrderStatusChanged;
 use App\Models\Order;
 use App\Models\OrderStatusSetting;
+use App\Services\SmtpOrderEmailTransport;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
@@ -32,6 +34,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->bind(OrderEmailTransport::class, SmtpOrderEmailTransport::class);
+
         $this->app->singleton(CourierDriverRegistry::class, function ($app): CourierDriverRegistry {
             return new CourierDriverRegistry([
                 CourierAccount::PROVIDER_INPOST_LOCKERS => $app->make(InPostLockerDriver::class),

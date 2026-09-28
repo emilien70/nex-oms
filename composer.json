@@ -12,6 +12,7 @@
         "laravel/tinker": "^2.10.1",
         "phpoffice/phpspreadsheet": "^5.10",
         "phpseclib/phpseclib": "^3.0",
+        "symfony/html-sanitizer": "~7.4.14",
         "symfony/intl": "^7.2",
         "symfony/polyfill-intl-icu": "^1.33",
         "tecnickcom/tcpdf": "^6.11"

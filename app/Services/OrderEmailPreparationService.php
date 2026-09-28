@@ -1,0 +1,232 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\OrderEmailMessageSource;
+use App\Enums\OrderEmailMessageStatus;
+use App\Exceptions\OrderEmailException;
+use App\Jobs\SendOrderEmailJob;
+use App\Models\EmailAccount;
+use App\Models\EmailTemplate;
+use App\Models\Order;
+use App\Models\OrderEmailMessage;
+use App\ValueObjects\OrderEmailPreparationData;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Throwable;
+
+class OrderEmailPreparationService
+{
+    public function __construct(
+        private readonly OrderEmailTemplateRenderer $renderer,
+        private readonly OrderEmailAttachmentFreezer $attachments,
+    ) {}
+
+    public function prepareAndQueue(
+        Order $order,
+        EmailTemplate $template,
+        OrderEmailPreparationData $data,
+    ): OrderEmailMessage {
+        $existing = OrderEmailMessage::query()
+            ->where('idempotency_key', $data->idempotencyKey)
+            ->first();
+
+        if ($existing instanceof OrderEmailMessage) {
+            return $this->resolveExisting($existing, $order, $template, $data);
+        }
+
+        $message = null;
+        $messageRecordId = null;
+
+        try {
+            $message = DB::transaction(function () use ($order, $template, $data, &$messageRecordId): OrderEmailMessage {
+                $managedTemplate = EmailTemplate::query()
+                    ->with(['emailAccount', 'attachments'])
+                    ->whereKey($template->getKey())
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $managedTemplate instanceof EmailTemplate) {
+                    throw new OrderEmailException('template_missing', 'Wybrany szablon e-mail nie istnieje.');
+                }
+
+                $account = $managedTemplate->emailAccount;
+
+                if (! $account instanceof EmailAccount || ! $account->hasConfiguredPassword()) {
+                    throw new OrderEmailException(
+                        'email_account_unavailable',
+                        'Wybrane konto e-mail nie istnieje albo nie ma zapisanego hasła SMTP.',
+                    );
+                }
+
+                $this->validate($order, $managedTemplate, $data);
+                $rendered = $this->renderer->render(
+                    $order,
+                    $data->subjectTemplate ?? $managedTemplate->subject_template,
+                    $data->bodyTemplate ?? $managedTemplate->body_template,
+                    $data->format ?? $managedTemplate->format,
+                );
+                $actorSnapshot = $this->actorSnapshot($data);
+                $messageId = 'order-email-'.$data->idempotencyKey.'@'.$this->emailDomain($account->email);
+
+                $created = $order->emailMessages()->create([
+                    'email_template_id' => $managedTemplate->getKey(),
+                    'email_account_id' => $account->getKey(),
+                    'created_by_user_id' => $data->user?->getKey(),
+                    'automation_run_id' => $data->automationRun?->getKey(),
+                    'retry_of_message_id' => $data->retryOf?->getKey(),
+                    'source' => $data->source,
+                    'status' => OrderEmailMessageStatus::Queued,
+                    'idempotency_key' => $data->idempotencyKey,
+                    'message_id' => $messageId,
+                    'actor_snapshot' => $actorSnapshot,
+                    'template_name_snapshot' => $managedTemplate->name,
+                    'account_name_snapshot' => $account->name,
+                    'from_email' => $account->email,
+                    'from_name' => $this->cleanName($account->name),
+                    'reply_to_email' => $account->email,
+                    'to_email' => trim($data->toEmail),
+                    'to_name' => $this->cleanName($data->toName),
+                    'subject' => $rendered->subject,
+                    'format' => $rendered->format,
+                    'body_text' => $rendered->bodyText,
+                    'body_html' => $rendered->bodyHtml,
+                    'attempt_count' => 0,
+                    'queued_at' => now(),
+                ]);
+                $messageRecordId = $created->getKey();
+
+                foreach ($managedTemplate->attachments as $attachment) {
+                    $this->attachments->freeze($created, $order, $attachment);
+                }
+
+                return $created->load('attachments');
+            });
+        } catch (QueryException $exception) {
+            if (is_int($messageRecordId)) {
+                $this->attachments->deleteMessageDirectory($messageRecordId);
+            }
+
+            $existing = OrderEmailMessage::query()
+                ->where('idempotency_key', $data->idempotencyKey)
+                ->first();
+
+            if ($existing instanceof OrderEmailMessage) {
+                return $this->resolveExisting($existing, $order, $template, $data);
+            }
+
+            throw $exception;
+        } catch (Throwable $exception) {
+            if (is_int($messageRecordId)) {
+                $this->attachments->deleteMessageDirectory($messageRecordId);
+            }
+
+            throw $exception;
+        }
+
+        try {
+            SendOrderEmailJob::dispatch($message->getKey());
+        } catch (Throwable $exception) {
+            $message->update([
+                'status' => OrderEmailMessageStatus::Failed,
+                'safe_error_code' => 'queue_dispatch_failed',
+                'safe_error_message' => 'Nie udało się dodać wiadomości do kolejki wysyłkowej.',
+                'failed_at' => now(),
+            ]);
+
+            throw new OrderEmailException(
+                'queue_dispatch_failed',
+                'Nie udało się dodać wiadomości do kolejki wysyłkowej.',
+                $exception,
+            );
+        }
+
+        return $message;
+    }
+
+    private function validate(Order $order, EmailTemplate $template, OrderEmailPreparationData $data): void
+    {
+        if (! $order->exists || ! $template->exists) {
+            throw new OrderEmailException('email_context_invalid', 'Nie można przygotować wiadomości bez zamówienia i szablonu.');
+        }
+
+        if (! Str::isUuid($data->idempotencyKey)) {
+            throw new OrderEmailException('idempotency_key_invalid', 'Identyfikator operacji wysyłki jest nieprawidłowy.');
+        }
+
+        if (filter_var(trim($data->toEmail), FILTER_VALIDATE_EMAIL) === false
+            || preg_match('/[\r\n]/', $data->toEmail)) {
+            throw new OrderEmailException('recipient_invalid', 'Adres e-mail odbiorcy jest nieprawidłowy.');
+        }
+
+        if ($data->source === OrderEmailMessageSource::Manual
+            && ($data->user === null || ! $data->user->exists)) {
+            throw new OrderEmailException('actor_missing', 'Ręczna wysyłka wiadomości wymaga operatora.');
+        }
+
+        if ($data->source === OrderEmailMessageSource::Automation
+            && ($data->automationRun === null || ! $data->automationRun->exists)) {
+            throw new OrderEmailException('automation_run_missing', 'Automatyczna wysyłka wymaga zapisu wykonania automatyzacji.');
+        }
+
+        if ($data->automationRun !== null && $data->automationRun->order_id !== $order->getKey()) {
+            throw new OrderEmailException('automation_context_invalid', 'Wykonanie automatyzacji nie należy do tego zamówienia.');
+        }
+
+        if ($data->retryOf !== null
+            && (! $data->retryOf->exists || $data->retryOf->order_id !== $order->getKey())) {
+            throw new OrderEmailException('retry_context_invalid', 'Ponowienie nie należy do tego zamówienia.');
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function actorSnapshot(OrderEmailPreparationData $data): array
+    {
+        if ($data->source === OrderEmailMessageSource::Manual) {
+            return [
+                'type' => 'user',
+                'id' => $data->user?->getKey(),
+                'name' => $data->user?->name,
+            ];
+        }
+
+        return [
+            'type' => 'automation',
+            'automation_run_id' => $data->automationRun?->getKey(),
+        ];
+    }
+
+    private function cleanName(?string $name): ?string
+    {
+        $name = trim(preg_replace('/[\r\n]+/u', ' ', (string) $name) ?? '');
+
+        return $name !== '' ? mb_substr($name, 0, 255) : null;
+    }
+
+    private function emailDomain(string $email): string
+    {
+        $position = strrpos($email, '@');
+
+        return mb_strtolower($position === false ? 'localhost' : substr($email, $position + 1));
+    }
+
+    private function resolveExisting(
+        OrderEmailMessage $message,
+        Order $order,
+        EmailTemplate $template,
+        OrderEmailPreparationData $data,
+    ): OrderEmailMessage {
+        if ($message->order_id !== $order->getKey()
+            || $message->email_template_id !== $template->getKey()
+            || $message->source !== $data->source
+            || mb_strtolower($message->to_email) !== mb_strtolower(trim($data->toEmail))) {
+            throw new OrderEmailException(
+                'idempotency_conflict',
+                'Identyfikator operacji wysyłki został już użyty dla innej wiadomości.',
+            );
+        }
+
+        return $message->loadMissing('attachments');
+    }
+}

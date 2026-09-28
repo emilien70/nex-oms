@@ -343,6 +343,18 @@ class OrderVariableService
         return $this->replace($template, $order, true);
     }
 
+    public function renderForHtml(string $template, Order $order): string
+    {
+        $replacements = [];
+
+        foreach ($this->values($order, $template) as $name => $value) {
+            $escaped = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $replacements['['.$name.']'] = nl2br($escaped, false);
+        }
+
+        return strtr($template, $replacements);
+    }
+
     /**
      * @return list<string>
      */
