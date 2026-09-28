@@ -125,7 +125,7 @@ class SalesRegisterJpkTest extends TestCase
         $this->assertStringContainsString('nadpisywać', implode(' ', $review->viewData('jpkReview')['errors']));
     }
 
-    public function test_download_does_not_require_review_and_reads_current_document(): void
+    public function test_jpk_can_be_downloaded_directly_without_review_and_reads_current_document(): void
     {
         $invoice = $this->invoice();
         $payload = $this->payload([$invoice->id]);
@@ -148,14 +148,24 @@ class SalesRegisterJpkTest extends TestCase
     }
 
     #[DataProvider('buyersEligibleForConfirmedOutsideKsef')]
-    public function test_bfk_option_allows_direct_download_independently_of_buyer_nip_and_never_changes_invoice(array $attributes, string $identifier): void
+    public function test_bfk_is_the_default_for_documents_without_ksef_number_when_no_stronger_evidence_exists(array $attributes, string $identifier): void
     {
         $invoice = $this->invoice($attributes)->fresh();
         $before = $invoice->getAttributes();
         $items = $invoice->items()->get()->map->getAttributes()->all();
         $payload = array_replace($this->payload([$invoice->id]), ['jpk_markers' => [], 'jpk_bfk_outside_ksef' => '1']);
         unset($payload['jpk_action']);
-        $xp = $this->xpath($this->export($payload, false));
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        try {
+            $xp = $this->xpath($this->export($payload, false));
+            $queries = DB::getQueryLog();
+        } finally {
+            DB::disableQueryLog();
+        }
+        foreach ($queries as $query) {
+            $this->assertDoesNotMatchRegularExpression('/^\s*(insert|update|delete|replace|create|alter|drop)\b/i', $query['query']);
+        }
         $this->assertSame($identifier, $xp->evaluate('string(//j:NrKontrahenta)'));
         $this->assertSame('1', $xp->evaluate('string(//j:BFK)'));
         $this->assertSame(0, $xp->query('//j:NrKSeF | //j:OFF | //j:DI')->length);
@@ -176,7 +186,7 @@ class SalesRegisterJpkTest extends TestCase
         ];
     }
 
-    public function test_bfk_option_defaults_to_checked_for_new_period_and_selected_forms(): void
+    public function test_bfk_is_enabled_by_default_for_new_period_and_selected_forms(): void
     {
         $invoice = $this->invoice();
         $responses = [
@@ -189,7 +199,51 @@ class SalesRegisterJpkTest extends TestCase
         }
     }
 
-    public function test_bfk_option_preserves_unchecked_value_after_validation_error(): void
+    public function test_review_is_optional_stateless_diagnostic_and_does_not_authorize_download(): void
+    {
+        $invoice = $this->invoice()->fresh();
+        $before = $invoice->getAttributes();
+        $items = $invoice->items()->get()->map->getAttributes()->all();
+        $counts = [
+            'ksef_invoice_provenances' => DB::table('ksef_invoice_provenances')->count(),
+            'ksef_offline_issuances' => DB::table('ksef_offline_issuances')->count(),
+            'ksef_invoice_submissions' => DB::table('ksef_invoice_submissions')->count(),
+        ];
+        $payload = array_replace($this->payload([$invoice->id]), [
+            'jpk_action' => 'review',
+            'jpk_markers' => [],
+            'jpk_bfk_outside_ksef' => '1',
+        ]);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        try {
+            $response = $this->post(route('invoices.sales-register.export'), $payload)->assertOk()
+                ->assertHeaderMissing('Content-Disposition')
+                ->assertDontSee('name="jpk_fingerprint"', false)
+                ->assertDontSee('name="jpk_confirm"', false);
+            $queries = DB::getQueryLog();
+        } finally {
+            DB::disableQueryLog();
+        }
+
+        $review = $response->viewData('jpkReview');
+        $this->assertSame([], $review['errors']);
+        $this->assertSame(['BFK' => '1'], $review['documents'][0]['choice']);
+        $this->assertArrayNotHasKey('xml', $review);
+        foreach ($queries as $query) {
+            $this->assertDoesNotMatchRegularExpression('/^\s*(insert|update|delete|replace|create|alter|drop)\b/i', $query['query']);
+        }
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
+        $this->assertSame($items, $invoice->items()->get()->map->getAttributes()->all());
+        foreach ($counts as $table => $count) {
+            $this->assertSame($count, DB::table($table)->count());
+        }
+        Http::assertNothingSent();
+        Bus::assertNothingDispatched();
+    }
+
+    public function test_explicitly_disabled_default_bfk_is_preserved_after_validation_error(): void
     {
         $payload = array_replace($this->payload([$this->invoice()->id]), ['jpk_email' => '', 'jpk_bfk_outside_ksef' => '0']);
         $response = $this->post(route('invoices.sales-register.export'), $payload)->assertStatus(422)
@@ -197,7 +251,7 @@ class SalesRegisterJpkTest extends TestCase
         $this->assertSame('0', $response->viewData('values')['jpk_bfk_outside_ksef']);
     }
 
-    public function test_bfk_option_respects_posted_value_and_validates_input(): void
+    public function test_disabled_default_bfk_requires_per_document_explanation_and_invalid_values_are_rejected(): void
     {
         $payload = array_replace($this->payload([$this->invoice()->id]), ['jpk_markers' => [], 'jpk_action' => 'download']);
         foreach ([null, '0', 'invalid', ['1']] as $option) {
@@ -229,7 +283,7 @@ class SalesRegisterJpkTest extends TestCase
         ];
     }
 
-    public function test_bfk_option_keeps_production_number_and_does_not_use_demo_number(): void
+    public function test_production_ksef_number_takes_priority_over_default_bfk_and_demo_is_not_evidence(): void
     {
         $accepted = $this->invoice();
         $outside = $this->invoice();
@@ -244,7 +298,7 @@ class SalesRegisterJpkTest extends TestCase
     }
 
     #[DataProvider('conflictingTransmissions')]
-    public function test_bfk_option_cannot_hide_conflicting_production_submission(array $attributes, bool $second): void
+    public function test_default_bfk_never_masks_conflicting_ksef_evidence(array $attributes, bool $second): void
     {
         $invoice = $this->invoice();
         $this->submission($invoice, $attributes);
@@ -411,7 +465,7 @@ class SalesRegisterJpkTest extends TestCase
     }
 
     #[DataProvider('procedures')]
-    public function test_persisted_production_procedure_selects_exactly_one_marker(string $procedure, string $marker): void
+    public function test_persisted_offline_or_outside_ksef_evidence_takes_priority_over_default_bfk(string $procedure, string $marker): void
     {
         $invoice = $this->invoice();
         if ($procedure === 'outside_ksef') {
