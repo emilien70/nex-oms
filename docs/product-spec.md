@@ -1220,6 +1220,10 @@ Funkcja:
 - raportuje błędy,
 - nadaje się do obsługi w kolejce.
 
+Wiadomość i jej prywatne załączniki są zamrażane przed dodaniem joba do kolejki. Klucz idempotencji jest powiązany z fingerprintem intencji, a lista załączników z deterministycznym manifestem; zmiana transportowo istotnej konfiguracji SMTP po przygotowaniu blokuje wysyłkę. Osierocone rekordy `queued` odzyskuje scheduler, natomiast wynik `unknown` nigdy nie jest ponawiany automatycznie.
+
+Aktualny etap nie udostępnia jeszcze ręcznej wysyłki w UI ani akcji Automation.
+
 Nie jest to część pierwszego etapu serii numeracji.
 
 ---

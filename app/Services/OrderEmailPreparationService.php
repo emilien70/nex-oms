@@ -21,6 +21,9 @@ class OrderEmailPreparationService
     public function __construct(
         private readonly OrderEmailTemplateRenderer $renderer,
         private readonly OrderEmailAttachmentFreezer $attachments,
+        private readonly OrderEmailIntentFingerprint $intentFingerprints,
+        private readonly OrderEmailAttachmentManifest $attachmentManifests,
+        private readonly SmtpAccountFingerprint $smtpAccountFingerprints,
     ) {}
 
     public function prepareAndQueue(
@@ -28,19 +31,26 @@ class OrderEmailPreparationService
         EmailTemplate $template,
         OrderEmailPreparationData $data,
     ): OrderEmailMessage {
+        $intentFingerprint = $this->intentFingerprints->make($order, $template, $data);
         $existing = OrderEmailMessage::query()
             ->where('idempotency_key', $data->idempotencyKey)
             ->first();
 
         if ($existing instanceof OrderEmailMessage) {
-            return $this->resolveExisting($existing, $order, $template, $data);
+            return $this->resolveExisting($existing, $intentFingerprint);
         }
 
         $message = null;
         $messageRecordId = null;
 
         try {
-            $message = DB::transaction(function () use ($order, $template, $data, &$messageRecordId): OrderEmailMessage {
+            $message = DB::transaction(function () use (
+                $order,
+                $template,
+                $data,
+                $intentFingerprint,
+                &$messageRecordId,
+            ): OrderEmailMessage {
                 $managedTemplate = EmailTemplate::query()
                     ->with(['emailAccount', 'attachments'])
                     ->whereKey($template->getKey())
@@ -79,15 +89,17 @@ class OrderEmailPreparationService
                     'source' => $data->source,
                     'status' => OrderEmailMessageStatus::Queued,
                     'idempotency_key' => $data->idempotencyKey,
+                    'intent_fingerprint' => $intentFingerprint,
+                    'smtp_account_fingerprint' => $this->smtpAccountFingerprints->make($account),
                     'message_id' => $messageId,
                     'actor_snapshot' => $actorSnapshot,
                     'template_name_snapshot' => $managedTemplate->name,
                     'account_name_snapshot' => $account->name,
                     'from_email' => $account->email,
-                    'from_name' => $this->cleanName($account->name),
+                    'from_name' => $this->intentFingerprints->normalizeName($account->name),
                     'reply_to_email' => $account->email,
-                    'to_email' => trim($data->toEmail),
-                    'to_name' => $this->cleanName($data->toName),
+                    'to_email' => $this->intentFingerprints->normalizeEmail($data->toEmail),
+                    'to_name' => $this->intentFingerprints->normalizeName($data->toName),
                     'subject' => $rendered->subject,
                     'format' => $rendered->format,
                     'body_text' => $rendered->bodyText,
@@ -101,6 +113,8 @@ class OrderEmailPreparationService
                     $this->attachments->freeze($created, $order, $attachment);
                 }
 
+                $this->attachmentManifests->seal($created);
+
                 return $created->load('attachments');
             });
         } catch (QueryException $exception) {
@@ -113,7 +127,7 @@ class OrderEmailPreparationService
                 ->first();
 
             if ($existing instanceof OrderEmailMessage) {
-                return $this->resolveExisting($existing, $order, $template, $data);
+                return $this->resolveExisting($existing, $intentFingerprint);
             }
 
             throw $exception;
@@ -197,13 +211,6 @@ class OrderEmailPreparationService
         ];
     }
 
-    private function cleanName(?string $name): ?string
-    {
-        $name = trim(preg_replace('/[\r\n]+/u', ' ', (string) $name) ?? '');
-
-        return $name !== '' ? mb_substr($name, 0, 255) : null;
-    }
-
     private function emailDomain(string $email): string
     {
         $position = strrpos($email, '@');
@@ -213,14 +220,10 @@ class OrderEmailPreparationService
 
     private function resolveExisting(
         OrderEmailMessage $message,
-        Order $order,
-        EmailTemplate $template,
-        OrderEmailPreparationData $data,
+        string $intentFingerprint,
     ): OrderEmailMessage {
-        if ($message->order_id !== $order->getKey()
-            || $message->email_template_id !== $template->getKey()
-            || $message->source !== $data->source
-            || mb_strtolower($message->to_email) !== mb_strtolower(trim($data->toEmail))) {
+        if (! is_string($message->intent_fingerprint)
+            || ! hash_equals($message->intent_fingerprint, $intentFingerprint)) {
             throw new OrderEmailException(
                 'idempotency_conflict',
                 'Identyfikator operacji wysyłki został już użyty dla innej wiadomości.',

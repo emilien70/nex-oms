@@ -77,4 +77,12 @@ Kolejka `integrations` jest zachowana dla przyszlego importu zamowien z Allegro 
 php artisan queue:work --queue=integrations
 ```
 
+Asynchroniczna wysylka e-mail wymaga stale dzialajacego workera kolejki `default`:
+
+```bash
+php artisan queue:work --queue=default
+```
+
+Odzyskiwanie osieroconych wiadomosci `queued` wymaga rowniez wykonywania co minute polecenia `php artisan schedule:run`, zgodnie z konfiguracja cron powyzej.
+
 Na serwerze workery powinny byc uruchamiane stale przez Supervisor, systemd albo analogiczny mechanizm zarzadzania procesami. Do czasu wdrozenia importu zamowien worker `integrations` pozostanie bezczynny.

@@ -77,6 +77,13 @@ class OrderEmailMessageFoundationTest extends TestCase
         $this->assertFalse(Schema::hasColumn('order_email_messages', 'smtp_password'));
         $this->assertFalse(Schema::hasColumn('order_email_messages', 'smtp_username'));
         $this->assertFalse(Schema::hasColumn('order_email_messages', 'smtp_host'));
+        $this->assertTrue(Schema::hasColumns('order_email_messages', [
+            'intent_fingerprint',
+            'smtp_account_fingerprint',
+            'attachment_count',
+            'attachment_manifest_sha256',
+        ]));
+        $this->assertSame(0, $message->attachment_count);
     }
 
     public function test_source_records_can_be_deleted_without_changing_message_snapshot(): void
@@ -218,6 +225,13 @@ class OrderEmailMessageFoundationTest extends TestCase
             $this->assertSame('Zamówienie TEST-1', $message->fresh()->subject);
         }
 
+        try {
+            $message->update(['attachment_manifest_sha256' => hash('sha256', 'changed')]);
+            $this->fail('Attachment seal update should have been rejected.');
+        } catch (LogicException) {
+            $this->assertSame(hash('sha256', '[]'), $message->fresh()->attachment_manifest_sha256);
+        }
+
         $this->expectException(LogicException::class);
 
         $attachment->update(['file_name' => 'podmieniony.pdf']);
@@ -265,6 +279,8 @@ class OrderEmailMessageFoundationTest extends TestCase
             'source' => OrderEmailMessageSource::Manual,
             'status' => OrderEmailMessageStatus::Queued,
             'idempotency_key' => (string) Str::uuid(),
+            'intent_fingerprint' => hash('sha256', 'FAKE_INTENT'),
+            'smtp_account_fingerprint' => hash_hmac('sha256', 'FAKE_SMTP_CONFIG', 'FAKE_APP_KEY'),
             'actor_snapshot' => ['type' => 'user', 'name' => 'Operator testowy'],
             'template_name_snapshot' => 'Potwierdzenie zamówienia',
             'account_name_snapshot' => 'Sklep testowy',
@@ -277,6 +293,8 @@ class OrderEmailMessageFoundationTest extends TestCase
             'format' => EmailTemplateFormat::Html,
             'body_text' => 'Treść historyczna.',
             'body_html' => '<p>Treść historyczna.</p>',
+            'attachment_count' => 0,
+            'attachment_manifest_sha256' => hash('sha256', '[]'),
             'attempt_count' => 0,
         ], $overrides);
     }

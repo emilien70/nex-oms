@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\OrderEmailQueuedRecoveryService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -72,5 +73,10 @@ Schedule::call(fn () => app(KsefSubmissionFollowUpDispatcher::class)->dispatchDu
 
 Schedule::call(fn () => app(KsefLatarniaOperationalSyncService::class)->runScheduled())
     ->name('ksef-latarnia-sync')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
+
+Schedule::call(fn () => app(OrderEmailQueuedRecoveryService::class)->recover())
+    ->name('order-email-recover-queued')
     ->everyFiveMinutes()
     ->withoutOverlapping();

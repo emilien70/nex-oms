@@ -23,6 +23,7 @@ use App\ValueObjects\OrderEmailPreparationData;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -32,6 +33,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Invoices\Services\InvoicePdfService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Mime\Email;
 use Tests\TestCase;
 
@@ -84,6 +86,10 @@ class OrderEmailDispatchTest extends TestCase
         $this->assertStringContainsString('&lt;img', (string) $message->body_html);
         $this->assertStringContainsString('Jan Kowalski', $message->body_text);
         $this->assertSame("order-email-{$key}@example.test", $message->message_id);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $message->intent_fingerprint);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $message->smtp_account_fingerprint);
+        $this->assertSame(1, $message->attachment_count);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $message->attachment_manifest_sha256);
         $attachment = $message->attachments->sole();
         $this->assertNotSame($sourcePath, $attachment->file_path);
         $this->assertSame('warunki.txt', $attachment->file_name);
@@ -96,6 +102,156 @@ class OrderEmailDispatchTest extends TestCase
         Queue::assertPushedOn('default', SendOrderEmailJob::class, function (SendOrderEmailJob $job) use ($message): bool {
             return $job->messageId === $message->getKey();
         });
+        Queue::assertPushed(SendOrderEmailJob::class, 1);
+    }
+
+    #[DataProvider('intentConflictProvider')]
+    public function test_reused_idempotency_key_rejects_changed_intent(string $changedField): void
+    {
+        $order = $this->order();
+        $template = $this->template();
+        $key = (string) Str::uuid();
+        $user = User::factory()->create(['name' => 'Operator pierwszy']);
+        $first = new OrderEmailPreparationData(
+            toEmail: 'Klient@Example.test',
+            toName: " Klient\r\ntestowy ",
+            source: OrderEmailMessageSource::Manual,
+            idempotencyKey: $key,
+            user: $user,
+        );
+        $secondArguments = [
+            'toEmail' => 'klient@example.test',
+            'toName' => 'Klient testowy',
+            'source' => OrderEmailMessageSource::Manual,
+            'idempotencyKey' => $key,
+            'user' => $user,
+        ];
+
+        match ($changedField) {
+            'subject' => $secondArguments['subjectTemplate'] = 'Inny temat [id_zamowienia]',
+            'body' => $secondArguments['bodyTemplate'] = 'Inna treść [id_zamowienia]',
+            'format' => $secondArguments['format'] = EmailTemplateFormat::PlainText,
+            'actor' => $secondArguments['user'] = User::factory()->create(['name' => 'Operator drugi']),
+            'to_name' => $secondArguments['toName'] = 'Inny klient',
+        };
+
+        app(OrderEmailPreparationService::class)->prepareAndQueue($order, $template, $first);
+
+        try {
+            app(OrderEmailPreparationService::class)->prepareAndQueue(
+                $order,
+                $template,
+                new OrderEmailPreparationData(...$secondArguments),
+            );
+            $this->fail('A changed intent must not reuse an existing message.');
+        } catch (OrderEmailException $exception) {
+            $this->assertSame('idempotency_conflict', $exception->safeCode());
+        }
+
+        $this->assertDatabaseCount('order_email_messages', 1);
+        Queue::assertPushed(SendOrderEmailJob::class, 1);
+    }
+
+    public function test_reused_idempotency_key_rejects_changed_automation_run_and_retry_reference(): void
+    {
+        $order = $this->order();
+        $template = $this->template();
+        $firstRun = $this->automationRun($order);
+        $secondRun = $this->automationRun($order);
+        $automationKey = (string) Str::uuid();
+
+        app(OrderEmailPreparationService::class)->prepareAndQueue(
+            $order,
+            $template,
+            new OrderEmailPreparationData(
+                toEmail: 'klient@example.test',
+                toName: null,
+                source: OrderEmailMessageSource::Automation,
+                idempotencyKey: $automationKey,
+                automationRun: $firstRun,
+            ),
+        );
+
+        $this->assertIntentConflict(fn () => app(OrderEmailPreparationService::class)->prepareAndQueue(
+            $order,
+            $template,
+            new OrderEmailPreparationData(
+                toEmail: 'klient@example.test',
+                toName: null,
+                source: OrderEmailMessageSource::Automation,
+                idempotencyKey: $automationKey,
+                automationRun: $secondRun,
+            ),
+        ));
+
+        $user = User::factory()->create();
+        $firstOriginal = app(OrderEmailPreparationService::class)->prepareAndQueue(
+            $order,
+            $template,
+            new OrderEmailPreparationData(
+                toEmail: 'klient@example.test',
+                toName: null,
+                source: OrderEmailMessageSource::Manual,
+                idempotencyKey: (string) Str::uuid(),
+                user: $user,
+            ),
+        );
+        $secondOriginal = app(OrderEmailPreparationService::class)->prepareAndQueue(
+            $order,
+            $template,
+            new OrderEmailPreparationData(
+                toEmail: 'klient@example.test',
+                toName: null,
+                source: OrderEmailMessageSource::Manual,
+                idempotencyKey: (string) Str::uuid(),
+                user: $user,
+            ),
+        );
+        $retryKey = (string) Str::uuid();
+
+        app(OrderEmailPreparationService::class)->prepareAndQueue(
+            $order,
+            $template,
+            new OrderEmailPreparationData(
+                toEmail: 'klient@example.test',
+                toName: null,
+                source: OrderEmailMessageSource::Manual,
+                idempotencyKey: $retryKey,
+                user: $user,
+                retryOf: $firstOriginal,
+            ),
+        );
+
+        $this->assertIntentConflict(fn () => app(OrderEmailPreparationService::class)->prepareAndQueue(
+            $order,
+            $template,
+            new OrderEmailPreparationData(
+                toEmail: 'klient@example.test',
+                toName: null,
+                source: OrderEmailMessageSource::Manual,
+                idempotencyKey: $retryKey,
+                user: $user,
+                retryOf: $secondOriginal,
+            ),
+        ));
+    }
+
+    public function test_template_edit_does_not_change_an_existing_operation_intent(): void
+    {
+        $order = $this->order();
+        $template = $this->template();
+        $data = $this->data((string) Str::uuid());
+        $message = app(OrderEmailPreparationService::class)->prepareAndQueue($order, $template, $data);
+
+        $template->update([
+            'subject_template' => 'Nowy temat [id_zamowienia]',
+            'body_template' => '<p>Nowa treść</p>',
+        ]);
+
+        $same = app(OrderEmailPreparationService::class)->prepareAndQueue($order, $template->fresh(), $data);
+
+        $this->assertTrue($message->is($same));
+        $this->assertSame('Zamówienie 1', $same->subject);
         Queue::assertPushed(SendOrderEmailJob::class, 1);
     }
 
@@ -173,6 +329,26 @@ class OrderEmailDispatchTest extends TestCase
             'FAKE_SMTP_PASSWORD_MUST_NOT_BE_SERIALIZED',
             serialize(new SendOrderEmailJob($message->getKey())),
         );
+    }
+
+    public function test_sender_accepts_a_sealed_empty_attachment_manifest(): void
+    {
+        $order = $this->order();
+        $template = $this->template();
+        $message = app(OrderEmailPreparationService::class)->prepareAndQueue(
+            $order,
+            $template,
+            $this->data((string) Str::uuid()),
+        );
+        $transport = new FakeOrderEmailTransport;
+        $this->app->instance(OrderEmailTransport::class, $transport);
+
+        app(OrderEmailSender::class)->send($message->getKey());
+
+        $this->assertSame(0, $message->attachment_count);
+        $this->assertSame(hash('sha256', '[]'), $message->attachment_manifest_sha256);
+        $this->assertSame(OrderEmailMessageStatus::Sent, $message->fresh()->status);
+        $this->assertSame(1, $transport->sendCount);
     }
 
     public function test_job_is_unique_one_shot_and_marks_pre_send_failure_without_transport(): void
@@ -275,6 +451,132 @@ class OrderEmailDispatchTest extends TestCase
         $message->refresh();
         $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
         $this->assertSame('message_snapshot_invalid', $message->safe_error_code);
+        $this->assertSame(0, $transport->sendCount);
+    }
+
+    public function test_deleted_attachment_record_is_rejected_by_manifest_before_transport(): void
+    {
+        $message = $this->preparedMessage();
+        $message->attachments->sole()->delete();
+        $transport = new FakeOrderEmailTransport;
+        $this->app->instance(OrderEmailTransport::class, $transport);
+
+        app(OrderEmailSender::class)->send($message->getKey());
+
+        $message->refresh();
+        $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
+        $this->assertSame('attachment_manifest_mismatch', $message->safe_error_code);
+        $this->assertSame(0, $transport->sendCount);
+    }
+
+    public function test_added_attachment_record_is_rejected_by_manifest_before_transport(): void
+    {
+        $message = $this->preparedMessage();
+        $attachment = $message->attachments->sole();
+        $message->attachments()->create([
+            'position' => 2,
+            'kind' => $attachment->kind,
+            'disk' => $attachment->disk,
+            'file_path' => $attachment->file_path,
+            'file_name' => 'unexpected.txt',
+            'mime_type' => $attachment->mime_type,
+            'file_size' => $attachment->file_size,
+            'checksum_sha256' => $attachment->checksum_sha256,
+        ]);
+        $transport = new FakeOrderEmailTransport;
+        $this->app->instance(OrderEmailTransport::class, $transport);
+
+        app(OrderEmailSender::class)->send($message->getKey());
+
+        $message->refresh();
+        $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
+        $this->assertSame('attachment_manifest_mismatch', $message->safe_error_code);
+        $this->assertSame(0, $transport->sendCount);
+    }
+
+    #[DataProvider('smtpTransportChangeProvider')]
+    public function test_transport_configuration_change_blocks_sending(string $attribute, mixed $value): void
+    {
+        $message = $this->preparedMessage();
+        $message->emailAccount->update([$attribute => $value]);
+        $transport = new FakeOrderEmailTransport;
+        $this->app->instance(OrderEmailTransport::class, $transport);
+
+        app(OrderEmailSender::class)->send($message->getKey());
+
+        $message->refresh();
+        $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
+        $this->assertSame('email_account_changed', $message->safe_error_code);
+        $this->assertStringNotContainsString('FAKE_CHANGED_PASSWORD', (string) $message->safe_error_message);
+        $this->assertSame(0, $transport->sendCount);
+    }
+
+    public function test_account_display_name_change_does_not_block_sending(): void
+    {
+        $message = $this->preparedMessage();
+        $message->emailAccount->update(['name' => 'Nowa nazwa opisowa']);
+        $transport = new FakeOrderEmailTransport;
+        $this->app->instance(OrderEmailTransport::class, $transport);
+
+        app(OrderEmailSender::class)->send($message->getKey());
+
+        $this->assertSame(OrderEmailMessageStatus::Sent, $message->fresh()->status);
+        $this->assertSame(1, $transport->sendCount);
+    }
+
+    public function test_legacy_message_without_integrity_fingerprints_fails_before_transport(): void
+    {
+        $message = $this->preparedMessage();
+        DB::table('order_email_messages')->where('id', $message->getKey())->update([
+            'smtp_account_fingerprint' => null,
+            'attachment_count' => null,
+            'attachment_manifest_sha256' => null,
+        ]);
+        $transport = new FakeOrderEmailTransport;
+        $this->app->instance(OrderEmailTransport::class, $transport);
+
+        app(OrderEmailSender::class)->send($message->getKey());
+
+        $message->refresh();
+        $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
+        $this->assertSame('email_account_changed', $message->safe_error_code);
+        $this->assertSame(0, $transport->sendCount);
+    }
+
+    public function test_message_without_attachment_seal_fails_as_manifest_mismatch(): void
+    {
+        $message = $this->preparedMessage();
+        DB::table('order_email_messages')->where('id', $message->getKey())->update([
+            'attachment_count' => null,
+            'attachment_manifest_sha256' => null,
+        ]);
+        $transport = new FakeOrderEmailTransport;
+        $this->app->instance(OrderEmailTransport::class, $transport);
+
+        app(OrderEmailSender::class)->send($message->getKey());
+
+        $message->refresh();
+        $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
+        $this->assertSame('attachment_manifest_mismatch', $message->safe_error_code);
+        $this->assertSame(0, $transport->sendCount);
+    }
+
+    public function test_missing_smtp_password_fails_safely_before_transport(): void
+    {
+        $message = $this->preparedMessage();
+        $message->emailAccount->update(['smtp_password' => null]);
+        $transport = new FakeOrderEmailTransport;
+        $this->app->instance(OrderEmailTransport::class, $transport);
+
+        app(OrderEmailSender::class)->send($message->getKey());
+
+        $message->refresh();
+        $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
+        $this->assertSame('email_account_unavailable', $message->safe_error_code);
+        $this->assertStringNotContainsString(
+            'FAKE_SMTP_PASSWORD_MUST_NOT_BE_SERIALIZED',
+            (string) $message->safe_error_message,
+        );
         $this->assertSame(0, $transport->sendCount);
     }
 
@@ -400,6 +702,55 @@ class OrderEmailDispatchTest extends TestCase
             'body_template' => '<p>Witaj [imie_i_nazwisko_nabywcy]</p>',
             'is_hidden' => false,
         ], $overrides));
+    }
+
+    private function automationRun(Order $order): AutomationRun
+    {
+        return AutomationRun::query()->create([
+            'order_id' => $order->getKey(),
+            'event_id' => (string) Str::uuid(),
+            'event_name' => 'order_status_changed',
+            'chain_id' => (string) Str::uuid(),
+            'depth' => 0,
+            'status' => AutomationRun::STATUS_RUNNING,
+            'event_payload' => [],
+            'rule_snapshot' => [],
+        ]);
+    }
+
+    private function assertIntentConflict(callable $callback): void
+    {
+        try {
+            $callback();
+            $this->fail('A changed intent must not reuse an existing message.');
+        } catch (OrderEmailException $exception) {
+            $this->assertSame('idempotency_conflict', $exception->safeCode());
+        }
+    }
+
+    /** @return array<string, array{string}> */
+    public static function intentConflictProvider(): array
+    {
+        return [
+            'subject override' => ['subject'],
+            'body override' => ['body'],
+            'format override' => ['format'],
+            'actor' => ['actor'],
+            'recipient name' => ['to_name'],
+        ];
+    }
+
+    /** @return array<string, array{string, mixed}> */
+    public static function smtpTransportChangeProvider(): array
+    {
+        return [
+            'host' => ['smtp_host', 'changed.example.test'],
+            'port' => ['smtp_port', 2525],
+            'username' => ['smtp_username', 'changed@example.test'],
+            'password' => ['smtp_password', 'FAKE_CHANGED_PASSWORD'],
+            'encryption' => ['encryption', EmailAccountEncryption::Tls],
+            'sender email' => ['email', 'changed-sender@example.test'],
+        ];
     }
 }
 

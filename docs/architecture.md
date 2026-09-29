@@ -1040,6 +1040,10 @@ Zasady:
 
 Wysyłka e-mail powinna być asynchroniczna.
 
+Przed kolejką powstaje niezmienny snapshot treści i prywatnych załączników. Operację chronią `idempotency_key` wraz z fingerprintem intencji, sealed manifest załączników oraz HMAC transportowo istotnej konfiguracji SMTP; jej zmiana przed wysłaniem kończy wiadomość kontrolowanym błędem. Scheduler co pięć minut ponownie dispatchuje wyłącznie stare, nietknięte rekordy `queued`, a atomowy claim w bazie pozostaje ostateczną ochroną przed podwójnym transportem.
+
+Wynik `unknown` nie jest automatycznie ponawiany. Ten etap nie obejmuje jeszcze ręcznego UI wysyłki ani akcji Automation.
+
 Docelowy przepływ:
 
 ```text

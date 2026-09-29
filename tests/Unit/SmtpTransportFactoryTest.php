@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Enums\EmailAccountEncryption;
 use App\Exceptions\SmtpConnectionException;
 use App\Models\EmailAccount;
+use App\Services\SmtpAccountFingerprint;
 use App\Services\SmtpTransportFactory;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Mailer\Transport\Smtp\Stream\SocketStream;
@@ -59,6 +60,31 @@ class SmtpTransportFactoryTest extends TestCase
         $this->expectExceptionMessage('Konto SMTP nie ma zapisanego hasła.');
 
         app(SmtpTransportFactory::class)->make($account);
+    }
+
+    public function test_smtp_fingerprint_is_deterministic_hmac_without_plaintext_password(): void
+    {
+        $password = 'FAKE_PASSWORD_NOT_FOR_PERSISTENCE';
+        $account = new EmailAccount([
+            'name' => 'Pierwsza nazwa',
+            'email' => 'sender@example.test',
+            'smtp_host' => 'smtp.example.test',
+            'smtp_port' => 587,
+            'smtp_username' => 'login@example.test',
+            'smtp_password' => $password,
+            'encryption' => EmailAccountEncryption::StartTls,
+        ]);
+        $fingerprints = app(SmtpAccountFingerprint::class);
+        $first = $fingerprints->make($account);
+
+        $account->name = 'Inna nazwa opisowa';
+        $account->smtp_password = $password;
+        $second = $fingerprints->make($account);
+
+        $this->assertSame($first, $second);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $first);
+        $this->assertNotSame(hash('sha256', $password), $first);
+        $this->assertStringNotContainsString($password, $first);
     }
 
     /** @return array<string, array{EmailAccountEncryption, int, bool, bool, bool}> */

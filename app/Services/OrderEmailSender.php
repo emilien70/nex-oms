@@ -17,6 +17,8 @@ class OrderEmailSender
 {
     public function __construct(
         private readonly OrderEmailTransport $transport,
+        private readonly OrderEmailAttachmentManifest $attachmentManifests,
+        private readonly SmtpAccountFingerprint $smtpAccountFingerprints,
     ) {}
 
     public function send(int $messageId): void
@@ -27,6 +29,61 @@ class OrderEmailSender
             return;
         }
 
+        $account = $message->emailAccount;
+
+        if (! $account instanceof EmailAccount) {
+            $this->markFailed(
+                $messageId,
+                'email_account_unavailable',
+                'Konto SMTP użyte przez wiadomość nie jest już dostępne.',
+            );
+
+            return;
+        }
+
+        try {
+            if (! $account->hasConfiguredPassword()) {
+                throw new \RuntimeException('SMTP password unavailable.');
+            }
+
+            $currentAccountFingerprint = $this->smtpAccountFingerprints->make($account);
+        } catch (Throwable) {
+            $this->markFailed(
+                $messageId,
+                'email_account_unavailable',
+                'Konto SMTP użyte przez wiadomość nie jest już dostępne.',
+            );
+
+            return;
+        }
+
+        if (! is_string($message->smtp_account_fingerprint)
+            || ! hash_equals($message->smtp_account_fingerprint, $currentAccountFingerprint)) {
+            $this->markFailed(
+                $messageId,
+                'email_account_changed',
+                'Konfiguracja konta SMTP zmieniła się po przygotowaniu wiadomości. Utwórz nowe wysłanie.',
+            );
+
+            return;
+        }
+
+        try {
+            $manifestMatches = $this->attachmentManifests->matches($message);
+        } catch (Throwable) {
+            $manifestMatches = false;
+        }
+
+        if (! $manifestMatches) {
+            $this->markFailed(
+                $messageId,
+                'attachment_manifest_mismatch',
+                'Lista załączników zapisanej wiadomości jest niespójna.',
+            );
+
+            return;
+        }
+
         try {
             $email = $this->buildEmail($message);
         } catch (Throwable) {
@@ -34,18 +91,6 @@ class OrderEmailSender
                 $messageId,
                 'message_snapshot_invalid',
                 'Nie udało się przygotować zapisanej wiadomości do wysyłki.',
-            );
-
-            return;
-        }
-
-        $account = $message->emailAccount;
-
-        if (! $account instanceof EmailAccount || ! $account->hasConfiguredPassword()) {
-            $this->markFailed(
-                $messageId,
-                'email_account_unavailable',
-                'Konto SMTP użyte przez wiadomość nie jest już dostępne.',
             );
 
             return;

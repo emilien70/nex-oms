@@ -15,6 +15,8 @@ use Modules\Automation\Models\AutomationRun;
 
 class OrderEmailMessage extends Model
 {
+    private bool $allowsAttachmentSealWrite = false;
+
     private const IMMUTABLE_SNAPSHOT_ATTRIBUTES = [
         'order_id',
         'email_template_id',
@@ -24,6 +26,8 @@ class OrderEmailMessage extends Model
         'retry_of_message_id',
         'source',
         'idempotency_key',
+        'intent_fingerprint',
+        'smtp_account_fingerprint',
         'message_id',
         'actor_snapshot',
         'template_name_snapshot',
@@ -37,6 +41,8 @@ class OrderEmailMessage extends Model
         'format',
         'body_text',
         'body_html',
+        'attachment_count',
+        'attachment_manifest_sha256',
     ];
 
     protected $fillable = [
@@ -49,6 +55,8 @@ class OrderEmailMessage extends Model
         'source',
         'status',
         'idempotency_key',
+        'intent_fingerprint',
+        'smtp_account_fingerprint',
         'message_id',
         'actor_snapshot',
         'template_name_snapshot',
@@ -62,6 +70,8 @@ class OrderEmailMessage extends Model
         'format',
         'body_text',
         'body_html',
+        'attachment_count',
+        'attachment_manifest_sha256',
         'safe_error_code',
         'safe_error_message',
         'attempt_count',
@@ -79,6 +89,7 @@ class OrderEmailMessage extends Model
             'status' => OrderEmailMessageStatus::class,
             'format' => EmailTemplateFormat::class,
             'actor_snapshot' => 'array',
+            'attachment_count' => 'integer',
             'attempt_count' => 'integer',
             'queued_at' => 'immutable_datetime',
             'sending_started_at' => 'immutable_datetime',
@@ -91,7 +102,21 @@ class OrderEmailMessage extends Model
     protected static function booted(): void
     {
         static::updating(function (self $message): void {
-            if ($message->isDirty(self::IMMUTABLE_SNAPSHOT_ATTRIBUTES)) {
+            if (! $message->isDirty(self::IMMUTABLE_SNAPSHOT_ATTRIBUTES)) {
+                return;
+            }
+
+            $dirty = array_keys($message->getDirty());
+            $sealWrite = $message->allowsAttachmentSealWrite
+                && $message->isDirty('attachment_count')
+                && $message->isDirty('attachment_manifest_sha256')
+                && array_diff($dirty, [
+                    'attachment_count',
+                    'attachment_manifest_sha256',
+                    'updated_at',
+                ]) === [];
+
+            if (! $sealWrite) {
                 throw new LogicException('Sent email snapshot attributes cannot be changed.');
             }
         });
@@ -143,5 +168,27 @@ class OrderEmailMessage extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(OrderEmailMessageAttachment::class)->orderBy('position');
+    }
+
+    public function sealAttachments(int $count, string $manifestSha256): void
+    {
+        if (! $this->exists
+            || $count < 0
+            || $this->attachment_count !== null
+            || $this->attachment_manifest_sha256 !== null
+            || preg_match('/\A[a-f0-9]{64}\z/D', $manifestSha256) !== 1) {
+            throw new LogicException('Email attachment manifest can only be sealed once.');
+        }
+
+        $this->allowsAttachmentSealWrite = true;
+
+        try {
+            $this->forceFill([
+                'attachment_count' => $count,
+                'attachment_manifest_sha256' => $manifestSha256,
+            ])->save();
+        } finally {
+            $this->allowsAttachmentSealWrite = false;
+        }
     }
 }
