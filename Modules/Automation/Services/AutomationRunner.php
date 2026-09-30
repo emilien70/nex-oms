@@ -63,6 +63,7 @@ class AutomationRunner
             try {
                 $output = $this->actionExecutor->execute(
                     $run,
+                    $step,
                     $action['type'],
                     $action['configuration'] ?? [],
                 );

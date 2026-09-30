@@ -6,6 +6,7 @@ use App\Models\OrderStatusSetting;
 use App\Services\OrderStatusService;
 use DomainException;
 use Modules\Automation\Models\AutomationRun;
+use Modules\Automation\Models\AutomationRunStep;
 
 class AutomationActionExecutor
 {
@@ -14,15 +15,21 @@ class AutomationActionExecutor
         private readonly AutomationShipmentActionService $shipmentActionService,
         private readonly AutomationUrlActionService $urlActionService,
         private readonly AutomationInvoiceActionService $invoiceActionService,
+        private readonly AutomationEmailActionService $emailActionService,
     ) {}
 
-    public function execute(AutomationRun $run, string $type, array $configuration): array
-    {
+    public function execute(
+        AutomationRun $run,
+        AutomationRunStep $step,
+        string $type,
+        array $configuration,
+    ): array {
         return match ($type) {
             AutomationCatalog::ACTION_CHANGE_STATUS => $this->changeStatus($run, $configuration),
             AutomationCatalog::ACTION_CREATE_SHIPMENT => $this->shipmentActionService->execute($run, $configuration),
             AutomationCatalog::ACTION_CALL_URL => $this->urlActionService->execute($run, $configuration),
             AutomationCatalog::ACTION_ISSUE_INVOICE => $this->invoiceActionService->execute($run, $configuration),
+            AutomationCatalog::ACTION_SEND_EMAIL => $this->emailActionService->execute($run, $step, $configuration),
             default => throw new DomainException('Nieobslugiwany typ akcji automatycznej: '.$type),
         };
     }

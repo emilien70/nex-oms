@@ -4,6 +4,7 @@ namespace App\ValueObjects;
 
 use App\Enums\EmailTemplateFormat;
 use App\Enums\OrderEmailMessageSource;
+use App\Models\EmailAccount;
 use App\Models\OrderEmailMessage;
 use App\Models\User;
 use Modules\Automation\Models\AutomationRun;
@@ -21,5 +22,8 @@ final readonly class OrderEmailPreparationData
         public ?string $subjectTemplate = null,
         public ?string $bodyTemplate = null,
         public ?EmailTemplateFormat $format = null,
+        public ?EmailAccount $emailAccount = null,
+        public ?string $actorName = null,
+        public bool $contentIsRendered = false,
     ) {}
 }

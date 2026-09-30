@@ -40,6 +40,7 @@ class AutomationRuleController extends Controller
             'statuses' => OrderStatusSetting::orderedStatuses(),
             'shipmentActionDefinitions' => $catalog->shipmentActionDefinitions(),
             'invoiceSeries' => $catalog->invoiceSeries(),
+            'emailTemplates' => $catalog->emailTemplates(),
         ]);
     }
 

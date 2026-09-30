@@ -2,6 +2,7 @@
 
 namespace Modules\Automation\Http\Requests;
 
+use App\Models\EmailTemplate;
 use App\Models\OrderStatusSetting;
 use App\Services\OrderVariableService;
 use Illuminate\Foundation\Http\FormRequest;
@@ -131,6 +132,63 @@ class SaveAutomationRuleRequest extends FormRequest
                         );
                     }
                 }
+
+                if ($type === AutomationCatalog::ACTION_SEND_EMAIL) {
+                    $templateId = filter_var(
+                        $configuration['email_template_id'] ?? null,
+                        FILTER_VALIDATE_INT,
+                        ['options' => ['min_range' => 1]],
+                    );
+                    $template = $templateId === false
+                        ? null
+                        : EmailTemplate::query()->with('emailAccount')->find($templateId);
+
+                    if (! $template instanceof EmailTemplate
+                        || $template->emailAccount === null
+                        || ! $template->emailAccount->hasConfiguredPassword()) {
+                        $validator->errors()->add(
+                            "actions.$index.configuration.email_template_id",
+                            'Wybierz szablon e-mail z poprawnie skonfigurowanym kontem SMTP.',
+                        );
+                    }
+
+                    $recipientCustomer = (bool) ($configuration['recipient_customer'] ?? true);
+                    $recipientEmails = $configuration['recipient_emails'] ?? [];
+
+                    if (! is_array($recipientEmails)) {
+                        $validator->errors()->add(
+                            "actions.$index.configuration.recipient_emails",
+                            'Lista dodatkowych odbiorców jest nieprawidłowa.',
+                        );
+                        $recipientEmails = [];
+                    }
+
+                    if (count($recipientEmails) > 10) {
+                        $validator->errors()->add(
+                            "actions.$index.configuration.recipient_emails",
+                            'Możesz podać maksymalnie 10 dodatkowych adresów e-mail.',
+                        );
+                    }
+
+                    foreach ($recipientEmails as $recipientIndex => $email) {
+                        if (! is_string($email)
+                            || mb_strlen($email) > 254
+                            || preg_match('/[\r\n]/', $email)
+                            || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                            $validator->errors()->add(
+                                "actions.$index.configuration.recipient_emails.$recipientIndex",
+                                'Podaj prawidłowy adres e-mail odbiorcy.',
+                            );
+                        }
+                    }
+
+                    if (! $recipientCustomer && $recipientEmails === []) {
+                        $validator->errors()->add(
+                            "actions.$index.configuration.recipient_emails",
+                            'Wybierz klienta lub podaj co najmniej jeden adres e-mail.',
+                        );
+                    }
+                }
             }
         }];
     }
@@ -181,6 +239,32 @@ class SaveAutomationRuleRequest extends FormRequest
                     if ($seriesId !== false) {
                         $configuration['invoice_series_id'] = $seriesId;
                     }
+
+                    $action['configuration'] = $configuration;
+                }
+
+                if (($action['type'] ?? '') === AutomationCatalog::ACTION_SEND_EMAIL) {
+                    $configuration = $action['configuration'] ?? [];
+                    $templateId = filter_var(
+                        $configuration['email_template_id'] ?? null,
+                        FILTER_VALIDATE_INT,
+                        ['options' => ['min_range' => 1]],
+                    );
+
+                    if ($templateId !== false) {
+                        $configuration['email_template_id'] = $templateId;
+                    }
+
+                    $configuration['recipient_customer'] = array_key_exists('recipient_customer', $configuration)
+                        ? filter_var($configuration['recipient_customer'], FILTER_VALIDATE_BOOLEAN)
+                        : true;
+                    $configuration['recipient_emails'] = collect($configuration['recipient_emails'] ?? [])
+                        ->filter(fn (mixed $email): bool => is_string($email))
+                        ->map(fn (string $email): string => mb_strtolower(trim($email)))
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all();
 
                     $action['configuration'] = $configuration;
                 }

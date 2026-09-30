@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\EmailTemplate;
 use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -223,6 +224,13 @@ class AutomationActivityFeedTest extends TestCase
     public function test_feed_reuses_catalog_summaries_for_every_supported_action_label(): void
     {
         $series = $this->createDocumentSeries(attributes: ['name' => 'Faktury Activity Feed']);
+        $template = EmailTemplate::query()->create([
+            'name' => 'Potwierdzenie wysyłki',
+            'subject_template' => 'Temat',
+            'format' => 'plain_text',
+            'body_template' => 'Treść',
+            'is_hidden' => true,
+        ]);
         $actions = [
             [
                 'type' => AutomationCatalog::ACTION_CHANGE_STATUS,
@@ -244,6 +252,10 @@ class AutomationActivityFeedTest extends TestCase
                 'type' => AutomationCatalog::ACTION_CALL_URL,
                 'configuration' => ['url' => 'https://example.com/oms-hook'],
             ],
+            [
+                'type' => AutomationCatalog::ACTION_SEND_EMAIL,
+                'configuration' => ['email_template_id' => $template->id],
+            ],
         ];
         $this->createRun($this->order(), AutomationRun::STATUS_QUEUED, $actions);
 
@@ -257,6 +269,7 @@ class AutomationActivityFeedTest extends TestCase
             'Poczekaj przez 10 min',
             'Wystaw Fakturę: Faktury Activity Feed',
             'Wywołaj URL: https://example.com/oms-hook',
+            'Wyślij e-mail: Potwierdzenie wysyłki → klient',
         ], array_column($steps, 'label'));
     }
 

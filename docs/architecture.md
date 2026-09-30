@@ -1042,7 +1042,11 @@ Wysyłka e-mail powinna być asynchroniczna.
 
 Przed kolejką powstaje niezmienny snapshot treści i prywatnych załączników. Operację chronią `idempotency_key` wraz z fingerprintem intencji, sealed manifest załączników oraz HMAC transportowo istotnej konfiguracji SMTP; jej zmiana przed wysłaniem kończy wiadomość kontrolowanym błędem. Scheduler co pięć minut ponownie dispatchuje wyłącznie stare, nietknięte rekordy `queued`, a atomowy claim w bazie pozostaje ostateczną ochroną przed podwójnym transportem.
 
-Wynik `unknown` nie jest automatycznie ponawiany. Ten etap nie obejmuje jeszcze ręcznego UI wysyłki ani akcji Automation.
+Wynik `unknown` nie jest automatycznie ponawiany. Ręczne UI na karcie zamówienia przygotowuje wiadomość przez centralny `OrderEmailPreparationService`, wymaga jawnie wybranego konta SMTP, a opcjonalny szablon może dostarczyć treść i zamrożone załączniki. Wybrane konto jest częścią fingerprintu intencji. Po zapisie interfejs przez krótki polling odświeża wyłącznie status własnej wiadomości; nie ponawia transportu i nie odczytuje poczty przychodzącej.
+
+Automation udostępnia akcję `send_email` z obowiązkowym `email_template_id`. Konto SMTP, treść i załączniki pochodzą z szablonu; szablony ukryte na liście ręcznej pozostają dostępne dla reguł. Konfiguracja odbiorców zawiera domyślnie klienta oraz maksymalnie dziesięć dodatkowych, znormalizowanych adresów. Adres klienta jest rozwiązywany z zamówienia w chwili wykonania. Każdy unikalny odbiorca otrzymuje osobny `OrderEmailMessage`, dzięki czemu adresy nie są ujawniane pozostałym odbiorcom, a wynik transportu jest śledzony niezależnie. Brak wymaganego adresu klienta zatrzymuje akcję przed przygotowaniem jakiejkolwiek wiadomości.
+
+Akcja korzysta z tego samego `OrderEmailPreparationService`, zapisuje `source = automation` i `automation_run_id`, a deterministyczny UUID oparty na wykonaniu, pozycji kroku i odbiorcy zapobiega podwójnej wiadomości. Dla dotychczasowego odbiorcy-klienta zachowano wcześniejszy klucz idempotencji. Krok jest zakończony po utworzeniu niezmiennych snapshotów i dodaniu transportów do kolejki. Końcowy wynik SMTP pozostaje statusem każdego `OrderEmailMessage` i nie zmienia wstecz zakończonego kroku Automation.
 
 Docelowy przepływ:
 

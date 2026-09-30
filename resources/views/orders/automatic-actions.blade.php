@@ -72,6 +72,15 @@
         .automation-shipment-nonstandard { text-align: center; }
         .automation-shipment-nonstandard .form-check-input { margin: 7px 0 0; }
         .automation-shipment-remove { height: 28px; padding: 0; width: 28px; }
+        .automation-email-config { display: grid; gap: 9px; }
+        .automation-email-recipients { align-items: center; background: #fff; border: 1px solid #cfd7e1; border-radius: 5px; display: flex; flex-wrap: wrap; gap: 5px; min-height: 34px; padding: 4px 6px; }
+        .automation-email-recipients:focus-within { border-color: #86b7fe; box-shadow: 0 0 0 .15rem rgba(13, 110, 253, .15); }
+        .automation-email-recipient-chip { align-items: center; background: #eef3f8; border: 1px solid #d7e0e8; border-radius: 4px; color: #334155; display: inline-flex; font-size: 11px; gap: 3px; line-height: 1; max-width: 100%; padding: 4px 5px 4px 7px; }
+        .automation-email-recipient-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .automation-email-recipient-remove { align-items: center; background: transparent; border: 0; color: #718096; display: inline-flex; font-size: 13px; height: 16px; justify-content: center; padding: 0; width: 16px; }
+        .automation-email-recipient-remove:hover { color: #b42318; }
+        .automation-email-recipient-input { border: 0; box-shadow: none; flex: 1 1 180px; font-size: 12px; min-width: 150px; outline: 0; padding: 3px; }
+        .automation-email-add-customer { font-size: 11px; padding: 3px 7px; }
         @media (max-width: 900px) {
             .automation-page { margin: -1rem; padding: 12px; }
             .automation-table { min-width: 760px; }
@@ -251,6 +260,7 @@
             const statuses = {{ Illuminate\Support\Js::from($statuses) }};
             const shipmentDefinitions = {{ Illuminate\Support\Js::from($shipmentActionDefinitions) }};
             const invoiceSeries = {{ Illuminate\Support\Js::from($invoiceSeries) }};
+            const emailTemplates = {{ Illuminate\Support\Js::from($emailTemplates) }};
             const editors = new Map();
 
             const escapeHtml = value => String(value ?? '')
@@ -260,6 +270,28 @@
             const optionsHtml = (options, selected) => Object.entries(options)
                 .map(([value, label]) => `<option value="${escapeHtml(value)}" ${String(value) === String(selected ?? '') ? 'selected' : ''}>${escapeHtml(label)}</option>`)
                 .join('');
+            const recipientEmails = configuration => Array.isArray(configuration.recipient_emails)
+                ? configuration.recipient_emails
+                    .filter(email => typeof email === 'string' && email.trim() !== '')
+                    .map(email => email.trim().toLowerCase())
+                    .filter((email, index, emails) => emails.indexOf(email) === index)
+                : [];
+            const mergeRecipientEmails = (action, rawValue) => {
+                const additions = String(rawValue ?? '')
+                    .split(/[;,]+/)
+                    .map(email => email.trim().toLowerCase())
+                    .filter(Boolean);
+
+                if (!additions.length) return false;
+
+                const emails = recipientEmails(action.configuration || {});
+                additions.forEach(email => {
+                    if (!emails.includes(email) && emails.length < 10) emails.push(email);
+                });
+                action.configuration.recipient_emails = emails;
+
+                return true;
+            };
 
             const defaultShipmentConfiguration = requestedProvider => {
                 const provider = shipmentDefinitions[requestedProvider]
@@ -439,6 +471,33 @@
 
                         return `<label class="automation-block-label">SERIA NUMERACJI</label><select class="form-select form-select-sm action-config" data-key="invoice_series_id" required name="actions[${index}][configuration][invoice_series_id]">${unavailableOption}${optionsHtml(invoiceSeries, selectedSeriesId)}</select>`;
                     }
+                    if (action.type === 'send_email') {
+                        const selectedTemplateId = String(configuration.email_template_id ?? '');
+                        const selectedTemplateAvailable = selectedTemplateId === '' || Object.hasOwn(emailTemplates, selectedTemplateId);
+                        const unavailableOption = selectedTemplateAvailable
+                            ? ''
+                            : `<option value="${escapeHtml(selectedTemplateId)}" selected>Szablon #${escapeHtml(selectedTemplateId)} (niedost&#281;pny)</option>`;
+                        const customerSelected = configuration.recipient_customer === undefined
+                            || (configuration.recipient_customer !== false && String(configuration.recipient_customer) !== '0');
+                        const emails = recipientEmails(configuration);
+                        configuration.recipient_customer = customerSelected;
+                        configuration.recipient_emails = emails;
+
+                        if (!Object.keys(emailTemplates).length) {
+                            return `<div class="alert alert-warning py-2 px-3 small mb-0">Brak szablonu e-mail z poprawnie skonfigurowanym kontem SMTP.</div><input type="hidden" name="actions[${index}][configuration][email_template_id]" value="${escapeHtml(selectedTemplateId)}">`;
+                        }
+
+                        const customerChip = customerSelected
+                            ? '<span class="automation-email-recipient-chip"><span>Klient</span><button class="automation-email-recipient-remove email-remove-customer" type="button" aria-label="Usu&#324; klienta"><i class="bi bi-x" aria-hidden="true"></i></button></span>'
+                            : '';
+                        const emailChips = emails.map((email, recipientIndex) => `<span class="automation-email-recipient-chip"><span>${escapeHtml(email)}</span><button class="automation-email-recipient-remove email-remove-recipient" data-recipient-index="${recipientIndex}" type="button" aria-label="Usu&#324; adres ${escapeHtml(email)}"><i class="bi bi-x" aria-hidden="true"></i></button></span>`).join('');
+                        const emailInputs = emails.map(email => `<input type="hidden" name="actions[${index}][configuration][recipient_emails][]" value="${escapeHtml(email)}">`).join('');
+                        const addCustomer = customerSelected
+                            ? ''
+                            : '<button class="btn btn-sm btn-light border automation-email-add-customer email-add-customer" type="button"><i class="bi bi-plus" aria-hidden="true"></i> Klient</button>';
+
+                        return `<div class="automation-email-config"><div><label class="automation-block-label">SZABLON E-MAIL</label><select class="form-select form-select-sm action-config" data-key="email_template_id" required name="actions[${index}][configuration][email_template_id]">${unavailableOption}${optionsHtml(emailTemplates, selectedTemplateId)}</select><div class="form-text">Konto SMTP, tre&#347;&#263; i za&#322;&#261;czniki pochodz&#261; z wybranego szablonu.</div></div><div><label class="automation-block-label">DO</label><div class="automation-email-recipients">${customerChip}${emailChips}<input class="automation-email-recipient-input" data-email-recipient-input type="text" inputmode="email" maxlength="254" aria-label="Dodaj adres e-mail odbiorcy" placeholder="Wpisz adres i naci&#347;nij Enter">${addCustomer}</div><input type="hidden" name="actions[${index}][configuration][recipient_customer]" value="${customerSelected ? '1' : '0'}">${emailInputs}<div class="form-text">Ka&#380;dy odbiorca otrzyma osobn&#261; wiadomo&#347;&#263;. Mo&#380;esz doda&#263; maksymalnie 10 adres&oacute;w.</div></div></div>`;
+                    }
                     return `<label class="automation-block-label">CZAS W MINUTACH</label><input class="form-control form-control-sm action-config" data-key="minutes" type="number" min="1" max="86400" name="actions[${index}][configuration][minutes]" value="${escapeHtml(configuration.minutes || 1)}">`;
                 };
 
@@ -447,6 +506,7 @@
                     if (type === 'create_inpost_shipment') return defaultShipmentConfiguration();
                     if (type === 'call_url') return {url: ''};
                     if (type === 'issue_invoice') return {invoice_series_id: Object.keys(invoiceSeries)[0] || ''};
+                    if (type === 'send_email') return {email_template_id: Object.keys(emailTemplates)[0] || '', recipient_customer: true, recipient_emails: []};
                     return {minutes: 1};
                 };
 
@@ -484,6 +544,30 @@
                             control.addEventListener('input', update);
                             control.addEventListener('change', update);
                         });
+                        const recipientInput = card.querySelector('[data-email-recipient-input]');
+                        const addRecipients = () => {
+                            if (!recipientInput || !mergeRecipientEmails(actions[index], recipientInput.value)) return;
+                            renderActions();
+                        };
+                        recipientInput?.addEventListener('keydown', event => {
+                            if (['Enter', ',', ';'].includes(event.key)) {
+                                event.preventDefault();
+                                addRecipients();
+                            }
+                        });
+                        recipientInput?.addEventListener('blur', addRecipients);
+                        card.querySelector('.email-remove-customer')?.addEventListener('click', () => {
+                            actions[index].configuration.recipient_customer = false;
+                            renderActions();
+                        });
+                        card.querySelector('.email-add-customer')?.addEventListener('click', () => {
+                            actions[index].configuration.recipient_customer = true;
+                            renderActions();
+                        });
+                        card.querySelectorAll('.email-remove-recipient').forEach(button => button.addEventListener('click', () => {
+                            actions[index].configuration.recipient_emails.splice(Number(button.dataset.recipientIndex), 1);
+                            renderActions();
+                        }));
                         card.querySelector('.shipment-provider')?.addEventListener('change', event => {
                             actions[index].configuration = defaultShipmentConfiguration(event.target.value);
                             renderActions();
@@ -555,6 +639,16 @@
                 });
                 form.addEventListener('submit', async event => {
                     event.preventDefault();
+                    let recipientsChanged = false;
+                    form.querySelectorAll('[data-email-recipient-input]').forEach(input => {
+                        const card = input.closest('[data-action-index]');
+                        const index = Number(card?.dataset.actionIndex);
+
+                        if (Number.isInteger(index) && actions[index]) {
+                            recipientsChanged = mergeRecipientEmails(actions[index], input.value) || recipientsChanged;
+                        }
+                    });
+                    if (recipientsChanged) renderActions();
                     const saveButton = form.querySelector('[data-save-editor]');
                     saveButton.disabled = true;
                     errorBox.classList.add('d-none');

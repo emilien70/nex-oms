@@ -8,6 +8,7 @@ use App\Http\Controllers\Integrations\CourierIntegrationController;
 use App\Http\Controllers\Integrations\DpdParcelTemplateController;
 use App\Http\Controllers\Integrations\InPostCourierParcelTemplateController;
 use App\Http\Controllers\Integrations\IntegrationController;
+use App\Http\Controllers\OrderEmailMessageController;
 use App\Http\Controllers\OrderMetaController;
 use App\Http\Controllers\OrderProductController;
 use App\Http\Controllers\OrderScanController;
@@ -217,6 +218,14 @@ Route::post('/orders/{order}/duplicate', [OrdersController::class, 'duplicate'])
 Route::post('/orders/{order}/invoice', [OrderInvoiceController::class, 'store'])->name('orders.invoice.store');
 Route::post('/orders/{order}/proforma', [OrderProformaController::class, 'store'])->name('orders.proforma.store');
 Route::post('/orders/{order}/products', [OrderProductController::class, 'store'])->name('orders.products.store');
+Route::get('/orders/{order}/email-templates/{emailTemplate}/preview', [OrderEmailMessageController::class, 'preview'])
+    ->name('orders.email-templates.preview');
+Route::post('/orders/{order}/email-messages', [OrderEmailMessageController::class, 'store'])
+    ->name('orders.email-messages.store');
+Route::get('/orders/{order}/email-messages/{orderEmailMessage}/status', [OrderEmailMessageController::class, 'status'])
+    ->name('orders.email-messages.status');
+Route::get('/orders/{order}/email-messages/{orderEmailMessage}/attachments/{orderEmailMessageAttachment}', [OrderEmailMessageController::class, 'attachment'])
+    ->name('orders.email-messages.attachments.show');
 Route::get('/orders/{order}/shipments/{provider}/form', [ShipmentController::class, 'form'])
     ->where('provider', 'inpost_lockers|inpost_courier|dpd|allegro_shipping')
     ->name('orders.shipments.form');

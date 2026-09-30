@@ -242,6 +242,111 @@
         resize: vertical;
     }
 
+    .email-template-visual-option {
+        align-items: center;
+        display: flex;
+    }
+
+    .email-template-visual-option[hidden],
+    .email-template-visual-toolbar[hidden],
+    .email-template-visual-editor[hidden] {
+        display: none !important;
+    }
+
+    .email-template-editor-shell.is-visual {
+        background: #ffffff;
+        border: 1px solid #cfd6df;
+        border-radius: 5px;
+        overflow: hidden;
+    }
+
+    .email-template-editor-shell.is-visual .email-template-body {
+        border: 0;
+        border-radius: 0;
+    }
+
+    .email-template-visual-toolbar {
+        align-items: center;
+        border-bottom: 1px solid #cfd6df;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        min-height: 39px;
+        padding: 4px;
+    }
+
+    .email-template-editor-button,
+    .email-template-editor-select,
+    .email-template-editor-color {
+        align-items: center;
+        background: #ffffff;
+        border: 1px solid #d5dbe3;
+        border-radius: 4px;
+        color: #334155;
+        display: inline-flex;
+        height: 29px;
+        justify-content: center;
+    }
+
+    .email-template-editor-button {
+        padding: 0;
+        width: 30px;
+    }
+
+    .email-template-editor-button:hover,
+    .email-template-editor-button:focus-visible {
+        background: #eff6ff;
+        border-color: #93c5fd;
+        color: #0d6efd;
+    }
+
+    .email-template-editor-button.is-active {
+        background: #dbeafe;
+        border-color: #60a5fa;
+    }
+
+    .email-template-editor-select {
+        font-size: 12px;
+        padding: 0 22px 0 7px;
+        width: 78px;
+    }
+
+    .email-template-editor-size {
+        width: 68px;
+    }
+
+    .email-template-editor-color {
+        cursor: pointer;
+        gap: 2px;
+        padding: 0 5px;
+    }
+
+    .email-template-editor-color input {
+        border: 0;
+        height: 18px;
+        padding: 0;
+        width: 18px;
+    }
+
+    .email-template-visual-editor {
+        color: #111827;
+        display: block;
+        flex: 1 1 auto;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.55;
+        min-height: 440px;
+        outline: 0;
+        overflow: auto;
+        padding: 12px;
+        width: 100%;
+    }
+
+    .email-template-visual-editor:empty::before {
+        color: #94a3b8;
+        content: 'Treść wiadomości';
+    }
+
     .email-template-attachment-details {
         background: #f8fafc;
         border: 1px solid #e3e8ee;
@@ -475,6 +580,10 @@
                                     <label class="form-check-label" for="emailTemplateFormat{{ $loop->index }}">{{ $option->label() }}</label>
                                 </div>
                             @endforeach
+                            <div class="form-check form-switch email-template-visual-option" data-template-visual-option hidden>
+                                <input class="form-check-input" id="emailTemplateVisualEditor" type="checkbox" data-template-visual-toggle>
+                                <label class="form-check-label" for="emailTemplateVisualEditor">Włącz edytor wizualny</label>
+                            </div>
                             @error('format')<div class="text-danger small w-100">{{ $message }}</div>@enderror
                         </div>
                     </div>
@@ -506,7 +615,30 @@
 
                         <div class="email-template-body-column">
                             <label class="form-label" for="emailTemplateBody">Treść wiadomości</label>
-                            <textarea class="form-control email-template-body @error('body_template') is-invalid @enderror" id="emailTemplateBody" name="body_template" required maxlength="25000" data-template-insertion-target></textarea>
+                            <div class="email-template-editor-shell" data-template-editor-shell>
+                                <div class="email-template-visual-toolbar" role="toolbar" aria-label="Formatowanie szablonu" data-template-visual-toolbar hidden>
+                                    <button type="button" class="email-template-editor-button" data-template-source title="Kod HTML" aria-label="Kod HTML"><i class="bi bi-code-slash"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-command="bold" title="Pogrubienie" aria-label="Pogrubienie"><i class="bi bi-type-bold"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-command="italic" title="Kursywa" aria-label="Kursywa"><i class="bi bi-type-italic"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-command="underline" title="Podkreślenie" aria-label="Podkreślenie"><i class="bi bi-type-underline"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-command="removeFormat" title="Wyczyść formatowanie" aria-label="Wyczyść formatowanie"><i class="bi bi-eraser"></i></button>
+                                    <select class="email-template-editor-select" data-template-font aria-label="Krój pisma" title="Krój pisma">
+                                        <option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Tahoma">Tahoma</option><option value="Georgia">Georgia</option>
+                                    </select>
+                                    <select class="email-template-editor-select email-template-editor-size" data-template-size aria-label="Rozmiar tekstu" title="Rozmiar tekstu">
+                                        <option value="2">10</option><option value="3" selected>11</option><option value="4">14</option><option value="5">18</option>
+                                    </select>
+                                    <label class="email-template-editor-color" title="Kolor tekstu"><i class="bi bi-fonts" aria-hidden="true"></i><input type="color" value="#111827" data-template-color aria-label="Kolor tekstu"></label>
+                                    <button type="button" class="email-template-editor-button" data-template-command="insertUnorderedList" title="Lista punktowana" aria-label="Lista punktowana"><i class="bi bi-list-ul"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-command="insertOrderedList" title="Lista numerowana" aria-label="Lista numerowana"><i class="bi bi-list-ol"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-command="justifyLeft" title="Wyrównaj do lewej" aria-label="Wyrównaj do lewej"><i class="bi bi-text-left"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-link title="Dodaj odnośnik" aria-label="Dodaj odnośnik"><i class="bi bi-link-45deg"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-table title="Dodaj tabelę" aria-label="Dodaj tabelę"><i class="bi bi-table"></i></button>
+                                    <button type="button" class="email-template-editor-button" data-template-image title="Dodaj obraz z adresu HTTPS" aria-label="Dodaj obraz z adresu HTTPS"><i class="bi bi-image"></i></button>
+                                </div>
+                                <div class="email-template-visual-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Treść wiadomości" data-template-visual-editor hidden></div>
+                                <textarea class="form-control email-template-body @error('body_template') is-invalid @enderror" id="emailTemplateBody" name="body_template" required maxlength="25000" data-template-insertion-target></textarea>
+                            </div>
                             @error('body_template')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
                     </div>
@@ -636,8 +768,137 @@
         const bodyInput = form.elements.namedItem('body_template');
         const hiddenInput = form.elements.namedItem('is_hidden');
         const searchInput = form.querySelector('[data-variable-search]');
+        const formatInputs = Array.from(form.querySelectorAll('[name="format"]'));
+        const visualOption = form.querySelector('[data-template-visual-option]');
+        const visualToggle = form.querySelector('[data-template-visual-toggle]');
+        const editorShell = form.querySelector('[data-template-editor-shell]');
+        const visualToolbar = form.querySelector('[data-template-visual-toolbar]');
+        const visualEditor = form.querySelector('[data-template-visual-editor]');
+        const sourceButton = visualToolbar.querySelector('[data-template-source]');
         const attachmentSlots = [1, 2];
         let insertionTarget = bodyInput;
+        let visualEditorEnabled = false;
+        let visualSourceMode = false;
+        let visualSelection = null;
+
+        function selectedFormat() {
+            return formatInputs.find((input) => input.checked)?.value ?? 'plain_text';
+        }
+
+        function visualEditorHtml() {
+            const html = visualEditor.innerHTML;
+
+            return visualEditor.textContent.trim() === ''
+                && !visualEditor.querySelector('img, table, hr')
+                ? ''
+                : html;
+        }
+
+        function syncVisualEditor() {
+            if (visualEditorEnabled && !visualSourceMode) {
+                bodyInput.value = visualEditorHtml();
+            }
+        }
+
+        function rememberVisualSelection() {
+            const selection = window.getSelection();
+
+            if (selection.rangeCount === 0) {
+                return;
+            }
+
+            const range = selection.getRangeAt(0);
+            if (visualEditor.contains(range.commonAncestorContainer)) {
+                visualSelection = range.cloneRange();
+            }
+        }
+
+        function restoreVisualSelection() {
+            if (!visualSelection) {
+                return;
+            }
+
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(visualSelection);
+        }
+
+        function setVisualSourceMode(enabled) {
+            if (!visualEditorEnabled) {
+                return;
+            }
+
+            if (enabled) {
+                syncVisualEditor();
+            } else {
+                visualEditor.innerHTML = bodyInput.value;
+            }
+
+            visualSourceMode = enabled;
+            sourceButton.classList.toggle('is-active', enabled);
+            visualEditor.hidden = enabled;
+            bodyInput.classList.toggle('d-none', !enabled);
+            insertionTarget = enabled ? bodyInput : visualEditor;
+            (enabled ? bodyInput : visualEditor).focus();
+        }
+
+        function setVisualEditorEnabled(enabled) {
+            if (visualEditorEnabled && !enabled) {
+                syncVisualEditor();
+            }
+
+            visualEditorEnabled = enabled;
+            visualSourceMode = false;
+            visualSelection = null;
+            visualToggle.checked = enabled;
+            editorShell.classList.toggle('is-visual', enabled);
+            visualToolbar.hidden = !enabled;
+            sourceButton.classList.remove('is-active');
+
+            if (enabled) {
+                visualEditor.innerHTML = bodyInput.value;
+                visualEditor.hidden = false;
+                bodyInput.classList.add('d-none');
+                insertionTarget = visualEditor;
+            } else {
+                visualEditor.hidden = true;
+                bodyInput.classList.remove('d-none');
+                insertionTarget = bodyInput;
+            }
+        }
+
+        function updateVisualEditorAvailability() {
+            const isHtml = selectedFormat() === 'html';
+            visualOption.hidden = !isHtml;
+
+            if (!isHtml) {
+                setVisualEditorEnabled(false);
+            }
+        }
+
+        function runVisualEditorCommand(command, value = null) {
+            if (!visualEditorEnabled || visualSourceMode) {
+                return;
+            }
+
+            visualEditor.focus();
+            restoreVisualSelection();
+            document.execCommand(command, false, value);
+            syncVisualEditor();
+            rememberVisualSelection();
+        }
+
+        function insertVisualToken(token) {
+            visualEditor.focus();
+            restoreVisualSelection();
+
+            if (!document.execCommand('insertText', false, token)) {
+                visualEditor.append(document.createTextNode(token));
+            }
+
+            syncVisualEditor();
+            rememberVisualSelection();
+        }
 
         function updateAttachmentFields(slot) {
             const typeInput = form.querySelector(`[data-attachment-type="${slot}"]`);
@@ -663,6 +924,7 @@
                 ...(overrides || {}),
             };
 
+            setVisualEditorEnabled(false);
             form.action = editing
                 ? form.dataset.updateAction.replace('__TEMPLATE__', template.id)
                 : form.dataset.storeAction;
@@ -675,9 +937,10 @@
             hiddenInput.checked = values.is_hidden === true || values.is_hidden === '1' || values.is_hidden === 1;
 
             const format = values.format ?? 'plain_text';
-            form.querySelectorAll('[name="format"]').forEach((input) => {
+            formatInputs.forEach((input) => {
                 input.checked = input.value === format;
             });
+            updateVisualEditorAvailability();
 
             attachmentSlots.forEach((slot) => {
                 const typeInput = form.querySelector(`[data-attachment-type="${slot}"]`);
@@ -719,15 +982,40 @@
             });
         });
 
+        formatInputs.forEach((input) => {
+            input.addEventListener('change', updateVisualEditorAvailability);
+        });
+
+        visualToggle.addEventListener('change', () => {
+            setVisualEditorEnabled(visualToggle.checked);
+        });
+
         form.querySelectorAll('[data-template-insertion-target]').forEach((input) => {
             input.addEventListener('focus', () => {
                 insertionTarget = input;
             });
         });
 
+        ['focus', 'keyup', 'mouseup', 'input'].forEach((eventName) => {
+            visualEditor.addEventListener(eventName, () => {
+                insertionTarget = visualEditor;
+                rememberVisualSelection();
+
+                if (eventName === 'input') {
+                    syncVisualEditor();
+                }
+            });
+        });
+
         form.querySelectorAll('[data-variable-token]').forEach((button) => {
             button.addEventListener('click', () => {
                 const token = button.dataset.variableToken;
+
+                if (insertionTarget === visualEditor && visualEditorEnabled && !visualSourceMode) {
+                    insertVisualToken(token);
+                    return;
+                }
+
                 const start = insertionTarget.selectionStart ?? insertionTarget.value.length;
                 const end = insertionTarget.selectionEnd ?? start;
 
@@ -735,6 +1023,66 @@
                 insertionTarget.focus();
             });
         });
+
+        visualToolbar.addEventListener('mousedown', (event) => {
+            if (event.target.closest('button')) {
+                event.preventDefault();
+            }
+        });
+
+        visualToolbar.addEventListener('click', (event) => {
+            const commandButton = event.target.closest('[data-template-command]');
+            if (commandButton) {
+                runVisualEditorCommand(commandButton.dataset.templateCommand);
+                return;
+            }
+
+            if (event.target.closest('[data-template-source]')) {
+                setVisualSourceMode(!visualSourceMode);
+                return;
+            }
+
+            if (event.target.closest('[data-template-link]')) {
+                const url = window.prompt('Podaj adres odnośnika (http, https lub mailto):', 'https://');
+                if (url && /^(https?:|mailto:)/i.test(url)) {
+                    runVisualEditorCommand('createLink', url);
+                }
+                return;
+            }
+
+            if (event.target.closest('[data-template-table]')) {
+                const rowsInput = window.prompt('Liczba wierszy:', '2');
+                const columnsInput = window.prompt('Liczba kolumn:', '2');
+                if (rowsInput === null || columnsInput === null) {
+                    return;
+                }
+
+                const rows = Math.min(10, Math.max(1, Number(rowsInput) || 1));
+                const columns = Math.min(10, Math.max(1, Number(columnsInput) || 1));
+                const cells = '<td>&nbsp;</td>'.repeat(columns);
+                runVisualEditorCommand('insertHTML', `<table border="1"><tbody>${`<tr>${cells}</tr>`.repeat(rows)}</tbody></table><p><br></p>`);
+                return;
+            }
+
+            if (event.target.closest('[data-template-image]')) {
+                const url = window.prompt('Podaj adres obrazu HTTPS:', 'https://');
+                if (url && /^https:\/\//i.test(url)) {
+                    runVisualEditorCommand('insertImage', url);
+                }
+            }
+        });
+
+        visualToolbar.querySelector('[data-template-font]')?.addEventListener('change', (event) => {
+            runVisualEditorCommand('fontName', event.target.value);
+        });
+        visualToolbar.querySelector('[data-template-size]')?.addEventListener('change', (event) => {
+            runVisualEditorCommand('fontSize', event.target.value);
+        });
+        visualToolbar.querySelector('[data-template-color]')?.addEventListener('input', (event) => {
+            runVisualEditorCommand('foreColor', event.target.value);
+        });
+
+        form.addEventListener('submit', syncVisualEditor);
 
         searchInput?.addEventListener('input', () => {
             const query = searchInput.value.trim().toLocaleLowerCase('pl');
@@ -751,7 +1099,6 @@
                 group.hidden = visible === 0;
             });
         });
-
         if (hasValidationErrors) {
             const template = oldForm.id ? templates[String(oldForm.id)] : null;
             openForm(template || null, oldForm);

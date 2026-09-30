@@ -2,6 +2,7 @@
 
 namespace Modules\Automation\Services;
 
+use App\Models\EmailTemplate;
 use App\Models\OrderStatusSetting;
 use Illuminate\Support\Str;
 use Modules\Integrations\DPD\Services\DpdServiceResolver;
@@ -26,6 +27,8 @@ class AutomationCatalog
     public const ACTION_CALL_URL = 'call_url';
 
     public const ACTION_ISSUE_INVOICE = 'issue_invoice';
+
+    public const ACTION_SEND_EMAIL = 'send_email';
 
     public function __construct(
         private readonly InPostCourierServiceResolver $inPostCourierServices,
@@ -130,6 +133,7 @@ class AutomationCatalog
             self::ACTION_DELAY => 'Poczekaj przez',
             self::ACTION_CALL_URL => $this->decode('Wywo&#322;aj URL'),
             self::ACTION_ISSUE_INVOICE => $this->decode('Wystaw Faktur&#281;'),
+            self::ACTION_SEND_EMAIL => $this->decode('Wy&#347;lij e-mail'),
         ];
     }
 
@@ -166,8 +170,32 @@ class AutomationCatalog
             self::ACTION_CALL_URL => $this->actionLabel($type).': '
                 .Str::limit((string) ($configuration['url'] ?? '...'), 80),
             self::ACTION_ISSUE_INVOICE => $this->invoiceActionSummary($type, $configuration),
+            self::ACTION_SEND_EMAIL => $this->emailActionSummary($type, $configuration),
             default => $type,
         };
+    }
+
+    public function emailTemplates(): array
+    {
+        return EmailTemplate::query()
+            ->with('emailAccount')
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (EmailTemplate $template): bool => (
+                $template->emailAccount !== null
+                && $template->emailAccount->hasConfiguredPassword()
+            ))
+            ->mapWithKeys(function (EmailTemplate $template): array {
+                $label = $template->name.' — '.$template->emailAccount->name;
+
+                if ($template->is_hidden) {
+                    $label .= ' (ukryty na liście ręcznej)';
+                }
+
+                return [$template->getKey() => $label];
+            })
+            ->all();
     }
 
     public function invoiceSeries(): array
@@ -363,6 +391,47 @@ class AutomationCatalog
                 ->value('name');
 
         return $this->actionLabel($type).': '.($seriesName ?? 'brak serii');
+    }
+
+    private function emailActionSummary(string $type, array $configuration): string
+    {
+        $templateId = filter_var(
+            $configuration['email_template_id'] ?? null,
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1]],
+        );
+        $templateName = $templateId === false
+            ? null
+            : EmailTemplate::query()->whereKey($templateId)->value('name');
+
+        $recipientCustomer = array_key_exists('recipient_customer', $configuration)
+            ? filter_var($configuration['recipient_customer'], FILTER_VALIDATE_BOOLEAN)
+            : true;
+        $additionalCount = count(array_unique(array_filter(
+            (array) ($configuration['recipient_emails'] ?? []),
+            'is_string',
+        )));
+        $recipients = match (true) {
+            $recipientCustomer && $additionalCount > 0 => 'klient + '.$this->emailAddressCount($additionalCount),
+            $recipientCustomer => 'klient',
+            $additionalCount > 0 => $this->emailAddressCount($additionalCount),
+            default => 'brak odbiorcy',
+        };
+
+        return $this->actionLabel($type).': '.($templateName ?? 'szablon niedostępny').' → '.$recipients;
+    }
+
+    private function emailAddressCount(int $count): string
+    {
+        if ($count === 1) {
+            return '1 adres';
+        }
+
+        if ($count >= 2 && $count <= 4) {
+            return $count.' adresy';
+        }
+
+        return $count.' adresów';
     }
 
     private function measurement(mixed $value): string

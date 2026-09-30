@@ -34,7 +34,36 @@ class OrderEmailTemplateRenderer
             );
         }
 
-        $subject = trim(preg_replace('/[\r\n]+/u', ' ', $this->variables->render($subjectTemplate, $order)) ?? '');
+        $subject = $this->normalizeSubject($this->variables->render($subjectTemplate, $order));
+
+        if ($format === EmailTemplateFormat::PlainText) {
+            return $this->finalizePlainText(
+                $subject,
+                $this->variables->render($bodyTemplate, $order),
+            );
+        }
+
+        return $this->finalizeHtml(
+            $subject,
+            $this->variables->renderForHtml($bodyTemplate, $order),
+        );
+    }
+
+    public function finalizeRendered(
+        string $subject,
+        string $body,
+        EmailTemplateFormat $format,
+    ): RenderedOrderEmail {
+        $subject = $this->normalizeSubject($subject);
+
+        return $format === EmailTemplateFormat::PlainText
+            ? $this->finalizePlainText($subject, $body)
+            : $this->finalizeHtml($subject, $body);
+    }
+
+    private function normalizeSubject(string $subject): string
+    {
+        $subject = trim(preg_replace('/[\r\n]+/u', ' ', $subject) ?? '');
 
         if ($subject === '' || mb_strlen($subject) > 255) {
             throw new OrderEmailException(
@@ -43,33 +72,37 @@ class OrderEmailTemplateRenderer
             );
         }
 
-        if ($format === EmailTemplateFormat::PlainText) {
-            $bodyText = trim($this->variables->render($bodyTemplate, $order));
+        return $subject;
+    }
 
-            if ($bodyText === '') {
-                throw new OrderEmailException('body_empty', 'Treść wiadomości nie może być pusta.');
-            }
+    private function finalizePlainText(string $subject, string $body): RenderedOrderEmail
+    {
+        $bodyText = trim(preg_replace("/\r\n?|\x{2028}|\x{2029}/u", "\n", $body) ?? $body);
 
-            if (strlen($bodyText) > self::MAX_RENDERED_BODY_BYTES) {
-                throw new OrderEmailException(
-                    'body_too_long',
-                    'Treść wiadomości jest zbyt długa po podstawieniu zmiennych.',
-                );
-            }
-
-            return new RenderedOrderEmail($subject, $format, $bodyText, null);
+        if ($bodyText === '') {
+            throw new OrderEmailException('body_empty', 'Treść wiadomości nie może być pusta.');
         }
 
-        $renderedHtml = $this->variables->renderForHtml($bodyTemplate, $order);
-
-        if (strlen($renderedHtml) > self::MAX_RENDERED_BODY_BYTES) {
+        if (strlen($bodyText) > self::MAX_RENDERED_BODY_BYTES) {
             throw new OrderEmailException(
                 'body_too_long',
                 'Treść wiadomości jest zbyt długa po podstawieniu zmiennych.',
             );
         }
 
-        $bodyHtml = trim($this->htmlSanitizer->sanitize($renderedHtml));
+        return new RenderedOrderEmail($subject, EmailTemplateFormat::PlainText, $bodyText, null);
+    }
+
+    private function finalizeHtml(string $subject, string $body): RenderedOrderEmail
+    {
+        if (strlen($body) > self::MAX_RENDERED_BODY_BYTES) {
+            throw new OrderEmailException(
+                'body_too_long',
+                'Treść wiadomości jest zbyt długa po podstawieniu zmiennych.',
+            );
+        }
+
+        $bodyHtml = trim($this->htmlSanitizer->sanitize($body));
         $bodyText = $this->plainText($bodyHtml);
 
         if ($bodyHtml === '' || $bodyText === '') {
@@ -79,7 +112,7 @@ class OrderEmailTemplateRenderer
             );
         }
 
-        return new RenderedOrderEmail($subject, $format, $bodyText, $bodyHtml);
+        return new RenderedOrderEmail($subject, EmailTemplateFormat::Html, $bodyText, $bodyHtml);
     }
 
     private function plainText(string $html): string

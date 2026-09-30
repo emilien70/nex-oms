@@ -245,6 +245,7 @@ class AutomationActivityFeed
                 .$this->providerLabel((string) ($configuration['provider'] ?? 'inpost_lockers')).')',
             AutomationCatalog::ACTION_DELAY => $this->waitingMessage($configuration),
             AutomationCatalog::ACTION_CALL_URL => $this->decode('Wywo&#322;uj&#281; URL metod&#261; GET'),
+            AutomationCatalog::ACTION_SEND_EMAIL => $this->decode('Przygotowuj&#281; wiadomo&#347;&#263; e-mail do wysy&#322;ki'),
             default => $this->decode('Wykonuj&#281; automatyczn&#261; akcj&#281;'),
         };
     }

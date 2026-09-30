@@ -1560,6 +1560,303 @@
             border-bottom: 0;
         }
 
+        .order-communication-grid {
+            align-items: start;
+            display: grid;
+            gap: 16px;
+            grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+        }
+
+        .order-email-card,
+        .order-additional-card {
+            min-width: 0;
+        }
+
+        .order-email-card-body {
+            padding: 16px;
+        }
+
+        .order-email-compose {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding: 14px;
+        }
+
+        .order-email-form-row {
+            align-items: center;
+            display: grid;
+            gap: 12px;
+            grid-template-columns: 136px minmax(0, 1fr);
+        }
+
+        .order-email-type-options {
+            align-items: center;
+            display: flex;
+            gap: 22px;
+        }
+
+        .order-email-editor-shell {
+            background: #ffffff;
+            border: 1px solid #cfd6df;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .order-email-toolbar {
+            align-items: center;
+            border-bottom: 1px solid #cfd6df;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            min-height: 39px;
+            padding: 4px;
+        }
+
+        .email-editor-button,
+        .email-editor-select,
+        .email-editor-color {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #d5dbe3;
+            border-radius: 4px;
+            color: #334155;
+            display: inline-flex;
+            height: 29px;
+            justify-content: center;
+        }
+
+        .email-editor-button {
+            padding: 0;
+            width: 30px;
+        }
+
+        .email-editor-button:hover,
+        .email-editor-button:focus-visible {
+            background: #eff6ff;
+            border-color: #93c5fd;
+            color: #0d6efd;
+        }
+
+        .email-editor-button.is-active {
+            background: #dbeafe;
+            border-color: #60a5fa;
+        }
+
+        .email-editor-select {
+            font-size: 12px;
+            padding: 0 22px 0 7px;
+            width: 78px;
+        }
+
+        .email-editor-size {
+            width: 68px;
+        }
+
+        .email-editor-color {
+            cursor: pointer;
+            gap: 2px;
+            padding: 0 5px;
+        }
+
+        .email-editor-color input {
+            border: 0;
+            height: 18px;
+            padding: 0;
+            width: 18px;
+        }
+
+        .order-email-editor,
+        .order-email-source {
+            border: 0;
+            color: #111827;
+            display: block;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 330px;
+            outline: 0;
+            overflow: auto;
+            padding: 12px;
+            resize: vertical;
+            width: 100%;
+        }
+
+        .order-email-editor.is-plain-text {
+            white-space: pre-wrap;
+        }
+
+        .order-email-editor:empty::before {
+            color: #94a3b8;
+            content: 'Treść wiadomości';
+        }
+
+        .order-email-source {
+            font-family: Consolas, monospace;
+        }
+
+        .order-email-attachment-preview {
+            color: #475569;
+            display: flex;
+            flex-wrap: wrap;
+            font-size: 12px;
+            gap: 8px;
+        }
+
+        .order-email-attachment-preview span {
+            background: #ffffff;
+            border: 1px solid #d9e0e8;
+            border-radius: 4px;
+            padding: 4px 8px;
+        }
+
+        .order-email-empty {
+            color: #64748b;
+            font-size: 13px;
+            margin-bottom: 14px;
+        }
+
+        .order-email-compose-toggle {
+            align-items: center;
+            border-radius: 20px;
+            display: inline-flex;
+            margin-top: 14px;
+            padding: 7px 14px;
+        }
+
+        .order-email-messages:empty {
+            display: none;
+        }
+
+        .order-email-message {
+            border-bottom: 1px solid #dfe4ea;
+            padding: 14px 0 18px;
+        }
+
+        .order-email-message:first-child {
+            padding-top: 0;
+        }
+
+        .order-email-message:last-child {
+            border-bottom: 0;
+        }
+
+        .order-email-message-meta {
+            align-items: center;
+            color: #475569;
+            display: flex;
+            flex-wrap: wrap;
+            font-size: 12px;
+            gap: 10px 18px;
+            margin-bottom: 10px;
+        }
+
+        .order-email-channel {
+            background: #1f2937;
+            border-radius: 3px;
+            color: #ffffff;
+            font-size: 11px;
+            padding: 2px 5px;
+        }
+
+        .order-email-status {
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+        }
+
+        .order-email-status.is-sent {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .order-email-status.is-failed,
+        .order-email-status.is-unknown {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .order-email-status.is-pending {
+            background: #e0f2fe;
+            color: #075985;
+        }
+
+        .order-email-message-heading {
+            border-bottom: 1px solid #eef0f3;
+            font-size: 13px;
+            padding: 8px 10px;
+        }
+
+        .order-email-message-body {
+            color: #334155;
+            font-size: 13px;
+            line-height: 1.55;
+            overflow-wrap: anywhere;
+            padding: 14px 10px;
+        }
+
+        .order-email-message-body img {
+            height: auto;
+            max-width: 100%;
+        }
+
+        .order-email-message-attachments {
+            border-top: 1px solid #eef0f3;
+            display: grid;
+            font-size: 12px;
+            gap: 5px;
+            padding: 10px;
+        }
+
+        .order-email-message-attachments a {
+            align-items: center;
+            display: inline-flex;
+            gap: 4px;
+            width: fit-content;
+        }
+
+        .order-information-accordion .accordion-item {
+            border: 1px solid #d6dde6;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .order-information-accordion .accordion-button {
+            background: #ffffff;
+            box-shadow: none;
+            color: #1f2937;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 10px 12px;
+        }
+
+        .order-information-accordion .accordion-body {
+            border-top: 1px solid #e5e7eb;
+            padding: 8px 12px;
+        }
+
+        @media (max-width: 991.98px) {
+            .order-communication-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 575.98px) {
+            .order-email-form-row {
+                align-items: stretch;
+                gap: 5px;
+                grid-template-columns: 1fr;
+            }
+
+            .order-email-editor,
+            .order-email-source {
+                min-height: 280px;
+            }
+        }
         @media (min-width: 992px) {
             .courier-parcel-row {
                 column-gap: 5px;
@@ -2194,13 +2491,9 @@
 
     @include('orders.partials.sales-document-delete-modal')
 
-    <div class="nex-card">
-        <div class="nex-card-header">
-            <h2 class="nex-card-title">Historia</h2>
-        </div>
-        <div class="nex-card-body" data-order-history-body>
-            @include('orders.partials.history', ['order' => $order])
-        </div>
+    <div class="order-communication-grid">
+        <x-order-email-exchange :order="$order" />
+        @include('components.order-additional-information', ['order' => $order])
     </div>
     </div>
 
@@ -3788,6 +4081,367 @@
                 }
             });
 
+            const emailExchange = document.querySelector('[data-order-email-exchange]');
+
+            if (emailExchange) {
+                const emailForm = emailExchange.querySelector('[data-order-email-form]');
+                const emailToggle = emailExchange.querySelector('[data-email-compose-toggle]');
+                const emailToggleLabel = emailExchange.querySelector('[data-email-compose-toggle-label]');
+                const emailTemplate = emailExchange.querySelector('[data-email-template]');
+                const emailAccount = emailExchange.querySelector('[data-email-account]');
+                const emailSubject = emailExchange.querySelector('[data-email-subject]');
+                const emailFormat = emailExchange.querySelector('[data-email-format]');
+                const emailContentRendered = emailExchange.querySelector('[data-email-content-rendered]');
+                const emailBodyInput = emailExchange.querySelector('[data-email-body-input]');
+                const emailEditor = emailExchange.querySelector('[data-email-editor]');
+                const emailSourceEditor = emailExchange.querySelector('[data-email-source-editor]');
+                const emailToolbar = emailExchange.querySelector('[data-email-toolbar]');
+                const emailAttachments = emailExchange.querySelector('[data-email-attachments]');
+                const emailMessages = emailExchange.querySelector('[data-email-messages]');
+                const emailEmpty = emailExchange.querySelector('[data-email-empty]');
+                const emailError = emailExchange.querySelector('[data-email-form-error]');
+                const emailIdempotencyKey = emailExchange.querySelector('[data-email-idempotency-key]');
+                const emailSubmit = emailExchange.querySelector('[data-email-submit]');
+                const defaultEmailAccount = emailAccount?.value || '';
+                let emailFormDirty = false;
+                let emailSourceMode = false;
+
+                const newEmailIdempotencyKey = () => {
+                    if (typeof crypto.randomUUID === 'function') {
+                        return crypto.randomUUID();
+                    }
+
+                    const bytes = crypto.getRandomValues(new Uint8Array(16));
+                    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+                    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+                    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+
+                    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+                };
+
+                const ensureEmailIdempotencyKey = () => {
+                    if (emailIdempotencyKey && !emailIdempotencyKey.value) {
+                        emailIdempotencyKey.value = newEmailIdempotencyKey();
+                    }
+                };
+
+                const setEmailError = (message = '') => {
+                    if (!emailError) {
+                        return;
+                    }
+
+                    emailError.textContent = message;
+                    emailError.classList.toggle('d-none', !message);
+                };
+
+                const setEmailEditorFormat = (format) => {
+                    const isPlainText = format === 'plain_text';
+                    emailFormat.value = isPlainText ? 'plain_text' : 'html';
+                    emailEditor.classList.toggle('is-plain-text', isPlainText);
+                    emailToolbar?.querySelectorAll('button:not([data-email-source]), select, input').forEach((control) => {
+                        control.disabled = isPlainText;
+                    });
+                    emailToolbar?.querySelector('[data-email-source]')?.toggleAttribute('disabled', isPlainText);
+
+                    if (isPlainText && emailSourceMode) {
+                        emailEditor.textContent = emailSourceEditor.value;
+                        emailSourceEditor.classList.add('d-none');
+                        emailEditor.classList.remove('d-none');
+                        emailSourceMode = false;
+                    }
+                };
+
+                const setEmailBody = (body, format) => {
+                    setEmailEditorFormat(format);
+                    emailSourceMode = false;
+                    emailSourceEditor.classList.add('d-none');
+                    emailEditor.classList.remove('d-none');
+
+                    if (format === 'plain_text') {
+                        emailEditor.textContent = body || '';
+                    } else {
+                        emailEditor.innerHTML = body || '';
+                    }
+                };
+
+                const currentEmailBody = () => {
+                    if (emailSourceMode) {
+                        return emailSourceEditor.value;
+                    }
+
+                    return emailFormat.value === 'plain_text'
+                        ? emailEditor.innerText
+                        : emailEditor.innerHTML;
+                };
+
+                const renderEmailAttachments = (attachments = []) => {
+                    emailAttachments.replaceChildren();
+
+                    attachments.forEach((attachment) => {
+                        const item = document.createElement('span');
+                        item.innerHTML = '<i class="bi bi-paperclip me-1" aria-hidden="true"></i>';
+                        item.append(document.createTextNode(attachment.name || 'Załącznik'));
+                        emailAttachments.append(item);
+                    });
+
+                    emailAttachments.classList.toggle('d-none', attachments.length === 0);
+                };
+
+                const resetEmailForm = () => {
+                    emailForm.reset();
+                    emailAccount.value = defaultEmailAccount;
+                    emailSubject.value = '';
+                    setEmailBody('', 'html');
+                    emailContentRendered.value = '0';
+                    renderEmailAttachments([]);
+                    emailFormDirty = false;
+                    emailIdempotencyKey.value = '';
+                    setEmailError();
+                };
+
+                emailToggle?.addEventListener('click', () => {
+                    const opening = emailForm.classList.contains('d-none');
+                    emailForm.classList.toggle('d-none', !opening);
+                    emailToggleLabel.textContent = opening ? 'Zamknij wiadomość' : 'Napisz wiadomość';
+
+                    if (opening) {
+                        ensureEmailIdempotencyKey();
+                        emailTemplate.focus();
+                    }
+                });
+
+                emailForm?.addEventListener('input', () => {
+                    emailFormDirty = true;
+                });
+
+                emailTemplate?.addEventListener('change', async () => {
+                    const selected = emailTemplate.selectedOptions[0];
+                    const previewUrl = selected?.dataset.previewUrl;
+
+                    if (!previewUrl) {
+                        if (emailFormDirty && !window.confirm('Wyczyścić temat i treść wiadomości?')) {
+                            emailTemplate.value = emailTemplate.dataset.previousValue || '';
+                            return;
+                        }
+
+                        resetEmailForm();
+                        emailTemplate.dataset.previousValue = '';
+                        return;
+                    }
+
+
+                    emailTemplate.disabled = true;
+                    setEmailError();
+
+                    try {
+                        const response = await fetch(previewUrl, {
+                            cache: 'no-store',
+                            headers: {
+                                Accept: 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                        });
+                        const payload = await response.json().catch(() => ({}));
+
+                        if (!response.ok) {
+                            throw new Error(payload.message || 'Nie udało się wczytać szablonu.');
+                        }
+
+                        emailSubject.value = payload.subject || '';
+                        setEmailBody(payload.body || '', payload.format || 'html');
+                        emailContentRendered.value = payload.content_rendered ? '1' : '0';
+                        renderEmailAttachments(payload.attachments || []);
+
+                        if (payload.email_account_id && emailAccount.querySelector(`option[value="${payload.email_account_id}"]`)) {
+                            emailAccount.value = String(payload.email_account_id);
+                        }
+
+                        emailTemplate.dataset.previousValue = emailTemplate.value;
+                        emailFormDirty = false;
+                    } catch (error) {
+                        setEmailError(error.message || 'Nie udało się wczytać szablonu.');
+                        emailTemplate.value = emailTemplate.dataset.previousValue || '';
+                    } finally {
+                        emailTemplate.disabled = false;
+                    }
+                });
+
+                const runEmailEditorCommand = (command, value = null) => {
+                    if (emailFormat.value === 'plain_text' || emailSourceMode) {
+                        return;
+                    }
+
+                    emailEditor.focus();
+                    document.execCommand(command, false, value);
+                    emailFormDirty = true;
+                };
+
+                emailToolbar?.addEventListener('click', (event) => {
+                    const commandButton = event.target.closest('[data-email-command]');
+                    if (commandButton) {
+                        runEmailEditorCommand(commandButton.dataset.emailCommand);
+                        return;
+                    }
+
+                    if (event.target.closest('[data-email-source]')) {
+                        if (emailFormat.value === 'plain_text') {
+                            return;
+                        }
+
+                        emailSourceMode = !emailSourceMode;
+                        const sourceButton = emailToolbar.querySelector('[data-email-source]');
+                        sourceButton.classList.toggle('is-active', emailSourceMode);
+
+                        if (emailSourceMode) {
+                            emailSourceEditor.value = emailEditor.innerHTML;
+                        } else {
+                            emailEditor.innerHTML = emailSourceEditor.value;
+                        }
+
+                        emailSourceEditor.classList.toggle('d-none', !emailSourceMode);
+                        emailEditor.classList.toggle('d-none', emailSourceMode);
+                        (emailSourceMode ? emailSourceEditor : emailEditor).focus();
+                        return;
+                    }
+
+                    if (event.target.closest('[data-email-link]')) {
+                        const url = window.prompt('Podaj adres odnośnika (http, https lub mailto):', 'https://');
+                        if (url && /^(https?:|mailto:)/i.test(url)) {
+                            runEmailEditorCommand('createLink', url);
+                        }
+                        return;
+                    }
+
+                    if (event.target.closest('[data-email-table]')) {
+                        const rowsInput = window.prompt('Liczba wierszy:', '2');
+                        const columnsInput = window.prompt('Liczba kolumn:', '2');
+                        if (rowsInput === null || columnsInput === null) {
+                            return;
+                        }
+                        const rows = Math.min(10, Math.max(1, Number(rowsInput) || 1));
+                        const columns = Math.min(10, Math.max(1, Number(columnsInput) || 1));
+                        const cells = '<td>&nbsp;</td>'.repeat(columns);
+                        runEmailEditorCommand('insertHTML', `<table border="1"><tbody>${`<tr>${cells}</tr>`.repeat(rows)}</tbody></table><p><br></p>`);
+                        return;
+                    }
+
+                    if (event.target.closest('[data-email-image]')) {
+                        const url = window.prompt('Podaj adres obrazu HTTPS:', 'https://');
+                        if (url && /^https:\/\//i.test(url)) {
+                            runEmailEditorCommand('insertImage', url);
+                        }
+                    }
+                });
+
+                emailToolbar?.querySelector('[data-email-font]')?.addEventListener('change', (event) => {
+                    runEmailEditorCommand('fontName', event.target.value);
+                });
+                emailToolbar?.querySelector('[data-email-size]')?.addEventListener('change', (event) => {
+                    runEmailEditorCommand('fontSize', event.target.value);
+                });
+                emailToolbar?.querySelector('[data-email-color]')?.addEventListener('input', (event) => {
+                    runEmailEditorCommand('foreColor', event.target.value);
+                });
+
+                const replaceEmailMessage = (payload, prepend = false) => {
+                    if (typeof payload.html !== 'string' || payload.html.trim() === '') {
+                        return;
+                    }
+
+                    const template = document.createElement('template');
+                    template.innerHTML = payload.html.trim();
+                    const replacement = template.content.firstElementChild;
+                    if (!replacement) {
+                        return;
+                    }
+
+                    const current = emailMessages.querySelector(`[data-email-message-id="${payload.id}"]`);
+                    if (current) {
+                        current.replaceWith(replacement);
+                    } else if (prepend) {
+                        emailMessages.prepend(replacement);
+                    }
+
+                    emailEmpty?.classList.add('d-none');
+                };
+
+                const pollEmailMessage = async (statusUrl, messageId, attempt = 0) => {
+                    if (!statusUrl || attempt >= 30) {
+                        return;
+                    }
+
+                    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+
+                    try {
+                        const response = await fetch(statusUrl, {
+                            cache: 'no-store',
+                            headers: {
+                                Accept: 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                        });
+                        const payload = await response.json().catch(() => ({}));
+
+                        if (!response.ok) {
+                            throw new Error();
+                        }
+
+                        replaceEmailMessage(payload);
+                        if (!payload.polling_finished) {
+                            return pollEmailMessage(payload.status_url || statusUrl, messageId, attempt + 1);
+                        }
+                    } catch (error) {
+                        return pollEmailMessage(statusUrl, messageId, attempt + 1);
+                    }
+                };
+
+                emailForm?.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+                    setEmailError();
+                    ensureEmailIdempotencyKey();
+                    emailBodyInput.value = currentEmailBody();
+                    emailSubmit.disabled = true;
+                    const previousLabel = emailSubmit.textContent;
+                    emailSubmit.textContent = 'Wysyłanie...';
+
+                    try {
+                        const response = await fetch(emailForm.action, {
+                            method: 'POST',
+                            headers: {
+                                Accept: 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                            body: new FormData(emailForm),
+                        });
+                        const payload = await response.json().catch(() => ({}));
+
+                        if (!response.ok) {
+                            const messages = Object.values(payload.errors || {}).flat();
+                            throw new Error(messages[0] || payload.message || 'Nie udało się wysłać wiadomości.');
+                        }
+
+                        replaceEmailMessage(payload, true);
+                        resetEmailForm();
+                        emailForm.classList.add('d-none');
+                        emailToggleLabel.textContent = 'Napisz wiadomość';
+
+                        if (!payload.polling_finished) {
+                            pollEmailMessage(payload.status_url, payload.id);
+                        }
+                    } catch (error) {
+                        setEmailError(error.message || 'Nie udało się wysłać wiadomości.');
+                    } finally {
+                        emailSubmit.disabled = false;
+                        emailSubmit.textContent = previousLabel;
+                    }
+                });
+
+                emailMessages?.querySelectorAll('[data-email-terminal="0"]').forEach((message) => {
+                    pollEmailMessage(message.dataset.emailStatusUrl, message.dataset.emailMessageId);
+                });
+
+                ensureEmailIdempotencyKey();
+            }
             if (orderStateUrl) {
                 fetchOrderState(['history', 'shipments']).catch(() => {});
                 scheduleKsefAutomaticRefresh(true);

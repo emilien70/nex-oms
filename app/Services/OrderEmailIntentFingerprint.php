@@ -12,12 +12,15 @@ final class OrderEmailIntentFingerprint
     /** @throws JsonException */
     public function make(
         Order $order,
-        EmailTemplate $template,
+        ?EmailTemplate $template,
         OrderEmailPreparationData $data,
     ): string {
         $payload = [
             'order_id' => (int) $order->getKey(),
-            'email_template_id' => (int) $template->getKey(),
+            'email_template_id' => $this->nullableId($template?->getKey()),
+            'email_account_id' => $this->nullableId(
+                $data->emailAccount?->getKey() ?? $template?->email_account_id,
+            ),
             'source' => $data->source->value,
             'to_email' => $this->normalizeEmail($data->toEmail),
             'to_name' => $this->normalizeName($data->toName),
@@ -27,6 +30,8 @@ final class OrderEmailIntentFingerprint
             'subject_template_override' => $data->subjectTemplate,
             'body_template_override' => $data->bodyTemplate,
             'format_override' => $data->format?->value,
+            'actor_name' => $this->normalizeName($data->actorName),
+            'content_is_rendered' => $data->contentIsRendered,
         ];
 
         return hash('sha256', json_encode(

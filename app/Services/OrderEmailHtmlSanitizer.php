@@ -13,6 +13,7 @@ class OrderEmailHtmlSanitizer
     {
         $config = (new HtmlSanitizerConfig)
             ->allowSafeElements()
+            ->allowElement('font', ['color', 'face', 'size'])
             ->allowLinkSchemes(['http', 'https', 'mailto'])
             ->allowMediaSchemes(['https'])
             ->forceAttribute('a', 'rel', 'noopener noreferrer')

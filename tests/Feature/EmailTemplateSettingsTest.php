@@ -33,6 +33,10 @@ class EmailTemplateSettingsTest extends TestCase
             ->assertSee('Brak załącznika')
             ->assertSee('Wybierz plik z dysku')
             ->assertSee('Załącz fakturę/dokument, plik lub wybrany wydruk')
+            ->assertSee('Włącz edytor wizualny')
+            ->assertSee('data-template-visual-toggle', false)
+            ->assertSee('data-template-visual-editor', false)
+            ->assertSee('aria-label="Formatowanie szablonu"', false)
             ->assertDontSee('Zdjęcie paczki')
             ->assertDontSee('Załącznik 3')
             ->assertSee('data-variable-token="[status_zamowienia]"', false);

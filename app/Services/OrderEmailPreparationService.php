@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\EmailTemplateFormat;
 use App\Enums\OrderEmailMessageSource;
 use App\Enums\OrderEmailMessageStatus;
 use App\Exceptions\OrderEmailException;
@@ -28,7 +29,7 @@ class OrderEmailPreparationService
 
     public function prepareAndQueue(
         Order $order,
-        EmailTemplate $template,
+        ?EmailTemplate $template,
         OrderEmailPreparationData $data,
     ): OrderEmailMessage {
         $intentFingerprint = $this->intentFingerprints->make($order, $template, $data);
@@ -51,17 +52,24 @@ class OrderEmailPreparationService
                 $intentFingerprint,
                 &$messageRecordId,
             ): OrderEmailMessage {
-                $managedTemplate = EmailTemplate::query()
-                    ->with(['emailAccount', 'attachments'])
-                    ->whereKey($template->getKey())
-                    ->lockForUpdate()
-                    ->first();
+                $managedTemplate = null;
 
-                if (! $managedTemplate instanceof EmailTemplate) {
-                    throw new OrderEmailException('template_missing', 'Wybrany szablon e-mail nie istnieje.');
+                if ($template instanceof EmailTemplate) {
+                    $managedTemplate = EmailTemplate::query()
+                        ->with('attachments')
+                        ->whereKey($template->getKey())
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (! $managedTemplate instanceof EmailTemplate) {
+                        throw new OrderEmailException('template_missing', 'Wybrany szablon e-mail nie istnieje.');
+                    }
                 }
 
-                $account = $managedTemplate->emailAccount;
+                $accountId = $data->emailAccount?->getKey() ?? $managedTemplate?->email_account_id;
+                $account = is_numeric($accountId)
+                    ? EmailAccount::query()->whereKey($accountId)->lockForUpdate()->first()
+                    : null;
 
                 if (! $account instanceof EmailAccount || ! $account->hasConfiguredPassword()) {
                     throw new OrderEmailException(
@@ -71,17 +79,27 @@ class OrderEmailPreparationService
                 }
 
                 $this->validate($order, $managedTemplate, $data);
-                $rendered = $this->renderer->render(
-                    $order,
-                    $data->subjectTemplate ?? $managedTemplate->subject_template,
-                    $data->bodyTemplate ?? $managedTemplate->body_template,
-                    $data->format ?? $managedTemplate->format,
-                );
+                $subjectTemplate = $data->subjectTemplate ?? $managedTemplate?->subject_template;
+                $bodyTemplate = $data->bodyTemplate ?? $managedTemplate?->body_template;
+                $format = $data->format ?? $managedTemplate?->format;
+
+                if (! is_string($subjectTemplate)
+                    || ! is_string($bodyTemplate)
+                    || ! $format instanceof EmailTemplateFormat) {
+                    throw new OrderEmailException(
+                        'message_content_missing',
+                        'Podaj temat, treść i format wiadomości.',
+                    );
+                }
+
+                $rendered = $data->contentIsRendered
+                    ? $this->renderer->finalizeRendered($subjectTemplate, $bodyTemplate, $format)
+                    : $this->renderer->render($order, $subjectTemplate, $bodyTemplate, $format);
                 $actorSnapshot = $this->actorSnapshot($data);
                 $messageId = 'order-email-'.$data->idempotencyKey.'@'.$this->emailDomain($account->email);
 
                 $created = $order->emailMessages()->create([
-                    'email_template_id' => $managedTemplate->getKey(),
+                    'email_template_id' => $managedTemplate?->getKey(),
                     'email_account_id' => $account->getKey(),
                     'created_by_user_id' => $data->user?->getKey(),
                     'automation_run_id' => $data->automationRun?->getKey(),
@@ -93,7 +111,7 @@ class OrderEmailPreparationService
                     'smtp_account_fingerprint' => $this->smtpAccountFingerprints->make($account),
                     'message_id' => $messageId,
                     'actor_snapshot' => $actorSnapshot,
-                    'template_name_snapshot' => $managedTemplate->name,
+                    'template_name_snapshot' => $managedTemplate?->name,
                     'account_name_snapshot' => $account->name,
                     'from_email' => $account->email,
                     'from_name' => $this->intentFingerprints->normalizeName($account->name),
@@ -109,7 +127,7 @@ class OrderEmailPreparationService
                 ]);
                 $messageRecordId = $created->getKey();
 
-                foreach ($managedTemplate->attachments as $attachment) {
+                foreach ($managedTemplate?->attachments ?? [] as $attachment) {
                     $this->attachments->freeze($created, $order, $attachment);
                 }
 
@@ -159,10 +177,10 @@ class OrderEmailPreparationService
         return $message;
     }
 
-    private function validate(Order $order, EmailTemplate $template, OrderEmailPreparationData $data): void
+    private function validate(Order $order, ?EmailTemplate $template, OrderEmailPreparationData $data): void
     {
-        if (! $order->exists || ! $template->exists) {
-            throw new OrderEmailException('email_context_invalid', 'Nie można przygotować wiadomości bez zamówienia i szablonu.');
+        if (! $order->exists || ($template !== null && ! $template->exists)) {
+            throw new OrderEmailException('email_context_invalid', 'Nie można przygotować wiadomości bez poprawnego zamówienia.');
         }
 
         if (! Str::isUuid($data->idempotencyKey)) {
@@ -175,7 +193,8 @@ class OrderEmailPreparationService
         }
 
         if ($data->source === OrderEmailMessageSource::Manual
-            && ($data->user === null || ! $data->user->exists)) {
+            && ($data->user === null || ! $data->user->exists)
+            && trim((string) $data->actorName) === '') {
             throw new OrderEmailException('actor_missing', 'Ręczna wysyłka wiadomości wymaga operatora.');
         }
 
@@ -201,7 +220,9 @@ class OrderEmailPreparationService
             return [
                 'type' => 'user',
                 'id' => $data->user?->getKey(),
-                'name' => $data->user?->name,
+                'name' => $this->intentFingerprints->normalizeName(
+                    $data->user?->name ?? $data->actorName,
+                ),
             ];
         }
 

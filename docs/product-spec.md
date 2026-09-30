@@ -1222,7 +1222,13 @@ Funkcja:
 
 Wiadomość i jej prywatne załączniki są zamrażane przed dodaniem joba do kolejki. Klucz idempotencji jest powiązany z fingerprintem intencji, a lista załączników z deterministycznym manifestem; zmiana transportowo istotnej konfiguracji SMTP po przygotowaniu blokuje wysyłkę. Osierocone rekordy `queued` odzyskuje scheduler, natomiast wynik `unknown` nigdy nie jest ponawiany automatycznie.
 
-Aktualny etap nie udostępnia jeszcze ręcznej wysyłki w UI ani akcji Automation.
+Karta zamówienia udostępnia ręczną wysyłkę w sekcji „Wymiana wiadomości”. Szablon jest opcjonalny, konto SMTP jest obowiązkowe i domyślnie wybrane, a odbiorca pochodzi z adresu e-mail zamówienia. Formularz działa przez AJAX, zapisuje wiadomość przed wysyłką i pokazuje aktualizowany status oraz zamrożone załączniki w historii zamówienia. Wybór SMS jest widoczny wyłącznie jako nieaktywna rezerwa pod przyszły etap.
+
+Automatyczne akcje udostępniają operację „Wyślij e-mail”. Reguła wymaga wskazania szablonu, a konto SMTP, temat, treść i załączniki pochodzą z tego szablonu. Szablony ukryte na liście ręcznego wyboru mogą być używane w automatyzacjach. W polu „Do” domyślnie wybrany jest klient; można go usunąć albo dodać do dziesięciu innych adresów. Każdy unikalny odbiorca otrzymuje osobną wiadomość i nie widzi adresów pozostałych odbiorców. Jeżeli wybrano klienta, ale zamówienie nie ma poprawnego adresu e-mail, akcja kończy się przed utworzeniem wiadomości. Istniejące reguły bez jawnej konfiguracji odbiorców nadal wysyłają do klienta.
+
+Wiadomości używają tych samych zmiennych zamówienia, zabezpieczeń, prywatnych załączników i historii co wysyłka ręczna. Jedno wykonanie konkretnego kroku może utworzyć najwyżej jedną wiadomość dla każdego unikalnego odbiorcy, a ponowienie tego samego kroku nie tworzy duplikatów.
+
+Zakończenie kroku automatyzacji oznacza bezpieczne przygotowanie wiadomości i dodanie jej do kolejki, nie potwierdzenie dostarczenia. Wynik SMTP jest później widoczny przy wiadomości jako oczekująca, wysłana, błędna albo o niepewnym wyniku. OMS nie odbiera wiadomości ani odpowiedzi przez IMAP. Odpowiedzi klientów pozostają obsługiwane w lokalnym programie pocztowym.
 
 Nie jest to część pierwszego etapu serii numeracji.
 
