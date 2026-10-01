@@ -265,16 +265,18 @@ Odpowiada za:
 
 ## 5.3. Products
 
-Docelowo odpowiada za:
+Od etapu PRODUCTS.1A odpowiada za lokalny katalog produktów:
 
-- wewnętrzny katalog produktów,
-- domyślną nazwę,
-- stawkę VAT,
-- jednostkę,
-- oznaczenia GTU,
-- aktywność produktu.
+- wewnętrzne ID NEX,
+- nazwę i opcjonalny EAN,
+- cenę brutto i walutę,
+- standardową lub własną stawkę VAT,
+- informacyjny, również ujemny stan magazynowy,
+- wagę i opcjonalny komplet wymiarów opakowania,
+- prywatny oryginał zdjęcia i generowaną miniaturę,
+- aktywność produktu realizowaną przez ukrywanie i ponowne aktywowanie.
 
-Powiązania z pozycjami dokumentów mają być opcjonalne.
+Powiązania z pozycjami zamówień i dokumentów pozostają opcjonalne i nie należą do PRODUCTS.1A. Integracje z Allegro, PrestaShop i innymi kanałami również pozostają poza tym etapem.
 
 ## 5.4. Integrations
 
@@ -845,11 +847,17 @@ Ważne zasady:
 
 # 16. Produkty
 
-Planowana tabela:
+Tabela:
 
 ```text
 products
 ```
+
+Etap PRODUCTS.1A wdraża model `Modules\Products\Models\Product`, kontroler i Form Requesty katalogu oraz serwisy zapisu produktu i prywatnych zdjęć. Lista pod `/products` obsługuje wyszukiwanie po nazwie, EAN i ID NEX, filtrowanie aktywnych i ukrytych produktów, paginację z wyborem 25, 50, 100, 200, 500 lub wszystkich rekordów, tworzenie, edycję, asynchroniczną zmianę stanu magazynowego bez opuszczania listy oraz zmianę aktywności bez twardego usuwania. Menu operacji jest przenoszone na czas otwarcia ponad kontener przewijanej tabeli, dlatego nie jest przycinane przy jej krawędzi.
+
+Cena brutto, VAT, waga i wymiary są przechowywane jako `DECIMAL`. EAN jest opcjonalny i unikalny. Stan magazynowy jest podpisaną liczbą całkowitą o charakterze informacyjnym; etap nie tworzy ruchów magazynowych, rezerwacji ani automatycznej korekty stanów.
+
+Oryginał zdjęcia i miniatura są przechowywane na prywatnym dysku `local`. Dostęp odbywa się przez kontrolowaną trasę, a miniatura jest generowana lokalnie przez GD. Produkt może istnieć bez zdjęcia.
 
 Relacje:
 
@@ -867,6 +875,8 @@ nullOnDelete
 Dokument historyczny pozostaje poprawny bez relacji.
 
 Nie należy automatycznie wiązać historycznych pozycji tylko na podstawie nazwy.
+
+Relacje `order_items.product_id` i `invoice_items.product_id` nie są uruchamiane w PRODUCTS.1A. Ich wdrożenie wraz z wyborem produktu na zamówieniu należy do PRODUCTS.1B.
 
 ---
 
@@ -2588,7 +2598,7 @@ Tabela `invoices` obsługuje `invoice`, `proforma` i `correction`. `order_id` je
 
 `previous_correction_id` posiada przenośny unikalny indeks i chroni pojedyncze następne ogniwo liniowego łańcucha. Centralny `CorrectionSourceStateService` pobiera Korekty zbiorczo, weryfikuje root, zamówienie, status, typ, połączenia oraz brak rozgałęzień/cykli. Regułę najwyżej jednej bieżącej, niezfinalizowanej Korekty chronią transakcyjnie blokada zamówienia, walidacja łańcucha i `order_document_slots`.
 
-`invoice_items.product_id` jest nullable i nie posiada FK, ponieważ tabela `products` nie istnieje. Nie ma relacji `product()` w modelu. Powiązanie historyczne z `OrderItem` jest opcjonalne, a dane pozycji pozostają snapshotem.
+`invoice_items.product_id` jest nullable i nie posiada FK. Tabela `products` istnieje od PRODUCTS.1A, ale relacja dokumentu z katalogiem zostaje świadomie odłożona do PRODUCTS.1B. Nie ma relacji `product()` w modelu Faktury. Powiązanie historyczne z `OrderItem` jest opcjonalne, a dane pozycji pozostają snapshotem.
 
 Nie użyto SoftDeletes i nie dodano pól KSeF. Nie ma tabeli ani ogólnej puli zwolnionych numerów, rewizji Pro formy ani audytu edycji Faktury.
 

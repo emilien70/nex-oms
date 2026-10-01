@@ -1253,15 +1253,15 @@
                         <a class="nav-flyout-link {{ request()->routeIs('settings.variables.index') ? 'active' : '' }}" href="{{ route('settings.variables.index') }}">Zmienne</a>
                     </div>
                 </div>
-                <div class="sidebar-nav-item has-nav-flyout">
-                    <a class="nav-link" href="#" aria-label="Produkty" title="Produkty" aria-expanded="false">
+                <div class="sidebar-nav-item has-nav-flyout {{ request()->routeIs('products.*') ? 'is-open' : '' }}">
+                    <a class="nav-link {{ request()->routeIs('products.*') ? 'active' : '' }}" href="{{ route('products.index') }}" aria-label="Produkty" title="Produkty" aria-expanded="{{ request()->routeIs('products.*') ? 'true' : 'false' }}">
                         <span class="nav-initial nav-products-icon" aria-hidden="true"><i class="bi bi-bookshelf"></i></span>
                         <span class="nav-text">Produkty</span>
                         <span class="nav-chevron" aria-hidden="true"></span>
                     </a>
                     <div class="nav-flyout">
                         <div class="nav-flyout-title">Produkty</div>
-                        <a class="nav-flyout-link" href="#">Lista produkt&oacute;w</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('products.*') ? 'active' : '' }}" href="{{ route('products.index') }}">Lista produkt&oacute;w</a>
                     </div>
                 </div>
                 <div class="sidebar-nav-item has-nav-flyout {{ request()->is('integrations*') ? 'is-open' : '' }}">

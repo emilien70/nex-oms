@@ -12,6 +12,8 @@ use App\Models\EmailTemplate;
 use App\Models\Order;
 use App\Models\OrderEmailMessage;
 use App\ValueObjects\OrderEmailPreparationData;
+use Illuminate\Bus\UniqueLock;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -25,6 +27,7 @@ class OrderEmailPreparationService
         private readonly OrderEmailIntentFingerprint $intentFingerprints,
         private readonly OrderEmailAttachmentManifest $attachmentManifests,
         private readonly SmtpAccountFingerprint $smtpAccountFingerprints,
+        private readonly CacheRepository $cache,
     ) {}
 
     public function prepareAndQueue(
@@ -157,22 +160,7 @@ class OrderEmailPreparationService
             throw $exception;
         }
 
-        try {
-            SendOrderEmailJob::dispatch($message->getKey());
-        } catch (Throwable $exception) {
-            $message->update([
-                'status' => OrderEmailMessageStatus::Failed,
-                'safe_error_code' => 'queue_dispatch_failed',
-                'safe_error_message' => 'Nie udało się dodać wiadomości do kolejki wysyłkowej.',
-                'failed_at' => now(),
-            ]);
-
-            throw new OrderEmailException(
-                'queue_dispatch_failed',
-                'Nie udało się dodać wiadomości do kolejki wysyłkowej.',
-                $exception,
-            );
-        }
+        $this->dispatch($message);
 
         return $message;
     }
@@ -243,14 +231,125 @@ class OrderEmailPreparationService
         OrderEmailMessage $message,
         string $intentFingerprint,
     ): OrderEmailMessage {
-        if (! is_string($message->intent_fingerprint)
-            || ! hash_equals($message->intent_fingerprint, $intentFingerprint)) {
-            throw new OrderEmailException(
-                'idempotency_conflict',
-                'Identyfikator operacji wysyłki został już użyty dla innej wiadomości.',
-            );
+        $this->assertMatchingIntent($message, $intentFingerprint);
+
+        if (! $this->canRecoverQueueDispatch($message)) {
+            return $message->loadMissing('attachments');
         }
 
-        return $message->loadMissing('attachments');
+        $shouldDispatch = false;
+        $resolved = DB::transaction(function () use (
+            $message,
+            $intentFingerprint,
+            &$shouldDispatch,
+        ): OrderEmailMessage {
+            $locked = OrderEmailMessage::query()
+                ->whereKey($message->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if (! $locked instanceof OrderEmailMessage) {
+                throw new OrderEmailException(
+                    'email_message_missing',
+                    'Przygotowana wiadomość e-mail już nie istnieje.',
+                );
+            }
+
+            $this->assertMatchingIntent($locked, $intentFingerprint);
+
+            if (! $this->canRecoverQueueDispatch($locked)) {
+                return $locked;
+            }
+
+            $locked->update([
+                'status' => OrderEmailMessageStatus::Queued,
+                'safe_error_code' => null,
+                'safe_error_message' => null,
+                'queued_at' => now(),
+                'failed_at' => null,
+            ]);
+            $shouldDispatch = true;
+
+            return $locked;
+        });
+
+        if ($shouldDispatch) {
+            $this->dispatch($resolved, releaseStaleUniqueLock: true);
+        }
+
+        return $resolved->loadMissing('attachments');
+    }
+
+    private function assertMatchingIntent(OrderEmailMessage $message, string $intentFingerprint): void
+    {
+        if (is_string($message->intent_fingerprint)
+            && hash_equals($message->intent_fingerprint, $intentFingerprint)) {
+            return;
+        }
+
+        throw new OrderEmailException(
+            'idempotency_conflict',
+            'Identyfikator operacji wysyłki został już użyty dla innej wiadomości.',
+        );
+    }
+
+    private function canRecoverQueueDispatch(OrderEmailMessage $message): bool
+    {
+        return $message->status === OrderEmailMessageStatus::Failed
+            && $message->safe_error_code === 'queue_dispatch_failed'
+            && $message->attempt_count === 0
+            && $message->sending_started_at === null;
+    }
+
+    private function dispatch(
+        OrderEmailMessage $message,
+        bool $releaseStaleUniqueLock = false,
+    ): void {
+        $job = new SendOrderEmailJob((int) $message->getKey());
+
+        try {
+            if ($releaseStaleUniqueLock) {
+                (new UniqueLock($this->cache))->release($job);
+            }
+
+            SendOrderEmailJob::dispatch($message->getKey());
+        } catch (Throwable $exception) {
+            if ($this->markQueueDispatchFailed((int) $message->getKey())) {
+                try {
+                    (new UniqueLock($this->cache))->release($job);
+                } catch (Throwable) {
+                    // The controlled queue error below must not expose cache diagnostics.
+                }
+            }
+
+            throw new OrderEmailException(
+                'queue_dispatch_failed',
+                'Nie udało się dodać wiadomości do kolejki wysyłkowej.',
+                $exception,
+            );
+        }
+    }
+
+    private function markQueueDispatchFailed(int $messageId): bool
+    {
+        return DB::transaction(function () use ($messageId): bool {
+            $message = OrderEmailMessage::query()->lockForUpdate()->find($messageId);
+
+            if (! $message instanceof OrderEmailMessage
+                || $message->status !== OrderEmailMessageStatus::Queued
+                || $message->attempt_count !== 0
+                || $message->sending_started_at !== null) {
+                return false;
+            }
+
+            $message->update([
+                'status' => OrderEmailMessageStatus::Failed,
+                'safe_error_code' => 'queue_dispatch_failed',
+                'safe_error_message' => 'Nie udało się dodać wiadomości do kolejki wysyłkowej.',
+                'failed_at' => now(),
+            ]);
+
+            return true;
+        });
     }
 }

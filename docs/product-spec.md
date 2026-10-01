@@ -282,13 +282,30 @@ Gdy uwagi są puste, znacznik jest zastępowany pustym tekstem i nie pozostaje w
 
 ---
 
-# 8. Przyszły moduł Produkty
+# 8. Moduł Produkty
 
-W głównym menu planowany jest moduł:
+Od etapu PRODUCTS.1A w głównym menu działa moduł:
 
 ```text
 Produkty
 ```
+
+Zakres PRODUCTS.1A:
+
+- lokalny katalog produktów z własnym ID NEX,
+- nazwa oraz opcjonalny, unikalny EAN,
+- cena brutto i waluta,
+- stawki VAT 23%, 8%, 5%, 0% oraz dowolna własna stawka od 0% do 100%,
+- informacyjny stan magazynowy dopuszczający wartości ujemne,
+- opcjonalna waga opakowania oraz komplet wymiarów długość × szerokość × wysokość,
+- jedno prywatne zdjęcie z generowaną miniaturą,
+- lista z wyszukiwaniem, filtrami aktywności i wyborem 25, 50, 100, 200, 500 lub wszystkich produktów na stronę,
+- menu operacji produktu wyświetlane ponad przewijaną tabelą, bez przycinania przy jej krawędzi,
+- edycja stanu magazynowego bezpośrednio na liście, zapisywana asynchronicznie bez przeładowania strony,
+- osobne formularze tworzenia i edycji,
+- ukrywanie i ponowne aktywowanie bez twardego usuwania produktu.
+
+PRODUCTS.1A nie obejmuje wyboru produktu na zamówieniu, zmiany `order_items` ani `invoice_items`, ruchów i rezerwacji magazynowych, integracji kanałów sprzedaży, zestawów, promocji, importu ani masowych operacji.
 
 Docelowe założenia:
 
@@ -2123,7 +2140,7 @@ Zaimplementowano jedną tabelę `invoices` dla Faktur VAT, Pro form i Korekt ora
 
 Dokument zachowuje własne dane sprzedawcy, nabywcy, odbiorcy, wystawiającego, zamówienia, płatności, dostawy, ustawień serii i podatków. Zmiana zamówienia, pozycji zamówienia lub serii nie aktualizuje tych snapshotów. Pole `additional_information_text` przechowuje finalną treść dokumentu, a nie szablon serii.
 
-`Order` posiada relację `hasMany Invoices`; tabela `orders` nie posiada `invoice_id`. `invoice_items.product_id` jest nullable i nie posiada jeszcze klucza obcego, ponieważ moduł Produkty nie istnieje. Historyczne pozycje działają bez katalogu produktów. Dokumenty nie używają SoftDeletes.
+`Order` posiada relację `hasMany Invoices`; tabela `orders` nie posiada `invoice_id`. `invoice_items.product_id` jest nullable i nie posiada jeszcze klucza obcego. Katalog produktów istnieje od PRODUCTS.1A, ale relacja z pozycją dokumentu została odłożona do PRODUCTS.1B. Historyczne pozycje działają bez przypisanego produktu. Dokumenty nie używają SoftDeletes.
 
 Schemat wykorzystuje `corrected_invoice_id` do wskazania pierwotnej Faktury oraz nullable `previous_correction_id` do budowy liniowego łańcucha odrębnych Korekt. Pierwsza Korekta nie ma poprzednika, a każda kolejna wskazuje poprzednią zamkniętą Korektę. Pozycje każdej Korekty przechowują własny stan przed, po i różnicę.
 

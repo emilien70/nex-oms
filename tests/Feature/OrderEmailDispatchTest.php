@@ -27,6 +27,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Testing\Fakes\QueueFake;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
@@ -103,6 +104,168 @@ class OrderEmailDispatchTest extends TestCase
             return $job->messageId === $message->getKey();
         });
         Queue::assertPushed(SendOrderEmailJob::class, 1);
+    }
+
+    public function test_queue_dispatch_failure_can_be_requeued_without_rebuilding_the_message(): void
+    {
+        $queue = $this->failingQueue(1);
+        $order = $this->order();
+        $template = $this->template();
+        $sourcePath = "email-templates/{$template->getKey()}/attachments/terms.txt";
+        Storage::disk('local')->put($sourcePath, 'FROZEN QUEUE RECOVERY ATTACHMENT');
+        $template->attachments()->create([
+            'slot' => 1,
+            'type' => EmailTemplateAttachmentType::Upload,
+            'file_path' => $sourcePath,
+            'original_name' => 'terms.txt',
+            'mime_type' => 'text/plain',
+            'file_size' => strlen('FROZEN QUEUE RECOVERY ATTACHMENT'),
+        ]);
+        $data = $this->data((string) Str::uuid());
+
+        $this->assertQueueDispatchFailure(
+            fn () => app(OrderEmailPreparationService::class)->prepareAndQueue($order, $template, $data),
+        );
+
+        $failed = OrderEmailMessage::query()->with('attachments')->sole();
+        $snapshot = $failed->only([
+            'idempotency_key',
+            'message_id',
+            'intent_fingerprint',
+            'smtp_account_fingerprint',
+            'to_email',
+            'to_name',
+            'subject',
+            'body_text',
+            'body_html',
+            'attachment_count',
+            'attachment_manifest_sha256',
+        ]);
+        $attachmentIds = $failed->attachments->modelKeys();
+
+        $this->assertSame(OrderEmailMessageStatus::Failed, $failed->status);
+        $this->assertSame('queue_dispatch_failed', $failed->safe_error_code);
+        $this->assertSame(0, $failed->attempt_count);
+        $this->assertNull($failed->sending_started_at);
+        $this->assertNotNull($failed->failed_at);
+
+        $recovered = app(OrderEmailPreparationService::class)
+            ->prepareAndQueue($order, $template, $data)
+            ->refresh()
+            ->load('attachments');
+
+        $this->assertDatabaseCount('order_email_messages', 1);
+        $this->assertSame($failed->getKey(), $recovered->getKey());
+        $this->assertSame($snapshot, $recovered->only(array_keys($snapshot)));
+        $this->assertSame($attachmentIds, $recovered->attachments->modelKeys());
+        $this->assertSame(OrderEmailMessageStatus::Queued, $recovered->status);
+        $this->assertNull($recovered->safe_error_code);
+        $this->assertNull($recovered->safe_error_message);
+        $this->assertNull($recovered->failed_at);
+        $this->assertSame(0, $recovered->attempt_count);
+        $this->assertSame(2, $queue->pushAttempts);
+        Queue::assertPushed(SendOrderEmailJob::class, 1);
+        Queue::assertPushedOn('default', SendOrderEmailJob::class, function (SendOrderEmailJob $job) use ($failed): bool {
+            return $job->messageId === $failed->getKey();
+        });
+    }
+
+    public function test_queue_dispatch_recovery_returns_to_failed_when_dispatch_fails_again(): void
+    {
+        $queue = $this->failingQueue(2);
+        $order = $this->order();
+        $template = $this->template();
+        $data = $this->data((string) Str::uuid());
+
+        $this->assertQueueDispatchFailure(
+            fn () => app(OrderEmailPreparationService::class)->prepareAndQueue($order, $template, $data),
+        );
+        $messageId = OrderEmailMessage::query()->sole()->getKey();
+
+        $this->assertQueueDispatchFailure(
+            fn () => app(OrderEmailPreparationService::class)->prepareAndQueue($order, $template, $data),
+        );
+
+        $message = OrderEmailMessage::query()->sole();
+        $this->assertDatabaseCount('order_email_messages', 1);
+        $this->assertSame($messageId, $message->getKey());
+        $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
+        $this->assertSame('queue_dispatch_failed', $message->safe_error_code);
+        $this->assertNotNull($message->safe_error_message);
+        $this->assertNotNull($message->failed_at);
+        $this->assertSame(0, $message->attempt_count);
+        $this->assertNull($message->sending_started_at);
+        $this->assertSame(2, $queue->pushAttempts);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_failed_queue_dispatch_is_not_requeued_for_a_changed_intent(): void
+    {
+        $queue = $this->failingQueue(1);
+        $order = $this->order();
+        $template = $this->template();
+        $key = (string) Str::uuid();
+        $data = $this->data($key);
+
+        $this->assertQueueDispatchFailure(
+            fn () => app(OrderEmailPreparationService::class)->prepareAndQueue($order, $template, $data),
+        );
+
+        $this->assertIntentConflict(fn () => app(OrderEmailPreparationService::class)->prepareAndQueue(
+            $order,
+            $template,
+            new OrderEmailPreparationData(
+                toEmail: $data->toEmail,
+                toName: $data->toName,
+                source: $data->source,
+                idempotencyKey: $key,
+                user: $data->user,
+                subjectTemplate: 'Zmieniony temat',
+            ),
+        ));
+
+        $message = OrderEmailMessage::query()->sole();
+        $this->assertSame(OrderEmailMessageStatus::Failed, $message->status);
+        $this->assertSame('queue_dispatch_failed', $message->safe_error_code);
+        $this->assertSame(1, $queue->pushAttempts);
+        Queue::assertNothingPushed();
+    }
+
+    #[DataProvider('nonRecoverableQueueStateProvider')]
+    public function test_only_untouched_queue_dispatch_failure_is_requeued(
+        OrderEmailMessageStatus $status,
+        ?string $safeErrorCode,
+        int $attemptCount,
+        bool $hasSendingStartedAt,
+    ): void {
+        $queue = $this->failingQueue(1);
+        $order = $this->order();
+        $template = $this->template();
+        $data = $this->data((string) Str::uuid());
+
+        $this->assertQueueDispatchFailure(
+            fn () => app(OrderEmailPreparationService::class)->prepareAndQueue($order, $template, $data),
+        );
+
+        $message = OrderEmailMessage::query()->sole();
+        $message->update([
+            'status' => $status,
+            'safe_error_code' => $safeErrorCode,
+            'attempt_count' => $attemptCount,
+            'sending_started_at' => $hasSendingStartedAt ? now() : null,
+        ]);
+
+        $resolved = app(OrderEmailPreparationService::class)
+            ->prepareAndQueue($order, $template, $data)
+            ->refresh();
+
+        $this->assertSame($message->getKey(), $resolved->getKey());
+        $this->assertSame($status, $resolved->status);
+        $this->assertSame($safeErrorCode, $resolved->safe_error_code);
+        $this->assertSame($attemptCount, $resolved->attempt_count);
+        $this->assertSame($hasSendingStartedAt, $resolved->sending_started_at !== null);
+        $this->assertSame(1, $queue->pushAttempts);
+        Queue::assertNothingPushed();
     }
 
     #[DataProvider('intentConflictProvider')]
@@ -728,6 +891,28 @@ class OrderEmailDispatchTest extends TestCase
         }
     }
 
+    private function assertQueueDispatchFailure(callable $callback): void
+    {
+        try {
+            $callback();
+            $this->fail('Queue dispatch failure should be reported as a controlled email error.');
+        } catch (OrderEmailException $exception) {
+            $this->assertSame('queue_dispatch_failed', $exception->safeCode());
+            $this->assertSame(
+                'Nie udało się dodać wiadomości do kolejki wysyłkowej.',
+                $exception->getMessage(),
+            );
+        }
+    }
+
+    private function failingQueue(int $failures): FailingOrderEmailQueueFake
+    {
+        $queue = new FailingOrderEmailQueueFake($this->app, $failures);
+        Queue::swap($queue);
+
+        return $queue;
+    }
+
     /** @return array<string, array{string}> */
     public static function intentConflictProvider(): array
     {
@@ -737,6 +922,24 @@ class OrderEmailDispatchTest extends TestCase
             'format override' => ['format'],
             'actor' => ['actor'],
             'recipient name' => ['to_name'],
+        ];
+    }
+
+    /** @return array<string, array{OrderEmailMessageStatus, ?string, int, bool}> */
+    public static function nonRecoverableQueueStateProvider(): array
+    {
+        return [
+            'SMTP connection failure' => [OrderEmailMessageStatus::Failed, 'smtp_connection_failed', 0, false],
+            'changed account' => [OrderEmailMessageStatus::Failed, 'email_account_changed', 0, false],
+            'attachment manifest mismatch' => [OrderEmailMessageStatus::Failed, 'attachment_manifest_mismatch', 0, false],
+            'invalid message snapshot' => [OrderEmailMessageStatus::Failed, 'message_snapshot_invalid', 0, false],
+            'job failed before send' => [OrderEmailMessageStatus::Failed, 'job_failed_before_send', 0, false],
+            'unknown result' => [OrderEmailMessageStatus::Unknown, 'send_interrupted', 1, true],
+            'sent message' => [OrderEmailMessageStatus::Sent, null, 1, true],
+            'queued message' => [OrderEmailMessageStatus::Queued, null, 0, false],
+            'sending message' => [OrderEmailMessageStatus::Sending, null, 1, true],
+            'dispatch failure after an attempt' => [OrderEmailMessageStatus::Failed, 'queue_dispatch_failed', 1, false],
+            'dispatch failure after SMTP started' => [OrderEmailMessageStatus::Failed, 'queue_dispatch_failed', 0, true],
         ];
     }
 
@@ -772,5 +975,30 @@ final class FakeOrderEmailTransport implements OrderEmailTransport
         if ($this->exception instanceof OrderEmailTransportException) {
             throw $this->exception;
         }
+    }
+}
+
+final class FailingOrderEmailQueueFake extends QueueFake
+{
+    public int $pushAttempts = 0;
+
+    public function __construct(
+        $app,
+        private int $remainingFailures,
+    ) {
+        parent::__construct($app);
+    }
+
+    public function push($job, $data = '', $queue = null)
+    {
+        $this->pushAttempts++;
+
+        if ($this->remainingFailures > 0) {
+            $this->remainingFailures--;
+
+            throw new \RuntimeException('FAKE QUEUE DRIVER DIAGNOSTIC');
+        }
+
+        return parent::push($job, $data, $queue);
     }
 }

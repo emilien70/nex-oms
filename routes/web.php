@@ -49,6 +49,7 @@ use Modules\Ksef\Http\Controllers\KsefOfflineTechnicalCorrectionController;
 use Modules\Ksef\Http\Controllers\KsefPaymentTypeSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSeriesSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSettingsController;
+use Modules\Products\Http\Controllers\ProductController;
 
 Route::get('/', function () {
     $dashboardStats = [
@@ -126,6 +127,17 @@ Route::patch('/settings/order-statuses/order', [SettingsOrderStatusesController:
 Route::patch('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderStatusesController::class, 'update'])->name('settings.order-statuses.update');
 Route::delete('/settings/order-statuses/{orderStatusSetting}', [SettingsOrderStatusesController::class, 'destroy'])->name('settings.order-statuses.destroy');
 Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])->name('settings.variables.index');
+
+Route::get('/products', [ProductController::class, 'index'])->name('products.index');
+Route::get('/products/create', [ProductController::class, 'create'])->name('products.create');
+Route::post('/products', [ProductController::class, 'store'])->name('products.store');
+Route::get('/products/{product}/image/{variant}', [ProductController::class, 'image'])
+    ->where('variant', 'original|thumbnail')
+    ->name('products.image');
+Route::get('/products/{product}/edit', [ProductController::class, 'edit'])->name('products.edit');
+Route::patch('/products/{product}', [ProductController::class, 'update'])->name('products.update');
+Route::patch('/products/{product}/stock', [ProductController::class, 'updateStock'])->name('products.stock');
+Route::patch('/products/{product}/active', [ProductController::class, 'updateActive'])->name('products.active');
 
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
 Route::get('/invoices/sales-register', [SalesRegisterController::class, 'create'])->name('invoices.sales-register.create');
