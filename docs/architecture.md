@@ -276,7 +276,7 @@ Od etapu PRODUCTS.1A odpowiada za lokalny katalog produktów:
 - prywatny oryginał zdjęcia i generowaną miniaturę,
 - aktywność produktu realizowaną przez ukrywanie i ponowne aktywowanie.
 
-Powiązania z pozycjami zamówień i dokumentów pozostają opcjonalne i nie należą do PRODUCTS.1A. Integracje z Allegro, PrestaShop i innymi kanałami również pozostają poza tym etapem.
+PRODUCTS.1B dodaje opcjonalne powiązanie pozycji zamówienia z katalogiem oraz wybór wielu produktów na karcie zamówienia. Operator może przed zapisem zmienić ilość, cenę brutto pozycji i wspólną walutę dodawanego wyboru bez modyfikowania danych katalogowych. Wybranie waluty nie przelicza kwot. Integracje z Allegro, PrestaShop i innymi kanałami pozostają poza tym etapem.
 
 ## 5.4. Integrations
 
@@ -866,17 +866,21 @@ Product hasMany OrderItems
 Product hasMany InvoiceItems
 ```
 
-Usunięcie produktu:
+`order_items.product_id` jest nullable i posiada klucz obcy do `products`:
 
 ```text
 nullOnDelete
 ```
 
-Dokument historyczny pozostaje poprawny bez relacji.
+`invoice_items.product_id` pozostaje nullable bez klucza obcego. Wystawienie dokumentu kopiuje `product_id` oraz `internal_id` do snapshotu pozycji, dlatego późniejsze usunięcie produktu nie modyfikuje dokumentu historycznego.
 
 Nie należy automatycznie wiązać historycznych pozycji tylko na podstawie nazwy.
 
-Relacje `order_items.product_id` i `invoice_items.product_id` nie są uruchamiane w PRODUCTS.1A. Ich wdrożenie wraz z wyborem produktu na zamówieniu należy do PRODUCTS.1B.
+Karta zamówienia udostępnia osobno wybór produktów z magazynu i formularz pozycji ręcznej. Modal magazynu pobiera wyłącznie aktywne produkty, wyszukuje po nazwie, EAN i ID, stronicuje wyniki i przechowuje wybór po stronie klienta do czasu zatwierdzenia. Po prawej stronie pokazuje wybrane pozycje z edytowalną ilością i ceną jednostkową brutto oraz sumę wyliczaną w groszach. Wspólna lista walut przy sumie domyślnie wskazuje walutę zamówienia i przypisuje ją wszystkim pozycjom danego zapisu. Puste finansowo zamówienie może przyjąć tę walutę; zamówienie z istniejącymi pozycjami lub wartościami wymaga zgodności. Mechanizm nie wykonuje przewalutowania.
+
+Zapis wielu pozycji jest jedną transakcją. Serwer ponownie waliduje aktywność produktu, ilość, cenę i walutę, kopiuje snapshot produktu do `order_items`, przelicza zamówienie centralnymi serwisami finansowymi i zapisuje zdarzenie dla każdej pozycji. Nieudany element cofa cały wybór.
+
+Stan magazynowy pozostaje informacyjny. Przekroczenie stanu jest sygnalizowane w interfejsie, ale PRODUCTS.1B nie tworzy rezerwacji, ruchów magazynowych ani automatycznego pomniejszania stanu.
 
 ---
 
@@ -2312,8 +2316,9 @@ Dozwolone usunięcie nie tworzy ogólnej puli zwolnionych numerów i nie uzupeł
 
 ## Produkty
 
-- `nullOnDelete`,
-- snapshot pozycji pozostaje.
+- `order_items.product_id` używa `nullOnDelete`,
+- `invoice_items.product_id` nie ma klucza obcego,
+- snapshot pozycji zamówienia i dokumentu pozostaje niezmienny.
 
 ## Domyślna seria korekt
 
@@ -2598,7 +2603,7 @@ Tabela `invoices` obsługuje `invoice`, `proforma` i `correction`. `order_id` je
 
 `previous_correction_id` posiada przenośny unikalny indeks i chroni pojedyncze następne ogniwo liniowego łańcucha. Centralny `CorrectionSourceStateService` pobiera Korekty zbiorczo, weryfikuje root, zamówienie, status, typ, połączenia oraz brak rozgałęzień/cykli. Regułę najwyżej jednej bieżącej, niezfinalizowanej Korekty chronią transakcyjnie blokada zamówienia, walidacja łańcucha i `order_document_slots`.
 
-`invoice_items.product_id` jest nullable i nie posiada FK. Tabela `products` istnieje od PRODUCTS.1A, ale relacja dokumentu z katalogiem zostaje świadomie odłożona do PRODUCTS.1B. Nie ma relacji `product()` w modelu Faktury. Powiązanie historyczne z `OrderItem` jest opcjonalne, a dane pozycji pozostają snapshotem.
+`order_items.product_id` jest nullable i posiada FK do `products` z `nullOnDelete`. `invoice_items.product_id` jest nullable i nie posiada FK, dzięki czemu dokument zachowuje historyczny identyfikator po usunięciu produktu. Modele `OrderItem`, `InvoiceItem` i `Product` udostępniają relacje nawigacyjne, ale dane pozycji pozostają snapshotami i nie są synchronizowane z bieżącym katalogiem.
 
 Nie użyto SoftDeletes i nie dodano pól KSeF. Nie ma tabeli ani ogólnej puli zwolnionych numerów, rewizji Pro formy ani audytu edycji Faktury.
 

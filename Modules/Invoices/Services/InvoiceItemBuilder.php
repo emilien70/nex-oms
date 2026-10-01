@@ -49,7 +49,7 @@ class InvoiceItemBuilder
 
             $items[] = array_merge([
                 'order_item_id' => $orderItem->getKey(),
-                'product_id' => null,
+                'product_id' => $orderItem->product_id,
                 'source_invoice_item_id' => null,
                 'line_type' => InvoiceItemType::Product->value,
                 'position' => $position++,
@@ -62,6 +62,7 @@ class InvoiceItemBuilder
                 'gtu_codes' => [],
                 'product_snapshot' => [
                     'order_item_id' => $orderItem->getKey(),
+                    'internal_id' => $orderItem->product_id,
                     'name' => $orderItem->product_name,
                 ],
                 'metadata' => ['source' => 'order_item'],

@@ -806,6 +806,318 @@
             padding: 14px;
         }
 
+        .catalog-product-dialog {
+            max-width: min(1500px, calc(100vw - 32px));
+        }
+
+        .catalog-product-modal-form {
+            min-height: 0;
+        }
+
+        .catalog-product-modal-body {
+            display: grid;
+            grid-template-columns: minmax(0, 1.65fr) minmax(330px, .75fr);
+            min-height: 560px;
+            padding: 0;
+        }
+
+        .catalog-product-browser,
+        .catalog-product-summary {
+            min-height: 0;
+            padding: 18px;
+        }
+
+        .catalog-product-browser {
+            border-right: 1px solid #dfe5ec;
+        }
+
+        .catalog-product-search {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            margin-bottom: 14px;
+        }
+
+        .catalog-product-results {
+            border: 1px solid #dfe5ec;
+            border-radius: 6px;
+            min-height: 420px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .catalog-product-results.is-loading::after {
+            align-items: center;
+            background: rgba(255, 255, 255, .82);
+            content: "Wczytywanie...";
+            display: flex;
+            inset: 0;
+            justify-content: center;
+            position: absolute;
+            z-index: 2;
+        }
+
+        .catalog-product-results-header,
+        .catalog-product-result {
+            align-items: center;
+            display: grid;
+            gap: 12px;
+            grid-template-columns: minmax(0, 1fr) 92px 122px 82px;
+        }
+
+        .catalog-product-results-header {
+            background: #f4f6f8;
+            border-bottom: 1px solid #dfe5ec;
+            color: #52606d;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 9px 12px;
+            text-transform: uppercase;
+        }
+
+        .catalog-product-results-list {
+            max-height: 470px;
+            overflow-y: auto;
+        }
+
+        .catalog-product-result {
+            border-bottom: 1px solid #e7ebf0;
+            min-height: 58px;
+            padding: 7px 12px;
+        }
+
+        .catalog-product-result.is-selected {
+            background: #f2f7ff;
+        }
+
+        .catalog-product-result-main {
+            align-items: center;
+            display: flex;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .catalog-product-result-image,
+        .catalog-selected-image {
+            background: #f4f6f8;
+            border: 1px solid #dfe5ec;
+            border-radius: 4px;
+            height: 42px;
+            object-fit: contain;
+            width: 42px;
+        }
+
+        .catalog-product-result-placeholder,
+        .catalog-selected-placeholder {
+            align-items: center;
+            color: #7a8795;
+            display: inline-flex;
+            flex: 0 0 42px;
+            justify-content: center;
+        }
+
+        .catalog-product-result-copy {
+            display: grid;
+            min-width: 0;
+        }
+
+        .catalog-product-result-copy strong {
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .catalog-product-result-copy span,
+        .catalog-selected-catalog-price {
+            color: #6b7280;
+            font-size: 12px;
+        }
+
+        .catalog-product-result-stock,
+        .catalog-product-result-price {
+            font-size: 13px;
+            text-align: right;
+        }
+
+        .catalog-product-result-stock.is-negative,
+        .catalog-selected-stock-warning {
+            color: #b42318;
+        }
+
+        .catalog-product-add {
+            white-space: nowrap;
+        }
+
+        .catalog-product-results-empty {
+            color: #6b7280;
+            padding: 48px 16px;
+            text-align: center;
+        }
+
+        .catalog-product-pagination {
+            align-items: center;
+            background: #f8fafc;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            padding: 9px 12px;
+        }
+
+        .catalog-product-pagination.is-single-page {
+            color: #6b7280;
+            font-size: 12px;
+        }
+
+        .catalog-product-summary {
+            background: #fbfcfd;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .catalog-product-summary h3 {
+            font-size: 15px;
+            margin: 0 0 14px;
+        }
+
+        .catalog-selected-items {
+            display: grid;
+            gap: 10px;
+            max-height: 425px;
+            overflow-y: auto;
+        }
+
+        .catalog-selected-empty {
+            border: 1px dashed #cfd7e1;
+            border-radius: 6px;
+            color: #6b7280;
+            padding: 28px 16px;
+            text-align: center;
+        }
+
+        .catalog-selected-item {
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .catalog-selected-head {
+            align-items: start;
+            display: grid;
+            gap: 8px;
+            grid-template-columns: 42px minmax(0, 1fr) 32px;
+        }
+
+        .catalog-selected-copy {
+            display: grid;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .catalog-selected-copy strong {
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .catalog-selected-fields {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: 92px minmax(130px, 1fr);
+            margin-top: 10px;
+        }
+
+        .catalog-selected-fields label {
+            color: #52606d;
+            font-size: 11px;
+            margin-bottom: 3px;
+        }
+
+        .catalog-selected-price-wrap {
+            align-items: center;
+            display: grid;
+            gap: 6px;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+        }
+
+        .catalog-selected-stock-warning {
+            display: block;
+            font-size: 11px;
+            margin-top: 6px;
+        }
+
+        .catalog-product-summary-total {
+            align-items: baseline;
+            border-top: 1px solid #dfe5ec;
+            display: flex;
+            justify-content: space-between;
+            margin-top: auto;
+            padding-top: 16px;
+        }
+
+        .catalog-product-summary-total strong {
+            font-size: 18px;
+        }
+
+        .catalog-product-summary-total-controls {
+            align-items: center;
+            display: flex;
+            gap: 8px;
+        }
+
+        .catalog-product-summary-total-controls .form-select {
+            min-width: 88px;
+            width: auto;
+        }
+
+        @media (max-width: 991.98px) {
+            .catalog-product-dialog {
+                margin: 8px auto;
+                max-width: calc(100vw - 16px);
+            }
+
+            .catalog-product-modal-body {
+                display: block;
+            }
+
+            .catalog-product-browser {
+                border-bottom: 1px solid #dfe5ec;
+                border-right: 0;
+            }
+
+            .catalog-product-results-list,
+            .catalog-selected-items {
+                max-height: 360px;
+            }
+        }
+
+        @media (max-width: 575.98px) {
+            .catalog-product-search {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .catalog-product-search .form-control {
+                grid-column: 1 / -1;
+            }
+
+            .catalog-product-results-header {
+                display: none;
+            }
+
+            .catalog-product-result {
+                gap: 8px;
+                grid-template-columns: minmax(0, 1fr) auto;
+            }
+
+            .catalog-product-result-stock,
+            .catalog-product-result-price {
+                text-align: left;
+            }
+
+            .catalog-product-result .catalog-product-add {
+                grid-column: 2;
+                grid-row: 1 / span 3;
+            }
+        }
+
         .order-info-panel {
             font-size: 13px;
         }
@@ -2023,9 +2335,24 @@
             </div>
 
             <div class="products-toolbar">
-                <button class="btn product-add-button" type="button" data-bs-toggle="collapse" data-bs-target="#productAddPanel">
-                    Dodaj produkty do zam&oacute;wienia... <span aria-hidden="true">&#9662;</span>
-                </button>
+                <div class="dropdown">
+                    <button class="btn product-add-button dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                        Dodaj produkty do zam&oacute;wienia
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li>
+                            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#catalogProductModal">
+                                Dodaj produkty z magazynu...
+                            </button>
+                        </li>
+                        <li>
+                            <button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#productAddPanel">
+                                Dodaj produkt ręcznie...
+                            </button>
+                        </li>
+                    </ul>
+                </div>
 
                 <div class="dropdown">
                     <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown" aria-expanded="false">Operacje na produktach</button>
@@ -2037,7 +2364,7 @@
             </div>
 
             <div class="collapse product-add-panel" id="productAddPanel">
-                <h3 class="h6 mb-3">Dodawanie produktu do zam&oacute;wienia</h3>
+                <h3 class="h6 mb-3">Dodaj produkt ręcznie</h3>
                 <form method="POST" action="{{ route('orders.products.store', $order) }}" data-order-ajax-form>
                     @csrf
                     <div class="row g-2">
@@ -2093,6 +2420,144 @@
             </div>
         </div>
     </div>
+
+    <div
+        class="modal fade"
+        id="catalogProductModal"
+        tabindex="-1"
+        aria-labelledby="catalogProductModalLabel"
+        aria-hidden="true"
+        data-catalog-product-modal
+        data-products-url="{{ route('orders.catalog-products.index', $order) }}"
+    >
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable catalog-product-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="catalogProductModalLabel">Dodaj produkty z magazynu</h2>
+                    <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                </div>
+                <form
+                    class="catalog-product-modal-form"
+                    method="POST"
+                    action="{{ route('orders.catalog-products.store', $order) }}"
+                    data-order-ajax-form
+                    data-catalog-products-form
+                >
+                    @csrf
+                    <div class="modal-body catalog-product-modal-body">
+                        <section class="catalog-product-browser" aria-labelledby="catalogProductBrowserTitle">
+                            <h3 class="h6 mb-3" id="catalogProductBrowserTitle">Produkty</h3>
+                            <div class="catalog-product-search">
+                                <input
+                                    class="form-control form-control-sm"
+                                    type="search"
+                                    placeholder="Nazwa, ID lub EAN"
+                                    aria-label="Szukaj produktu"
+                                    data-catalog-search
+                                >
+                                <button class="btn btn-sm btn-primary" type="button" data-catalog-search-submit>
+                                    <i class="bi bi-search" aria-hidden="true"></i>
+                                    Szukaj
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-catalog-search-clear>
+                                    Wyczyść
+                                </button>
+                            </div>
+                            <div class="catalog-product-results" data-catalog-results>
+                                <div class="catalog-product-results-header" aria-hidden="true">
+                                    <span>Produkt</span>
+                                    <span class="text-end">Stan</span>
+                                    <span class="text-end">Cena</span>
+                                    <span></span>
+                                </div>
+                                <div class="catalog-product-results-list" data-catalog-results-list></div>
+                            </div>
+                        </section>
+                        <section class="catalog-product-summary" aria-labelledby="catalogProductSummaryTitle">
+                            <h3 id="catalogProductSummaryTitle">Wybrane produkty</h3>
+                            <div class="catalog-selected-empty" data-catalog-selected-empty>
+                                Nie wybrano jeszcze żadnego produktu.
+                            </div>
+                            <div class="catalog-selected-items" data-catalog-selected-items></div>
+                            <div class="catalog-product-summary-total">
+                                <span>W sumie</span>
+                                <div class="catalog-product-summary-total-controls">
+                                    <strong data-catalog-total>0,00</strong>
+                                    @php
+                                        $catalogOrderCurrency = strtoupper((string) $order->currency);
+                                        $catalogOrderCurrencyKnown = array_key_exists($catalogOrderCurrency, $currencyOptions);
+                                    @endphp
+                                    <select
+                                        class="form-select form-select-sm"
+                                        name="currency"
+                                        required
+                                        aria-label="Waluta dodawanych produktów"
+                                        data-catalog-currency-select
+                                        data-default-currency="{{ $catalogOrderCurrency }}"
+                                    >
+                                        @if (! $catalogOrderCurrencyKnown && $catalogOrderCurrency !== '')
+                                            <option value="{{ $catalogOrderCurrency }}" selected disabled>
+                                                {{ $catalogOrderCurrency }}
+                                            </option>
+                                        @endif
+                                        @foreach ($currencyOptions as $currencyCode)
+                                            <option value="{{ $currencyCode }}" @selected($catalogOrderCurrency === $currencyCode)>
+                                                {{ $currencyCode }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                    <div class="modal-footer">
+                        <div class="text-danger small me-auto" data-catalog-form-error hidden></div>
+                        <button class="btn btn-success" type="submit" data-catalog-submit disabled>
+                            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                            Dodaj produkty do zamówienia
+                        </button>
+                        <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Zamknij</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <template data-catalog-selected-template>
+        <article class="catalog-selected-item" data-catalog-selected-item>
+            <div class="catalog-selected-head">
+                <span class="catalog-selected-image catalog-selected-placeholder" data-catalog-selected-image-wrap aria-hidden="true">
+                    <i class="bi bi-image"></i>
+                </span>
+                <div class="catalog-selected-copy">
+                    <strong data-catalog-selected-name></strong>
+                    <span class="catalog-selected-catalog-price" data-catalog-selected-catalog-price></span>
+                </div>
+                <button class="btn btn-sm btn-outline-danger" type="button" data-catalog-remove title="Usuń z wybranych">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
+                    <span class="visually-hidden">Usuń z wybranych</span>
+                </button>
+            </div>
+            <div class="catalog-selected-fields">
+                <div>
+                    <label data-catalog-quantity-label>Ilość</label>
+                    <input class="form-control form-control-sm" type="number" min="1" step="1" required data-catalog-quantity>
+                </div>
+                <div>
+                    <label data-catalog-price-label>Cena brutto za szt.</label>
+                    <div class="catalog-selected-price-wrap">
+                        <input class="form-control form-control-sm" type="text" inputmode="decimal" required data-catalog-price>
+                        <span data-catalog-currency></span>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-catalog-reset-price title="Przywróć cenę katalogową">
+                            <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+                            <span class="visually-hidden">Przywróć cenę katalogową</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <span class="catalog-selected-stock-warning" data-catalog-stock-warning hidden></span>
+        </article>
+    </template>
     <div class="row g-3 mb-3">
         <div class="col-12 col-xl-4">
             <div class="nex-card h-100 inline-section" data-inline-section="order-info">
@@ -2500,6 +2965,304 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             let activeSection = null;
+            const catalogProductModal = document.querySelector('[data-catalog-product-modal]');
+            const catalogProductForm = catalogProductModal?.querySelector('[data-catalog-products-form]');
+            const catalogResults = catalogProductModal?.querySelector('[data-catalog-results]');
+            const catalogResultsList = catalogProductModal?.querySelector('[data-catalog-results-list]');
+            const catalogSearch = catalogProductModal?.querySelector('[data-catalog-search]');
+            const catalogSelectedItems = catalogProductModal?.querySelector('[data-catalog-selected-items]');
+            const catalogSelectedEmpty = catalogProductModal?.querySelector('[data-catalog-selected-empty]');
+            const catalogSelectedTemplate = document.querySelector('[data-catalog-selected-template]');
+            const catalogTotal = catalogProductModal?.querySelector('[data-catalog-total]');
+            const catalogCurrencySelect = catalogProductModal?.querySelector('[data-catalog-currency-select]');
+            const catalogSubmit = catalogProductModal?.querySelector('[data-catalog-submit]');
+            const catalogFormError = catalogProductModal?.querySelector('[data-catalog-form-error]');
+            const catalogSelections = new Map();
+            const catalogDefaultCurrency = catalogCurrencySelect?.dataset.defaultCurrency
+                || catalogCurrencySelect?.value
+                || 'PLN';
+            let catalogProductsRequest = null;
+
+            const normalizeCatalogPrice = (value) => String(value || '')
+                .trim()
+                .replace(/[\s\u00a0]+/g, '')
+                .replace(',', '.');
+
+            const catalogPriceToCents = (value) => {
+                const normalized = normalizeCatalogPrice(value);
+                if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
+                    return null;
+                }
+
+                const [whole, fraction = ''] = normalized.split('.');
+                return (BigInt(whole) * 100n) + BigInt(fraction.padEnd(2, '0'));
+            };
+
+            const formatCatalogCents = (value) => {
+                const whole = value / 100n;
+                const fraction = String(value % 100n).padStart(2, '0');
+                return `${whole.toLocaleString('pl-PL')},${fraction}`;
+            };
+
+            const updateCatalogResultSelection = () => {
+                catalogResultsList?.querySelectorAll('[data-catalog-result]').forEach((row) => {
+                    const selected = catalogSelections.has(String(row.dataset.productId || ''));
+                    const button = row.querySelector('[data-catalog-add]');
+                    row.classList.toggle('is-selected', selected);
+
+                    if (button) {
+                        button.classList.toggle('btn-outline-primary', !selected);
+                        button.classList.toggle('btn-primary', selected);
+                        button.title = selected ? 'Dodaj kolejną sztukę' : 'Dodaj produkt';
+                        button.innerHTML = '<i class="bi bi-plus-lg" aria-hidden="true"></i> Dodaj';
+                    }
+                });
+            };
+
+            const updateCatalogSelectionState = () => {
+                let totalCents = 0n;
+                const selectedCurrencyOption = catalogCurrencySelect?.selectedOptions?.[0];
+                const currency = selectedCurrencyOption && !selectedCurrencyOption.disabled
+                    ? String(catalogCurrencySelect.value || '')
+                    : '';
+                let valid = catalogSelections.size > 0 && currency !== '';
+
+                catalogSelections.forEach((selection) => {
+                    const priceCents = catalogPriceToCents(selection.price);
+                    const quantity = Number.parseInt(String(selection.quantity), 10);
+
+                    if (priceCents === null || !Number.isSafeInteger(quantity) || quantity < 1) {
+                        valid = false;
+                        return;
+                    }
+
+                    totalCents += priceCents * BigInt(quantity);
+                });
+
+                if (catalogTotal) {
+                    catalogTotal.textContent = valid
+                        ? formatCatalogCents(totalCents)
+                        : (catalogSelections.size ? 'Sprawdź dane' : '0,00');
+                }
+
+                if (catalogSubmit) {
+                    catalogSubmit.disabled = !valid;
+                }
+
+                catalogSelectedEmpty?.toggleAttribute('hidden', catalogSelections.size > 0);
+                updateCatalogResultSelection();
+            };
+
+            const updateCatalogStockWarning = (item, selection) => {
+                const warning = item.querySelector('[data-catalog-stock-warning]');
+                const quantity = Number.parseInt(String(selection.quantity), 10);
+                const exceedsStock = Number.isSafeInteger(quantity) && quantity > selection.stock;
+
+                if (!warning) {
+                    return;
+                }
+
+                warning.hidden = !exceedsStock;
+                warning.textContent = exceedsStock
+                    ? `Wybrana ilość przekracza stan magazynowy (${selection.stock} szt.).`
+                    : '';
+            };
+
+            const renderCatalogSelections = () => {
+                if (!catalogSelectedItems || !catalogSelectedTemplate) {
+                    return;
+                }
+
+                catalogSelectedItems.innerHTML = '';
+
+                Array.from(catalogSelections.values()).forEach((selection, index) => {
+                    const fragment = catalogSelectedTemplate.content.cloneNode(true);
+                    const item = fragment.querySelector('[data-catalog-selected-item]');
+                    const imageWrap = fragment.querySelector('[data-catalog-selected-image-wrap]');
+                    const quantityInput = fragment.querySelector('[data-catalog-quantity]');
+                    const priceInput = fragment.querySelector('[data-catalog-price]');
+                    const productId = document.createElement('input');
+
+                    item.dataset.productId = selection.id;
+                    fragment.querySelector('[data-catalog-selected-name]').textContent = selection.name;
+                    fragment.querySelector('[data-catalog-selected-catalog-price]').textContent = `Cena katalogowa: ${String(selection.catalogPrice).replace('.', ',')} ${selection.currency}`;
+                    fragment.querySelector('[data-catalog-currency]').textContent = catalogCurrencySelect?.value || '';
+
+                    if (selection.image) {
+                        const image = document.createElement('img');
+                        image.className = 'catalog-selected-image';
+                        image.src = selection.image;
+                        image.alt = '';
+                        imageWrap.replaceWith(image);
+                    }
+
+                    productId.type = 'hidden';
+                    productId.name = `items[${index}][product_id]`;
+                    productId.value = selection.id;
+                    item.appendChild(productId);
+
+                    quantityInput.name = `items[${index}][quantity]`;
+                    quantityInput.value = selection.quantity;
+                    priceInput.name = `items[${index}][unit_price_gross]`;
+                    priceInput.value = String(selection.price).replace('.', ',');
+
+                    quantityInput.addEventListener('input', () => {
+                        selection.quantity = quantityInput.value;
+                        updateCatalogStockWarning(item, selection);
+                        updateCatalogSelectionState();
+                    });
+                    priceInput.addEventListener('input', () => {
+                        selection.price = priceInput.value;
+                        updateCatalogSelectionState();
+                    });
+                    item.querySelector('[data-catalog-reset-price]').addEventListener('click', () => {
+                        selection.price = selection.catalogPrice;
+                        priceInput.value = String(selection.catalogPrice).replace('.', ',');
+                        updateCatalogSelectionState();
+                        priceInput.focus();
+                    });
+                    item.querySelector('[data-catalog-remove]').addEventListener('click', () => {
+                        catalogSelections.delete(selection.id);
+                        renderCatalogSelections();
+                    });
+
+                    updateCatalogStockWarning(item, selection);
+                    catalogSelectedItems.appendChild(fragment);
+                });
+
+                updateCatalogSelectionState();
+            };
+
+            const addCatalogSelection = (button) => {
+                const id = String(button.dataset.productId || '');
+                if (!id) {
+                    return;
+                }
+
+                const existing = catalogSelections.get(id);
+                if (existing) {
+                    existing.quantity = String((Number.parseInt(String(existing.quantity), 10) || 0) + 1);
+                    renderCatalogSelections();
+                    return;
+                }
+
+                catalogFormError?.toggleAttribute('hidden', true);
+                catalogSelections.set(id, {
+                    id,
+                    name: String(button.dataset.productName || ''),
+                    catalogPrice: String(button.dataset.productPrice || '0.00'),
+                    price: String(button.dataset.productPrice || '0.00'),
+                    currency: String(button.dataset.productCurrency || ''),
+                    stock: Number.parseInt(String(button.dataset.productStock || '0'), 10) || 0,
+                    image: String(button.dataset.productImage || ''),
+                    quantity: '1',
+                });
+                renderCatalogSelections();
+            };
+
+            const loadCatalogProducts = async (page = 1) => {
+                const baseUrl = catalogProductModal?.dataset.productsUrl;
+                if (!baseUrl || !catalogResultsList) {
+                    return;
+                }
+
+                catalogProductsRequest?.abort();
+                catalogProductsRequest = new AbortController();
+                const url = new URL(baseUrl, window.location.origin);
+                const search = catalogSearch?.value.trim() || '';
+                if (search) {
+                    url.searchParams.set('q', search);
+                }
+                url.searchParams.set('page', String(page));
+                catalogResults?.classList.add('is-loading');
+                catalogFormError?.toggleAttribute('hidden', true);
+
+                try {
+                    const response = await fetch(url.toString(), {
+                        headers: {
+                            Accept: 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        cache: 'no-store',
+                        signal: catalogProductsRequest.signal,
+                    });
+                    const payload = await response.json().catch(() => ({}));
+
+                    if (!response.ok || typeof payload.html !== 'string') {
+                        throw new Error(payload.message || 'Nie udało się wczytać produktów.');
+                    }
+
+                    catalogResultsList.innerHTML = payload.html;
+                    updateCatalogResultSelection();
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        return;
+                    }
+
+                    catalogResultsList.innerHTML = '<div class="catalog-product-results-empty">Nie udało się wczytać produktów.</div>';
+                } finally {
+                    catalogResults?.classList.remove('is-loading');
+                }
+            };
+
+            catalogProductModal?.addEventListener('shown.bs.modal', () => {
+                catalogSelections.clear();
+                if (catalogCurrencySelect) {
+                    catalogCurrencySelect.value = catalogDefaultCurrency;
+                }
+                if (catalogSearch) {
+                    catalogSearch.value = '';
+                }
+                if (catalogFormError) {
+                    catalogFormError.hidden = true;
+                    catalogFormError.textContent = '';
+                }
+                renderCatalogSelections();
+                loadCatalogProducts();
+                catalogSearch?.focus();
+            });
+
+            catalogProductModal?.addEventListener('hidden.bs.modal', () => {
+                catalogProductsRequest?.abort();
+                catalogSelections.clear();
+                renderCatalogSelections();
+            });
+
+            catalogCurrencySelect?.addEventListener('change', () => {
+                catalogSelectedItems?.querySelectorAll('[data-catalog-currency]').forEach((element) => {
+                    element.textContent = catalogCurrencySelect.value;
+                });
+                catalogFormError?.toggleAttribute('hidden', true);
+                updateCatalogSelectionState();
+            });
+
+            catalogProductModal?.addEventListener('click', (event) => {
+                const addButton = event.target.closest('[data-catalog-add]');
+                if (addButton) {
+                    addCatalogSelection(addButton);
+                    return;
+                }
+
+                const pageButton = event.target.closest('[data-catalog-page]');
+                if (pageButton && !pageButton.disabled) {
+                    loadCatalogProducts(Number.parseInt(pageButton.dataset.catalogPage || '1', 10));
+                }
+            });
+
+            catalogProductModal?.querySelector('[data-catalog-search-submit]')?.addEventListener('click', () => loadCatalogProducts());
+            catalogProductModal?.querySelector('[data-catalog-search-clear]')?.addEventListener('click', () => {
+                if (catalogSearch) {
+                    catalogSearch.value = '';
+                }
+                loadCatalogProducts();
+                catalogSearch?.focus();
+            });
+            catalogSearch?.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    loadCatalogProducts();
+                }
+            });
 
             const syncSalesDocumentNumberWidths = (root = document) => {
                 const container = root.matches?.('[data-sales-document-actions]')
@@ -3805,9 +4568,23 @@
                 form.querySelectorAll('[data-ajax-error]').forEach((message) => message.remove());
             };
 
+            const ajaxFieldByErrorName = (form, name) => {
+                const direct = form.querySelector(`[name="${name}"]`);
+                if (direct) {
+                    return direct;
+                }
+
+                const bracketed = String(name).split('.').reduce(
+                    (fieldName, segment, index) => index === 0 ? segment : `${fieldName}[${segment}]`,
+                    '',
+                );
+
+                return form.querySelector(`[name="${bracketed}"]`);
+            };
+
             const showAjaxErrors = (form, errors) => {
                 Object.entries(errors || {}).forEach(([name, messages]) => {
-                    const field = form.querySelector(`[name="${name}"]`);
+                    const field = ajaxFieldByErrorName(form, name);
                     if (!field) {
                         return;
                     }
@@ -3941,7 +4718,15 @@
                         form.reset();
                         window.bootstrap?.Collapse.getOrCreateInstance(document.getElementById('productAddPanel'))?.hide();
                     }
+
+                    if (form.matches('[data-catalog-products-form]')) {
+                        window.bootstrap?.Modal.getOrCreateInstance(catalogProductModal)?.hide();
+                    }
                 } catch (error) {
+                    if (form.matches('[data-catalog-products-form]') && catalogFormError) {
+                        catalogFormError.textContent = error.message || 'Nie udało się dodać produktów.';
+                        catalogFormError.hidden = false;
+                    }
                     alert(error.message || 'Nie udało się zapisać zmian.');
                 } finally {
                     stopAjaxLoading();

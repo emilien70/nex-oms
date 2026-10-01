@@ -305,7 +305,23 @@ Zakres PRODUCTS.1A:
 - osobne formularze tworzenia i edycji,
 - ukrywanie i ponowne aktywowanie bez twardego usuwania produktu.
 
-PRODUCTS.1A nie obejmuje wyboru produktu na zamówieniu, zmiany `order_items` ani `invoice_items`, ruchów i rezerwacji magazynowych, integracji kanałów sprzedaży, zestawów, promocji, importu ani masowych operacji.
+Zakres PRODUCTS.1B:
+
+- przycisk dodawania produktów na karcie zamówienia rozdziela wybór „Dodaj produkty z magazynu...” i istniejące „Dodaj produkt ręcznie...”,
+- modal magazynu pokazuje wyłącznie aktywne produkty, wyszukuje po nazwie, EAN lub wewnętrznym ID i stronicuje wyniki,
+- operator może wybrać wiele produktów, a przed zapisem niezależnie zmienić ilość oraz jednostkową cenę brutto każdej pozycji,
+- wspólna lista walut obok sumy domyślnie wskazuje walutę zamówienia i przypisuje ją wszystkim dodawanym pozycjom; system nie wykonuje automatycznego przewalutowania kwot,
+- puste finansowo zamówienie może przyjąć wybraną walutę pierwszych pozycji, natomiast zamówienie z istniejącymi pozycjami lub wartościami finansowymi wymaga zachowania swojej waluty,
+- cena wpisana w zamówieniu nie zmienia ceny katalogowej,
+- przekroczenie informacyjnego stanu magazynowego pokazuje ostrzeżenie, ale nie blokuje zapisu,
+- cały wybór jest zapisywany w jednej transakcji i przeliczany bez użycia `float`,
+- pozycja zamówienia zapisuje nullable `product_id` oraz snapshot nazwy, EAN, ceny, VAT, waluty i wagi z chwili dodania,
+- ręcznie dodana pozycja nadal ma `product_id = null`,
+- wystawiany dokument kopiuje `product_id` i wewnętrzne ID do własnego snapshotu pozycji,
+- usunięcie produktu ustawia `order_items.product_id = null`, ale nie zmienia danych historycznej pozycji zamówienia,
+- `invoice_items.product_id` pozostaje nullable i bez klucza obcego, aby usunięcie produktu nie zmieniało dokumentu historycznego.
+
+PRODUCTS.1B nie wprowadza ruchów ani rezerwacji magazynowych, automatycznej zmiany stanu, integracji kanałów sprzedaży, zestawów, promocji, importu ani masowych operacji.
 
 Docelowe założenia:
 
@@ -316,12 +332,14 @@ Docelowe założenia:
 - produkt może mieć domyślne oznaczenia GTU,
 - zmiana lub usunięcie produktu nie zmienia dokumentów historycznych.
 
-Planowane relacje:
+Relacje po PRODUCTS.1B:
 
 ```text
 order_items.product_id nullable
 invoice_items.product_id nullable
 ```
+
+`order_items.product_id` posiada klucz obcy do katalogu z `nullOnDelete`. `invoice_items.product_id` nie posiada klucza obcego i zachowuje identyfikator jako część historycznego snapshotu dokumentu.
 
 Historyczne pozycje muszą działać również wtedy, gdy:
 
@@ -2140,7 +2158,7 @@ Zaimplementowano jedną tabelę `invoices` dla Faktur VAT, Pro form i Korekt ora
 
 Dokument zachowuje własne dane sprzedawcy, nabywcy, odbiorcy, wystawiającego, zamówienia, płatności, dostawy, ustawień serii i podatków. Zmiana zamówienia, pozycji zamówienia lub serii nie aktualizuje tych snapshotów. Pole `additional_information_text` przechowuje finalną treść dokumentu, a nie szablon serii.
 
-`Order` posiada relację `hasMany Invoices`; tabela `orders` nie posiada `invoice_id`. `invoice_items.product_id` jest nullable i nie posiada jeszcze klucza obcego. Katalog produktów istnieje od PRODUCTS.1A, ale relacja z pozycją dokumentu została odłożona do PRODUCTS.1B. Historyczne pozycje działają bez przypisanego produktu. Dokumenty nie używają SoftDeletes.
+`Order` posiada relację `hasMany Invoices`; tabela `orders` nie posiada `invoice_id`. Od PRODUCTS.1B `order_items.product_id` opcjonalnie wskazuje produkt i używa `nullOnDelete`, natomiast `invoice_items.product_id` jest nullable i celowo nie posiada klucza obcego. Builder dokumentu kopiuje identyfikator produktu z pozycji zamówienia do pozycji oraz snapshotu dokumentu. Historyczne pozycje działają bez istniejącego produktu. Dokumenty nie używają SoftDeletes.
 
 Schemat wykorzystuje `corrected_invoice_id` do wskazania pierwotnej Faktury oraz nullable `previous_correction_id` do budowy liniowego łańcucha odrębnych Korekt. Pierwsza Korekta nie ma poprzednika, a każda kolejna wskazuje poprzednią zamkniętą Korektę. Pozycje każdej Korekty przechowują własny stan przed, po i różnicę.
 

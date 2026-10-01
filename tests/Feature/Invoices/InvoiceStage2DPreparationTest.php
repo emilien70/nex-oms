@@ -7,6 +7,7 @@ use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\InvoiceItemBuilder;
 use Modules\Invoices\Services\ProformaService;
+use Modules\Products\Models\Product;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -42,6 +43,37 @@ class InvoiceStage2DPreparationTest extends TestCase
         $order->update(['shipping_method' => 'Kurier']);
         $disabled = $this->createDocumentSeries(attributes: ['include_shipping' => false]);
         $this->assertCount(1, app(InvoiceItemBuilder::class)->build($order, $disabled));
+    }
+
+    public function test_catalog_product_identity_is_copied_to_the_invoice_item_snapshot(): void
+    {
+        $order = $this->createDocumentOrder([
+            'delivery_cost_gross' => '0.00',
+            'shipping_method' => null,
+        ]);
+        $product = Product::query()->create([
+            'name' => 'Produkt katalogowy',
+            'ean' => '5901234567890',
+            'price_gross' => '123.00',
+            'currency' => 'PLN',
+            'vat_rate' => '23.00',
+            'stock_quantity' => 5,
+            'is_active' => true,
+        ]);
+        $this->createDocumentItem($order, [
+            'product_id' => $product->getKey(),
+            'product_name' => 'Snapshot nazwy produktu',
+            'ean' => $product->ean,
+            'unit_price_gross' => '123.00',
+            'total_price_gross' => '123.00',
+        ]);
+
+        $items = app(InvoiceItemBuilder::class)->build($order, $this->createDocumentSeries());
+
+        $this->assertCount(1, $items);
+        $this->assertSame($product->getKey(), $items[0]['product_id']);
+        $this->assertSame($product->getKey(), $items[0]['product_snapshot']['internal_id']);
+        $this->assertSame('Snapshot nazwy produktu', $items[0]['product_snapshot']['name']);
     }
 
     public function test_invoice_snapshots_existing_related_proforma(): void

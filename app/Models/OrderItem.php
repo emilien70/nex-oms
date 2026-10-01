@@ -6,11 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Invoices\Models\InvoiceItem;
+use Modules\Products\Models\Product;
 
 class OrderItem extends Model
 {
     protected $fillable = [
         'order_id',
+        'product_id',
         'external_id',
         'product_name',
         'sku',
@@ -34,6 +36,11 @@ class OrderItem extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
     }
 
     public function invoiceItems(): HasMany

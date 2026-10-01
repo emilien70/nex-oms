@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Invoices\Enums\InvoiceItemType;
+use Modules\Products\Models\Product;
 
 class InvoiceItem extends Model
 {
@@ -62,6 +63,11 @@ class InvoiceItem extends Model
     public function orderItem(): BelongsTo
     {
         return $this->belongsTo(OrderItem::class);
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
     }
 
     public function sourceInvoiceItem(): BelongsTo

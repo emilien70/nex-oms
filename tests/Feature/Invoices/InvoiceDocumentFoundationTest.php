@@ -112,7 +112,6 @@ class InvoiceDocumentFoundationTest extends TestCase
     {
         $this->assertFalse(Schema::hasColumn('invoices', 'deleted_at'));
         $this->assertFalse(Schema::hasColumn('orders', 'invoice_id'));
-        $this->assertFalse(Schema::hasTable('products'));
         $this->assertFalse(Schema::hasTable('serial_numbers'));
         $this->assertFalse(Schema::hasTable('invoice_series_counters'));
         $this->assertFalse(Schema::hasTable('released_invoice_numbers'));
@@ -124,7 +123,7 @@ class InvoiceDocumentFoundationTest extends TestCase
         $this->assertFalse(Schema::hasColumn('invoice_series', 'ksef_submission_mode'));
     }
 
-    public function test_product_id_is_nullable_and_has_no_foreign_key_to_a_products_table(): void
+    public function test_invoice_item_product_id_remains_nullable_and_has_no_foreign_key_to_the_catalog(): void
     {
         $invoice = $this->createInvoice();
 
