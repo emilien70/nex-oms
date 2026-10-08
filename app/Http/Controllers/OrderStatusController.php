@@ -44,7 +44,7 @@ class OrderStatusController extends Controller
     private function stateResponse(Order $order, ?Request $request = null): JsonResponse
     {
         $order->load([
-            'items',
+            'items.product',
             'shipments' => fn ($query) => $query
                 ->whereNotNull('tracking_number')
                 ->orderByDesc('created_at'),

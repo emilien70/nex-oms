@@ -29,6 +29,137 @@ class OrderCatalogProductTest extends TestCase
             ->assertSee('data-default-currency="PLN"', false);
     }
 
+    public function test_order_product_row_shows_catalog_thumbnail_and_links_id_to_the_filtered_product_list(): void
+    {
+        $order = $this->createOrder();
+        $product = $this->createProduct([
+            'name' => 'Ukryty produkt katalogowy',
+            'is_active' => false,
+        ]);
+        $product->update([
+            'image_path' => "products/{$product->getKey()}/original.jpg",
+            'thumbnail_path' => "products/{$product->getKey()}/thumbnail.jpg",
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->getKey(),
+            'product_id' => $product->getKey(),
+            'product_name' => 'Snapshot nazwy produktu',
+            'quantity' => 1,
+            'unit_price_gross' => '99.99',
+            'total_price_gross' => '99.99',
+            'currency' => 'PLN',
+            'vat_rate' => '23.00',
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->getKey(),
+            'product_name' => 'Pozycja ręczna',
+            'quantity' => 1,
+            'unit_price_gross' => '10.00',
+            'total_price_gross' => '10.00',
+            'currency' => 'PLN',
+            'vat_rate' => '23.00',
+        ]);
+
+        $productListUrl = route('products.index', [
+            'q' => $product->getKey(),
+            'status' => 'all',
+        ]);
+        $escapedProductListUrl = e($productListUrl);
+        $thumbnailUrl = route('products.image', [$product, 'thumbnail']);
+        $originalUrl = route('products.image', [$product, 'original']);
+
+        $this->get(route('orders.show', $order))
+            ->assertOk()
+            ->assertSee('ID prod.')
+            ->assertSee('bi bi-camera', false)
+            ->assertSee($escapedProductListUrl, false)
+            ->assertSee($thumbnailUrl, false)
+            ->assertSee($originalUrl, false)
+            ->assertSee('product-image-preview', false)
+            ->assertSee('Snapshot nazwy produktu')
+            ->assertSee('Pozycja ręczna');
+
+        $fragment = $this->getJson(route('orders.state', [
+            'order' => $order,
+            'fragments' => 'products',
+        ]))
+            ->assertOk()
+            ->json('fragments.products');
+
+        $this->assertStringContainsString($escapedProductListUrl, $fragment);
+        $this->assertStringContainsString($thumbnailUrl, $fragment);
+        $this->assertStringContainsString($originalUrl, $fragment);
+        $this->assertStringContainsString('product-image-preview', $fragment);
+        $this->assertSame(1, substr_count($fragment, 'class="product-id-link"'));
+
+        $this->get($productListUrl)
+            ->assertOk()
+            ->assertSee($product->name);
+    }
+
+    public function test_duplicating_order_preserves_catalog_product_link_and_manual_items(): void
+    {
+        $order = $this->createOrder(['total_gross' => '109.99']);
+        $product = $this->createProduct([
+            'name' => 'Ukryty produkt źródłowy',
+            'is_active' => false,
+        ]);
+        $product->update([
+            'image_path' => "products/{$product->getKey()}/original.jpg",
+            'thumbnail_path' => "products/{$product->getKey()}/thumbnail.jpg",
+        ]);
+        $catalogItem = OrderItem::query()->create([
+            'order_id' => $order->getKey(),
+            'product_id' => $product->getKey(),
+            'product_name' => 'Snapshot produktu w zamówieniu',
+            'ean' => '5901234567890',
+            'quantity' => 1,
+            'unit_price_gross' => '99.99',
+            'total_price_gross' => '99.99',
+            'currency' => 'PLN',
+            'vat_rate' => '23.00',
+            'weight' => '1.250',
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->getKey(),
+            'product_name' => 'Pozycja ręczna',
+            'quantity' => 1,
+            'unit_price_gross' => '10.00',
+            'total_price_gross' => '10.00',
+            'currency' => 'PLN',
+            'vat_rate' => '8.00',
+        ]);
+
+        $response = $this->post(route('orders.duplicate', $order));
+        $copy = Order::query()->whereKeyNot($order->getKey())->sole();
+        $items = $copy->items()->orderBy('id')->get();
+
+        $response->assertRedirect(route('orders.show', $copy));
+        $this->assertCount(2, $items);
+        $this->assertSame($product->getKey(), $items[0]->product_id);
+        $this->assertSame($catalogItem->product_name, $items[0]->product_name);
+        $this->assertSame($catalogItem->ean, $items[0]->ean);
+        $this->assertSame($catalogItem->unit_price_gross, $items[0]->unit_price_gross);
+        $this->assertSame($catalogItem->vat_rate, $items[0]->vat_rate);
+        $this->assertSame($catalogItem->weight, $items[0]->weight);
+        $this->assertNull($items[1]->product_id);
+        $this->assertSame('Pozycja ręczna', $items[1]->product_name);
+        $this->assertDatabaseCount('products', 1);
+
+        $productListUrl = e(route('products.index', [
+            'q' => $product->getKey(),
+            'status' => 'all',
+        ]));
+
+        $this->get(route('orders.show', $copy))
+            ->assertOk()
+            ->assertSee($productListUrl, false)
+            ->assertSee(route('products.image', [$product, 'thumbnail']), false)
+            ->assertSee(route('products.image', [$product, 'original']), false)
+            ->assertSee('Snapshot produktu w zamówieniu')
+            ->assertSee('Pozycja ręczna');
+    }
+
     public function test_catalog_picker_lists_only_active_products_and_searches_by_name_id_and_ean(): void
     {
         $order = $this->createOrder();

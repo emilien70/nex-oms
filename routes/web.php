@@ -13,6 +13,7 @@ use App\Http\Controllers\OrderEmailMessageController;
 use App\Http\Controllers\OrderMetaController;
 use App\Http\Controllers\OrderProductController;
 use App\Http\Controllers\OrderScanController;
+use App\Http\Controllers\OrderSavedViewController;
 use App\Http\Controllers\OrdersController;
 use App\Http\Controllers\OrderSectionController;
 use App\Http\Controllers\OrderStatusController;
@@ -200,6 +201,10 @@ Route::delete('/invoices/settings/series/{series}', [InvoiceSeriesController::cl
 Route::get('/orders', [OrdersController::class, 'index'])->name('orders.index');
 Route::get('/orders/list-state', [OrdersController::class, 'listState'])->name('orders.list-state');
 Route::get('/orders/scan', OrderScanController::class)->name('orders.scan');
+Route::post('/orders/saved-views', [OrderSavedViewController::class, 'store'])->name('orders.saved-views.store');
+Route::patch('/orders/saved-views/order', [OrderSavedViewController::class, 'reorder'])->name('orders.saved-views.order');
+Route::patch('/orders/saved-views/{orderSavedView}', [OrderSavedViewController::class, 'update'])->name('orders.saved-views.update');
+Route::delete('/orders/saved-views/{orderSavedView}', [OrderSavedViewController::class, 'destroy'])->name('orders.saved-views.destroy');
 Route::get('/automation/activity', [AutomationActivityController::class, 'index'])->name('automation.activity.index');
 Route::get('/orders/automatic-actions', [AutomationRuleController::class, 'index'])->name('orders.automatic-actions.index');
 Route::get('/orders/automatic-actions/create', [AutomationRuleController::class, 'create'])->name('orders.automatic-actions.create');

@@ -323,6 +323,19 @@ Zakres PRODUCTS.1B:
 
 PRODUCTS.1B nie wprowadza ruchów ani rezerwacji magazynowych, automatycznej zmiany stanu, integracji kanałów sprzedaży, zestawów, promocji, importu ani masowych operacji.
 
+Automatyczne pomniejszanie magazynu po PRODUCTS.1B:
+
+- silnik automatyzacji udostępnia zdarzenie „Wystawiono Fakturę VAT” oraz akcję „Zmniejsz stan magazynowy”,
+- akcję można zapisać wyłącznie dla tego zdarzenia; samo wdrożenie nie tworzy ani nie aktywuje reguły za użytkownika,
+- zdarzenie powstaje po skutecznym zatwierdzeniu transakcji wystawienia Faktury VAT, niezależnie od tego, czy dokument wystawiono ręcznie, czy automatycznie,
+- stan jest zmniejszany wyłącznie dla pozycji typu produkt, które posiadają jednocześnie `product_id` oraz `order_item_id`,
+- pozycje ręczne, dostawa, Pro formy, Korekty i inne dokumenty nie pomniejszają magazynu,
+- ilość magazynowa pozostaje liczbą całkowitą; ułamkowa lub niedodatnia ilość pozycji zatrzymuje akcję bez częściowego zapisu,
+- każda pozycja zamówienia może zostać odjęta tylko raz, także przy ponowieniu kolejki, wielu zgodnych regułach albo ponownym wystawieniu Faktury po jej usunięciu,
+- ruch zapisuje stan przed zmianą, zmianę, stan po zmianie oraz snapshot produktu i powiązania operacyjne,
+- stan nadal może zejść poniżej zera,
+- usunięcie Faktury, anulowanie zamówienia ani Korekta nie przywracają stanu automatycznie; wymagają świadomej zmiany ręcznej lub przyszłej, odrębnej akcji magazynowej.
+
 Docelowe założenia:
 
 - każdy produkt posiada wewnętrzne ID,

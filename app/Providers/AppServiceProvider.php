@@ -18,6 +18,7 @@ use Modules\Integrations\AllegroShipping\Drivers\AllegroShippingDriver;
 use Modules\Integrations\DPD\Drivers\DpdDriver;
 use Modules\Integrations\InPost\Drivers\InPostCourierDriver;
 use Modules\Integrations\InPost\Drivers\InPostLockerDriver;
+use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Shipments\Events\ShipmentCreated;
 use Modules\Shipments\Events\ShipmentCreationFailed;
@@ -71,6 +72,7 @@ class AppServiceProvider extends ServiceProvider
 
         Shipment::observe(ShipmentObserver::class);
         Event::listen(OrderStatusChanged::class, DispatchAutomationEvent::class);
+        Event::listen(InvoiceIssued::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentCreated::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentStatusChanged::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentCreationFailed::class, DispatchAutomationEvent::class);

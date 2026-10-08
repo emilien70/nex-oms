@@ -53,4 +53,9 @@ class Product extends Model
     {
         return $this->hasMany(InvoiceItem::class);
     }
+
+    public function stockMovements(): HasMany
+    {
+        return $this->hasMany(ProductStockMovement::class);
+    }
 }

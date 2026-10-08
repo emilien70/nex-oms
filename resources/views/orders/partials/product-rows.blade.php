@@ -3,7 +3,46 @@
 @endphp
 @forelse ($order->items as $item)
     <tr>
-        <td><span class="product-thumb" aria-hidden="true">&#9633;</span></td>
+        <td>
+            @if ($item->product?->thumbnail_path)
+                <span
+                    class="product-thumbnail-wrap"
+                    tabindex="0"
+                    aria-label="Podgląd zdjęcia produktu {{ $item->product_name }}"
+                >
+                    <img
+                        class="product-thumb"
+                        src="{{ route('products.image', [$item->product, 'thumbnail']) }}"
+                        alt=""
+                        loading="lazy"
+                    >
+                    <span class="product-image-preview" aria-hidden="true">
+                        <img
+                            src="{{ route('products.image', [$item->product, $item->product->image_path ? 'original' : 'thumbnail']) }}"
+                            alt=""
+                        >
+                    </span>
+                </span>
+            @else
+                <span class="product-thumb" aria-hidden="true">
+                    <i class="bi bi-camera-fill"></i>
+                </span>
+            @endif
+        </td>
+        <td class="product-id-column">
+            @if ($item->product_id && $item->product)
+                <a
+                    class="product-id-link"
+                    href="{{ route('products.index', ['q' => $item->product_id, 'status' => 'all']) }}"
+                    aria-label="Pokaż produkt ID {{ $item->product_id }} na liście produktów"
+                    data-page-navigation-loading
+                >
+                    {{ $item->product_id }}
+                </a>
+            @else
+                <span class="text-secondary">&mdash;</span>
+            @endif
+        </td>
         <td><div class="product-name">{{ $item->product_name }}</div></td>
         <td class="product-metric">{{ $item->quantity }}</td>
         <td class="product-metric">{{ number_format((float) $item->unit_price_gross, 2, ',', ' ') }} {{ $item->currency ?? $order->currency }}</td>
@@ -33,7 +72,7 @@
         </td>
     </tr>
     <tr class="collapse" id="productEdit{{ $item->id }}">
-        <td colspan="8">
+        <td colspan="9">
             <div class="product-inline-form">
                 <form method="POST" action="{{ route('order-items.update', $item) }}" data-order-ajax-form>
                     @csrf
@@ -88,6 +127,6 @@
     </tr>
 @empty
     <tr>
-        <td colspan="8" class="text-secondary">Brak pozycji zam&oacute;wienia.</td>
+        <td colspan="9" class="text-secondary">Brak pozycji zam&oacute;wienia.</td>
     </tr>
 @endforelse

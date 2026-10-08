@@ -30,6 +30,8 @@ class AutomationCatalog
 
     public const ACTION_SEND_EMAIL = 'send_email';
 
+    public const ACTION_DECREASE_STOCK = 'decrease_stock';
+
     public function __construct(
         private readonly InPostCourierServiceResolver $inPostCourierServices,
         private readonly DpdServiceResolver $dpdServices,
@@ -40,6 +42,7 @@ class AutomationCatalog
     {
         return [
             'order.status_changed' => 'Ustawiono status',
+            'invoice.issued' => 'Wystawiono Fakturę VAT',
             'shipment.created' => $this->decode('Utworzono przesy&#322;k&#281;'),
             'shipment.status_changed' => $this->decode('Zmieniono status przesy&#322;ki'),
             'shipment.creation_failed' => $this->decode('Wyst&#261;pi&#322; b&#322;&#261;d tworzenia przesy&#322;ki'),
@@ -134,6 +137,7 @@ class AutomationCatalog
             self::ACTION_CALL_URL => $this->decode('Wywo&#322;aj URL'),
             self::ACTION_ISSUE_INVOICE => $this->decode('Wystaw Faktur&#281;'),
             self::ACTION_SEND_EMAIL => $this->decode('Wy&#347;lij e-mail'),
+            self::ACTION_DECREASE_STOCK => 'Zmniejsz stan magazynowy',
         ];
     }
 
@@ -171,6 +175,7 @@ class AutomationCatalog
                 .Str::limit((string) ($configuration['url'] ?? '...'), 80),
             self::ACTION_ISSUE_INVOICE => $this->invoiceActionSummary($type, $configuration),
             self::ACTION_SEND_EMAIL => $this->emailActionSummary($type, $configuration),
+            self::ACTION_DECREASE_STOCK => $this->actionLabel($type),
             default => $type,
         };
     }

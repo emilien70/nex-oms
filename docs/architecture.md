@@ -882,6 +882,20 @@ Zapis wielu pozycji jest jedną transakcją. Serwer ponownie waliduje aktywnoś�
 
 Stan magazynowy pozostaje informacyjny. Przekroczenie stanu jest sygnalizowane w interfejsie, ale PRODUCTS.1B nie tworzy rezerwacji, ruchów magazynowych ani automatycznego pomniejszania stanu.
 
+Późniejszy etap dodaje opcjonalne pomniejszanie stanu przez silnik automatyzacji. `InvoiceIssuingService` emituje po zatwierdzeniu transakcji zdarzenie `invoice.issued`. Reguła z tym wyzwalaczem może wykonać akcję `decrease_stock`; walidacja nie dopuszcza tej akcji dla innych wyzwalaczy. Źródło zdarzenia zachowuje identyfikator nadrzędnego `automation_run`, dzięki czemu wystawienie Faktury przez automatyzację oraz następujące po nim pomniejszenie magazynu należą do jednego łańcucha i korzystają z istniejącej ochrony przed pętlą.
+
+Trwały dziennik:
+
+```text
+product_stock_movements
+```
+
+Każdy ruch `invoice_issued` zapisuje podpisaną zmianę, stan przed i po zmianie, snapshot produktu oraz nullable powiązania z produktem, zamówieniem, pozycją zamówienia, Fakturą, pozycją Faktury i wykonaniem automatyzacji. Powiązania używają `nullOnDelete`, aby późniejsze usunięcie encji nie niszczyło dowodu historycznego.
+
+Klucz idempotencji jest stabilny dla pary zamówienie-pozycja zamówienia. Ponowienie zadania, druga zgodna reguła oraz ponowne wystawienie Faktury nie odejmują ponownie tej samej pozycji. Serwis blokuje produkty w deterministycznej kolejności, wykonuje wszystkie zmiany i zapisuje ruchy w jednej transakcji. Uwzględnia wyłącznie pozycje produktowe z `product_id` i `order_item_id`; pozycje ręczne oraz dostawa są pomijane. Ułamkowa albo niedodatnia ilość powoduje błąd całej akcji, ponieważ bieżący stan produktu jest liczbą całkowitą.
+
+Mechanizm nie tworzy rezerwacji i pozwala na stan ujemny. Nie odwraca ruchu po usunięciu Faktury, anulowaniu zamówienia ani wystawieniu Korekty. Takie operacje pozostają świadomą zmianą ręczną do czasu wdrożenia odrębnej akcji przywracania stanu.
+
 ---
 
 # 17. VAT i obliczenia

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
@@ -133,6 +134,7 @@ class InvoiceIssuingService
                 $supersededProforma,
             );
             $this->automaticKsefSubmissions->dispatchIfEligible($invoice);
+            InvoiceIssued::dispatch($invoice, $this->automationEventSource($operationContext));
 
             return $invoice->refresh()->load('items');
         }, 3);
@@ -284,6 +286,19 @@ class InvoiceIssuingService
         $event->created_at = $context->occurredAt;
         $event->updated_at = $context->occurredAt;
         $event->save();
+    }
+
+    private function automationEventSource(InvoiceOperationContext $context): string
+    {
+        $runId = filter_var(
+            $context->actorSnapshot['automation_run_id'] ?? null,
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1]],
+        );
+
+        return $runId === false
+            ? $context->source->value
+            : 'automation_run:'.$runId;
     }
 
     private function mapQueryException(Order $order, QueryException $exception): InvoiceDomainException

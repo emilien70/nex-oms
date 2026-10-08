@@ -189,6 +189,14 @@ class SaveAutomationRuleRequest extends FormRequest
                         );
                     }
                 }
+
+                if ($type === AutomationCatalog::ACTION_DECREASE_STOCK
+                    && $this->input('trigger') !== 'invoice.issued') {
+                    $validator->errors()->add(
+                        "actions.$index.type",
+                        'Zmniejszenie stanu magazynowego może reagować wyłącznie na wystawienie Faktury VAT.',
+                    );
+                }
             }
         }];
     }
@@ -267,6 +275,10 @@ class SaveAutomationRuleRequest extends FormRequest
                         ->all();
 
                     $action['configuration'] = $configuration;
+                }
+
+                if (($action['type'] ?? '') === AutomationCatalog::ACTION_DECREASE_STOCK) {
+                    $action['configuration'] = [];
                 }
 
                 return $action;

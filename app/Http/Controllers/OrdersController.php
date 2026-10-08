@@ -7,6 +7,7 @@ use App\Exceptions\OrderPaymentStateException;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
 use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
+use App\Models\OrderSavedView;
 use App\Models\OrderStatusSetting;
 use App\Rules\ValidCurrencyCode;
 use App\Services\OrderCurrencyService;
@@ -17,6 +18,7 @@ use App\Services\OrderTrackingLookupService;
 use App\Services\OrderTrashService;
 use App\Support\CountryCatalog;
 use App\Support\CurrencyCatalog;
+use App\Support\OrderListFilterState;
 use App\Support\PhoneNumberFormatter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -111,6 +113,11 @@ class OrdersController extends Controller
         $orders = $ordersQuery
             ->paginate($perPage)
             ->appends(array_merge($request->except(['page', 'per_page']), ['per_page' => $perPage]));
+        $savedViews = OrderSavedView::query()->ordered()->get();
+        $currentSavedState = OrderListFilterState::savedFromRequest($request);
+        $activeSavedViewId = $savedViews
+            ->first(fn (OrderSavedView $view): bool => ($view->filters ?? []) === $currentSavedState)
+            ?->id;
 
         return view('orders.index', [
             'orders' => $orders,
@@ -124,6 +131,8 @@ class OrdersController extends Controller
             'hasActiveFilters' => $this->hasActiveFilters($filters),
             'sourceOptions' => $this->sourceOptions(),
             'perPage' => $perPage,
+            'savedViews' => $savedViews,
+            'activeSavedViewId' => $activeSavedViewId,
             'perPageOptions' => $perPageOptions,
             'allMatchingOrderIds' => $allMatchingOrderIds,
             'starredMatchingOrderIds' => $starredMatchingOrderIds,
@@ -407,6 +416,7 @@ class OrdersController extends Controller
 
                 foreach ($order->items as $item) {
                     $itemData = $item->only([
+                        'product_id',
                         'external_id',
                         'product_name',
                         'sku',
@@ -541,36 +551,7 @@ class OrdersController extends Controller
 
     private function orderFilters(Request $request): array
     {
-        $keys = [
-            'number',
-            'store_number',
-            'ordered_from',
-            'ordered_to',
-            'status_from',
-            'status_to',
-            'source',
-            'customer',
-            'login',
-            'email',
-            'phone',
-            'city',
-            'postal_code',
-            'shipping_method',
-            'tracking_number',
-            'cash_on_delivery',
-            'payment',
-            'payment_method',
-            'total_from',
-            'total_to',
-            'delivery_cost_from',
-            'delivery_cost_to',
-            'product',
-            'notes',
-        ];
-
-        return collect($request->only($keys))
-            ->map(fn ($value) => is_string($value) ? trim($value) : $value)
-            ->all();
+        return OrderListFilterState::filtersFromRequest($request);
     }
 
     private function hasActiveFilters(array $filters): bool
@@ -709,7 +690,7 @@ class OrdersController extends Controller
             ->get();
 
         $order->load([
-            'items',
+            'items.product',
             'shipments' => fn ($query) => $query
                 ->whereNotNull('tracking_number')
                 ->orderByDesc('created_at'),

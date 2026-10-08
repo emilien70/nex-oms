@@ -498,6 +498,9 @@
 
                         return `<div class="automation-email-config"><div><label class="automation-block-label">SZABLON E-MAIL</label><select class="form-select form-select-sm action-config" data-key="email_template_id" required name="actions[${index}][configuration][email_template_id]">${unavailableOption}${optionsHtml(emailTemplates, selectedTemplateId)}</select><div class="form-text">Konto SMTP, tre&#347;&#263; i za&#322;&#261;czniki pochodz&#261; z wybranego szablonu.</div></div><div><label class="automation-block-label">DO</label><div class="automation-email-recipients">${customerChip}${emailChips}<input class="automation-email-recipient-input" data-email-recipient-input type="text" inputmode="email" maxlength="254" aria-label="Dodaj adres e-mail odbiorcy" placeholder="Wpisz adres i naci&#347;nij Enter">${addCustomer}</div><input type="hidden" name="actions[${index}][configuration][recipient_customer]" value="${customerSelected ? '1' : '0'}">${emailInputs}<div class="form-text">Ka&#380;dy odbiorca otrzyma osobn&#261; wiadomo&#347;&#263;. Mo&#380;esz doda&#263; maksymalnie 10 adres&oacute;w.</div></div></div>`;
                     }
+                    if (action.type === 'decrease_stock') {
+                        return `<div class="alert alert-info py-2 px-3 small mb-0">Stan zostanie pomniejszony tylko dla pozycji powi&#261;zanych z katalogiem produkt&oacute;w. Ka&#380;da pozycja zam&oacute;wienia mo&#380;e zosta&#263; odj&#281;ta tylko raz.</div>`;
+                    }
                     return `<label class="automation-block-label">CZAS W MINUTACH</label><input class="form-control form-control-sm action-config" data-key="minutes" type="number" min="1" max="86400" name="actions[${index}][configuration][minutes]" value="${escapeHtml(configuration.minutes || 1)}">`;
                 };
 
@@ -507,6 +510,7 @@
                     if (type === 'call_url') return {url: ''};
                     if (type === 'issue_invoice') return {invoice_series_id: Object.keys(invoiceSeries)[0] || ''};
                     if (type === 'send_email') return {email_template_id: Object.keys(emailTemplates)[0] || '', recipient_customer: true, recipient_emails: []};
+                    if (type === 'decrease_stock') return {};
                     return {minutes: 1};
                 };
 

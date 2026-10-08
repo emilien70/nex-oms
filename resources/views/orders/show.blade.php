@@ -718,6 +718,13 @@
             width: 100%;
         }
 
+        .products-table .product-id-column {
+            padding-left: 8px;
+            padding-right: 8px;
+            white-space: nowrap;
+            width: 1%;
+        }
+
         .products-table .product-metric {
             padding-left: 10px;
             padding-right: 10px;
@@ -740,13 +747,77 @@
             align-items: center;
             background: #f8fafc;
             border: 1px solid #e5e7eb;
-            border-radius: 10px;
+            border-radius: 3px;
             color: #64748b;
             display: inline-flex;
             font-size: 16px;
-            height: 38px;
+            height: 46px;
             justify-content: center;
-            width: 38px;
+            object-fit: contain;
+            width: 60px;
+        }
+
+        .product-thumbnail-wrap {
+            display: inline-flex;
+            outline: none;
+            position: relative;
+        }
+
+        .product-thumbnail-wrap:focus-visible .product-thumb {
+            box-shadow: 0 0 0 3px rgba(13, 110, 253, .2);
+        }
+
+        .product-image-preview {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
+            display: none;
+            height: 190px;
+            justify-content: center;
+            left: calc(100% + 10px);
+            padding: 10px;
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 240px;
+            z-index: 1080;
+        }
+
+        .product-image-preview::before {
+            background: #ffffff;
+            border-bottom: 1px solid #d1d5db;
+            border-left: 1px solid #d1d5db;
+            content: '';
+            height: 12px;
+            left: -7px;
+            position: absolute;
+            top: calc(50% - 6px);
+            transform: rotate(45deg);
+            width: 12px;
+        }
+
+        .product-image-preview img {
+            height: 100%;
+            object-fit: contain;
+            width: 100%;
+        }
+
+        .product-thumbnail-wrap:hover .product-image-preview,
+        .product-thumbnail-wrap:focus .product-image-preview {
+            display: flex;
+        }
+
+        .product-id-link {
+            color: #0d6efd;
+            font-weight: 500;
+            text-decoration: none;
+        }
+
+        .product-id-link:hover,
+        .product-id-link:focus-visible {
+            text-decoration: underline;
         }
 
         .product-name {
@@ -2318,7 +2389,11 @@
                 <table class="table nex-table products-table align-middle mb-0">
                     <thead>
                         <tr>
-                            <th style="width: 56px;"></th>
+                            <th class="text-center" style="width: 80px;">
+                                <i class="bi bi-camera" aria-hidden="true"></i>
+                                <span class="visually-hidden">Zdjęcie</span>
+                            </th>
+                            <th class="product-id-column">ID prod.</th>
                             <th class="product-main-column">Nazwa produktu</th>
                             <th class="product-metric">Ilo&#347;&#263;</th>
                             <th class="product-metric">Cena</th>

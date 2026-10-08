@@ -589,6 +589,59 @@
             white-space: nowrap;
         }
 
+        .orders-filters-toggle {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            color: #374151;
+            display: inline-flex;
+            font-size: 13px;
+            gap: 7px;
+            height: 44px;
+            padding: 4px 13px 4px 4px;
+            white-space: nowrap;
+        }
+
+        .orders-filters-toggle:hover,
+        .orders-filters-toggle:focus-visible {
+            background: #f8fafc;
+            border-color: #94a3b8;
+            color: #1f2937;
+        }
+
+        .orders-filters-toggle:focus-visible {
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, .18);
+            outline: 0;
+        }
+
+        .orders-filters-toggle.is-active {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+        }
+
+        .orders-filters-toggle-icon {
+            align-items: center;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 50%;
+            color: #334155;
+            display: inline-flex;
+            flex: 0 0 32px;
+            font-size: 18px;
+            height: 32px;
+            justify-content: center;
+            width: 32px;
+        }
+
+        .orders-filters-toggle-chevron {
+            font-size: 11px;
+            transition: transform .2s ease;
+        }
+
+        .orders-filters-toggle[aria-expanded="true"] .orders-filters-toggle-chevron {
+            transform: rotate(180deg);
+        }
         .orders-filters-panel {
             background: #ffffff;
             border: 1px solid #dfe4ea;
@@ -625,6 +678,210 @@
             margin-top: 14px;
         }
 
+        .orders-filter-action-button {
+            align-items: center;
+            border-radius: 999px;
+            display: inline-flex;
+            font-size: 13px;
+            gap: 7px;
+            height: 38px;
+            justify-content: center;
+            padding: 0 18px;
+            white-space: nowrap;
+        }
+
+        .saved-filters-toggle {
+            background: #ffffff;
+            border-color: #cbd5e1;
+            color: #374151;
+        }
+
+        .saved-filters-toggle.show,
+        .saved-filters-toggle:hover,
+        .saved-filters-toggle:focus,
+        .saved-filters-toggle.is-active {
+            background: #eaf4fc;
+            border-color: #bfdbfe;
+            color: #1f2937;
+        }
+
+        .saved-filters-toggle-icon {
+            align-items: center;
+            background: #e2e8f0;
+            border-radius: 50%;
+            display: inline-flex;
+            height: 24px;
+            justify-content: center;
+            width: 24px;
+        }
+
+        .saved-filters-menu {
+            border-color: #d7dde5;
+            box-shadow: 0 8px 22px rgba(15, 23, 42, .14);
+            min-width: 248px;
+            padding: 10px 8px;
+        }
+
+        .saved-filter-entry {
+            align-items: center;
+            display: flex;
+            gap: 4px;
+            min-height: 36px;
+        }
+
+        .saved-filter-entry-link {
+            border-radius: 4px;
+            color: #172033;
+            flex: 1 1 auto;
+            overflow: hidden;
+            padding: 8px 10px;
+            text-decoration: none;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .saved-filter-entry-link:hover,
+        .saved-filter-entry-link.is-active {
+            background: #eef6fc;
+            color: #172033;
+        }
+
+        .saved-filter-overwrite {
+            align-items: center;
+            background: transparent;
+            border: 0;
+            border-radius: 4px;
+            color: #172033;
+            display: inline-flex;
+            flex: 0 0 32px;
+            height: 32px;
+            justify-content: center;
+        }
+
+        .saved-filter-overwrite:hover {
+            background: #eef2f7;
+            color: #0b6fc2;
+        }
+
+        .saved-filter-menu-action {
+            align-items: center;
+            border: 0;
+            border-radius: 4px;
+            color: #172033;
+            display: flex;
+            gap: 12px;
+            padding: 9px 10px;
+            text-align: left;
+            width: 100%;
+        }
+
+        .saved-filter-menu-action:hover {
+            background: #eef6fc;
+        }
+
+        .saved-filter-menu-action i {
+            font-size: 16px;
+            width: 18px;
+        }
+
+        .saved-views-list {
+            border-bottom: 1px solid #d5dbe3;
+            margin-top: 44px;
+        }
+
+        .saved-views-list-heading {
+            border-bottom: 1px solid #d5dbe3;
+            color: #111827;
+            font-size: 11px;
+            padding: 0 46px 10px;
+            text-transform: uppercase;
+        }
+
+        .saved-view-manage-row {
+            align-items: center;
+            border-bottom: 1px solid #d5dbe3;
+            display: flex;
+            min-height: 41px;
+        }
+
+        .saved-view-manage-row:last-child {
+            border-bottom: 0;
+        }
+
+        .saved-view-manage-row.is-dragging {
+            background: #eef6fc;
+            opacity: .65;
+        }
+
+        .saved-view-drag-handle {
+            background: transparent;
+            border: 0;
+            color: #94a3b8;
+            cursor: grab;
+            flex: 0 0 34px;
+            padding: 8px;
+        }
+
+        .saved-view-drag-handle:active {
+            cursor: grabbing;
+        }
+
+        .saved-view-name {
+            color: #4b5563;
+            flex: 1 1 auto;
+            overflow: hidden;
+            padding: 0 4px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .saved-view-actions {
+            align-items: center;
+            display: flex;
+            flex: 0 0 auto;
+            gap: 10px;
+            padding-left: 12px;
+        }
+
+        .saved-view-icon-button {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #edf0f4;
+            border-radius: 50%;
+            color: #52606d;
+            display: inline-flex;
+            height: 34px;
+            justify-content: center;
+            width: 34px;
+        }
+
+        .saved-view-icon-button:hover {
+            background: #f8fafc;
+            border-color: #dbe2ea;
+        }
+
+        .saved-view-rename-form {
+            align-items: center;
+            display: none;
+            flex: 1 1 auto;
+            gap: 6px;
+        }
+
+        .saved-view-manage-row.is-editing .saved-view-name,
+        .saved-view-manage-row.is-editing .saved-view-actions {
+            display: none;
+        }
+
+        .saved-view-manage-row.is-editing .saved-view-rename-form {
+            display: flex;
+        }
+
+        .saved-views-empty {
+            color: #6b7280;
+            padding: 18px 10px;
+            text-align: center;
+        }
+
         .orders-list-toolbar {
             align-items: center;
             display: flex;
@@ -658,6 +915,16 @@
                 margin-left: -16px;
                 margin-right: -16px;
             }
+
+            .orders-filter-actions {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .orders-filter-action-button,
+            .orders-filter-actions .dropdown {
+                width: 100%;
+            }
         }
     </style>
 
@@ -688,7 +955,11 @@
                 </h1>
             </div>
             <div class="orders-top-actions">
-                <button class="btn {{ $hasActiveFilters ? 'btn-primary' : 'btn-outline-secondary' }} orders-add-button" type="button" data-bs-toggle="collapse" data-bs-target="#ordersFiltersPanel" aria-expanded="{{ $hasActiveFilters ? 'true' : 'false' }}" aria-controls="ordersFiltersPanel">Filtry</button>
+                <button class="orders-filters-toggle {{ $hasActiveFilters ? 'is-active' : '' }}" type="button" data-bs-toggle="collapse" data-bs-target="#ordersFiltersPanel" aria-expanded="{{ $hasActiveFilters ? 'true' : 'false' }}" aria-controls="ordersFiltersPanel">
+                    <span class="orders-filters-toggle-icon"><i class="bi bi-filter-left" aria-hidden="true"></i></span>
+                    <span>Filtrowanie zam&oacute;wie&#324;</span>
+                    <i class="bi bi-chevron-down orders-filters-toggle-chevron" aria-hidden="true"></i>
+                </button>
             </div>
         </div>
 
@@ -736,8 +1007,49 @@
                 </div>
 
                 <div class="orders-filter-actions">
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ route('orders.index', array_filter(['q' => $searchQuery, 'status' => $currentStatus, 'trash' => $showTrash ? 1 : null, 'per_page' => $perPage], fn ($value) => $value !== null && $value !== '')) }}">Wyczy&#347;&#263; filtry</a>
-                    <button class="btn btn-sm btn-primary" type="submit">Ustaw filtry</button>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary orders-filter-action-button saved-filters-toggle {{ $activeSavedViewId ? 'is-active' : '' }}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <span class="saved-filters-toggle-icon"><i class="bi bi-table" aria-hidden="true"></i></span>
+                            <span>Zapisane filtry</span>
+                            <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                        </button>
+                        <div class="dropdown-menu saved-filters-menu dropdown-menu-end">
+                            <div data-saved-filter-entries>
+                                @forelse ($savedViews as $savedView)
+                                    <div class="saved-filter-entry" data-saved-filter-entry data-view-id="{{ $savedView->id }}">
+                                        <a
+                                            class="saved-filter-entry-link {{ $activeSavedViewId === $savedView->id ? 'is-active' : '' }}"
+                                            href="{{ route('orders.index', array_merge($savedView->filters ?? [], ['per_page' => $perPage])) }}"
+                                            title="{{ $savedView->name }}"
+                                        >{{ $savedView->name }}</a>
+                                        <button
+                                            class="saved-filter-overwrite"
+                                            type="button"
+                                            data-overwrite-saved-view
+                                            data-url="{{ route('orders.saved-views.update', $savedView) }}"
+                                            data-view-name="{{ $savedView->name }}"
+                                            title="Zapisz aktualne filtry w tym widoku"
+                                            aria-label="Zapisz aktualne filtry w widoku {{ $savedView->name }}"
+                                        ><i class="bi bi-floppy" aria-hidden="true"></i></button>
+                                    </div>
+                                @empty
+                                    <div class="saved-views-empty">Brak zapisanych widok&oacute;w.</div>
+                                @endforelse
+                            </div>
+                            <hr class="dropdown-divider mx-2">
+                            <button class="saved-filter-menu-action" type="button" data-bs-toggle="modal" data-bs-target="#createSavedViewModal">
+                                <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                                <span>Stw&oacute;rz nowy widok</span>
+                                <i class="bi bi-question-circle ms-auto" aria-hidden="true" title="Zapisuje aktualnie wprowadzone kryteria filtrowania."></i>
+                            </button>
+                            <button class="saved-filter-menu-action" type="button" data-bs-toggle="modal" data-bs-target="#manageSavedViewsModal">
+                                <i class="bi bi-table" aria-hidden="true"></i>
+                                <span>Zarz&#261;dzanie widokami</span>
+                            </button>
+                        </div>
+                    </div>
+                    <a class="btn btn-outline-secondary orders-filter-action-button" href="{{ route('orders.index', array_filter(['q' => $searchQuery, 'status' => $currentStatus, 'trash' => $showTrash ? 1 : null, 'per_page' => $perPage], fn ($value) => $value !== null && $value !== '')) }}">Wyczy&#347;&#263; filtry</a>
+                    <button class="btn btn-primary orders-filter-action-button" type="submit">Ustaw filtry</button>
                 </div>
             </form>
         </div>
@@ -947,6 +1259,77 @@
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <div class="modal fade" id="createSavedViewModal" tabindex="-1" aria-labelledby="createSavedViewModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <form class="modal-content" action="{{ route('orders.saved-views.store') }}" method="POST" data-saved-view-create-form>
+                    @csrf
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-6" id="createSavedViewModalLabel">Stw&oacute;rz nowy widok</h2>
+                        <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label" for="savedViewName">Nazwa widoku</label>
+                        <input id="savedViewName" class="form-control" type="text" name="name" maxlength="100" required autocomplete="off">
+                        <div class="form-text">Zapisane zostan&#261; aktualnie wprowadzone kryteria filtrowania.</div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-primary" type="submit">Zapisz</button>
+                        <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Zamknij</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="modal fade" id="manageSavedViewsModal" tabindex="-1" aria-labelledby="manageSavedViewsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header border-0">
+                        <h2 class="modal-title fs-6" id="manageSavedViewsModalLabel">Zarz&#261;dzaj</h2>
+                        <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                    </div>
+                    <div class="modal-body px-4 pb-4">
+                        <div class="saved-views-list">
+                            <div class="saved-views-list-heading">Nazwa</div>
+                            <div data-saved-views-sortable>
+                                @forelse ($savedViews as $savedView)
+                                    <div class="saved-view-manage-row" data-saved-view-row data-view-id="{{ $savedView->id }}">
+                                        <button class="saved-view-drag-handle" type="button" draggable="true" title="Przeci&#261;gnij, aby zmieni&#263; kolejno&#347;&#263;" aria-label="Zmie&#324; kolejno&#347;&#263; widoku {{ $savedView->name }}">
+                                            <i class="bi bi-grip-vertical" aria-hidden="true"></i>
+                                        </button>
+                                        <span class="saved-view-name">{{ $savedView->name }}</span>
+                                        <div class="saved-view-actions">
+                                            <button class="saved-view-icon-button" type="button" data-edit-saved-view title="Edytuj" aria-label="Edytuj widok {{ $savedView->name }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+                                            <button
+                                                class="saved-view-icon-button"
+                                                type="button"
+                                                data-delete-saved-view
+                                                data-url="{{ route('orders.saved-views.destroy', $savedView) }}"
+                                                data-view-name="{{ $savedView->name }}"
+                                                title="Usu&#324;"
+                                                aria-label="Usu&#324; widok {{ $savedView->name }}"
+                                            ><i class="bi bi-trash" aria-hidden="true"></i></button>
+                                        </div>
+                                        <form class="saved-view-rename-form" action="{{ route('orders.saved-views.update', $savedView) }}" method="POST" data-saved-view-rename-form>
+                                            @csrf
+                                            @method('PATCH')
+                                            <input class="form-control form-control-sm" type="text" name="name" value="{{ $savedView->name }}" maxlength="100" required aria-label="Nowa nazwa widoku">
+                                            <button class="saved-view-icon-button" type="submit" title="Zapisz" aria-label="Zapisz nazw&#281;"><i class="bi bi-check-lg" aria-hidden="true"></i></button>
+                                            <button class="saved-view-icon-button" type="button" data-cancel-saved-view-edit title="Anuluj" aria-label="Anuluj edycj&#281;"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+                                        </form>
+                                    </div>
+                                @empty
+                                    <div class="saved-views-empty">Brak zapisanych widok&oacute;w.</div>
+                                @endforelse
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button class="btn btn-outline-secondary rounded-pill px-4" type="button" data-bs-dismiss="modal">Zamknij</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1276,6 +1659,7 @@
             readStoredSelection();
             restoreStoredSelection();
             updateSelectAllState();
+            initializeSavedViews();
             };
 
             const ordersIndexUrl = new URL(@json(route('orders.index')), window.location.origin);
@@ -1323,6 +1707,287 @@
                     : [];
 
                 return validationErrors.join('\n') || payload.message || 'Nie uda\u0142o si\u0119 wykona\u0107 operacji.';
+            };
+
+            const savedViewsOrderUrl = @json(route('orders.saved-views.order'));
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+            const appendCurrentFilterState = (formData) => {
+                const filterForm = currentOrdersPage()?.querySelector('.orders-filters-panel');
+
+                if (!filterForm) {
+                    return;
+                }
+
+                new FormData(filterForm).forEach((value, key) => {
+                    if (['per_page', 'trash'].includes(key) || typeof value !== 'string' || value.trim() === '') {
+                        return;
+                    }
+
+                    formData.append(`filters[${key}]`, value.trim());
+                });
+            };
+
+            const applyUrlWithCurrentPageSize = (value) => {
+                const url = new URL(value, window.location.href);
+                const perPage = currentOrdersPage()?.querySelector('.orders-filters-panel [name="per_page"]')?.value;
+
+                if (perPage) {
+                    url.searchParams.set('per_page', perPage);
+                }
+
+                return url.toString();
+            };
+
+            const requestSavedViewMutation = async (url, formData) => {
+                currentOrdersPage()?.classList.add('is-loading');
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            Accept: 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-TOKEN': csrfToken,
+                        },
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(await responseErrorMessage(response));
+                    }
+
+                    return await response.json();
+                } finally {
+                    currentOrdersPage()?.classList.remove('is-loading');
+                }
+            };
+
+            const initializeSavedViews = () => {
+                const ordersPage = currentOrdersPage();
+
+                if (!ordersPage || ordersPage.dataset.savedViewsInitialized === '1') {
+                    return;
+                }
+
+                ordersPage.dataset.savedViewsInitialized = '1';
+
+                const createForm = ordersPage.querySelector('[data-saved-view-create-form]');
+
+                createForm?.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+                    const submitter = event.submitter;
+                    const formData = new FormData(createForm);
+                    appendCurrentFilterState(formData);
+                    submitter?.setAttribute('disabled', 'disabled');
+
+                    try {
+                        const payload = await requestSavedViewMutation(createForm.action, formData);
+                        bootstrap.Modal.getInstance(ordersPage.querySelector('#createSavedViewModal'))?.hide();
+                        createForm.reset();
+                        await loadOrdersPage(applyUrlWithCurrentPageSize(payload.view.apply_url), { pushHistory: true });
+                    } catch (error) {
+                        showRequestError(error.message);
+                    } finally {
+                        submitter?.removeAttribute('disabled');
+                    }
+                });
+
+                ordersPage.querySelectorAll('[data-overwrite-saved-view]').forEach((button) => {
+                    button.addEventListener('click', async () => {
+                        if (!window.confirm(`Zastąpić ustawienia widoku "${button.dataset.viewName}" aktualnymi filtrami?`)) {
+                            return;
+                        }
+
+                        const formData = new FormData();
+                        formData.append('_method', 'PATCH');
+                        formData.append('replace_filters', '1');
+                        appendCurrentFilterState(formData);
+                        button.disabled = true;
+
+                        try {
+                            const payload = await requestSavedViewMutation(button.dataset.url, formData);
+                            await loadOrdersPage(applyUrlWithCurrentPageSize(payload.view.apply_url), { pushHistory: true });
+                        } catch (error) {
+                            showRequestError(error.message);
+                        } finally {
+                            button.disabled = false;
+                        }
+                    });
+                });
+
+                ordersPage.querySelectorAll('[data-edit-saved-view]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        const row = button.closest('[data-saved-view-row]');
+
+                        if (!row) {
+                            return;
+                        }
+
+                        row.classList.add('is-editing');
+                        row.querySelector('[name="name"]')?.focus();
+                    });
+                });
+
+                ordersPage.querySelectorAll('[data-cancel-saved-view-edit]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        const row = button.closest('[data-saved-view-row]');
+
+                        if (!row) {
+                            return;
+                        }
+
+                        const name = row.querySelector('.saved-view-name')?.textContent?.trim() || '';
+                        const input = row.querySelector('[name="name"]');
+
+                        if (input) {
+                            input.value = name;
+                        }
+
+                        row.classList.remove('is-editing');
+                    });
+                });
+
+                ordersPage.querySelectorAll('[data-saved-view-rename-form]').forEach((form) => {
+                    form.addEventListener('submit', async (event) => {
+                        event.preventDefault();
+                        const submitter = event.submitter;
+                        const row = form.closest('[data-saved-view-row]');
+                        const formData = new FormData(form);
+                        submitter?.setAttribute('disabled', 'disabled');
+
+                        try {
+                            const payload = await requestSavedViewMutation(form.action, formData);
+                            const name = payload.view.name;
+                            const dropdownEntry = ordersPage.querySelector(`[data-saved-filter-entry][data-view-id="${payload.view.id}"]`);
+                            const dropdownLink = dropdownEntry?.querySelector('.saved-filter-entry-link');
+                            const overwriteButton = dropdownEntry?.querySelector('[data-overwrite-saved-view]');
+
+                            if (row) {
+                                row.querySelector('.saved-view-name').textContent = name;
+                                row.querySelector('[name="name"]').value = name;
+                                row.classList.remove('is-editing');
+                            }
+
+                            if (dropdownLink) {
+                                dropdownLink.textContent = name;
+                                dropdownLink.title = name;
+                            }
+
+                            if (overwriteButton) {
+                                overwriteButton.dataset.viewName = name;
+                            }
+                        } catch (error) {
+                            showRequestError(error.message);
+                        } finally {
+                            submitter?.removeAttribute('disabled');
+                        }
+                    });
+                });
+
+                ordersPage.querySelectorAll('[data-delete-saved-view]').forEach((button) => {
+                    button.addEventListener('click', async () => {
+                        if (!window.confirm(`Usunąć zapisany widok "${button.dataset.viewName}"?`)) {
+                            return;
+                        }
+
+                        const formData = new FormData();
+                        formData.append('_method', 'DELETE');
+                        button.disabled = true;
+
+                        try {
+                            await requestSavedViewMutation(button.dataset.url, formData);
+                            const row = button.closest('[data-saved-view-row]');
+                            const viewId = row?.dataset.viewId;
+                            row?.remove();
+                            ordersPage.querySelector(`[data-saved-filter-entry][data-view-id="${viewId}"]`)?.remove();
+
+                            if (!ordersPage.querySelector('[data-saved-view-row]')) {
+                                ordersPage.querySelector('[data-saved-views-sortable]').innerHTML = '<div class="saved-views-empty">Brak zapisanych widoków.</div>';
+                                ordersPage.querySelector('[data-saved-filter-entries]').innerHTML = '<div class="saved-views-empty">Brak zapisanych widoków.</div>';
+                            }
+                        } catch (error) {
+                            showRequestError(error.message);
+                            button.disabled = false;
+                        }
+                    });
+                });
+
+                const sortable = ordersPage.querySelector('[data-saved-views-sortable]');
+
+                if (!sortable) {
+                    return;
+                }
+
+                let draggedRow = null;
+                let originalOrder = '';
+                const viewOrder = () => Array.from(sortable.querySelectorAll('[data-saved-view-row]'))
+                    .map((row) => row.dataset.viewId);
+                const rowAfterPointer = (y) => Array.from(sortable.querySelectorAll('[data-saved-view-row]:not(.is-dragging)'))
+                    .reduce((closest, row) => {
+                        const box = row.getBoundingClientRect();
+                        const offset = y - box.top - box.height / 2;
+
+                        return offset < 0 && offset > closest.offset ? { offset, row } : closest;
+                    }, { offset: Number.NEGATIVE_INFINITY, row: null }).row;
+
+                const saveViewOrder = async () => {
+                    const ids = viewOrder();
+                    const formData = new FormData();
+                    formData.append('_method', 'PATCH');
+                    ids.forEach((id) => formData.append('views[]', id));
+
+                    try {
+                        await requestSavedViewMutation(savedViewsOrderUrl, formData);
+                        const entries = ordersPage.querySelector('[data-saved-filter-entries]');
+
+                        ids.forEach((id) => {
+                            const entry = entries?.querySelector(`[data-saved-filter-entry][data-view-id="${id}"]`);
+
+                            if (entry) {
+                                entries.appendChild(entry);
+                            }
+                        });
+                    } catch (error) {
+                        showRequestError(error.message);
+                        await loadOrdersPage(window.location.href, { pushHistory: false });
+                    }
+                };
+
+                sortable.querySelectorAll('.saved-view-drag-handle').forEach((handle) => {
+                    handle.addEventListener('dragstart', (event) => {
+                        draggedRow = handle.closest('[data-saved-view-row]');
+                        originalOrder = viewOrder().join('|');
+                        draggedRow?.classList.add('is-dragging');
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', draggedRow?.dataset.viewId || '');
+                    });
+
+                    handle.addEventListener('dragend', () => {
+                        draggedRow?.classList.remove('is-dragging');
+
+                        if (draggedRow && viewOrder().join('|') !== originalOrder) {
+                            saveViewOrder();
+                        }
+
+                        draggedRow = null;
+                    });
+                });
+
+                sortable.addEventListener('dragover', (event) => {
+                    if (!draggedRow) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    const afterRow = rowAfterPointer(event.clientY);
+
+                    if (afterRow) {
+                        sortable.insertBefore(draggedRow, afterRow);
+                    } else {
+                        sortable.appendChild(draggedRow);
+                    }
+                });
             };
 
             const loadOrdersPage = async (url, { pushHistory = true } = {}) => {
