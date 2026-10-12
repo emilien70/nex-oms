@@ -33,9 +33,12 @@
                     <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
                     <span>{{ $issuedInvoice->number }}</span>
                 </a>
-                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print" href="{{ route('invoices.pdf', $issuedInvoice) }}" target="_blank" rel="noopener" title="Drukuj Fakturę VAT" aria-label="Drukuj Fakturę VAT">
-                    <i class="bi bi-printer" aria-hidden="true"></i>
-                </a>
+                @include('integrations.nex-printer._print-dropdown', [
+                    'invoice' => $issuedInvoice,
+                    'printButtonClass' => 'btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print',
+                    'printIconOnly' => true,
+                    'printMenuAlign' => '',
+                ])
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.edit', ['invoice' => $issuedInvoice, 'return_to' => 'order']) }}" title="Edytuj Fakturę VAT" aria-label="Edytuj Fakturę VAT">
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                 </a>
@@ -190,9 +193,12 @@
                     <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
                     <span>{{ $finalizedCorrection->number }}</span>
                 </a>
-                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print" href="{{ route('invoices.pdf', $finalizedCorrection) }}" target="_blank" rel="noopener" title="Drukuj Korektę" aria-label="Drukuj Korektę">
-                    <i class="bi bi-printer" aria-hidden="true"></i>
-                </a>
+                @include('integrations.nex-printer._print-dropdown', [
+                    'invoice' => $finalizedCorrection,
+                    'printButtonClass' => 'btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print',
+                    'printIconOnly' => true,
+                    'printMenuAlign' => '',
+                ])
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.corrections.edit', ['correction' => $finalizedCorrection, 'return_to' => 'order']) }}" title="Otwórz zamkniętą Korektę" aria-label="Otwórz zamkniętą Korektę">
                     <i class="bi bi-eye" aria-hidden="true"></i>
                 </a>
@@ -207,9 +213,12 @@
                     <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
                     <span>{{ $issuedCorrection->number }}</span>
                 </a>
-                <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print" href="{{ route('invoices.pdf', $issuedCorrection) }}" target="_blank" rel="noopener" title="Drukuj Korekt&#281;" aria-label="Drukuj Korekt&#281;">
-                    <i class="bi bi-printer" aria-hidden="true"></i>
-                </a>
+                @include('integrations.nex-printer._print-dropdown', [
+                    'invoice' => $issuedCorrection,
+                    'printButtonClass' => 'btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-print',
+                    'printIconOnly' => true,
+                    'printMenuAlign' => '',
+                ])
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.corrections.edit', ['correction' => $issuedCorrection, 'return_to' => 'order']) }}" title="Edytuj Korekt&#281;" aria-label="Edytuj Korekt&#281;">
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                 </a>

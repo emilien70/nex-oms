@@ -51,6 +51,7 @@ class OrderInvoiceAjaxTest extends TestCase
         );
         $this->assertStringNotContainsString('bi-paperclip', $response->json('html'));
         $this->assertStringContainsString(route('invoices.pdf', $response->json('document.id')), $response->json('html'));
+        $this->assertStringContainsString(route('invoices.nex-printer.store', $response->json('document.id')), $response->json('html'));
         $this->assertStringNotContainsString('WYSTAW FAKTUR', $response->json('html'));
         $this->assertStringNotContainsString('PRO FORMA', $response->json('html'));
         $this->assertDatabaseHas('invoices', [

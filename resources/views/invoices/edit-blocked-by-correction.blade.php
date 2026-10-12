@@ -90,8 +90,12 @@
         <div class="invoice-edit-blocked-header">
             <h1 class="invoice-edit-blocked-title">Faktura VAT {{ $invoice->number }}</h1>
             <div class="btn-group" role="group" aria-label="Akcje Faktury VAT">
-                <a class="btn btn-outline-secondary" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener">
-                    <i class="bi bi-printer me-1" aria-hidden="true"></i>Drukuj
+                @include('integrations.nex-printer._print-dropdown', [
+                    'invoice' => $invoice,
+                    'printButtonClass' => 'btn btn-outline-secondary',
+                ])
+                <a class="btn btn-outline-secondary" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Otwórz dokument PDF">
+                    <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>PDF
                 </a>
                 <a class="btn btn-outline-secondary" href="{{ $backUrl }}" data-invoice-back-button>
                     <i class="bi bi-reply me-1" aria-hidden="true"></i>{{ $backToInvoiceList ? 'Powrót' : 'Powrót do zamówienia' }}

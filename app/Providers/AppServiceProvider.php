@@ -3,11 +3,13 @@
 namespace App\Providers;
 
 use App\Contracts\OrderEmailTransport;
+use App\Events\OrderPaymentRegistered;
 use App\Events\OrderStatusChanged;
 use App\Models\Order;
 use App\Models\OrderStatusSetting;
 use App\Services\SmtpOrderEmailTransport;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
@@ -18,6 +20,7 @@ use Modules\Integrations\AllegroShipping\Drivers\AllegroShippingDriver;
 use Modules\Integrations\DPD\Drivers\DpdDriver;
 use Modules\Integrations\InPost\Drivers\InPostCourierDriver;
 use Modules\Integrations\InPost\Drivers\InPostLockerDriver;
+use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
 use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Shipments\Events\ShipmentCreated;
@@ -70,7 +73,23 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute($perMinute)->by('allegro-shipping-api');
         });
 
+        RateLimiter::for('nex-printer-pairing', static function (Request $request): Limit {
+            return Limit::perMinute(10)->by((string) $request->ip());
+        });
+
+        RateLimiter::for('nex-printer-agent', static function (Request $request): Limit {
+            return Limit::perMinute(120)->by(hash(
+                'sha256',
+                (string) ($request->bearerToken() ?? $request->ip()),
+            ));
+        });
+
+        RateLimiter::for('paynow-webhook', static function (Request $request): Limit {
+            return Limit::perMinute(120)->by((string) $request->ip());
+        });
+
         Shipment::observe(ShipmentObserver::class);
+        Event::listen(OrderPaymentRegistered::class, DispatchAutomationEvent::class);
         Event::listen(OrderStatusChanged::class, DispatchAutomationEvent::class);
         Event::listen(InvoiceIssued::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentCreated::class, DispatchAutomationEvent::class);
@@ -103,6 +122,22 @@ class AppServiceProvider extends ServiceProvider
                 'layoutOrderStatusCounts' => $statusCounts,
                 'layoutTrashOrdersCount' => $trashCount,
             ]);
+        });
+
+        View::composer([
+            'orders.partials.sales-document-actions',
+            'orders.partials.shipment-row',
+            'invoices.index',
+            'invoices.edit',
+            'invoices.edit-blocked-by-correction',
+            'invoices.corrections.create',
+        ], function ($view): void {
+            $view->with(
+                'nexPrinterChoices',
+                Schema::hasTable('nex_printers')
+                    ? app(NexPrinterSelectionService::class)->availableForPdf()
+                    : collect(),
+            );
         });
     }
 }

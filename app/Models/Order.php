@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Modules\Automation\Models\AutomationRun;
+use Modules\Integrations\PayNow\Models\PayNowPayment;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Shipments\Models\Shipment;
@@ -213,6 +214,11 @@ class Order extends Model
     public function emailMessages(): HasMany
     {
         return $this->hasMany(OrderEmailMessage::class);
+    }
+
+    public function payNowPayments(): HasMany
+    {
+        return $this->hasMany(PayNowPayment::class);
     }
 
     public function invoices(): HasMany

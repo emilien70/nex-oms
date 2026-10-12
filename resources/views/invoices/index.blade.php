@@ -773,7 +773,15 @@
                                 @endif
                                 <td>
                                     <div class="invoice-action-group">
-                                        <a class="invoice-icon-button" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Drukuj {{ $documentName }}" aria-label="Drukuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
+                                        @if ($invoice->isInvoice() || $invoice->isCorrection())
+                                            @include('integrations.nex-printer._print-dropdown', [
+                                                'invoice' => $invoice,
+                                                'printButtonClass' => 'invoice-icon-button',
+                                                'printIconOnly' => true,
+                                            ])
+                                        @else
+                                            <a class="invoice-icon-button" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" title="Drukuj {{ $documentName }}" aria-label="Drukuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
+                                        @endif
                                         @if ($documentEditRouteName !== null)
                                             <a class="invoice-icon-button" href="{{ route($documentEditRouteName, $documentEditRouteParameters) }}" title="Edytuj {{ $documentName }}" aria-label="Edytuj {{ $documentName }} {{ $invoice->number }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
                                         @endif

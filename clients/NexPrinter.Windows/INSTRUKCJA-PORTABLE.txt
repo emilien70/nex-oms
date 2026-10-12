@@ -1,0 +1,20 @@
+NEX Printer - wersja przenosna
+
+1. Rozpakuj cala zawartosc archiwum ZIP.
+2. Uruchom plik "NEX Printer\NexPrinter.exe".
+3. Polacz program z NEX-OMS kodem wygenerowanym w Integracje > NEX Printer.
+
+Wymagania:
+- Windows 10/11 x64,
+- Microsoft Edge WebView2 Runtime,
+- HTTPS dla zewnetrznego serwera NEX-OMS; HTTP jest dozwolone tylko lokalnie.
+
+Dane programu sa przechowywane w:
+%LOCALAPPDATA%\NEX Printer
+
+Aktualizacja wersji przenosnej:
+1. Zamknij NEX Printer z menu ikony w zasobniku systemowym.
+2. Zastap caly katalog "NEX Printer" nowa wersja.
+3. Uruchom NexPrinter.exe. Polaczenie, ustawienia i historia pozostana zachowane.
+
+Ta wersja nie dodaje jeszcze autostartu. Autostart zostanie wlaczony przez przyszly instalator.

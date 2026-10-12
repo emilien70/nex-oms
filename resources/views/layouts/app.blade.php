@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'NEX-OMS')</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -419,6 +420,32 @@
         .nav-integrations-icon {
             font-size: 20px;
             font-weight: 400;
+        }
+
+        .nex-printer-print-dropdown {
+            display: inline-flex;
+            position: relative;
+        }
+
+        .nex-printer-print-menu {
+            max-height: min(320px, 60vh);
+            min-width: 280px;
+            overflow-y: auto;
+            padding: 4px;
+            z-index: 1085;
+        }
+
+        .nex-printer-print-menu .dropdown-item,
+        .nex-printer-print-menu .dropdown-item-text {
+            font-size: 13px;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+            padding: 8px 10px;
+            white-space: normal;
+        }
+
+        .nex-printer-tooltip {
+            opacity: .7 !important;
         }
 
         .nav-settings-icon {
@@ -1273,6 +1300,7 @@
                     <div class="nav-flyout">
                         <div class="nav-flyout-title">Integracje</div>
                         <a class="nav-flyout-link {{ request()->routeIs('integrations.index') ? 'active' : '' }}" href="{{ route('integrations.index') }}">Lista integracji</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('integrations.nex-printer.*') ? 'active' : '' }}" href="{{ route('integrations.nex-printer.index') }}">NEX Printer</a>
                         <a class="nav-flyout-link {{ request()->routeIs('integrations.couriers.index') ? 'active' : '' }}" href="{{ route('integrations.couriers.index') }}">Kurierzy</a>
                     </div>
                 </div>
@@ -1679,6 +1707,145 @@
     </script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+            const initializePrinterControls = (root = document) => {
+                if (typeof bootstrap === 'undefined') {
+                    return;
+                }
+
+                const elements = root.matches?.('[data-nex-printer-tooltip]')
+                    ? [root]
+                    : Array.from(root.querySelectorAll?.('[data-nex-printer-tooltip]') || []);
+
+                elements.forEach((element) => {
+                    bootstrap.Tooltip.getOrCreateInstance(element, {
+                        container: 'body',
+                        customClass: 'nex-printer-tooltip',
+                        title: element.dataset.bsTitle,
+                    });
+                });
+            };
+
+            const disposePrinterControls = (root) => {
+                if (typeof bootstrap === 'undefined') {
+                    return;
+                }
+
+                root.querySelectorAll?.('[data-nex-printer-tooltip]').forEach((element) => {
+                    bootstrap.Tooltip.getInstance(element)?.dispose();
+                });
+            };
+
+            const createIdempotencyKey = () => {
+                if (typeof window.crypto?.randomUUID === 'function') {
+                    return window.crypto.randomUUID();
+                }
+
+                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+                    const random = Math.floor(Math.random() * 16);
+                    const value = character === 'x' ? random : ((random & 3) | 8);
+
+                    return value.toString(16);
+                });
+            };
+
+            window.nexOmsInitializePrinterControls = initializePrinterControls;
+            window.nexOmsDisposePrinterControls = disposePrinterControls;
+            initializePrinterControls();
+
+            document.addEventListener('click', (event) => {
+                document.querySelectorAll('[data-nex-printer-dropdown]').forEach((dropdown) => {
+                    if (dropdown.contains(event.target)) {
+                        return;
+                    }
+
+                    const toggle = dropdown.querySelector('[data-nex-printer-toggle]');
+                    if (toggle?.getAttribute('aria-expanded') === 'true') {
+                        bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
+                    }
+                });
+            });
+
+            document.addEventListener('click', async (event) => {
+                const option = event.target.closest('[data-nex-printer-option]');
+                if (!option) {
+                    return;
+                }
+
+                event.preventDefault();
+                const dropdown = option.closest('[data-nex-printer-dropdown]');
+                const toggle = dropdown?.querySelector('[data-nex-printer-toggle]');
+
+                if (!dropdown || !toggle || dropdown.dataset.busy === '1') {
+                    return;
+                }
+
+                bootstrap.Tooltip.getInstance(dropdown)?.hide();
+                bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
+                dropdown.dataset.busy = '1';
+                dropdown.setAttribute('aria-busy', 'true');
+                toggle.disabled = true;
+                dropdown.querySelectorAll('[data-nex-printer-option]').forEach((item) => {
+                    item.disabled = true;
+                });
+
+                try {
+                    const response = await fetch(dropdown.dataset.printUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: JSON.stringify({
+                            printer_id: Number(option.dataset.printerId),
+                            idempotency_key: dropdown.dataset.idempotencyKey,
+                        }),
+                    });
+                    const payload = await response.json().catch(() => ({}));
+
+                    if (!response.ok) {
+                        throw new Error(payload.message || 'Nie udało się dodać zlecenia wydruku.');
+                    }
+
+                    dropdown.dataset.idempotencyKey = createIdempotencyKey();
+                    window.nexOmsShowActivity?.({
+                        tone: 'success',
+                        title: 'NEX Printer',
+                        message: payload.message || 'Zlecenie wydruku zostało dodane.',
+                        orderLabel: payload.order?.label || '',
+                        orderUrl: payload.order?.url || '#',
+                        statusLabel: 'Dodano do kolejki',
+                    });
+                } catch (error) {
+                    const message = error.message || 'Nie udało się dodać zlecenia wydruku.';
+                    window.nexOmsShowActivity?.({
+                        tone: 'error',
+                        title: 'NEX Printer',
+                        message,
+                        orderLabel: dropdown.dataset.orderLabel || '',
+                        orderUrl: dropdown.dataset.orderUrl || '#',
+                        statusLabel: 'Błąd',
+                    });
+
+                    if (typeof window.nexOmsShowActivity !== 'function') {
+                        window.nexOmsShowError?.(message);
+                    }
+                } finally {
+                    delete dropdown.dataset.busy;
+                    dropdown.removeAttribute('aria-busy');
+                    toggle.disabled = false;
+                    dropdown.querySelectorAll('[data-nex-printer-option]').forEach((item) => {
+                        item.disabled = false;
+                    });
+                }
+            });
+        });
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
             const center = document.querySelector('[data-automation-activity-center]');
 
             if (!center) {
@@ -1959,14 +2126,14 @@
                     const payload = await response.json();
                     const incoming = Array.isArray(payload.activities) ? payload.activities : [];
                     const incomingIds = new Set(incoming.map((activity) => activity.id));
-                    const retainedErrors = activities.filter((activity) => (
-                        activity.tone === 'error'
+                    const retainedMessages = activities.filter((activity) => (
+                        (activity.is_local || activity.tone === 'error')
                         && !dismissed.has(activityToken(activity))
                         && !incomingIds.has(activity.id)
                     ));
 
                     notifyFinishedAutomations(incoming);
-                    activities = [...incoming, ...retainedErrors];
+                    activities = [...incoming, ...retainedMessages];
                     render();
                 } catch (error) {
                     // A temporary polling error must not interrupt work in the OMS.
@@ -1979,6 +2146,33 @@
             const wakeActivityPolling = () => {
                 fastPollingUntil = Date.now() + 15000;
                 scheduleRefresh(0);
+            };
+
+            window.nexOmsShowActivity = (detail = {}) => {
+                const tone = ['success', 'error', 'waiting'].includes(detail.tone)
+                    ? detail.tone
+                    : 'waiting';
+                const timestamp = new Date().toISOString();
+                const activity = {
+                    id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                    status: tone === 'success' ? 'completed' : (tone === 'error' ? 'failed' : 'waiting'),
+                    status_label: detail.statusLabel || '',
+                    tone,
+                    title: detail.title || 'Informacja',
+                    message: detail.message || '',
+                    details: detail.details || '',
+                    order_label: detail.orderLabel || '',
+                    order_url: detail.orderUrl || '#',
+                    updated_at: timestamp,
+                    is_terminal: true,
+                    can_dismiss: true,
+                    is_local: true,
+                    progress: null,
+                    steps: [],
+                };
+
+                activities = [activity, ...activities];
+                render();
             };
 
             document.addEventListener('nexoms:automation-wake', wakeActivityPolling);

@@ -50,6 +50,7 @@ class InvoiceListTest extends TestCase
             ->assertSee($invoice->number)
             ->assertDontSee($proforma->number)
             ->assertSee(route('invoices.pdf', $invoice), false)
+            ->assertSee(route('invoices.nex-printer.store', $invoice), false)
             ->assertSee(route('invoices.edit', [
                 'invoice' => $invoice,
                 'return_to' => 'invoices',

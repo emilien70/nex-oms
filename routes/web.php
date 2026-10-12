@@ -12,8 +12,8 @@ use App\Http\Controllers\OrderCatalogProductController;
 use App\Http\Controllers\OrderEmailMessageController;
 use App\Http\Controllers\OrderMetaController;
 use App\Http\Controllers\OrderProductController;
-use App\Http\Controllers\OrderScanController;
 use App\Http\Controllers\OrderSavedViewController;
+use App\Http\Controllers\OrderScanController;
 use App\Http\Controllers\OrdersController;
 use App\Http\Controllers\OrderSectionController;
 use App\Http\Controllers\OrderStatusController;
@@ -24,6 +24,15 @@ use App\Models\Order;
 use Illuminate\Support\Facades\Route;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterClientController;
+use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterInvoiceController;
+use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterSettingsController;
+use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterShipmentController;
+use Modules\Integrations\NexPrinter\Http\Middleware\AuthenticateNexPrinterAgent;
+use Modules\Integrations\PayNow\Http\Controllers\PayNowConnectionTestController;
+use Modules\Integrations\PayNow\Http\Controllers\PayNowPaymentLinkController;
+use Modules\Integrations\PayNow\Http\Controllers\PayNowSettingsController;
+use Modules\Integrations\PayNow\Http\Controllers\PayNowWebhookController;
 use Modules\Invoices\Http\Controllers\CorrectionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkDeletionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkPdfController;
@@ -76,8 +85,21 @@ Route::get('/', function () {
 });
 
 Route::post('/api/gus/company-by-nip', [GusCompanyController::class, 'show'])->name('gus.company-by-nip');
+Route::post('/api/paynow/v1/notifications', PayNowWebhookController::class)
+    ->middleware('throttle:paynow-webhook')
+    ->name('api.paynow.notifications');
 
 Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
+Route::get('/integrations/nex-printer', [NexPrinterSettingsController::class, 'index'])->name('integrations.nex-printer.index');
+Route::post('/integrations/nex-printer/release/download', [NexPrinterSettingsController::class, 'downloadInstaller'])->name('integrations.nex-printer.release.download');
+Route::post('/integrations/nex-printer/pairing-codes', [NexPrinterSettingsController::class, 'createPairingCode'])->name('integrations.nex-printer.pairing-codes.store');
+Route::patch('/integrations/nex-printer/printers/{printer}/enabled', [NexPrinterSettingsController::class, 'updatePrinterEnabled'])->name('integrations.nex-printer.printers.enabled');
+Route::delete('/integrations/nex-printer/agents/{agent}/remove', [NexPrinterSettingsController::class, 'removeAgent'])->name('integrations.nex-printer.agents.remove');
+Route::delete('/integrations/nex-printer/agents/{agent}', [NexPrinterSettingsController::class, 'revokeAgent'])->name('integrations.nex-printer.agents.destroy');
+Route::get('/integrations/paynow', [PayNowSettingsController::class, 'edit'])->name('integrations.paynow.edit');
+Route::put('/integrations/paynow', [PayNowSettingsController::class, 'update'])->name('integrations.paynow.update');
+Route::post('/integrations/paynow/test-connection', PayNowConnectionTestController::class)->name('integrations.paynow.test-connection');
+Route::post('/orders/{order}/paynow/payment-link', PayNowPaymentLinkController::class)->name('orders.paynow.payment-link');
 Route::get('/integrations/ksef', [KsefSettingsController::class, 'edit'])->name('integrations.ksef.edit');
 Route::put('/integrations/ksef', [KsefSettingsController::class, 'update'])->name('integrations.ksef.update');
 Route::post('/integrations/ksef/test-connection', KsefConnectionTestController::class)->name('integrations.ksef.test-connection');
@@ -183,6 +205,7 @@ Route::post('/invoices/{invoice}/items', [InvoiceItemController::class, 'store']
 Route::patch('/invoices/{invoice}/items/{invoiceItem}', [InvoiceItemController::class, 'update'])->name('invoices.items.update');
 Route::delete('/invoices/{invoice}/items/{invoiceItem}', [InvoiceItemController::class, 'destroy'])->name('invoices.items.destroy');
 Route::get('/invoices/{invoice}/pdf', [InvoicePdfController::class, 'show'])->name('invoices.pdf');
+Route::post('/invoices/{invoice}/nex-printer', [NexPrinterInvoiceController::class, 'store'])->name('invoices.nex-printer.store');
 Route::get('/invoices/settings/series', [InvoiceSeriesController::class, 'index'])->name('invoices.series.index');
 Route::get('/invoices/settings/jpk', [JpkTaxpayerProfileController::class, 'form'])->name('invoices.jpk-profile.edit');
 Route::post('/invoices/settings/jpk', [JpkTaxpayerProfileController::class, 'save'])->name('invoices.jpk-profile.save');
@@ -197,6 +220,23 @@ Route::post('/invoices/settings/series/{series}/next-number', [InvoiceSeriesNext
 Route::patch('/invoices/settings/series/{series}', [InvoiceSeriesController::class, 'update'])->name('invoices.series.update');
 Route::patch('/invoices/settings/series/{series}/active', [InvoiceSeriesController::class, 'updateActive'])->name('invoices.series.active');
 Route::delete('/invoices/settings/series/{series}', [InvoiceSeriesController::class, 'destroy'])->name('invoices.series.destroy');
+
+Route::prefix('/api/nex-printer/v1')->name('nex-printer.api.')->group(function (): void {
+    Route::post('/pair', [NexPrinterClientController::class, 'pair'])
+        ->middleware('throttle:nex-printer-pairing')
+        ->name('pair');
+
+    Route::middleware([
+        AuthenticateNexPrinterAgent::class,
+        'throttle:nex-printer-agent',
+    ])->group(function (): void {
+        Route::post('/heartbeat', [NexPrinterClientController::class, 'heartbeat'])->name('heartbeat');
+        Route::put('/printers', [NexPrinterClientController::class, 'synchronizePrinters'])->name('printers.update');
+        Route::post('/jobs/claim', [NexPrinterClientController::class, 'claim'])->name('jobs.claim');
+        Route::get('/jobs/{printJob:public_id}/payload', [NexPrinterClientController::class, 'payload'])->name('jobs.payload');
+        Route::post('/jobs/{printJob:public_id}/complete', [NexPrinterClientController::class, 'complete'])->name('jobs.complete');
+    });
+});
 
 Route::get('/orders', [OrdersController::class, 'index'])->name('orders.index');
 Route::get('/orders/list-state', [OrdersController::class, 'listState'])->name('orders.list-state');
@@ -262,6 +302,7 @@ Route::post('/shipments/{shipment}/refresh', [ShipmentController::class, 'refres
 Route::post('/shipments/{shipment}/retry', [ShipmentController::class, 'retry'])->name('shipments.retry');
 Route::post('/shipments/{shipment}/cancel', [ShipmentController::class, 'cancel'])->name('shipments.cancel');
 Route::get('/shipments/{shipment}/label', [ShipmentController::class, 'label'])->name('shipments.label');
+Route::post('/shipments/{shipment}/nex-printer', [NexPrinterShipmentController::class, 'store'])->name('shipments.nex-printer.store');
 Route::patch('/order-items/{orderItem}', [OrderProductController::class, 'update'])->name('order-items.update');
 Route::delete('/order-items/{orderItem}', [OrderProductController::class, 'destroy'])->name('order-items.destroy');
 Route::get('/orders/{order}/state', [OrderStatusController::class, 'state'])->name('orders.state');

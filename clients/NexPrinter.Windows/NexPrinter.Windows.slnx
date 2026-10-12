@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/NexPrinter.Core/NexPrinter.Core.csproj" />
+  <Project Path="src/NexPrinter.App/NexPrinter.App.csproj" />
+  <Project Path="tests/NexPrinter.Core.Tests/NexPrinter.Core.Tests.csproj" />
+</Solution>
+

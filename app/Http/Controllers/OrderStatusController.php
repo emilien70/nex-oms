@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 
 class OrderStatusController extends Controller
@@ -50,6 +51,10 @@ class OrderStatusController extends Controller
                 ->orderByDesc('created_at'),
             'shipments.courierAccount',
             'events' => fn ($query) => $query->orderByDesc('created_at'),
+            'payNowPayments' => fn ($query) => $query
+                ->where('status', PayNowPaymentStatus::Confirmed->value)
+                ->orderByDesc('confirmed_at')
+                ->orderByDesc('id'),
         ]);
 
         $statusChangedAt = $order->status_changed_at ?? $order->created_at;
@@ -61,6 +66,7 @@ class OrderStatusController extends Controller
 
         if ($request?->has('latest_event_id') && (int) $request->query('latest_event_id') !== $latestEventId) {
             $requestedFragments->push('history');
+            $requestedFragments->push('payments');
         }
 
         if ($request?->has('shipments_signature') && (string) $request->query('shipments_signature') !== $shipmentsSignature) {
@@ -138,6 +144,10 @@ class OrderStatusController extends Controller
 
         if ($requested->contains('history')) {
             $fragments['history'] = view('orders.partials.history', compact('order'))->render();
+        }
+
+        if ($requested->contains('payments')) {
+            $fragments['payments'] = view('orders.partials.payments', compact('order'))->render();
         }
 
         if ($requested->contains('sales-documents')) {

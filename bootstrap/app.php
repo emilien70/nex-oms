@@ -11,13 +11,18 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->validateCsrfTokens(except: [
+            'api/nex-printer/v1/*',
+            'api/paynow/v1/notifications',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->dontFlash([
+            'api_key',
             'api_token',
             'authentication_private_key_passphrase',
             'offline_private_key_passphrase',
+            'signature_key',
             'smtp_password',
         ]);
     })->create();

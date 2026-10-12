@@ -7,6 +7,8 @@ use App\Models\OrderStatusSetting;
 use Illuminate\Support\Str;
 use Modules\Integrations\DPD\Services\DpdServiceResolver;
 use Modules\Integrations\InPost\Services\InPostCourierServiceResolver;
+use Modules\Integrations\NexPrinter\Models\NexPrinter;
+use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Shipments\Models\CourierAccount;
@@ -32,16 +34,26 @@ class AutomationCatalog
 
     public const ACTION_DECREASE_STOCK = 'decrease_stock';
 
+    public const ACTION_PRINT = 'print_document';
+
+    public const PRINT_DOCUMENT_INVOICE = 'invoice';
+
+    public const PRINT_DOCUMENT_LATEST_SHIPMENT_LABEL = 'latest_shipment_label';
+
+    public const PRINT_DOCUMENT_ALL_SHIPMENT_LABELS = 'all_shipment_labels';
+
     public function __construct(
         private readonly InPostCourierServiceResolver $inPostCourierServices,
         private readonly DpdServiceResolver $dpdServices,
         private readonly InPostCourierParcelTemplateService $parcelTemplates,
+        private readonly NexPrinterSelectionService $nexPrinterSelection,
     ) {}
 
     public function triggers(): array
     {
         return [
             'order.status_changed' => 'Ustawiono status',
+            'payment.registered' => $this->decode('Zarejestrowano p&#322;atno&#347;&#263;'),
             'invoice.issued' => 'Wystawiono Fakturę VAT',
             'shipment.created' => $this->decode('Utworzono przesy&#322;k&#281;'),
             'shipment.status_changed' => $this->decode('Zmieniono status przesy&#322;ki'),
@@ -83,6 +95,14 @@ class AutomationCatalog
                     'unpaid' => $this->decode('Nieop&#322;acone'),
                     'partial' => $this->decode('Cz&#281;&#347;ciowo op&#322;acone'),
                     'paid' => $this->decode('Op&#322;acone'),
+                ],
+            ],
+            'payment_source' => [
+                'label' => $this->decode('&#377;r&oacute;d&#322;o p&#322;atno&#347;ci'),
+                'type' => 'select',
+                'operators' => ['equals', 'not_equals'],
+                'options' => [
+                    'paynow' => 'PayNow',
                 ],
             ],
             'shipping_method' => [
@@ -138,6 +158,7 @@ class AutomationCatalog
             self::ACTION_ISSUE_INVOICE => $this->decode('Wystaw Faktur&#281;'),
             self::ACTION_SEND_EMAIL => $this->decode('Wy&#347;lij e-mail'),
             self::ACTION_DECREASE_STOCK => 'Zmniejsz stan magazynowy',
+            self::ACTION_PRINT => 'Drukuj',
         ];
     }
 
@@ -176,6 +197,7 @@ class AutomationCatalog
             self::ACTION_ISSUE_INVOICE => $this->invoiceActionSummary($type, $configuration),
             self::ACTION_SEND_EMAIL => $this->emailActionSummary($type, $configuration),
             self::ACTION_DECREASE_STOCK => $this->actionLabel($type),
+            self::ACTION_PRINT => $this->printActionSummary($type, $configuration),
             default => $type,
         };
     }
@@ -213,6 +235,25 @@ class AutomationCatalog
             ->orderBy('id')
             ->pluck('name', 'id')
             ->all();
+    }
+
+    public function nexPrinters(): array
+    {
+        return $this->nexPrinterSelection
+            ->availableForPdf()
+            ->mapWithKeys(static fn (NexPrinter $printer): array => [
+                $printer->getKey() => $printer->display_name.' ('.$printer->agent->name.')',
+            ])
+            ->all();
+    }
+
+    public function printDocumentTypes(): array
+    {
+        return [
+            self::PRINT_DOCUMENT_INVOICE => 'Faktura VAT',
+            self::PRINT_DOCUMENT_LATEST_SHIPMENT_LABEL => 'Najnowsza etykieta',
+            self::PRINT_DOCUMENT_ALL_SHIPMENT_LABELS => 'Wszystkie etykiety',
+        ];
     }
 
     public function parcelTemplates(): array
@@ -424,6 +465,25 @@ class AutomationCatalog
         };
 
         return $this->actionLabel($type).': '.($templateName ?? 'szablon niedostępny').' → '.$recipients;
+    }
+
+    private function printActionSummary(string $type, array $configuration): string
+    {
+        $printerId = filter_var(
+            $configuration['printer_id'] ?? null,
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1]],
+        );
+        $printer = $printerId === false
+            ? null
+            : NexPrinter::query()->with('agent')->find($printerId);
+        $printerName = $printer === null
+            ? 'drukarka niedostępna'
+            : $printer->display_name.($printer->agent ? ' ('.$printer->agent->name.')' : '');
+        $documentName = $this->printDocumentTypes()[$configuration['document_type'] ?? '']
+            ?? 'dokument niedostępny';
+
+        return $this->actionLabel($type).': '.$documentName.' → '.$printerName;
     }
 
     private function emailAddressCount(int $count): string

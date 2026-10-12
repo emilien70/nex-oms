@@ -65,6 +65,7 @@ class InvoiceEditingTest extends TestCase
             ->assertSee('Usuń')
             ->assertSee('Powrót')
             ->assertDontSee('bi-file-earmark-pdf', false)
+            ->assertSee(route('invoices.nex-printer.store', $invoice), false)
             ->assertSee(route('invoices.pdf', $invoice), false);
 
         $this->get(route('invoices.edit', $invoice))

@@ -12,6 +12,7 @@ Planowane integracje:
 - DPD - podstawowa integracja DPD Services i InfoServices gotowa.
 - Fakturownia.
 - SMTP.
+- PayNow - konfiguracja, fundament danych i reczne linki platnosci gotowe.
 
 ## Zasady
 
@@ -130,6 +131,20 @@ Allegro realizuje utworzenie i anulowanie asynchronicznie. NEX-OMS zapisuje iden
 - Kolejka `integrations` jest zachowana dla przyszlego pobierania zamowien z Allegro i PrestaShop; obecnie nie obsluguje operacji kurierskich.
 - Laravel Scheduler powinien byc uruchamiany co minute przez cron albo `php artisan schedule:work` w srodowisku lokalnym.
 - Przed pierwszym nadaniem nalezy zapisac konfiguracje i wykonac test polaczenia w panelu odpowiedniej integracji: `InPost Paczkomaty`, `InPost Kurier`, `DPD` albo `Wysylam z Allegro`.
+
+## PayNow
+
+Etap PAYNOW.1 udostepnia panel jednego logicznego konta PayNow, srodowiska Sandbox i Produkcja, szyfrowane klucze, ustawienia przyszlych linkow oraz podpisany test polaczenia v3. Test pobiera liste metod platnosci dla 1,00 PLN i nie tworzy transakcji. Aktywacja wymaga poprawnego testu biezacych danych dostepowych.
+
+Tabele `paynow_accounts`, `paynow_payments` i `paynow_payment_events` stanowia fundament wielu wplat i doplat do zamowienia oraz niezmiennej historii zdarzen dostawcy.
+
+Etap PAYNOW.2 dodaje reczne generowanie linku dla pozostalej kwoty zamowienia w PLN. Operacja jest wykonywana przez AJAX, a wazny link o tych samych parametrach jest ponownie uzywany. Pojedyncze klikniecie kopiuje link, podwojne otwiera go w nowej karcie. URL i odpowiedz dostawcy sa szyfrowane, historia zamowienia nie przechowuje linku, a bledy nie ujawniaja surowej odpowiedzi PayNow.
+
+Webhook, odswiezanie statusu, ksiegowanie na zamowieniu, historia zarejestrowanych platnosci i automatyczne akcje pozostaja poza PAYNOW.2.
+
+Etap PAYNOW.3 dodaje podpisany webhook, odpornosc na duplikaty i zdarzenia poza kolejnoscia oraz jednokrotne ksiegowanie potwierdzonej wplaty na zamowieniu. Wplata czesciowa aktualizuje zaplacona kwote, a pelna oznacza zamowienie jako oplacone. Nadplata, konflikt identyfikatorow, niezgodna waluta albo brak zamowienia wymagaja sprawdzenia i nie zmieniaja salda.
+
+W `Informacjach dodatkowych` zamowienia znajduje sie sekcja `Platnosci`. Awaryjne sprawdzanie statusu dziala co minute przez Laravel Scheduler i uzywa tego samego mechanizmu ksiegowania co webhook. Adres powiadomien jest widoczny w ustawieniach PayNow; na VPS musi byc publicznym adresem HTTPS. Zwroty, chargebacki, reczne dopasowywanie osieroconych platnosci i automatyczne akcje platnicze pozostaja poza tym etapem.
 
 ## Etap obecny
 

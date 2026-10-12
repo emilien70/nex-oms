@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Schedule;
 use Modules\Integrations\AllegroShipping\Jobs\RefreshAllegroShipmentJob;
 use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
+use Modules\Integrations\PayNow\Services\PayNowReconciliationService;
 use Modules\Ksef\Services\KsefLatarniaOperationalSyncService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpDispatcher;
 use Modules\Shipments\Models\CourierAccount;
@@ -79,4 +80,9 @@ Schedule::call(fn () => app(KsefLatarniaOperationalSyncService::class)->runSched
 Schedule::call(fn () => app(OrderEmailQueuedRecoveryService::class)->recover())
     ->name('order-email-recover-queued')
     ->everyFiveMinutes()
+    ->withoutOverlapping();
+
+Schedule::call(fn () => app(PayNowReconciliationService::class)->reconcileDue())
+    ->name('paynow-reconcile-pending-payments')
+    ->everyMinute()
     ->withoutOverlapping();

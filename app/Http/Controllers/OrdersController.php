@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
 use Modules\Invoices\Services\InvoiceFinancialLimits;
@@ -697,6 +698,10 @@ class OrdersController extends Controller
             'shipments.courierAccount',
             'shipments.parcels',
             'events' => fn ($query) => $query->orderByDesc('created_at'),
+            'payNowPayments' => fn ($query) => $query
+                ->where('status', PayNowPaymentStatus::Confirmed->value)
+                ->orderByDesc('confirmed_at')
+                ->orderByDesc('id'),
         ]);
 
         return view('orders.show', [

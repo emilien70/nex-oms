@@ -17,4 +17,13 @@ class IntegrationListTest extends TestCase
             ->assertSee('href="'.route('integrations.ksef.edit').'"', false)
             ->assertSee('href="'.route('integrations.index').'"', false);
     }
+
+    public function test_integration_list_contains_paynow_tile(): void
+    {
+        $this->get(route('integrations.index'))
+            ->assertOk()
+            ->assertSee('data-integration="paynow"', false)
+            ->assertSeeText('PayNow')
+            ->assertSee('href="'.route('integrations.paynow.edit').'"', false);
+    }
 }

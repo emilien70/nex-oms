@@ -2770,3 +2770,51 @@ Do rozstrzygnięcia w odpowiednich etapach:
 - sposób testowania współbieżności poza SQLite.
 
 Nie należy rozstrzygać tych kwestii przypadkowo podczas innego etapu.
+
+---
+
+# 37. Integracja PayNow — etap PAYNOW.1
+
+Fundament integracji znajduje się w `Modules/Integrations/PayNow`, natomiast trasy pozostają centralnie w `routes/web.php`, a migracje w `database/migrations`. Warstwa składa się z modeli konta, płatności i zdarzenia, zamkniętych enumów środowiska i statusów, `PayNowAccountService`, `PayNowSignatureService`, `PayNowClient` oraz `PayNowConnectionTestService`. Nie wprowadzono osobnego providera ani zewnętrznej biblioteki Composer.
+
+Podpis v3 jest liczony jako Base64 z binarnego HMAC SHA-256 nad JSON-em zawierającym `Api-Key`, `Idempotency-Key`, parametry jako tablice oraz dokładny tekst body. Implementacja jest objęta oficjalnym wektorem testowym PayNow. Klient używa stałych hostów `https://api.sandbox.paynow.pl` i `https://api.paynow.pl`, krótkich timeoutów i nie wykonuje automatycznych retry. Test połączenia wywołuje `GET /v3/payments/paymentmethods` z `amount=100` i `currency=PLN`; nie tworzy obiektu płatności u dostawcy.
+
+`paynow_accounts` przechowuje zaszyfrowane credentiale i stan ostatniego testu. `paynow_payments` jest przyszłym rejestrem wielu wpłat lub dopłat dla zamówienia i nie używa `float`; kwota ma typ `DECIMAL(18,2)`, a URL płatności jest szyfrowany. `paynow_payment_events` zachowuje zaszyfrowany payload oraz jawny SHA-256 potrzebny do deduplikacji i audytu. Klucze obce do konta, zamówienia i płatności używają `nullOnDelete`, aby usunięcie rekordu źródłowego nie niszczyło historii finansowej.
+
+Sekrety są ukryte przez casty i `$hidden`, a nazwy pól zostały dodane do globalnej listy danych niewracających do sesji po błędzie walidacji. Aktywacja wymaga kompletnej konfiguracji i udanego testu bieżących credentiali. PAYNOW.1 nie zawiera tworzenia linku, webhooka, reconciliation ani księgowania na zamówieniu.
+
+---
+
+# 38. Integracja PayNow — etap PAYNOW.2
+
+`PayNowPaymentLinkService` jest centralnym serwisem tworzenia linku lub ponownego użycia nadal ważnej próby. W transakcji blokuje konto i zamówienie, sprawdza aktywność oraz poprawny test połączenia, walutę PLN, e-mail klienta i pozostałą kwotę. Różnica `total_gross - paid_amount` jest liczona przez `InvoiceDecimalCalculator`; do API trafia jako całkowita liczba groszy. Każda nowa próba otrzymuje unikalne `external_id` i maksymalnie 45-znakowy klucz idempotencji.
+
+Klient wysyła `POST /v3/payments/links` z dokładnie tym samym JSON-em, który został użyty przy obliczaniu podpisu v3. Nie wykonuje automatycznych retry. Gdy komunikacja zostanie przerwana przed zapisaniem odpowiedzi, ponowne wywołanie używa tego samego rekordu i tego samego klucza idempotencji. Odpowiedź jest akceptowana wyłącznie wtedy, gdy zawiera rozpoznany status, identyfikator płatności i adres HTTPS w domenie PayNow.
+
+Po sukcesie URL jest przechowywany przez szyfrowany cast `paynow_payments.payment_url`. Surowy payload odpowiedzi trafia w postaci zaszyfrowanej do append-only `paynow_payment_events`, a historia zamówienia zawiera tylko bezpieczne identyfikatory, kwotę i walutę. Komunikaty błędów są mapowane na treści bezpieczne dla operatora; surowe komunikaty dostawcy nie są zwracane do interfejsu.
+
+Endpoint `POST /orders/{order}/paynow/payment-link` zwraca JSON dla interfejsu AJAX. Warstwa Blade rozróżnia pojedyncze i podwójne kliknięcie, obsługuje schowek z fallbackiem, nie przeładowuje strony i ponownie inicjalizuje tooltip po wymianie fragmentu informacji o zamówieniu. Etap nie aktualizuje kwoty wpłaty ani statusu płatności. Odbiór webhooka, reconciliation i księgowanie należą do PAYNOW.3.
+
+---
+
+# 39. Integracja PayNow — etap PAYNOW.3
+
+`POST /api/paynow/v1/notifications` jest publiczną trasą wyłączoną wyłącznie z ochrony CSRF i ograniczoną osobnym limiterem. `PayNowWebhookService` odczytuje surowe body, wybiera klucz podpisu konta przypisanego do `externalId` i przed wykonaniem operacji biznesowej weryfikuje Base64 HMAC SHA-256 z nagłówka `Signature`. Payload ma limit 64 KiB. Nieznane, ale poprawnie podpisane zdarzenia pozostają w `paynow_payment_events` bez relacji do płatności, co zachowuje ślad bez automatycznego dopasowywania danych.
+
+`PayNowPaymentStatusService` jest wspólną projekcją dla webhooka i odpytywania `GET /v3/payments/{paymentId}/status`. Semantyczny klucz zdarzenia deduplikuje ponowienia niezależnie od formatowania JSON. Projekcja uwzględnia `modifiedAt`, nie cofa `CONFIRMED`, wykrywa sprzeczne identyfikatory oraz obsługuje nowy `paymentId` powstały podczas odzyskiwania płatności z tym samym `externalId`.
+
+`PayNowPaymentAccountingService` blokuje próbę płatności i zamówienie w jednej transakcji. Pole `confirmed_at` oznacza potwierdzenie dostawcy, a `accounted_at` jednokrotne zastosowanie kwoty w OMS. Kwoty są dodawane przez `InvoiceDecimalCalculator`, a wynik przechodzi przez `OrderPaymentStateService`. Nadpłata, usunięte zamówienie i niezgodność waluty ustawiają `needs_review` bez modyfikowania zamówienia. Zapis księgowania obejmuje append-only zdarzenie płatności oraz zdarzenie zamówienia.
+
+`PayNowReconciliationService` pobiera maksymalnie 20 prób `NEW` albo `PENDING`, których nie sprawdzano od dwóch minut, i korzysta z tego samego serwisu projekcji. Harmonogram uruchamia go co minutę bez nakładania wykonań. Nieaktywne konto nadal może zweryfikować wcześniej utworzoną płatność, o ile zachowało credentiale. Warstwa widoku ładuje tylko potwierdzone płatności i aktualizuje fragment `Płatności` co 15 sekund oraz przy zmianie historii zamówienia.
+
+---
+
+# 40. Integracja PayNow — etap PAYNOW.4
+
+Po poprawnym księgowaniu `PayNowPaymentAccountingService` publikuje ogólne zdarzenie domenowe `OrderPaymentRegistered` o nazwie technicznej `payment.registered`. Zdarzenie implementuje `ShouldDispatchAfterCommit`, dlatego silnik automatyzacji otrzymuje je dopiero po zatwierdzeniu zmian płatności, zamówienia oraz historii. Ścieżki `needs_review` kończą się przed publikacją zdarzenia.
+
+Identyfikator zdarzenia jest deterministycznym UUID v5 złożonym ze źródła i wewnętrznego identyfikatora rekordu płatności. Pozwala to wykorzystać istniejącą unikalność `automation_rule_id + event_id`: webhook, reconciliation i ponowiona próba księgowania tej samej wpłaty nie uruchomią reguły ponownie, natomiast dwie odrębne dopłaty pozostają dwoma zdarzeniami.
+
+Payload zawiera wyłącznie bezpieczne dane operacyjne: zamówienie, wewnętrzny rekord płatności, źródło `paynow`, identyfikator dostawcy, kwotę, walutę, saldo przed i po, stan płatności po księgowaniu oraz czas księgowania. Nie zawiera kluczy, podpisów ani URL-a płatności. `AutomationCatalog` udostępnia zdarzenie `Zarejestrowano płatność` i warunek `Źródło płatności`; warunek `Płatność` korzysta dla tego zdarzenia ze stanu wyliczonego dziesiętnie podczas księgowania.
+
+Wykonanie akcji pozostaje asynchroniczne na kolejce `automation`. Błąd akcji zmienia wynik wykonania reguły, lecz nie może wycofać zatwierdzonej transakcji finansowej. PAYNOW.4 nie implementuje zwrotów, chargebacków ani panelu ręcznej obsługi wyjątków.

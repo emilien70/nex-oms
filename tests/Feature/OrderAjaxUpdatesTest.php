@@ -143,6 +143,43 @@ class OrderAjaxUpdatesTest extends TestCase
         $this->assertStringContainsString('0,00 PLN', $orderInfo);
     }
 
+    public function test_payment_actions_use_icons_and_show_payment_link_only_for_unpaid_order(): void
+    {
+        $unpaidOrder = $this->order([
+            'total_gross' => '100.00',
+            'paid_amount' => '0.00',
+            'payment_status' => 'unpaid',
+        ]);
+
+        $unpaidOrderInfo = $this->getJson(route('orders.state', $unpaidOrder).'?fragments=order-info')
+            ->assertOk()
+            ->json('fragments.order-info');
+
+        $this->assertStringContainsString('bi bi-arrow-clockwise', $unpaidOrderInfo);
+        $this->assertStringContainsString('bi bi-pencil', $unpaidOrderInfo);
+        $this->assertStringContainsString('data-payment-link-action', $unpaidOrderInfo);
+        $this->assertStringContainsString('data-payment-link-url="'.route('orders.paynow.payment-link', $unpaidOrder).'"', $unpaidOrderInfo);
+        $this->assertStringContainsString('Pojedyncze klikni&#281;cie: kopiuj do schowka', $unpaidOrderInfo);
+        $this->assertStringContainsString('Podw&oacute;jne klikni&#281;cie: otw&oacute;rz link.', $unpaidOrderInfo);
+        $this->assertStringNotContainsString('data-payment-link-placeholder', $unpaidOrderInfo);
+        $this->assertStringContainsString('bi bi-link-45deg', $unpaidOrderInfo);
+
+        $paidOrder = $this->order([
+            'total_gross' => '100.00',
+            'paid_amount' => '100.00',
+            'payment_status' => 'paid',
+        ]);
+
+        $paidOrderInfo = $this->getJson(route('orders.state', $paidOrder).'?fragments=order-info')
+            ->assertOk()
+            ->json('fragments.order-info');
+
+        $this->assertStringContainsString('bi bi-arrow-clockwise', $paidOrderInfo);
+        $this->assertStringContainsString('bi bi-pencil', $paidOrderInfo);
+        $this->assertStringNotContainsString('data-payment-link-action', $paidOrderInfo);
+        $this->assertStringNotContainsString('bi bi-link-45deg', $paidOrderInfo);
+    }
+
     public function test_first_eur_product_refreshes_currency_fields_fragments_and_next_product_form(): void
     {
         Currency::query()->create(['code' => 'EUR', 'name' => 'euro', 'nbp_table' => 'A']);

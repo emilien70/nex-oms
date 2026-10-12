@@ -261,6 +261,8 @@
             const shipmentDefinitions = {{ Illuminate\Support\Js::from($shipmentActionDefinitions) }};
             const invoiceSeries = {{ Illuminate\Support\Js::from($invoiceSeries) }};
             const emailTemplates = {{ Illuminate\Support\Js::from($emailTemplates) }};
+            const nexPrinters = {{ Illuminate\Support\Js::from($nexPrinters) }};
+            const printDocumentTypes = {{ Illuminate\Support\Js::from($printDocumentTypes) }};
             const editors = new Map();
 
             const escapeHtml = value => String(value ?? '')
@@ -501,6 +503,20 @@
                     if (action.type === 'decrease_stock') {
                         return `<div class="alert alert-info py-2 px-3 small mb-0">Stan zostanie pomniejszony tylko dla pozycji powi&#261;zanych z katalogiem produkt&oacute;w. Ka&#380;da pozycja zam&oacute;wienia mo&#380;e zosta&#263; odj&#281;ta tylko raz.</div>`;
                     }
+                    if (action.type === 'print_document') {
+                        const selectedDocumentType = String(configuration.document_type ?? 'invoice');
+                        const selectedPrinterId = String(configuration.printer_id ?? '');
+                        const selectedPrinterAvailable = selectedPrinterId === '' || Object.hasOwn(nexPrinters, selectedPrinterId);
+                        const unavailableOption = selectedPrinterAvailable
+                            ? ''
+                            : `<option value="${escapeHtml(selectedPrinterId)}" selected>Drukarka #${escapeHtml(selectedPrinterId)} (niedost&#281;pna)</option>`;
+
+                        if (!Object.keys(nexPrinters).length) {
+                            return `<div class="alert alert-warning py-2 px-3 small mb-0">Brak aktywnej drukarki PDF. W&#322;&#261;cz drukark&#281; w Integracje &rarr; NEX Printer.</div><input type="hidden" name="actions[${index}][configuration][document_type]" value="${escapeHtml(selectedDocumentType)}"><input type="hidden" name="actions[${index}][configuration][printer_id]" value="${escapeHtml(selectedPrinterId)}">`;
+                        }
+
+                        return `<div class="row g-2"><div class="col-md-5"><label class="automation-block-label">DOKUMENT</label><select class="form-select form-select-sm action-config" data-key="document_type" name="actions[${index}][configuration][document_type]" required>${optionsHtml(printDocumentTypes, selectedDocumentType)}</select></div><div class="col-md-7"><label class="automation-block-label">DRUKARKA</label><select class="form-select form-select-sm action-config" data-key="printer_id" name="actions[${index}][configuration][printer_id]" required><option value="">Wybierz drukark&#281;</option>${unavailableOption}${optionsHtml(nexPrinters, selectedPrinterId)}</select></div></div>`;
+                    }
                     return `<label class="automation-block-label">CZAS W MINUTACH</label><input class="form-control form-control-sm action-config" data-key="minutes" type="number" min="1" max="86400" name="actions[${index}][configuration][minutes]" value="${escapeHtml(configuration.minutes || 1)}">`;
                 };
 
@@ -511,6 +527,7 @@
                     if (type === 'issue_invoice') return {invoice_series_id: Object.keys(invoiceSeries)[0] || ''};
                     if (type === 'send_email') return {email_template_id: Object.keys(emailTemplates)[0] || '', recipient_customer: true, recipient_emails: []};
                     if (type === 'decrease_stock') return {};
+                    if (type === 'print_document') return {document_type: 'invoice', printer_id: ''};
                     return {minutes: 1};
                 };
 

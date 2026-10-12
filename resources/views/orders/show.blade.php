@@ -337,6 +337,10 @@
             box-shadow: none;
         }
 
+        .management-issued-invoice-print-form {
+            display: contents;
+        }
+
         .management-issued-invoice-actions .btn {
             align-items: center;
             background: #fff;
@@ -1503,6 +1507,77 @@
             color: #0d6efd;
         }
 
+        .paid-amount-action-group {
+            display: inline-flex;
+            margin-left: auto;
+        }
+
+        .paid-amount-action-group > form {
+            display: flex;
+            margin: 0;
+        }
+
+        .paid-amount-action-button {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #cfd5dc;
+            border-radius: 0;
+            color: #4b5563;
+            display: inline-flex;
+            font-size: 13px;
+            height: 32px;
+            justify-content: center;
+            line-height: 1;
+            margin-left: -1px;
+            padding: 0;
+            width: 32px;
+        }
+
+        .paid-amount-action-group > form:first-child .paid-amount-action-button {
+            border-radius: 4px 0 0 4px;
+            margin-left: 0;
+        }
+
+        .paid-amount-action-group > .paid-amount-action-button:last-child {
+            border-radius: 0 4px 4px 0;
+        }
+
+        .paid-amount-action-button:hover:not(:disabled),
+        .paid-amount-action-button:focus-visible:not(:disabled) {
+            background: #f8fafc;
+            border-color: #94a3b8;
+            color: #0d6efd;
+            position: relative;
+            z-index: 1;
+        }
+
+        .paid-amount-action-button:disabled {
+            background: #ffffff;
+            color: #4b5563;
+            cursor: not-allowed;
+            opacity: 1;
+        }
+
+        .paid-amount-action-button.is-paynow-action {
+            color: #0d6efd;
+        }
+
+        .paid-amount-action-button.is-paynow-action .spinner-border {
+            height: 13px;
+            width: 13px;
+        }
+
+        .paynow-link-tooltip {
+            --bs-tooltip-bg: rgba(31, 41, 55, .94);
+            --bs-tooltip-max-width: 270px;
+        }
+
+        .paynow-link-tooltip .tooltip-inner {
+            font-size: 12px;
+            line-height: 1.45;
+            padding: 6px 10px;
+        }
+
         .paid-amount-edit.is-editing {
             display: flex;
             padding: 0 6px 4px;
@@ -1892,14 +1967,37 @@
             white-space: nowrap;
         }
 
+        .shipment-label-group {
+            align-items: stretch;
+            display: inline-flex;
+        }
+
         .shipment-label-group .btn {
             border-color: #d3dae4;
-            border-radius: 4px;
             color: #334155;
             font-size: 9px;
             font-weight: 700;
             min-height: 28px;
             text-transform: uppercase;
+        }
+
+        .shipment-label-group > .btn {
+            border-radius: 4px 0 0 4px;
+        }
+
+        .shipment-label-group .nex-printer-print-dropdown {
+            margin-left: -1px;
+        }
+
+        .shipment-label-group .shipment-label-print-button {
+            border-radius: 0 4px 4px 0;
+            min-width: 30px;
+            padding-left: 8px;
+            padding-right: 8px;
+        }
+
+        .shipment-label-group .nex-printer-print-menu {
+            min-width: 280px;
         }
 
         .shipment-menu-button {
@@ -3040,6 +3138,9 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             let activeSection = null;
+            const paymentLinkClickTimers = new WeakMap();
+            const paymentLinkRequests = new Map();
+            const pageCsrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
             const catalogProductModal = document.querySelector('[data-catalog-product-modal]');
             const catalogProductForm = catalogProductModal?.querySelector('[data-catalog-products-form]');
             const catalogResults = catalogProductModal?.querySelector('[data-catalog-results]');
@@ -3927,6 +4028,187 @@
                 }
             });
 
+            const disposePaymentLinkTooltips = (root = document) => {
+                root.querySelectorAll('[data-payment-link-action]').forEach((button) => {
+                    window.bootstrap?.Tooltip.getInstance(button)?.dispose();
+                });
+            };
+
+            const initializePaymentLinkTooltips = (root = document) => {
+                if (!window.bootstrap?.Tooltip) {
+                    return;
+                }
+
+                root.querySelectorAll('[data-payment-link-action]').forEach((button) => {
+                    window.bootstrap.Tooltip.getOrCreateInstance(button);
+                });
+            };
+
+            const paymentLinkErrorMessage = (payload) => {
+                const messages = Object.values(payload?.errors || {}).flat();
+
+                return messages[0] || payload?.message || 'Nie udało się wygenerować linku płatności PayNow.';
+            };
+
+            const requestPaymentLink = async (button) => {
+                const endpoint = button.dataset.paymentLinkUrl;
+                if (!endpoint) {
+                    throw new Error('Brak adresu generowania linku płatności PayNow.');
+                }
+
+                if (paymentLinkRequests.has(endpoint)) {
+                    return paymentLinkRequests.get(endpoint);
+                }
+
+                const request = (async () => {
+                    const previousHtml = button.innerHTML;
+                    window.bootstrap?.Tooltip.getInstance(button)?.hide();
+                    button.disabled = true;
+                    button.setAttribute('aria-busy', 'true');
+                    button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
+
+                    try {
+                        const response = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: {
+                                Accept: 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': pageCsrfToken,
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                            body: '{}',
+                        });
+                        const payload = await response.json().catch(() => ({}));
+
+                        if (!response.ok || typeof payload.url !== 'string' || payload.url === '') {
+                            throw new Error(paymentLinkErrorMessage(payload));
+                        }
+
+                        return payload;
+                    } finally {
+                        button.disabled = false;
+                        button.removeAttribute('aria-busy');
+                        button.innerHTML = previousHtml;
+                        paymentLinkRequests.delete(endpoint);
+                    }
+                })();
+
+                paymentLinkRequests.set(endpoint, request);
+
+                return request;
+            };
+
+            const copyPaymentLink = async (url) => {
+                if (navigator.clipboard?.writeText && window.isSecureContext) {
+                    await navigator.clipboard.writeText(url);
+                    return;
+                }
+
+                const input = document.createElement('textarea');
+                input.value = url;
+                input.setAttribute('readonly', 'readonly');
+                input.style.position = 'fixed';
+                input.style.opacity = '0';
+                document.body.appendChild(input);
+                input.select();
+
+                const copied = document.execCommand('copy');
+                input.remove();
+
+                if (!copied) {
+                    throw new Error('Nie udało się skopiować linku do schowka.');
+                }
+            };
+
+            const showPaymentLinkActivity = (payload, statusLabel, message) => {
+                window.nexOmsShowActivity?.({
+                    tone: 'success',
+                    title: 'PayNow',
+                    message,
+                    orderLabel: payload.order?.label || '',
+                    orderUrl: payload.order?.url || '#',
+                    statusLabel,
+                });
+            };
+
+            const showPaymentLinkError = (button, error) => {
+                const message = error?.message || 'Nie udało się wygenerować linku płatności PayNow.';
+                window.nexOmsShowActivity?.({
+                    tone: 'error',
+                    title: 'PayNow',
+                    message,
+                    orderLabel: `Zamówienie ${currentOrderId}`,
+                    orderUrl: window.location.href,
+                    statusLabel: 'Błąd',
+                });
+
+                if (typeof window.nexOmsShowActivity !== 'function') {
+                    window.nexOmsShowError?.(message);
+                }
+            };
+
+            document.addEventListener('click', (event) => {
+                const button = event.target.closest('[data-payment-link-action]');
+                if (!button || button.disabled || event.detail > 1) {
+                    return;
+                }
+
+                event.preventDefault();
+                const currentTimer = paymentLinkClickTimers.get(button);
+                if (currentTimer) {
+                    window.clearTimeout(currentTimer);
+                }
+
+                const timer = window.setTimeout(async () => {
+                    paymentLinkClickTimers.delete(button);
+                    try {
+                        const payload = await requestPaymentLink(button);
+                        await copyPaymentLink(payload.url);
+                        showPaymentLinkActivity(payload, 'Link skopiowany', payload.message || 'Link płatności PayNow został skopiowany do schowka.');
+                    } catch (error) {
+                        showPaymentLinkError(button, error);
+                    }
+                }, 260);
+
+                paymentLinkClickTimers.set(button, timer);
+            });
+
+            document.addEventListener('dblclick', async (event) => {
+                const button = event.target.closest('[data-payment-link-action]');
+                if (!button || button.disabled) {
+                    return;
+                }
+
+                event.preventDefault();
+                const currentTimer = paymentLinkClickTimers.get(button);
+                if (currentTimer) {
+                    window.clearTimeout(currentTimer);
+                    paymentLinkClickTimers.delete(button);
+                }
+
+                const paymentWindow = window.open('about:blank', '_blank');
+                if (paymentWindow) {
+                    paymentWindow.opener = null;
+                }
+
+                try {
+                    const payload = await requestPaymentLink(button);
+                    if (!paymentWindow) {
+                        throw new Error('Przeglądarka zablokowała otwarcie linku w nowej karcie.');
+                    }
+
+                    paymentWindow.location.replace(payload.url);
+                    showPaymentLinkActivity(payload, 'Link otwarty', payload.reused
+                        ? 'Otworzono istniejący link płatności PayNow.'
+                        : 'Utworzono i otworzono link płatności PayNow.');
+                } catch (error) {
+                    paymentWindow?.close();
+                    showPaymentLinkError(button, error);
+                }
+            });
+
+            initializePaymentLinkTooltips();
+
             const managementStatusInput = document.querySelector('[data-management-status-input]');
             const managementStatusDot = document.querySelector('[data-management-status-dot]');
             const managementStatusLabel = document.querySelector('[data-management-status-label]');
@@ -3943,6 +4225,7 @@
             let orderStateRequestRunning = false;
             let currentLatestEventId = null;
             let currentShipmentsSignature = null;
+            let payNowRefreshTimer = null;
 
             const cancelShipmentModal = document.getElementById('cancelShipmentModal');
             const courierFormButtons = Array.from(document.querySelectorAll('[data-courier-form-button]'));
@@ -4206,11 +4489,13 @@
                 const currentRow = shipmentsTableBody.querySelector(`[data-shipment-id="${payload.id}"]`);
 
                 if (currentRow) {
+                    window.nexOmsDisposePrinterControls?.(currentRow);
                     currentRow.replaceWith(newRow);
                 } else {
                     shipmentsTableBody.prepend(newRow);
                 }
 
+                window.nexOmsInitializePrinterControls?.(newRow);
                 shipmentsEmpty?.classList.add('d-none');
                 shipmentsTableWrap?.classList.remove('d-none');
             };
@@ -4404,6 +4689,7 @@
                 products: '[data-products-table-body]',
                 shipments: '[data-shipments-table-body]',
                 history: '[data-order-history-body]',
+                payments: '[data-order-payments-body]',
             };
 
             const syncEditableFields = (fields) => {
@@ -4468,9 +4754,11 @@
 
                 deferredSalesDocumentHtml = null;
                 disposeOrderKsefTooltips(current);
+                window.nexOmsDisposePrinterControls?.(current);
                 current.replaceWith(replacement);
                 syncSalesDocumentNumberWidths(replacement);
                 initializeOrderKsefTooltips(replacement);
+                window.nexOmsInitializePrinterControls?.(replacement);
                 scheduleKsefAutomaticRefresh();
 
                 return true;
@@ -4500,7 +4788,23 @@
 
                     const target = document.querySelector(fragmentTargets[name]);
                     if (target) {
+                        if (name === 'shipments') {
+                            window.nexOmsDisposePrinterControls?.(target);
+                        }
+
+                        if (name === 'order-info') {
+                            disposePaymentLinkTooltips(target);
+                        }
+
                         target.innerHTML = html;
+
+                        if (name === 'shipments') {
+                            window.nexOmsInitializePrinterControls?.(target);
+                        }
+
+                        if (name === 'order-info') {
+                            initializePaymentLinkTooltips(target);
+                        }
                     }
                 });
 
@@ -5303,8 +5607,12 @@
                 ensureEmailIdempotencyKey();
             }
             if (orderStateUrl) {
-                fetchOrderState(['history', 'shipments']).catch(() => {});
+                fetchOrderState(['history', 'shipments', 'payments']).catch(() => {});
                 scheduleKsefAutomaticRefresh(true);
+
+                payNowRefreshTimer = window.setInterval(() => {
+                    refreshOrderState(['payments']);
+                }, 15000);
 
                 document.addEventListener('nexoms:automation-finished', (event) => {
                     if (Number(event.detail?.orderId || 0) === currentOrderId) {
@@ -5314,13 +5622,14 @@
 
                 document.addEventListener('visibilitychange', () => {
                     if (!document.hidden) {
-                        refreshOrderState(['sales-documents']);
+                        refreshOrderState(['sales-documents', 'payments']);
                         scheduleKsefAutomaticRefresh();
                     }
                 });
 
                 window.addEventListener('pagehide', () => {
                     window.clearTimeout(ksefAutomaticRefreshTimer);
+                    window.clearInterval(payNowRefreshTimer);
                 }, { once: true });
             }
 

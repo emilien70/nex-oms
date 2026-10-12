@@ -2294,3 +2294,49 @@ Do rozstrzygnięcia w odpowiednich etapach:
 - dokładna walidacja NIP i danych sprzedawcy.
 
 Nie należy rozstrzygać tych kwestii przypadkowo podczas innego etapu.
+
+---
+
+# PAYNOW.1 — konfiguracja i fundament płatności
+
+NEX-OMS udostępnia kafel `PayNow` na liście integracji oraz osobny ekran konfiguracji jednego logicznego konta. Konfiguracja obejmuje nazwę, środowisko Sandbox albo Produkcja, Klucz API, Klucz podpisu, czas ważności przyszłego linku, szablon opisu, opcjonalny adres powrotu klienta i przełącznik aktywności. Klucze są szyfrowane w bazie, nie wracają do HTML ani danych sesji, a puste pola podczas edycji zachowują zapisane wartości. Zmiana środowiska wymaga podania obu nowych kluczy.
+
+Test połączenia wykonuje podpisane żądanie v3 do listy metod płatności dla kwoty 1,00 PLN. Używa wyłącznie stałych hostów PayNow Sandbox i Production, nie tworzy płatności i nie wykonuje ponowień. Wynik oraz czas testu są zapisywane przy koncie. Integrację można aktywować dopiero po poprawnym teście bieżącego środowiska i kluczy; nieudany test wyłącza aktywne konto. Komunikaty nie zawierają sekretów ani surowej odpowiedzi dostawcy.
+
+Fundament danych tworzą `paynow_accounts`, `paynow_payments` oraz `paynow_payment_events`. Próba płatności przechowuje dziesiętną kwotę i walutę, identyfikatory NEX i PayNow, klucz idempotencji, zaszyfrowany URL, snapshot e-maila kupującego, status dostawcy i bezpieczny stan diagnostyczny. Zdarzenia przechowują append-only dane dostawcy, hash i zaszyfrowany payload. Usunięcie powiązanego zamówienia, konta lub próby nie usuwa historycznych danych płatniczych; relacje są zerowane przez `nullOnDelete`.
+
+PAYNOW.1 nie generuje jeszcze linków, nie obsługuje webhooka, nie odpytuje statusu istniejącej płatności, nie aktualizuje `orders.paid_amount`, nie pokazuje historii płatności na zamówieniu i nie dodaje automatycznych akcji. Te operacje należą do kolejnych etapów.
+
+---
+
+# PAYNOW.2 — generowanie linku płatności
+
+Przy nierozliczonym zamówieniu ikona linku w kaflu informacji o zamówieniu generuje link PayNow bez przeładowania strony. Pojedyncze kliknięcie kopiuje link do schowka, a podwójne kliknięcie otwiera ten sam link w nowej karcie. Podpowiedź przy ikonie opisuje oba sposoby użycia, a wynik operacji jest prezentowany w centrum aktywności NEX-OMS.
+
+Link może zostać utworzony wyłącznie dla aktywnego i poprawnie przetestowanego konta PayNow, zamówienia w PLN oraz prawidłowego adresu e-mail klienta. Kwota linku jest dokładną różnicą `total_gross - paid_amount`, obliczaną bez `float`; musi mieścić się w przedziale od 1,00 PLN do 1 000 000,00 PLN. Żądanie zawiera snapshot adresu e-mail, opis zamówienia, czas ważności oraz opcjonalny adres powrotu.
+
+Ponowne użycie przycisku zwraca istniejący, nadal ważny link o tym samym koncie, zamówieniu, saldzie, walucie, adresie e-mail i opisie. Nie tworzy drugiego żądania ani duplikatu historii. Niedokończona próba komunikacji zachowuje własny klucz idempotencji, dzięki czemu bezpieczne ponowienie nie tworzy kolejnej płatności po stronie PayNow.
+
+Utworzenie linku zapisuje próbę w `paynow_payments`, zaszyfrowaną odpowiedź dostawcy w append-only `paynow_payment_events` oraz bezpieczny wpis historii zamówienia bez URL i sekretów. PAYNOW.2 nie uznaje zamówienia za opłacone, nie zmienia `orders.paid_amount` ani `orders.payment_status` i nie wyświetla jeszcze zarejestrowanej wpłaty. Webhook, potwierdzenie statusu, księgowanie wpłaty i sekcja „Płatności” należą do PAYNOW.3.
+
+---
+
+# PAYNOW.3 — rejestracja i księgowanie płatności
+
+Publiczny endpoint powiadomień PayNow sprawdza nagłówek `Signature` przez HMAC SHA-256 liczony na dokładnym, surowym body żądania. Niepoprawnie podpisane, zbyt duże albo nieprawidłowe powiadomienia nie zmieniają danych. Poprawne zdarzenia są zachowywane tylko raz w szyfrowanej, append-only historii, a endpoint odpowiada pustym statusem HTTP 202. Duplikaty oraz zdarzenia odebrane poza kolejnością nie mogą cofnąć statusu `CONFIRMED` ani ponownie naliczyć wpłaty.
+
+Pierwsze bezpieczne potwierdzenie płatności zwiększa `orders.paid_amount` o dokładną kwotę próby, wykorzystując centralne reguły stanu płatności zamówienia. Pełna wpłata ustawia stan opłacony i datę płatności, a częściowa pozostawia zamówienie nierozliczone. Czas potwierdzenia dostawcy jest oddzielony od `accounted_at`, czyli chwili zaksięgowania w OMS. Operacja tworzy wpis historii `Zarejestrowano płatność PayNow`.
+
+Nadpłata, niezgodność waluty, brak zamówienia albo konflikt identyfikatorów nie są automatycznie korygowane ani ukrywane. Płatność pozostaje potwierdzona, otrzymuje oznaczenie `Wymaga sprawdzenia`, a saldo zamówienia nie jest zmieniane. Automatyczne zwroty, chargebacki i ręczne dopasowywanie osieroconych wpłat pozostają poza etapem.
+
+Sekcja `Płatności` w informacjach dodatkowych zamówienia pokazuje wyłącznie potwierdzone wpłaty, kwotę, walutę, czas, identyfikator PayNow i wynik księgowania. Widok odświeża ten fragment bez przeładowania strony. Gdy webhook nie jest dostępny, harmonogram co minutę sprawdza nierozstrzygnięte płatności przez API PayNow; lokalnie wymaga uruchomionego Laravel Scheduler, a na VPS publicznego adresu HTTPS skonfigurowanego w PayNow.
+
+---
+
+# PAYNOW.4 — automatyczne akcje po płatności
+
+Jednokrotne zaksięgowanie poprawnej wpłaty PayNow publikuje zdarzenie automatyzacji `Zarejestrowano płatność`. Zdarzenie powstaje dopiero po zatwierdzeniu transakcji aktualizującej zamówienie. Płatność wymagająca sprawdzenia, odrzucona z powodu nadpłaty, niezgodnej waluty albo braku zamówienia nie uruchamia automatycznych akcji.
+
+Reguła może rozróżnić źródło płatności `PayNow` oraz stan zamówienia po wpłacie: nieopłacone, częściowo opłacone albo opłacone. Każda odrębna wpłata lub dopłata otrzymuje własne zdarzenie, natomiast powtórzony webhook i kontrolne odpytywanie statusu tej samej płatności nie tworzą drugiego wykonania tej samej reguły.
+
+Zdarzenie może uruchamiać istniejące akcje, między innymi zmianę statusu, wystawienie faktury, wysłanie e-maila i drukowanie. Błąd automatycznej akcji jest rejestrowany przez dotychczasowy mechanizm automatyzacji i nie cofa już zaksięgowanej wpłaty. Zwroty PayNow oraz ręczna obsługa płatności wymagających sprawdzenia pozostają poza PAYNOW.4.

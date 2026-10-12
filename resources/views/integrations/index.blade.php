@@ -36,6 +36,8 @@
             color: inherit;
             cursor: pointer;
             display: flex;
+            flex-direction: column;
+            gap: 10px;
             height: 140px;
             justify-content: center;
             width: 140px;
@@ -61,6 +63,29 @@
         .integration-ksef-logo-mark {
             color: #df111a;
         }
+
+        .integration-nex-printer-icon {
+            color: #0d6efd;
+            font-size: 34px;
+            line-height: 1;
+        }
+
+        .integration-paynow-logo {
+            color: #202b5b;
+            font-size: 26px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .integration-paynow-logo span {
+            color: #00a6a6;
+        }
+
+        .integration-tile-name {
+            color: #28323d;
+            font-size: 13px;
+            font-weight: 700;
+        }
     </style>
 
     <div class="integrations-page">
@@ -76,6 +101,24 @@
                 href="{{ route('integrations.ksef.edit') }}"
             >
                 <span class="integration-ksef-logo" aria-hidden="true">K<span class="integration-ksef-logo-mark">S</span>eF</span>
+            </a>
+            <a
+                class="integration-tile"
+                data-integration="nex-printer"
+                aria-label="NEX Printer"
+                href="{{ route('integrations.nex-printer.index') }}"
+            >
+                <i class="bi bi-printer integration-nex-printer-icon" aria-hidden="true"></i>
+                <span class="integration-tile-name">NEX Printer</span>
+            </a>
+            <a
+                class="integration-tile"
+                data-integration="paynow"
+                aria-label="PayNow"
+                href="{{ route('integrations.paynow.edit') }}"
+            >
+                <span class="integration-paynow-logo" aria-hidden="true">pay<span>now</span></span>
+                <span class="integration-tile-name">PayNow</span>
             </a>
         </section>
     </div>

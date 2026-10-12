@@ -9,6 +9,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 use Modules\Automation\Services\AutomationCatalog;
+use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Shipments\Models\CourierAccount;
@@ -197,6 +198,35 @@ class SaveAutomationRuleRequest extends FormRequest
                         'Zmniejszenie stanu magazynowego może reagować wyłącznie na wystawienie Faktury VAT.',
                     );
                 }
+
+                if ($type === AutomationCatalog::ACTION_PRINT) {
+                    if (! array_key_exists(
+                        (string) ($configuration['document_type'] ?? ''),
+                        $catalog->printDocumentTypes(),
+                    )) {
+                        $validator->errors()->add(
+                            "actions.$index.configuration.document_type",
+                            'Wybierz obsługiwany dokument do wydruku.',
+                        );
+                    }
+
+                    $printerId = filter_var(
+                        $configuration['printer_id'] ?? null,
+                        FILTER_VALIDATE_INT,
+                        ['options' => ['min_range' => 1]],
+                    );
+                    $printerAvailable = $printerId !== false
+                        && app(NexPrinterSelectionService::class)
+                            ->availableForPdf()
+                            ->contains(fn ($printer): bool => $printer->getKey() === $printerId);
+
+                    if (! $printerAvailable) {
+                        $validator->errors()->add(
+                            "actions.$index.configuration.printer_id",
+                            'Wybierz aktywną drukarkę obsługującą dokumenty PDF.',
+                        );
+                    }
+                }
             }
         }];
     }
@@ -279,6 +309,24 @@ class SaveAutomationRuleRequest extends FormRequest
 
                 if (($action['type'] ?? '') === AutomationCatalog::ACTION_DECREASE_STOCK) {
                     $action['configuration'] = [];
+                }
+
+                if (($action['type'] ?? '') === AutomationCatalog::ACTION_PRINT) {
+                    $configuration = $action['configuration'] ?? [];
+                    $printerId = filter_var(
+                        $configuration['printer_id'] ?? null,
+                        FILTER_VALIDATE_INT,
+                        ['options' => ['min_range' => 1]],
+                    );
+                    $configuration['document_type'] = (string) (
+                        $configuration['document_type'] ?? AutomationCatalog::PRINT_DOCUMENT_INVOICE
+                    );
+
+                    if ($printerId !== false) {
+                        $configuration['printer_id'] = $printerId;
+                    }
+
+                    $action['configuration'] = $configuration;
                 }
 
                 return $action;

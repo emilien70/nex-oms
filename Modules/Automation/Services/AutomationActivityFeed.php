@@ -129,7 +129,7 @@ class AutomationActivityFeed
                     'action_type' => $actionType,
                     'label' => $this->catalog->actionSummary($actionType, $configuration),
                     'status' => $status,
-                    'status_label' => $this->stepStatusLabel($status, $configuration),
+                    'status_label' => $this->stepStatusLabel($status, $configuration, $actionType),
                     'tone' => $this->stepTone($status),
                     'details' => $status === 'failed' && filled($step?->error_message)
                         ? $step->error_message
@@ -183,8 +183,12 @@ class AutomationActivityFeed
         return 'queued';
     }
 
-    private function stepStatusLabel(string $status, array $configuration): string
+    private function stepStatusLabel(string $status, array $configuration, string $actionType): string
     {
+        if ($status === 'completed' && $actionType === AutomationCatalog::ACTION_PRINT) {
+            return $this->decode('&#10003; Dodano do kolejki NEX Printer');
+        }
+
         return match ($status) {
             'completed' => $this->decode('&#10003; Wykonano'),
             'failed' => $this->decode('&#10005; B&#322;&#261;d'),
@@ -247,6 +251,7 @@ class AutomationActivityFeed
             AutomationCatalog::ACTION_CALL_URL => $this->decode('Wywo&#322;uj&#281; URL metod&#261; GET'),
             AutomationCatalog::ACTION_SEND_EMAIL => $this->decode('Przygotowuj&#281; wiadomo&#347;&#263; e-mail do wysy&#322;ki'),
             AutomationCatalog::ACTION_DECREASE_STOCK => 'Zmniejszam stan magazynowy produktów',
+            AutomationCatalog::ACTION_PRINT => 'Dodaję wydruk do kolejki NEX Printer',
             default => $this->decode('Wykonuj&#281; automatyczn&#261; akcj&#281;'),
         };
     }

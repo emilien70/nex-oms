@@ -65,8 +65,16 @@
     <td>
         <div class="shipment-actions">
             @if ($shipment->canDownloadLabel())
-                <div class="shipment-label-group">
+                <div class="btn-group shipment-label-group" role="group" aria-label="Akcje etykiety {{ $shipment->tracking_number }}">
                     <a class="btn btn-sm btn-light" href="{{ route('shipments.label', $shipment) }}">Etykieta</a>
+                    @include('integrations.nex-printer._print-dropdown', [
+                        'printUrl' => route('shipments.nex-printer.store', $shipment),
+                        'printOrderLabel' => 'Zamówienie '.$shipment->order_id,
+                        'printOrderUrl' => route('orders.show', $shipment->order_id),
+                        'printButtonClass' => 'btn btn-sm btn-light shipment-label-print-button',
+                        'printIconOnly' => true,
+                        'printMenuAlign' => 'dropdown-menu-end',
+                    ])
                 </div>
             @endif
             <div class="dropdown">

@@ -91,9 +91,11 @@
             </div>
             @if ($isEditing)
                 <div class="btn-group correction-document-actions" role="group" aria-label="Akcje Korekty" data-correction-edit-actions>
-                    <a class="btn" href="{{ route('invoices.pdf', $correction) }}" target="_blank" rel="noopener" data-correction-print-button>
-                        <i class="bi bi-printer me-1"></i>Drukuj
-                    </a>
+                    @include('integrations.nex-printer._print-dropdown', [
+                        'invoice' => $correction,
+                        'printButtonClass' => 'btn',
+                        'correctionPrintButton' => true,
+                    ])
                     <div class="btn-group" role="group">
                         <button class="btn dropdown-toggle dropdown-toggle-split" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <span class="visually-hidden">Opcje drukowania</span>

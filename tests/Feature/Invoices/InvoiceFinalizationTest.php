@@ -173,6 +173,7 @@ class InvoiceFinalizationTest extends TestCase
             ->assertOk()
             ->assertSee('data-finalized-correction-notice', false)
             ->assertDontSee('data-bs-target="#correctionDeleteModal"', false)
+            ->assertSee(route('invoices.nex-printer.store', $first), false)
             ->assertSee('data-correction-print-button', false);
 
         $this->get(route('invoices.edit', $invoice))

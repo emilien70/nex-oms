@@ -376,7 +376,8 @@ class OrderSalesDocumentActionsTest extends TestCase
         $this->assertStringContainsString('Korekta:', $html);
         $this->assertStringContainsString('management-issued-correction-actions', $html);
         $this->assertStringContainsString($correction->number, $html);
-        $this->assertSame(2, substr_count($html, route('invoices.pdf', $correction)));
+        $this->assertSame(1, substr_count($html, route('invoices.pdf', $correction)));
+        $this->assertStringContainsString(route('invoices.nex-printer.store', $correction), $html);
         $this->assertStringContainsString(route('invoices.corrections.edit', [
             'correction' => $correction,
             'return_to' => 'order',

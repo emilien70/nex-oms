@@ -15,12 +15,35 @@
     <div class="nex-label">Zap&#322;acono:</div>
     <button class="badge border-0 {{ $paidBadgeClass }}" type="button" data-paid-edit-open aria-label="Edytuj wp&#322;at&#281;">{{ $moneyValue($order->paid_amount) }} {{ $order->currency }}</button>
     <span class="text-secondary">z {{ $moneyValue($order->total_gross) }} {{ $order->currency }}</span>
-    <form method="POST" action="{{ route('orders.recalculate-total', $order) }}" class="ms-auto" data-order-ajax-form>
-        @csrf
-        @method('PATCH')
-        <button class="mini-icon-button" type="submit" title="Przelicz &#322;&#261;czn&#261; warto&#347;&#263;" aria-label="Przelicz &#322;&#261;czn&#261; warto&#347;&#263;">&#8635;</button>
-    </form>
-    <button class="mini-icon-button" type="button" data-paid-edit-open title="Edytuj wp&#322;at&#281;" aria-label="Edytuj wp&#322;at&#281;">&#9998;</button>
+    <div class="paid-amount-action-group" role="group" aria-label="Akcje p&#322;atno&#347;ci">
+        <form method="POST" action="{{ route('orders.recalculate-total', $order) }}" data-order-ajax-form>
+            @csrf
+            @method('PATCH')
+            <button class="paid-amount-action-button" type="submit" title="Przelicz &#322;&#261;czn&#261; warto&#347;&#263;" aria-label="Przelicz &#322;&#261;czn&#261; warto&#347;&#263;">
+                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+            </button>
+        </form>
+        <button class="paid-amount-action-button" type="button" data-paid-edit-open title="Edytuj wp&#322;at&#281;" aria-label="Edytuj wp&#322;at&#281;">
+            <i class="bi bi-pencil" aria-hidden="true"></i>
+        </button>
+        @if ($order->payment_status === \App\Services\OrderPaymentStateService::STATUS_UNPAID)
+            <button
+                class="paid-amount-action-button is-paynow-action"
+                type="button"
+                aria-label="Generuj link p&#322;atno&#347;ci"
+                data-payment-link-action
+                data-payment-link-url="{{ route('orders.paynow.payment-link', $order) }}"
+                data-bs-toggle="tooltip"
+                data-bs-placement="top"
+                data-bs-trigger="hover focus"
+                data-bs-html="true"
+                data-bs-custom-class="paynow-link-tooltip"
+                data-bs-title="Generuj link p&#322;atno&#347;ci.<br>Pojedyncze klikni&#281;cie: kopiuj do schowka<br>Podw&oacute;jne klikni&#281;cie: otw&oacute;rz link."
+            >
+                <i class="bi bi-link-45deg" aria-hidden="true"></i>
+            </button>
+        @endif
+    </div>
 </div>
 <form method="POST" action="{{ route('orders.paid-amount.update', $order) }}" class="paid-amount-edit align-items-center flex-wrap gap-2" data-paid-edit data-total="{{ (float) $order->total_gross }}" data-order-ajax-form>
     @csrf

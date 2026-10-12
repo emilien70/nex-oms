@@ -96,9 +96,11 @@
                 <div class="invoice-edit-subtitle">dla zamówienia <a href="{{ route('orders.show', $order) }}">{{ $invoice->order_reference_snapshot }}</a></div>
             </div>
             <div class="btn-group invoice-document-actions" role="group" aria-label="Akcje Faktury">
-                <a class="btn" href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener" data-invoice-print-button>
-                    <i class="bi bi-printer me-1"></i>Drukuj
-                </a>
+                @include('integrations.nex-printer._print-dropdown', [
+                    'invoice' => $invoice,
+                    'printButtonClass' => 'btn',
+                    'invoicePrintButton' => true,
+                ])
                 <div class="btn-group" role="group">
                     <button class="btn dropdown-toggle dropdown-toggle-split" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                         <span class="visually-hidden">Opcje drukowania</span>

@@ -41,6 +41,8 @@ class AutomationRuleController extends Controller
             'shipmentActionDefinitions' => $catalog->shipmentActionDefinitions(),
             'invoiceSeries' => $catalog->invoiceSeries(),
             'emailTemplates' => $catalog->emailTemplates(),
+            'nexPrinters' => $catalog->nexPrinters(),
+            'printDocumentTypes' => $catalog->printDocumentTypes(),
         ]);
     }
 
