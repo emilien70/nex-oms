@@ -2340,3 +2340,35 @@ Jednokrotne zaksięgowanie poprawnej wpłaty PayNow publikuje zdarzenie automaty
 Reguła może rozróżnić źródło płatności `PayNow` oraz stan zamówienia po wpłacie: nieopłacone, częściowo opłacone albo opłacone. Każda odrębna wpłata lub dopłata otrzymuje własne zdarzenie, natomiast powtórzony webhook i kontrolne odpytywanie statusu tej samej płatności nie tworzą drugiego wykonania tej samej reguły.
 
 Zdarzenie może uruchamiać istniejące akcje, między innymi zmianę statusu, wystawienie faktury, wysłanie e-maila i drukowanie. Błąd automatycznej akcji jest rejestrowany przez dotychczasowy mechanizm automatyzacji i nie cofa już zaksięgowanej wpłaty. Zwroty PayNow oraz ręczna obsługa płatności wymagających sprawdzenia pozostają poza PAYNOW.4.
+
+---
+
+# PRESTASHOP.1 — konfiguracja i rozpoznanie sklepu
+
+NEX-OMS udostępnia kafel `PrestaShop` oraz konfigurację jednego sklepu internetowego. Operator zapisuje nazwę, bazowy adres HTTPS i 32-znakowy Klucz API. Klucz jest szyfrowany w bazie, nie wraca do HTML ani sesji po błędzie walidacji, a pozostawienie pola pustego zachowuje bieżącą wartość. Integrację można aktywować dopiero po poprawnym teście aktualnego adresu i klucza. Zmiana danych połączenia automatycznie ją wyłącza i unieważnia poprzedni wynik testu.
+
+Test jest wyłącznie odczytowy. Sprawdza natywne zasoby Webservice API oraz uprawnienia GET do konfiguracji i ręcznego importu zamówień, bez zależności od indeksu `/api/`. Wykrywa pojedynczy aktywny sklep, wersję PrestaShop, aktywne języki i waluty, a następnie zapisuje bieżący słownik statusów zamówień wraz z flagami PrestaShop, między innymi `paid`, `shipped` i `delivery`. Statusy są pobierane jako XML w aktywnym języku, aby zachować zgodność z PrestaShop 8.2.7. Dla sklepu multi-store test kończy się bez aktywacji, ponieważ wybrany wariant obsługuje dokładnie jeden sklep.
+
+PRESTASHOP.1 nie pobiera zamówień ani statusów płatności, nie zmienia statusów po stronie sklepu, nie synchronizuje produktów, cen lub stanów i nie uruchamia pracy cyklicznej. Nie wymaga też instalowania modułu NEX w PrestaShop. Ręczny import i deduplikację dodano w PRESTASHOP.2A, natomiast mapowanie statusów oraz dwukierunkowa wymiana należą do kolejnych etapów.
+
+---
+
+# PRESTASHOP.2A — kontrolowany import pojedynczego zamówienia
+
+Na ekranie konfiguracji operator może podać ID albo numer referencyjny zamówienia i pobrać podgląd bez zapisu do OMS. Podgląd obejmuje aktualny status PrestaShop, klienta, adres dostawy i rozliczenia, dostawę, kwoty, płatności oraz pozycje. Dane są ponownie pobierane przy właściwym imporcie, a zapis wymaga aktywnej integracji.
+
+Import tworzy zamówienie OMS ze statusem `new`, pozycje, bezpieczne powiązania identyfikatorów PrestaShop, szczegóły płatności bez danych kartowych oraz wpis historii. Cała operacja jest transakcyjna. Powtórzenie importu zwraca istniejące zamówienie, a unikalne powiązanie konta i zewnętrznego ID zabezpiecza przed duplikatem. Po pierwszym imporcie nie można podmienić adresu sklepu w tym samym koncie integracji.
+
+Wewnętrzne `order_items.product_id` pozostaje `null`. Import nie dopasowuje katalogu po nazwie, SKU ani EAN; zewnętrzne ID produktu i wariantu są przechowywane wyłącznie w tabelach integracji. Adres `address1/address2` jest zachowywany jako pełna ulica bez heurystycznego rozdzielania numeru budynku i lokalu. Kwoty są przetwarzane dziesiętnie, a niezgodność sumy pozycji, dostawy, płatności lub wartości zamówienia blokuje zapis.
+
+PRESTASHOP.2A jest jednokierunkowy i uruchamiany ręcznie. Nie synchronizuje ponownie danych biznesowych zaimportowanego zamówienia, nie mapuje statusu sklepu na status OMS, nie wysyła statusów do PrestaShop, nie synchronizuje stanów magazynowych i nie uruchamia harmonogramu. Powtórny import może jedynie bezpiecznie uzupełnić brakujący telefon lub dane punktu odbioru oraz usunąć błędnie zapisany login PrestaShop. Te funkcje należą do kolejnych etapów.
+
+---
+
+# PRESTASHOP.2A.1 — metadane sklepu i punkt odbioru
+
+Konto PrestaShop przechowuje konfigurowalny wzór publicznego linku produktu ze znacznikiem `[product_id]`. Zewnętrzne ID produktu pozostaje w tabeli powiązań integracji, jest pokazywane obok nazwy pozycji i prowadzi do produktu w domenie skonfigurowanego sklepu. Numer zamówienia w sklepie jest prezentowany wraz z nazwą konta integracji.
+
+PrestaShop nie posiada loginu klienta odpowiadającego polu OMS, dlatego import pozostawia `customer_login` pusty i przechowuje adres wyłącznie jako e-mail. Telefon jest wybierany z pierwszego niepustego pola `phone_mobile` albo `phone`.
+
+Test połączenia opcjonalnie wykrywa rozszerzony, tylko do odczytu zasób `bl_order` lub `base_order`. Jeżeli jest dostępny, importer pobiera z niego nazwę, ID, adres, kod pocztowy i miasto punktu odbioru. Brak rozszerzonego zasobu nie blokuje podstawowego importu zamówienia.

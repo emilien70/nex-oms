@@ -2818,3 +2818,33 @@ Identyfikator zdarzenia jest deterministycznym UUID v5 złożonym ze źródła i
 Payload zawiera wyłącznie bezpieczne dane operacyjne: zamówienie, wewnętrzny rekord płatności, źródło `paynow`, identyfikator dostawcy, kwotę, walutę, saldo przed i po, stan płatności po księgowaniu oraz czas księgowania. Nie zawiera kluczy, podpisów ani URL-a płatności. `AutomationCatalog` udostępnia zdarzenie `Zarejestrowano płatność` i warunek `Źródło płatności`; warunek `Płatność` korzysta dla tego zdarzenia ze stanu wyliczonego dziesiętnie podczas księgowania.
 
 Wykonanie akcji pozostaje asynchroniczne na kolejce `automation`. Błąd akcji zmienia wynik wykonania reguły, lecz nie może wycofać zatwierdzonej transakcji finansowej. PAYNOW.4 nie implementuje zwrotów, chargebacków ani panelu ręcznej obsługi wyjątków.
+
+---
+
+# 41. Integracja PrestaShop — etap PRESTASHOP.1
+
+Fundament integracji znajduje się w `Modules/Integrations/Prestashop`, przy zachowaniu centralnych tras i migracji projektu. `prestashop_accounts` przechowuje jedno logiczne połączenie ze sklepem, zaszyfrowany Klucz API, wynik ostatniego testu oraz wykryte metadane instalacji. `prestashop_order_states` przechowuje lokalny słownik statusów potrzebny w następnym etapie do jawnego mapowania. Zmiana adresu sklepu albo klucza usuwa wykryte dane i wyłącza integrację do czasu ponownego testu.
+
+`PrestashopClient` korzysta wyłącznie z natywnego Webservice API przez Basic Auth, wymusza HTTPS i brak przekierowań. Test wykonuje tylko żądania GET bezpośrednio do zasobów konfiguracji oraz ręcznego importu, dzięki czemu nie zależy od niestabilnego indeksu `/api/`. Dane ogólne pobiera jako JSON, a wielojęzyczne statusy jako XML z wybranym językiem; omija to błąd serializatora JSON występujący w PrestaShop 8.2.7. Odpowiedzi są walidowane i normalizowane przed zapisem; surowe odpowiedzi ani Klucz API nie trafiają do widoku lub komunikatów. Konfiguracja obsługuje dokładnie jeden aktywny sklep i zatrzymuje test po wykryciu multistore.
+
+Etap nie instaluje modułu w PrestaShop, nie wymaga dodatkowej biblioteki Composer i nie uruchamia schedulera. PRESTASHOP.1 nie pobiera zamówień, klientów ani produktów i nie wykonuje żadnych zapisów w sklepie. Odczyt zasobów zamówień dodano w PRESTASHOP.2A, natomiast zapis `order_histories` pozostaje poza zakresem do etapu wysyłania statusów.
+
+---
+
+# 42. Integracja PrestaShop — etap PRESTASHOP.2A
+
+`PrestashopOrderPreviewService` jest granicą normalizacji danych zewnętrznych. Pobiera zamówienie, pozycje, klienta, adresy, przewoźnika, walutę i płatności za pośrednictwem wspólnego `PrestashopClient`. Używa dokładnej arytmetyki dziesiętnej do kwot, wyznacza stawkę VAT z zapisanych wartości brutto i netto oraz odrzuca niekompletne lub niespójne odpowiedzi. Podgląd nie zapisuje danych.
+
+`PrestashopOrderImportService` ponownie pobiera podgląd i zapisuje w jednej transakcji `orders`, `order_items`, `prestashop_order_links`, `prestashop_order_item_links`, `prestashop_order_payments` oraz `order_events`. Zewnętrzne ID produktu i wariantu nie są wpisywane do `order_items.product_id`. Tabele powiązań posiadają unikalności zapobiegające ponownemu importowi tego samego zamówienia, a relacje do historycznych rekordów używają `nullOnDelete` tam, gdzie usunięcie źródła nie powinno niszczyć śladu integracji.
+
+Stan PrestaShop jest zachowany w powiązaniu importu, lecz nowe zamówienie OMS zawsze otrzymuje `new`. Etap nie synchronizuje istniejącego zamówienia przy kolejnym odczycie, poza kontrolowanym uzupełnieniem brakującego telefonu i punktu odbioru oraz wyczyszczeniem błędnego loginu PrestaShop. Nie publikuje zadań cyklicznych i nie wywołuje metod zapisu API sklepu. Moduł PrestaShop nadal korzysta z centralnych tras i migracji projektu, bez własnego providera.
+
+---
+
+# 43. Integracja PrestaShop — etap PRESTASHOP.2A.1
+
+`prestashop_accounts.product_url_template` przechowuje wzór adresu HTTPS z wymaganym znacznikiem `[product_id]`. Host wzoru musi być zgodny z hostem `base_url`. Widok pozycji korzysta z `PrestashopOrderItemLink.external_product_id`; nie wpisuje zewnętrznego ID do `order_items.product_id` i nie tworzy relacji z katalogiem OMS.
+
+`prestashop_accounts.order_enrichment_resource` przechowuje opcjonalnie wykryty zasób `bl_order` albo `base_order`. `PrestashopClient` pobiera rozszerzenie tylko przez GET, a brak lub błąd tego zasobu nie blokuje podstawowego importu. Dane `bl_delivery_point_*` są normalizowane przez `PrestashopOrderPreviewService` i zapisywane do istniejących pól `pickup_point_*` zamówienia.
+
+Powtórny import nie nadpisuje niepustego telefonu ani danych punktu zmienionych w OMS. Uzupełnia wyłącznie brakujące wartości, zawsze usuwa błędny login źródła PrestaShop i zapisuje zdarzenie `prestashop_order_metadata_completed`, jeżeli rekord został zmieniony.

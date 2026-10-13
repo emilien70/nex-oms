@@ -9,6 +9,7 @@
         'allegro' => 'Allegro',
         'prestashop' => 'PrestaShop',
     ];
+    $customerLogin = $order->customer_login ?: '...';
 @endphp
 
 <div class="paid-amount-row" data-paid-view>
@@ -57,7 +58,7 @@
 </form>
 
 <div class="order-info-section">
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Klient (login):</div><div class="nex-value {{ $order->customer_login ? '' : 'nex-empty' }}">{{ $order->customer_login ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Klient (login):</div><div class="nex-value {{ $order->customer_login ? '' : 'nex-empty' }}">{{ $customerLogin }}<span class="inline-pencil">&#9998;</span></div></div>
     <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">E-mail:</div><div class="nex-value {{ $order->customer_email ? '' : 'nex-empty' }}">{{ $order->customer_email ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
     <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Telefon:</div><div class="nex-value {{ $order->customer_phone ? '' : 'nex-empty' }}">{{ $order->customer_phone ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
     <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">&#377;r&oacute;d&#322;o:</div><div class="nex-value">{{ $sourceOptions[$order->source] ?? $order->source }}<span class="inline-pencil">&#9998;</span></div></div>

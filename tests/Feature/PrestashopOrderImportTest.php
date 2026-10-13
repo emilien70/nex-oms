@@ -1,0 +1,354 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Order;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
+use Modules\Integrations\Prestashop\Enums\PrestashopConnectionTestStatus;
+use Modules\Integrations\Prestashop\Models\PrestashopAccount;
+use Tests\TestCase;
+
+class PrestashopOrderImportTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_preview_reads_order_without_writing_to_oms(): void
+    {
+        $this->account();
+        $this->fakePrestashop();
+
+        $this->get(route('integrations.prestashop.edit', ['order_identifier' => '13581']))
+            ->assertOk()
+            ->assertSeeText('Zamówienie 13581')
+            ->assertSeeText('Zgemma H11s Wi-Fi Dekoder 4K UHD')
+            ->assertSeeText('462,00 PLN')
+            ->assertSeeText('Wysłane')
+            ->assertSeeText('Importuj do OMS');
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('prestashop_order_links', 0);
+        $this->assertDatabaseCount('prestashop_order_payments', 0);
+    }
+
+    public function test_import_creates_order_items_payment_links_and_event_in_one_operation(): void
+    {
+        $this->account();
+        $this->fakePrestashop();
+
+        $response = $this->post(route('integrations.prestashop.orders.import'), [
+            'order_identifier' => '13581',
+        ]);
+
+        $order = Order::query()->sole();
+
+        $response->assertRedirect(route('orders.show', $order));
+        $this->assertSame('prestashop', $order->source);
+        $this->assertSame('13581', $order->external_id);
+        $this->assertSame(Order::STATUS_NEW, $order->status);
+        $this->assertSame('PLN', $order->currency);
+        $this->assertSame('462.00', $order->total_gross);
+        $this->assertSame('462.00', $order->paid_amount);
+        $this->assertSame('10.00', $order->delivery_cost_gross);
+        $this->assertSame('paid', $order->payment_status);
+        $this->assertSame('InPost Pay', $order->payment_method);
+        $this->assertSame('Paczkomaty 24/7', $order->shipping_method);
+        $this->assertNull($order->customer_login);
+        $this->assertSame('+48 500 600 700', $order->customer_phone);
+        $this->assertSame('JDC02M', $order->pickup_point_name);
+        $this->assertSame('JDC02M', $order->pickup_point_id);
+        $this->assertSame('Długa 12/4', $order->shipping_street);
+        $this->assertNull($order->shipping_building_number);
+        $this->assertNull($order->shipping_apartment_number);
+
+        $item = $order->items()->sole();
+        $this->assertNull($item->product_id);
+        $this->assertSame('15505', $item->external_id);
+        $this->assertSame('452.00', $item->unit_price_gross);
+        $this->assertSame('23.00', $item->vat_rate);
+
+        $this->assertDatabaseHas('prestashop_order_links', [
+            'order_id' => $order->getKey(),
+            'external_order_id' => 13581,
+            'external_reference' => '13581',
+            'external_order_state_id' => 4,
+            'external_order_state_name' => 'Wysłane',
+        ]);
+        $this->assertDatabaseHas('prestashop_order_item_links', [
+            'order_item_id' => $item->getKey(),
+            'external_order_detail_id' => 15505,
+            'external_product_id' => 96,
+            'external_product_attribute_id' => null,
+        ]);
+        $this->assertDatabaseHas('prestashop_order_payments', [
+            'external_payment_id' => 9121,
+            'transaction_id' => '01a13443-5782-707c-afeb-bab523785b89',
+            'amount' => '462.00',
+            'currency' => 'PLN',
+            'method' => 'InPost Pay',
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->getKey(),
+            'event_type' => 'prestashop_order_imported',
+            'title' => 'Zaimportowano zamówienie z PrestaShop',
+        ]);
+
+        $this->get(route('orders.show', $order))
+            ->assertOk()
+            ->assertSeeText('13581')
+            ->assertSeeText('multi-click.pl')
+            ->assertSee('<div class="nex-value nex-empty">...<span class="inline-pencil">&#9998;</span></div>', false)
+            ->assertSee('<input type="text" name="customer_login" class="form-control form-control-sm" value="">', false)
+            ->assertSee('href="https://multi-click.pl/index.php?controller=product&amp;id_product=96"', false)
+            ->assertSeeText('JDC02M');
+    }
+
+    public function test_repeated_import_returns_existing_order_without_duplication(): void
+    {
+        $this->account();
+        $this->fakePrestashop();
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertRedirect();
+        $order = Order::query()->sole();
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertRedirect(route('orders.show', $order));
+
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseCount('order_items', 1);
+        $this->assertDatabaseCount('prestashop_order_links', 1);
+        $this->assertDatabaseCount('prestashop_order_payments', 1);
+        $this->assertDatabaseCount('order_events', 1);
+    }
+
+    public function test_repeated_import_completes_only_missing_contact_and_pickup_metadata(): void
+    {
+        $this->account();
+        $this->fakePrestashop();
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581']);
+        $order = Order::query()->sole();
+        $order->forceFill([
+            'customer_login' => 'jan@example.test',
+            'customer_phone' => null,
+            'pickup_point_name' => null,
+            'pickup_point_id' => null,
+        ])->save();
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertRedirect(route('orders.show', $order));
+
+        $order->refresh();
+
+        $this->assertNull($order->customer_login);
+        $this->assertSame('+48 500 600 700', $order->customer_phone);
+        $this->assertSame('JDC02M', $order->pickup_point_name);
+        $this->assertSame('JDC02M', $order->pickup_point_id);
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseCount('order_items', 1);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->getKey(),
+            'event_type' => 'prestashop_order_metadata_completed',
+        ]);
+    }
+
+    public function test_import_prefers_apaczka_point_over_base_delivery_fields(): void
+    {
+        $this->account();
+        $this->fakePrestashop(enrichmentOverrides: [
+            'apaczka_point' => 'RAD50M',
+        ]);
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertRedirect();
+
+        $order = Order::query()->sole();
+
+        $this->assertSame('RAD50M', $order->pickup_point_name);
+        $this->assertSame('RAD50M', $order->pickup_point_id);
+    }
+
+    public function test_import_requires_active_integration_and_does_not_call_prestashop(): void
+    {
+        $this->account(['is_active' => false]);
+        Http::fake();
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertRedirect(route('integrations.prestashop.edit', ['order_identifier' => '13581']))
+            ->assertSessionHas('error', 'Włącz integrację PrestaShop przed importem zamówienia.');
+
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_total_mismatch_blocks_import_without_partial_records(): void
+    {
+        $this->account();
+        $this->fakePrestashop(['total_paid' => '463.000000', 'total_paid_tax_incl' => '463.000000']);
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertRedirect(route('integrations.prestashop.edit', ['order_identifier' => '13581']))
+            ->assertSessionHas('error', fn (string $message): bool => str_contains($message, 'nie zgadza się'));
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('prestashop_order_links', 0);
+    }
+
+    public function test_invalid_identifier_is_rejected_before_network_request(): void
+    {
+        $this->account();
+        Http::fake();
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '../13581'])
+            ->assertSessionHasErrors('order_identifier');
+
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_payment_total_mismatch_blocks_import(): void
+    {
+        $this->account();
+        $this->fakePrestashop(paymentOverrides: ['amount' => '400.000000']);
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertSessionHas('error', fn (string $message): bool => str_contains($message, 'Suma płatności'));
+
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    private function account(array $overrides = []): PrestashopAccount
+    {
+        $account = PrestashopAccount::query()->create(array_merge([
+            'account_key' => PrestashopAccount::DEFAULT_ACCOUNT_KEY,
+            'name' => 'multi-click.pl',
+            'base_url' => 'https://multi-click.pl',
+            'api_key' => '12345678901234567890123456789012',
+            'is_active' => true,
+            'shop_id' => 1,
+            'language_id' => 2,
+            'language_iso_code' => 'pl',
+            'available_currencies' => [
+                ['id' => 1, 'name' => 'Złoty', 'iso_code' => 'PLN'],
+            ],
+            'order_enrichment_resource' => 'bl_order',
+            'last_tested_at' => now(),
+            'last_test_status' => PrestashopConnectionTestStatus::Success,
+            'last_test_message' => 'OK',
+        ], $overrides));
+        $account->orderStates()->create([
+            'external_id' => 4,
+            'name' => 'Wysłane',
+            'shipped' => true,
+            'refreshed_at' => now(),
+        ]);
+
+        return $account;
+    }
+
+    private function fakePrestashop(
+        array $orderOverrides = [],
+        array $detailOverrides = [],
+        array $paymentOverrides = [],
+        array $enrichmentOverrides = [],
+    ): void {
+        $order = array_merge([
+            'id' => 13581,
+            'id_address_delivery' => '10239',
+            'id_address_invoice' => '10239',
+            'id_currency' => '1',
+            'id_customer' => '11443',
+            'id_carrier' => '281',
+            'current_state' => '4',
+            'module' => 'inpostizi',
+            'payment' => 'InPost Pay',
+            'date_add' => '2026-10-13 09:53:55',
+            'date_upd' => '2026-10-13 12:29:51',
+            'note' => '',
+            'gift_message' => '',
+            'total_discounts_tax_incl' => '0.000000',
+            'total_paid' => '462.000000',
+            'total_paid_tax_incl' => '462.000000',
+            'total_paid_real' => '462.000000',
+            'total_shipping_tax_incl' => '10.000000',
+            'total_wrapping_tax_incl' => '0.000000',
+            'reference' => '13581',
+        ], $orderOverrides);
+        $detail = array_merge([
+            'id' => 15505,
+            'id_order' => '13581',
+            'product_id' => '96',
+            'product_attribute_id' => '0',
+            'product_name' => 'Zgemma H11s Wi-Fi Dekoder 4K UHD',
+            'product_quantity' => '1',
+            'product_reference' => 'H11S-WiFi',
+            'product_ean13' => '5901890074162',
+            'product_weight' => '1.000000',
+            'unit_price_tax_incl' => '452.000000',
+            'unit_price_tax_excl' => '367.479675',
+            'total_price_tax_incl' => '452.000000',
+            'total_price_tax_excl' => '367.480000',
+        ], $detailOverrides);
+        $payment = array_merge([
+            'id' => 9121,
+            'order_reference' => '13581',
+            'id_currency' => '1',
+            'amount' => '462.000000',
+            'payment_method' => 'InPost Pay',
+            'transaction_id' => '01a13443-5782-707c-afeb-bab523785b89',
+            'card_number' => 'not-stored',
+            'card_holder' => 'not-stored',
+            'date_add' => '2026-10-13 09:56:44',
+        ], $paymentOverrides);
+        $enrichment = array_merge([
+            'id' => 13581,
+            'bl_delivery_point_id' => 'JDC02M',
+            'bl_delivery_point_name' => 'JDC02M',
+            'bl_delivery_point_address' => '',
+            'bl_delivery_point_city' => '',
+            'bl_delivery_point_postcode' => '',
+        ], $enrichmentOverrides);
+
+        Http::fake(function (Request $request) use ($order, $detail, $payment, $enrichment) {
+            return match ((string) parse_url($request->url(), PHP_URL_PATH)) {
+                '/api/orders/13581' => Http::response(['orders' => [$order]]),
+                '/api/bl_order/13581' => Http::response(['orders' => [$enrichment]]),
+                '/api/order_details' => Http::response(['order_details' => [$detail]]),
+                '/api/currencies/1' => Http::response(['currencies' => [[
+                    'id' => 1,
+                    'iso_code' => 'PLN',
+                ]]]),
+                '/api/customers/11443' => Http::response(['customer' => [
+                    'id' => 11443,
+                    'firstname' => 'Jan',
+                    'lastname' => 'Kowalski',
+                    'email' => 'jan@example.test',
+                ]]),
+                '/api/addresses/10239' => Http::response(['address' => [
+                    'id' => 10239,
+                    'id_country' => '14',
+                    'firstname' => 'Jan',
+                    'lastname' => 'Kowalski',
+                    'address1' => 'Długa 12/4',
+                    'postcode' => '00-001',
+                    'city' => 'Warszawa',
+                    'phone_mobile' => '',
+                    'phone' => '500 600 700',
+                ]]),
+                '/api/countries/14' => Http::response(['countries' => [[
+                    'id' => 14,
+                    'iso_code' => 'PL',
+                    'name' => 'Polska',
+                ]]]),
+                '/api/carriers/281' => Http::response(['carriers' => [[
+                    'id' => 281,
+                    'name' => 'Paczkomaty 24/7',
+                ]]]),
+                '/api/order_payments' => Http::response(['order_payments' => [$payment]]),
+                default => Http::response([], 404),
+            };
+        });
+    }
+}

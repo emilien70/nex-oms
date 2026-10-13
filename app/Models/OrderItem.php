@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Modules\Integrations\Prestashop\Models\PrestashopOrderItemLink;
 use Modules\Invoices\Models\InvoiceItem;
 use Modules\Products\Models\Product;
 
@@ -41,6 +43,11 @@ class OrderItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function prestashopItemLink(): HasOne
+    {
+        return $this->hasOne(PrestashopOrderItemLink::class, 'order_item_id');
     }
 
     public function invoiceItems(): HasMany

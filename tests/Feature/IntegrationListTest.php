@@ -26,4 +26,13 @@ class IntegrationListTest extends TestCase
             ->assertSeeText('PayNow')
             ->assertSee('href="'.route('integrations.paynow.edit').'"', false);
     }
+
+    public function test_integration_list_contains_prestashop_tile(): void
+    {
+        $this->get(route('integrations.index'))
+            ->assertOk()
+            ->assertSee('data-integration="prestashop"', false)
+            ->assertSeeText('PrestaShop')
+            ->assertSee('href="'.route('integrations.prestashop.edit').'"', false);
+    }
 }

@@ -81,6 +81,18 @@
             color: #00a6a6;
         }
 
+        .integration-prestashop-icon {
+            color: #25b9d7;
+            font-size: 32px;
+            line-height: 1;
+        }
+
+        .integration-prestashop-name {
+            color: #1d1d1b;
+            font-size: 16px;
+            font-weight: 800;
+        }
+
         .integration-tile-name {
             color: #28323d;
             font-size: 13px;
@@ -119,6 +131,15 @@
             >
                 <span class="integration-paynow-logo" aria-hidden="true">pay<span>now</span></span>
                 <span class="integration-tile-name">PayNow</span>
+            </a>
+            <a
+                class="integration-tile"
+                data-integration="prestashop"
+                aria-label="PrestaShop"
+                href="{{ route('integrations.prestashop.edit') }}"
+            >
+                <i class="bi bi-shop-window integration-prestashop-icon" aria-hidden="true"></i>
+                <span class="integration-prestashop-name">PrestaShop</span>
             </a>
         </section>
     </div>

@@ -20,6 +20,7 @@
     $paidBadgeClass = $paidAmount <= 0 ? 'bg-secondary' : ($isFullyPaid ? 'bg-success' : 'bg-danger');
     $managementDateParts = fn ($value) => $value ? ['date' => $value->format('Y-m-d'), 'time' => $value->format('H:i')] : null;
     $statusChangedAt = $order->status_changed_at ?? $order->created_at;
+    $prestashopOrderLink = $order->prestashopOrderLinks->first();
     $selectedShipmentProvider = old('shipment_provider');
     $starColors = [
         '' => ['label' => 'Usu&#324; kolor gwiazdki', 'class' => 'star-empty', 'icon' => '&#9734;'],
@@ -2834,7 +2835,12 @@
                             ])
                             @if ($order->source === 'prestashop')
                                 <div class="management-meta-label">Numer w sklepie:</div>
-                                <div class="management-meta-value">{{ $order->external_id ?: '...' }}</div>
+                                <div class="management-meta-value">
+                                    {{ $order->external_id ?: '...' }}
+                                    @if ($prestashopOrderLink?->account?->name)
+                                        ({{ $prestashopOrderLink->account->name }})
+                                    @endif
+                                </div>
                             @elseif ($order->source === 'allegro')
                                 <div class="management-meta-label">Numer transakcji:</div>
                                 <div class="management-meta-value">{{ $order->external_id ?: '...' }}</div>

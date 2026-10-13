@@ -46,6 +46,8 @@ class OrderStatusController extends Controller
     {
         $order->load([
             'items.product',
+            'items.prestashopItemLink.orderLink.account',
+            'prestashopOrderLinks.account',
             'shipments' => fn ($query) => $query
                 ->whereNotNull('tracking_number')
                 ->orderByDesc('created_at'),

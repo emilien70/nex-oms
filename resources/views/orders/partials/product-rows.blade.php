@@ -2,6 +2,11 @@
     $currencyOptions = $currencyOptions ?? app(\App\Support\CurrencyCatalog::class)->all();
 @endphp
 @forelse ($order->items as $item)
+    @php
+        $prestashopItemLink = $item->prestashopItemLink;
+        $prestashopProductId = $prestashopItemLink?->external_product_id;
+        $prestashopProductUrl = $prestashopItemLink?->orderLink?->account?->productUrl($prestashopProductId);
+    @endphp
     <tr>
         <td>
             @if ($item->product?->thumbnail_path)
@@ -43,7 +48,22 @@
                 <span class="text-secondary">&mdash;</span>
             @endif
         </td>
-        <td><div class="product-name">{{ $item->product_name }}</div></td>
+        <td>
+            <div class="product-name">
+                {{ $item->product_name }}
+                @if ($prestashopProductId && $prestashopProductUrl)
+                    <span>(</span><a
+                        class="product-id-link"
+                        href="{{ $prestashopProductUrl }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Otwórz produkt PrestaShop ID {{ $prestashopProductId }}"
+                    >{{ $prestashopProductId }}</a><span>)</span>
+                @elseif ($prestashopProductId)
+                    <span class="text-primary">({{ $prestashopProductId }})</span>
+                @endif
+            </div>
+        </td>
         <td class="product-metric">{{ $item->quantity }}</td>
         <td class="product-metric">{{ number_format((float) $item->unit_price_gross, 2, ',', ' ') }} {{ $item->currency ?? $order->currency }}</td>
         <td class="product-metric">{{ $item->vat_rate !== null ? number_format((float) $item->vat_rate, 2, ',', ' ') . '%' : '-' }}</td>
