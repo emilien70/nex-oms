@@ -13,6 +13,7 @@ use Modules\Invoices\Enums\InvoiceItemType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceItem;
 use Modules\Products\Models\Product;
+use Modules\Products\Models\OrderItemBundleComponent;
 use Modules\Products\Models\ProductStockMovement;
 
 class InvoiceStockDeductionService
@@ -100,6 +101,9 @@ class InvoiceStockDeductionService
                         'invoice_number' => $managedInvoice->number,
                         'invoice_item_ids' => $deduction['invoice_item_ids'],
                         'automation_rule_id' => $run->automation_rule_id,
+                        'bundle_product_id' => $deduction['bundle_product_id'] ?? null,
+                        'bundle_product_name' => $deduction['bundle_product_name'] ?? null,
+                        'quantity_per_bundle' => $deduction['quantity_per_bundle'] ?? null,
                     ],
                     'occurred_at' => now(),
                 ]);
@@ -142,6 +146,17 @@ class InvoiceStockDeductionService
     {
         $deductions = collect();
         $ignoredLines = 0;
+        $orderItemIds = $items->pluck('order_item_id')->filter()->unique()->values();
+        $bundleComponents = $orderItemIds->isEmpty()
+            ? collect()
+            : OrderItemBundleComponent::query()
+                ->whereIn('order_item_id', $orderItemIds->all())
+                ->orderBy('id')
+                ->get()
+                ->groupBy('order_item_id');
+        $productTypes = Product::query()
+            ->whereIn('id', $items->pluck('product_id')->filter()->unique()->values()->all())
+            ->pluck('item_type', 'id');
 
         foreach ($items as $item) {
             if ($item->product_id === null || $item->order_item_id === null) {
@@ -150,37 +165,56 @@ class InvoiceStockDeductionService
                 continue;
             }
 
-            try {
-                $quantity = BigDecimal::of((string) $item->quantity);
-                if ($quantity->isLessThanOrEqualTo(0) || $quantity->hasNonZeroFractionalPart()) {
-                    throw new DomainException(
-                        'Pozycja '.$item->position.' faktury ma ilość, której nie można odjąć od całkowitego stanu magazynowego.',
-                    );
-                }
-                $quantityInteger = $quantity->toInt();
-            } catch (MathException $exception) {
+            $quantityInteger = $this->integerQuantity($item);
+            $snapshots = $bundleComponents->get((int) $item->order_item_id, collect());
+            $isBundle = $productTypes->get((int) $item->product_id) === Product::TYPE_BUNDLE
+                || $snapshots->isNotEmpty();
+
+            if ($isBundle && $snapshots->isEmpty()) {
                 throw new DomainException(
-                    'Pozycja '.$item->position.' faktury ma nieprawidłową ilość magazynową.',
-                    previous: $exception,
+                    'Zestaw z pozycji '.$item->position.' faktury nie posiada historycznego składu.',
                 );
             }
 
-            $key = $this->idempotencyKey($invoice, $item);
-            $current = $deductions->get($key);
-            if ($current !== null && $current['product_id'] !== $item->product_id) {
-                throw new DomainException('Jedna pozycja zamówienia wskazuje różne produkty magazynowe.');
+            if (! $isBundle) {
+                $this->addDeduction(
+                    $deductions,
+                    $this->idempotencyKey($invoice, $item),
+                    $item,
+                    (int) $item->product_id,
+                    $quantityInteger,
+                );
+
+                continue;
             }
 
-            $deductions->put($key, [
-                'product_id' => (int) $item->product_id,
-                'order_item_id' => (int) $item->order_item_id,
-                'invoice_item_id' => $current['invoice_item_id'] ?? $item->getKey(),
-                'invoice_item_ids' => [
-                    ...($current['invoice_item_ids'] ?? []),
-                    $item->getKey(),
-                ],
-                'quantity' => ($current['quantity'] ?? 0) + $quantityInteger,
-            ]);
+            foreach ($snapshots as $snapshot) {
+                if ($snapshot->component_product_id === null) {
+                    throw new DomainException(
+                        'Składnik zestawu „'.$snapshot->component_product_name.'” już nie istnieje.',
+                    );
+                }
+
+                $componentQuantity = $quantityInteger * (int) $snapshot->quantity_per_bundle;
+                if ($componentQuantity > self::MAX_STOCK) {
+                    throw new DomainException(
+                        'Ilość składnika „'.$snapshot->component_product_name.'” przekracza obsługiwany zakres.',
+                    );
+                }
+
+                $this->addDeduction(
+                    $deductions,
+                    $this->idempotencyKey($invoice, $item, (int) $snapshot->component_product_id),
+                    $item,
+                    (int) $snapshot->component_product_id,
+                    $componentQuantity,
+                    [
+                        'bundle_product_id' => (int) $item->product_id,
+                        'bundle_product_name' => $item->name,
+                        'quantity_per_bundle' => (int) $snapshot->quantity_per_bundle,
+                    ],
+                );
+            }
         }
 
         return [$deductions, $ignoredLines];
@@ -220,8 +254,68 @@ class InvoiceStockDeductionService
             ->keyBy('id');
     }
 
-    private function idempotencyKey(Invoice $invoice, InvoiceItem $item): string
+    private function integerQuantity(InvoiceItem $item): int
     {
-        return 'invoice_issued:order:'.$invoice->order_id.':order_item:'.$item->order_item_id;
+        try {
+            $quantity = BigDecimal::of((string) $item->quantity);
+            if ($quantity->isLessThanOrEqualTo(0) || $quantity->hasNonZeroFractionalPart()) {
+                throw new DomainException(
+                    'Pozycja '.$item->position.' faktury ma ilość, której nie można odjąć od całkowitego stanu magazynowego.',
+                );
+            }
+
+            return $quantity->toInt();
+        } catch (MathException $exception) {
+            throw new DomainException(
+                'Pozycja '.$item->position.' faktury ma nieprawidłową ilość magazynową.',
+                previous: $exception,
+            );
+        }
+    }
+
+    /**
+     * @param Collection<string, array<string, mixed>> $deductions
+     * @param array<string, mixed> $context
+     */
+    private function addDeduction(
+        Collection $deductions,
+        string $key,
+        InvoiceItem $item,
+        int $productId,
+        int $quantity,
+        array $context = [],
+    ): void {
+        $current = $deductions->get($key);
+        if ($current !== null && $current['product_id'] !== $productId) {
+            throw new DomainException('Jedna pozycja zamówienia wskazuje różne produkty magazynowe.');
+        }
+        $totalQuantity = ($current['quantity'] ?? 0) + $quantity;
+        if ($totalQuantity > self::MAX_STOCK) {
+            throw new DomainException('Łączna ilość do odjęcia przekracza obsługiwany zakres.');
+        }
+
+        $deductions->put($key, array_merge($context, [
+            'product_id' => $productId,
+            'order_item_id' => (int) $item->order_item_id,
+            'invoice_item_id' => $current['invoice_item_id'] ?? $item->getKey(),
+            'invoice_item_ids' => [
+                ...($current['invoice_item_ids'] ?? []),
+                $item->getKey(),
+            ],
+            'quantity' => $totalQuantity,
+        ]));
+    }
+
+    private function idempotencyKey(
+        Invoice $invoice,
+        InvoiceItem $item,
+        ?int $componentProductId = null,
+    ): string
+    {
+        $key = 'invoice_issued:order:'.$invoice->order_id.':order_item:'.$item->order_item_id;
+
+        return $componentProductId === null
+            ? $key
+            : $key.':component:'.$componentProductId;
     }
 }

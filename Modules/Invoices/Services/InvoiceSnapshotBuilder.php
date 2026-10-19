@@ -15,6 +15,7 @@ class InvoiceSnapshotBuilder
     public function __construct(
         private readonly CountryCatalog $countries,
         private readonly OrderPaymentStateService $paymentStates,
+        private readonly InvoicePaymentIdentifierResolver $paymentIdentifiers,
     ) {}
 
     /**
@@ -92,7 +93,8 @@ class InvoiceSnapshotBuilder
             'payment_snapshot' => [
                 'order_payment_method' => $order->payment_method,
                 'effective_payment_method' => $effectivePaymentMethod,
-                'payment_identifier' => $order->external_id,
+                'payment_identifier' => $this->paymentIdentifiers->resolve($order),
+                'payment_identifier_source' => 'provider_transaction',
                 'payment_status' => $order->payment_status,
                 'paid_at' => $order->paid_at?->toIso8601String(),
                 'cash_on_delivery' => (bool) $order->cash_on_delivery,

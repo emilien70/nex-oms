@@ -28,6 +28,7 @@ class OrderCatalogProductController extends Controller
         ]);
         $search = trim((string) ($validated['q'] ?? ''));
         $products = Product::query()
+            ->with('bundleComponents.component')
             ->where('is_active', true)
             ->when($search !== '', function (Builder $query) use ($search): void {
                 $query->where(function (Builder $nestedQuery) use ($search): void {

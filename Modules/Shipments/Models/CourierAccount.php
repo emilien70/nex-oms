@@ -3,7 +3,9 @@
 namespace Modules\Shipments\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\Integrations\Allegro\Models\AllegroAccount;
 
 class CourierAccount extends Model
 {
@@ -17,6 +19,7 @@ class CourierAccount extends Model
 
     protected $fillable = [
         'provider',
+        'allegro_account_id',
         'name',
         'environment',
         'api_token',
@@ -43,8 +46,17 @@ class CourierAccount extends Model
         return $this->hasMany(Shipment::class);
     }
 
+    public function allegroAccount(): BelongsTo
+    {
+        return $this->belongsTo(AllegroAccount::class);
+    }
+
     public function resolvedApiToken(): ?string
     {
+        if ($this->usesLinkedAllegroAccount()) {
+            return $this->allegroAccount->access_token;
+        }
+
         return $this->api_token ?: match ($this->provider) {
             self::PROVIDER_DPD => config('services.dpd.password'),
             self::PROVIDER_ALLEGRO_SHIPPING => config('services.allegro_shipping.access_token'),
@@ -54,6 +66,10 @@ class CourierAccount extends Model
 
     public function resolvedOrganizationId(): ?string
     {
+        if ($this->usesLinkedAllegroAccount()) {
+            return $this->allegroAccount->client_id;
+        }
+
         return $this->organization_id ?: match ($this->provider) {
             self::PROVIDER_DPD => config('services.dpd.master_fid'),
             self::PROVIDER_ALLEGRO_SHIPPING => config('services.allegro_shipping.client_id'),
@@ -63,8 +79,24 @@ class CourierAccount extends Model
 
     public function resolvedApiSecret(): ?string
     {
+        if ($this->usesLinkedAllegroAccount()) {
+            return $this->allegroAccount->client_secret;
+        }
+
         return $this->api_secret ?: match ($this->provider) {
             self::PROVIDER_ALLEGRO_SHIPPING => config('services.allegro_shipping.client_secret'),
+            default => null,
+        };
+    }
+
+    public function resolvedApiRefreshToken(): ?string
+    {
+        if ($this->usesLinkedAllegroAccount()) {
+            return $this->allegroAccount->refresh_token;
+        }
+
+        return $this->api_refresh_token ?: match ($this->provider) {
+            self::PROVIDER_ALLEGRO_SHIPPING => config('services.allegro_shipping.refresh_token'),
             default => null,
         };
     }
@@ -87,6 +119,10 @@ class CourierAccount extends Model
 
     public function hasCompleteCredentials(): bool
     {
+        if ($this->usesLinkedAllegroAccount()) {
+            return $this->allegroAccount->isOperational();
+        }
+
         if ($this->provider === self::PROVIDER_ALLEGRO_SHIPPING) {
             return filled($this->resolvedApiToken());
         }
@@ -110,6 +146,10 @@ class CourierAccount extends Model
 
     public function baseUrl(): string
     {
+        if ($this->usesLinkedAllegroAccount()) {
+            return $this->allegroAccount->apiBaseUrl();
+        }
+
         $key = $this->environment === 'production' ? 'production_url' : 'sandbox_url';
 
         $service = match ($this->provider) {
@@ -129,5 +169,12 @@ class CourierAccount extends Model
     public function setting(string $key, mixed $default = null): mixed
     {
         return data_get($this->settings ?? [], $key, $default);
+    }
+
+    private function usesLinkedAllegroAccount(): bool
+    {
+        return $this->provider === self::PROVIDER_ALLEGRO_SHIPPING
+            && $this->allegro_account_id !== null
+            && $this->allegroAccount !== null;
     }
 }

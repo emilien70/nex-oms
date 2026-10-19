@@ -6,8 +6,11 @@ use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Modules\Integrations\Prestashop\Enums\PrestashopCatalogVatMode;
 use Modules\Integrations\Prestashop\Enums\PrestashopConnectionTestStatus;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
+use Modules\Integrations\Prestashop\Models\PrestashopOrderPayment;
+use Modules\Products\Models\Product;
 use Tests\TestCase;
 
 class PrestashopOrderImportTest extends TestCase
@@ -87,6 +90,8 @@ class PrestashopOrderImportTest extends TestCase
             'amount' => '462.00',
             'currency' => 'PLN',
             'method' => 'InPost Pay',
+            'accounting_status' => PrestashopOrderPayment::STATUS_ACCOUNTED,
+            'needs_review' => false,
         ]);
         $this->assertDatabaseHas('order_events', [
             'order_id' => $order->getKey(),
@@ -121,6 +126,207 @@ class PrestashopOrderImportTest extends TestCase
         $this->assertDatabaseCount('prestashop_order_links', 1);
         $this->assertDatabaseCount('prestashop_order_payments', 1);
         $this->assertDatabaseCount('order_events', 1);
+    }
+
+    public function test_import_uses_linked_oms_product_and_keeps_prestashop_price(): void
+    {
+        $account = $this->account();
+        $product = $this->product([
+            'name' => 'Nazwa katalogowa OMS',
+            'price_gross' => '999.99',
+            'vat_rate' => '8.00',
+            'thumbnail_path' => 'products/test/thumbnail.jpg',
+        ]);
+        $product->prestashopProductLinks()->create([
+            'prestashop_account_id' => $account->getKey(),
+            'external_product_id' => 96,
+            'external_product_attribute_id' => 0,
+        ]);
+        $this->fakePrestashop();
+
+        $this->post(route('integrations.prestashop.orders.import'), [
+            'order_identifier' => '13581',
+        ])->assertRedirect();
+
+        $order = Order::query()->sole();
+        $item = $order->items()->sole();
+
+        $this->assertSame($product->getKey(), $item->product_id);
+        $this->assertSame('Nazwa katalogowa OMS', $item->product_name);
+        $this->assertSame('452.00', $item->unit_price_gross);
+        $this->assertSame('452.00', $item->total_price_gross);
+        $this->assertSame('23.00', $item->vat_rate);
+        $this->assertSame('1.000', $item->weight);
+
+        $this->get(route('orders.show', $order))
+            ->assertOk()
+            ->assertSeeText('Nazwa katalogowa OMS')
+            ->assertSee(route('products.image', [$product, 'thumbnail']), false);
+    }
+
+    public function test_imported_linked_bundle_keeps_prestashop_price_and_snapshots_components(): void
+    {
+        $account = $this->account();
+        $decoder = $this->product(['name' => 'Dekoder']);
+        $adapter = $this->product(['name' => 'Adapter']);
+        $bundle = $this->product([
+            'item_type' => Product::TYPE_BUNDLE,
+            'name' => 'Zestaw katalogowy OMS',
+            'price_gross' => '999.99',
+            'stock_quantity' => 0,
+        ]);
+        $bundle->bundleComponents()->createMany([
+            ['component_product_id' => $decoder->getKey(), 'quantity' => 1],
+            ['component_product_id' => $adapter->getKey(), 'quantity' => 2],
+        ]);
+        $bundle->prestashopProductLinks()->create([
+            'prestashop_account_id' => $account->getKey(),
+            'external_product_id' => 96,
+            'external_product_attribute_id' => 0,
+        ]);
+        $this->fakePrestashop();
+
+        $this->post(route('integrations.prestashop.orders.import'), [
+            'order_identifier' => '13581',
+        ])->assertRedirect();
+
+        $item = Order::query()->sole()->items()->sole();
+
+        $this->assertSame($bundle->getKey(), $item->product_id);
+        $this->assertSame('Zestaw katalogowy OMS', $item->product_name);
+        $this->assertSame('452.00', $item->unit_price_gross);
+        $this->assertSame(2, $item->bundleComponents()->count());
+        $this->assertDatabaseHas('order_item_bundle_components', [
+            'order_item_id' => $item->getKey(),
+            'component_product_id' => $adapter->getKey(),
+            'quantity_per_bundle' => 2,
+        ]);
+    }
+
+    public function test_import_can_keep_store_name_and_always_use_catalog_vat(): void
+    {
+        $account = $this->account([
+            'use_catalog_product_names' => false,
+            'catalog_vat_mode' => PrestashopCatalogVatMode::Catalog,
+        ]);
+        $product = $this->product([
+            'name' => 'Nazwa katalogowa OMS',
+            'price_gross' => '999.99',
+            'vat_rate' => '8.00',
+        ]);
+        $product->prestashopProductLinks()->create([
+            'prestashop_account_id' => $account->getKey(),
+            'external_product_id' => 96,
+            'external_product_attribute_id' => 0,
+        ]);
+        $this->fakePrestashop();
+
+        $this->post(route('integrations.prestashop.orders.import'), [
+            'order_identifier' => '13581',
+        ])->assertRedirect();
+
+        $item = Order::query()->sole()->items()->sole();
+
+        $this->assertSame($product->getKey(), $item->product_id);
+        $this->assertSame('Zgemma H11s Wi-Fi Dekoder 4K UHD', $item->product_name);
+        $this->assertSame('8.00', $item->vat_rate);
+        $this->assertSame('452.00', $item->unit_price_gross);
+    }
+
+    public function test_disabled_product_substitution_does_not_apply_an_existing_mapping(): void
+    {
+        $account = $this->account([
+            'use_linked_products' => false,
+            'use_catalog_product_names' => true,
+            'catalog_vat_mode' => PrestashopCatalogVatMode::Catalog,
+        ]);
+        $product = $this->product([
+            'name' => 'Nazwa katalogowa OMS',
+            'vat_rate' => '8.00',
+        ]);
+        $product->prestashopProductLinks()->create([
+            'prestashop_account_id' => $account->getKey(),
+            'external_product_id' => 96,
+            'external_product_attribute_id' => 0,
+        ]);
+        $this->fakePrestashop();
+
+        $this->post(route('integrations.prestashop.orders.import'), [
+            'order_identifier' => '13581',
+        ])->assertRedirect();
+
+        $item = Order::query()->sole()->items()->sole();
+
+        $this->assertNull($item->product_id);
+        $this->assertSame('Zgemma H11s Wi-Fi Dekoder 4K UHD', $item->product_name);
+        $this->assertSame('23.00', $item->vat_rate);
+        $this->assertSame('452.00', $item->unit_price_gross);
+    }
+
+    public function test_repeated_import_completes_a_missing_product_link_without_changing_price(): void
+    {
+        $account = $this->account();
+        $this->fakePrestashop();
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581']);
+        $order = Order::query()->sole();
+        $item = $order->items()->sole();
+        $this->assertNull($item->product_id);
+
+        $product = $this->product([
+            'name' => 'Nazwa po powiązaniu',
+            'price_gross' => '999.99',
+        ]);
+        $product->prestashopProductLinks()->create([
+            'prestashop_account_id' => $account->getKey(),
+            'external_product_id' => 96,
+            'external_product_attribute_id' => 0,
+        ]);
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertRedirect(route('orders.show', $order));
+
+        $item->refresh();
+
+        $this->assertSame($product->getKey(), $item->product_id);
+        $this->assertSame('Nazwa po powiązaniu', $item->product_name);
+        $this->assertSame('452.00', $item->unit_price_gross);
+        $this->assertSame('452.00', $item->total_price_gross);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->getKey(),
+            'event_type' => 'prestashop_order_products_linked',
+        ]);
+    }
+
+    public function test_repeated_import_does_not_rebuild_products_after_a_document_slot_exists(): void
+    {
+        $account = $this->account();
+        $this->fakePrestashop();
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581']);
+        $order = Order::query()->sole();
+        $item = $order->items()->sole();
+        $order->documentSlots()->create([
+            'document_type' => 'invoice',
+            'invoice_id' => null,
+        ]);
+        $product = $this->product(['name' => 'Nazwa po powiązaniu']);
+        $product->prestashopProductLinks()->create([
+            'prestashop_account_id' => $account->getKey(),
+            'external_product_id' => 96,
+            'external_product_attribute_id' => 0,
+        ]);
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertRedirect(route('orders.show', $order));
+
+        $item->refresh();
+
+        $this->assertNull($item->product_id);
+        $this->assertSame('Zgemma H11s Wi-Fi Dekoder 4K UHD', $item->product_name);
+        $this->assertSame('452.00', $item->unit_price_gross);
+        $this->assertDatabaseMissing('order_events', [
+            'order_id' => $order->getKey(),
+            'event_type' => 'prestashop_order_products_linked',
+        ]);
     }
 
     public function test_repeated_import_completes_only_missing_contact_and_pickup_metadata(): void
@@ -168,6 +374,50 @@ class PrestashopOrderImportTest extends TestCase
 
         $this->assertSame('RAD50M', $order->pickup_point_name);
         $this->assertSame('RAD50M', $order->pickup_point_id);
+    }
+
+    public function test_order_without_prestashop_status_is_imported_as_new_with_warning_and_history(): void
+    {
+        $this->account();
+        $this->fakePrestashop(['current_state' => '0']);
+
+        $this->get(route('integrations.prestashop.edit', ['order_identifier' => '13581']))
+            ->assertOk()
+            ->assertSeeText('Brak przypisanego statusu')
+            ->assertSeeText('PrestaShop nie przypisał statusu. Zamówienie zostanie zaimportowane do OMS jako Nowe.');
+
+        $this->post(route('integrations.prestashop.orders.import'), [
+            'order_identifier' => '13581',
+        ])->assertRedirect();
+
+        $order = Order::query()->sole();
+
+        $this->assertSame(Order::STATUS_NEW, $order->status);
+        $this->assertDatabaseHas('prestashop_order_links', [
+            'order_id' => $order->id,
+            'external_order_state_id' => null,
+            'external_order_state_name' => null,
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'prestashop_order_imported',
+            'description' => 'Zamówienie 13581 nie miało przypisanego statusu w PrestaShop. W OMS ustawiono status Nowe.',
+        ]);
+    }
+
+    public function test_malformed_prestashop_status_still_blocks_import(): void
+    {
+        $this->account();
+        $this->fakePrestashop(['current_state' => 'invalid']);
+
+        $this->post(route('integrations.prestashop.orders.import'), [
+            'order_identifier' => '13581',
+        ])
+            ->assertRedirect(route('integrations.prestashop.edit', ['order_identifier' => '13581']))
+            ->assertSessionHas('error', 'PrestaShop zwrócił nieprawidłowe ID statusu zamówienia.');
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('prestashop_order_links', 0);
     }
 
     public function test_import_requires_active_integration_and_does_not_call_prestashop(): void
@@ -246,6 +496,19 @@ class PrestashopOrderImportTest extends TestCase
         ]);
 
         return $account;
+    }
+
+    /** @param array<string, mixed> $overrides */
+    private function product(array $overrides = []): Product
+    {
+        return Product::query()->create(array_merge([
+            'name' => 'Produkt OMS',
+            'price_gross' => '199.00',
+            'currency' => 'PLN',
+            'vat_rate' => '23.00',
+            'stock_quantity' => 10,
+            'is_active' => true,
+        ], $overrides));
     }
 
     private function fakePrestashop(

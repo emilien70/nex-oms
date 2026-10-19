@@ -4,21 +4,31 @@ namespace Modules\Integrations\Prestashop\Services;
 
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
+use Modules\Integrations\Prestashop\Enums\PrestashopCatalogVatMode;
 use Modules\Integrations\Prestashop\Exceptions\PrestashopImportException;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderLink;
+use Modules\Integrations\Prestashop\Models\PrestashopProductLink;
+use Modules\Products\Models\Product;
+use Modules\Products\Services\OrderItemBundleSnapshotService;
 
 class PrestashopOrderImportService
 {
     public function __construct(
         private readonly PrestashopAccountService $accountService,
         private readonly PrestashopOrderPreviewService $previewService,
+        private readonly OrderItemBundleSnapshotService $bundleSnapshots,
     ) {}
 
     public function import(string $identifier): Order
     {
         $account = $this->accountService->get();
 
+        return $this->importForAccount($account, $identifier);
+    }
+
+    public function importForAccount(PrestashopAccount $account, string $identifier): Order
+    {
         if (! $account->is_active) {
             throw new PrestashopImportException('Włącz integrację PrestaShop przed importem zamówienia.');
         }
@@ -54,7 +64,12 @@ class PrestashopOrderImportService
                     throw new PrestashopImportException('To zamówienie PrestaShop znajduje się już w koszu OMS.');
                 }
 
-                return $this->completeMissingMetadata($existingOrder, $preview);
+                return $this->completeExistingOrder(
+                    $existingOrder,
+                    $existingLink,
+                    $lockedAccount,
+                    $preview,
+                );
             }
 
             if (Order::withTrashed()
@@ -105,11 +120,23 @@ class PrestashopOrderImportService
                 'imported_at' => now(),
             ]);
 
+            $linkedProducts = $this->linkedProductsByExternalId(
+                $lockedAccount,
+                array_column($preview['items'], 'external_product_id'),
+            );
+            $linkedProductCount = 0;
+
             foreach ($preview['items'] as $itemData) {
+                $externalProductId = $itemData['external_product_id'];
+                $linkedProduct = $externalProductId === null
+                    ? null
+                    : ($linkedProducts[$externalProductId] ?? null);
+                $productValues = $this->productValues($lockedAccount, $itemData, $linkedProduct);
+
                 $orderItem = $order->items()->create([
-                    'product_id' => null,
+                    'product_id' => $productValues['product_id'],
                     'external_id' => (string) $itemData['external_order_detail_id'],
-                    'product_name' => $itemData['product_name'],
+                    'product_name' => $productValues['product_name'],
                     'sku' => $itemData['sku'],
                     'ean' => $itemData['ean'],
                     'offer_id' => null,
@@ -117,9 +144,17 @@ class PrestashopOrderImportService
                     'unit_price_gross' => $itemData['unit_price_gross'],
                     'total_price_gross' => $itemData['total_price_gross'],
                     'currency' => $itemData['currency'],
-                    'vat_rate' => $itemData['vat_rate'],
+                    'vat_rate' => $productValues['vat_rate'],
                     'weight' => $itemData['weight'],
                 ]);
+
+                if ($linkedProduct !== null) {
+                    $this->bundleSnapshots->capture($orderItem, $linkedProduct);
+                }
+
+                if ($linkedProduct !== null) {
+                    $linkedProductCount++;
+                }
 
                 $link->itemLinks()->create([
                     'order_item_id' => $orderItem->getKey(),
@@ -130,28 +165,49 @@ class PrestashopOrderImportService
             }
 
             foreach ($preview['payments'] as $paymentData) {
-                $link->payments()->create($paymentData);
+                $link->payments()->create($paymentData + [
+                    'accounting_status' => 'accounted',
+                    'accounted_at' => now(),
+                ]);
             }
 
             $order->events()->create([
                 'event_type' => 'prestashop_order_imported',
                 'title' => 'Zaimportowano zamówienie z PrestaShop',
-                'description' => sprintf(
-                    'Zamówienie %s, status PrestaShop: %s.',
-                    $preview['reference'],
-                    $preview['external_status_name'],
-                ),
+                'description' => $preview['external_status_id'] === null
+                    ? sprintf(
+                        'Zamówienie %s nie miało przypisanego statusu w PrestaShop. W OMS ustawiono status Nowe.',
+                        $preview['reference'],
+                    )
+                    : sprintf(
+                        'Zamówienie %s, status PrestaShop: %s.',
+                        $preview['reference'],
+                        $preview['external_status_name'],
+                    ),
                 'payload' => [
                     'prestashop_account_id' => $lockedAccount->getKey(),
                     'external_order_id' => $preview['external_order_id'],
                     'external_reference' => $preview['reference'],
                     'external_order_state_id' => $preview['external_status_id'],
                     'source_hash' => $preview['source_hash'],
+                    'linked_product_count' => $linkedProductCount,
                 ],
             ]);
 
             return $order->refresh();
         }, 3);
+    }
+
+    /** @param array<string, mixed> $preview */
+    private function completeExistingOrder(
+        Order $order,
+        PrestashopOrderLink $orderLink,
+        PrestashopAccount $account,
+        array $preview,
+    ): Order {
+        $order = $this->completeMissingMetadata($order, $preview);
+
+        return $this->completeMissingProductLinks($order, $orderLink, $account);
     }
 
     /** @param array<string, mixed> $preview */
@@ -196,6 +252,144 @@ class PrestashopOrderImportService
         ]);
 
         return $order->refresh();
+    }
+
+    private function completeMissingProductLinks(
+        Order $order,
+        PrestashopOrderLink $orderLink,
+        PrestashopAccount $account,
+    ): Order {
+        if (! $account->use_linked_products
+            || $order->invoices()->exists()
+            || $order->documentSlots()->exists()) {
+            return $order;
+        }
+
+        $itemLinks = $orderLink->itemLinks()
+            ->with('orderItem')
+            ->get();
+        $linkedProducts = $this->linkedProductsByExternalId(
+            $account,
+            $itemLinks->pluck('external_product_id')->all(),
+        );
+        $updatedItemIds = [];
+
+        foreach ($itemLinks as $itemLink) {
+            $orderItem = $itemLink->orderItem;
+            $externalProductId = $itemLink->external_product_id;
+            $linkedProduct = $externalProductId === null
+                ? null
+                : ($linkedProducts[$externalProductId] ?? null);
+
+            if ($orderItem === null || $orderItem->product_id !== null || $linkedProduct === null) {
+                continue;
+            }
+
+            $productValues = $this->productValues($account, [
+                'product_name' => $orderItem->product_name,
+                'vat_rate' => $orderItem->vat_rate,
+            ], $linkedProduct);
+
+            $orderItem->forceFill($productValues)->save();
+            $this->bundleSnapshots->capture($orderItem, $linkedProduct);
+            $updatedItemIds[] = $orderItem->getKey();
+        }
+
+        if ($updatedItemIds === []) {
+            return $order;
+        }
+
+        $order->events()->create([
+            'event_type' => 'prestashop_order_products_linked',
+            'title' => 'Powiązano produkty PrestaShop z katalogiem OMS',
+            'description' => sprintf(
+                'Uzupełniono powiązanie dla %d pozycji zamówienia.',
+                count($updatedItemIds),
+            ),
+            'payload' => [
+                'order_item_ids' => $updatedItemIds,
+            ],
+        ]);
+
+        return $order->refresh();
+    }
+
+    /**
+     * @param  array<int, mixed>  $externalProductIds
+     * @return array<int, Product>
+     */
+    private function linkedProductsByExternalId(
+        PrestashopAccount $account,
+        array $externalProductIds,
+    ): array {
+        if (! $account->use_linked_products) {
+            return [];
+        }
+
+        $ids = collect($externalProductIds)
+            ->filter(fn (mixed $id): bool => filter_var(
+                $id,
+                FILTER_VALIDATE_INT,
+                ['options' => ['min_range' => 1]],
+            ) !== false)
+            ->map(fn (mixed $id): int => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        return PrestashopProductLink::query()
+            ->where('prestashop_account_id', $account->getKey())
+            ->whereIn('external_product_id', $ids)
+            ->with('product')
+            ->lockForUpdate()
+            ->get()
+            ->filter(fn (PrestashopProductLink $link): bool => $link->product !== null)
+            ->mapWithKeys(fn (PrestashopProductLink $link): array => [
+                $link->external_product_id => $link->product,
+            ])
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $sourceItem
+     * @return array{product_id: ?int, product_name: string, vat_rate: ?string}
+     */
+    private function productValues(
+        PrestashopAccount $account,
+        array $sourceItem,
+        ?Product $linkedProduct,
+    ): array {
+        if ($linkedProduct === null) {
+            return [
+                'product_id' => null,
+                'product_name' => (string) $sourceItem['product_name'],
+                'vat_rate' => $sourceItem['vat_rate'],
+            ];
+        }
+
+        $sourceVatRate = $sourceItem['vat_rate'] === null
+            ? null
+            : (string) $sourceItem['vat_rate'];
+        $catalogVatRate = $linkedProduct->vat_rate === null
+            ? null
+            : (string) $linkedProduct->vat_rate;
+        $vatMode = $account->catalog_vat_mode ?? PrestashopCatalogVatMode::Fallback;
+        $vatRate = match ($vatMode) {
+            PrestashopCatalogVatMode::Store => $sourceVatRate,
+            PrestashopCatalogVatMode::Fallback => $sourceVatRate ?? $catalogVatRate,
+            PrestashopCatalogVatMode::Catalog => $catalogVatRate,
+        };
+
+        return [
+            'product_id' => $linkedProduct->getKey(),
+            'product_name' => $account->use_catalog_product_names
+                ? $linkedProduct->name
+                : (string) $sourceItem['product_name'],
+            'vat_rate' => $vatRate,
+        ];
     }
 
     /** @return array<string, mixed> */

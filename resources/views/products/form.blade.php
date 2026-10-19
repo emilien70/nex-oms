@@ -2,14 +2,31 @@
 
 @php
     $isEdit = $product->exists;
+    $isBundle = $isBundle ?? $product->isBundle();
+    $itemLabel = $isBundle ? 'zestawu' : 'produktu';
+    $itemLabelTitle = $isBundle ? 'Zestaw' : 'Produkt';
+    $newItemLabel = $isBundle ? 'Nowy zestaw' : 'Nowy produkt';
     $storedVatRate = (string) ($product->vat_rate ?? '23.00');
     $standardVatRates = ['23.00', '8.00', '5.00', '0.00'];
     $defaultVatPreset = in_array($storedVatRate, $standardVatRates, true) ? $storedVatRate : 'custom';
     $vatPreset = old('vat_rate_preset', $defaultVatPreset);
     $customVatRate = old('custom_vat_rate', $defaultVatPreset === 'custom' ? $storedVatRate : '');
+    $componentRows = old('components');
+    if ($isBundle && ! is_array($componentRows)) {
+        $componentRows = $product->bundleComponents
+            ->map(fn ($component) => [
+                'product_id' => $component->component_product_id,
+                'quantity' => $component->quantity,
+            ])
+            ->values()
+            ->all();
+    }
+    if ($isBundle && count($componentRows ?? []) < 2) {
+        $componentRows = array_pad($componentRows ?? [], 2, ['product_id' => '', 'quantity' => 1]);
+    }
 @endphp
 
-@section('title', ($isEdit ? 'Edycja produktu' : 'Nowy produkt').' - NEX-OMS')
+@section('title', ($isEdit ? 'Edycja '.$itemLabel : $newItemLabel).' - NEX-OMS')
 
 @section('content')
 <style>
@@ -141,6 +158,33 @@
         display: none !important;
     }
 
+    .bundle-component-list {
+        display: grid;
+        gap: 10px;
+    }
+
+    .bundle-component-row {
+        align-items: start;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: minmax(0, 1fr) minmax(110px, 150px) 38px;
+    }
+
+    .bundle-component-remove {
+        align-items: center;
+        display: inline-flex;
+        height: 38px;
+        justify-content: center;
+        padding: 0;
+        width: 38px;
+    }
+
+    .bundle-availability {
+        color: #52606d;
+        font-size: 13px;
+        margin-bottom: 14px;
+    }
+
     @media (max-width: 760px) {
         .product-form-header {
             align-items: flex-start;
@@ -169,27 +213,33 @@
         .product-form-actions .btn {
             width: 100%;
         }
+
+        .bundle-component-row {
+            grid-template-columns: minmax(0, 1fr) 100px 38px;
+        }
     }
 </style>
 
 <div class="product-form-page">
     <div class="product-form-header">
         <div>
-            <h1>{{ $isEdit ? 'Edycja produktu' : 'Nowy produkt' }}</h1>
+            <h1>{{ $isEdit ? 'Edycja '.$itemLabel : $newItemLabel }}</h1>
             @if ($isEdit)
                 <div class="product-form-id">ID {{ $product->getKey() }}</div>
             @endif
         </div>
-        <a class="btn btn-outline-secondary" href="{{ route('products.index', ['status' => 'all']) }}">
+        <a class="btn btn-outline-secondary" href="{{ route('products.index', ['status' => 'all', 'tab' => $isBundle ? 'bundles' : 'products']) }}">
             <i class="bi bi-arrow-left" aria-hidden="true"></i>
-            Lista produktów
+            {{ $isBundle ? 'Lista zestawów' : 'Lista produktów' }}
         </a>
     </div>
 
     <form
         class="product-form"
         method="POST"
-        action="{{ $isEdit ? route('products.update', $product) : route('products.store') }}"
+        action="{{ $isBundle
+            ? ($isEdit ? route('product-bundles.update', $product) : route('product-bundles.store'))
+            : ($isEdit ? route('products.update', $product) : route('products.store')) }}"
         enctype="multipart/form-data"
         data-product-form
     >
@@ -202,7 +252,7 @@
             <h2>Podstawowe</h2>
             <div class="product-form-grid">
                 <div class="product-form-field is-full">
-                    <label class="product-form-label" for="product-name">Nazwa produktu</label>
+                    <label class="product-form-label" for="product-name">Nazwa {{ $itemLabel }}</label>
                     <input
                         class="form-control @error('name') is-invalid @enderror"
                         id="product-name"
@@ -242,7 +292,7 @@
                             value="1"
                             @checked((bool) old('is_active', $product->is_active ?? true))
                         >
-                        <label class="form-check-label" for="product-is-active">Produkt aktywny</label>
+                        <label class="form-check-label" for="product-is-active">{{ $itemLabelTitle }} aktywny</label>
                     </div>
                 </div>
             </div>
@@ -253,7 +303,7 @@
             <div class="product-image-layout">
                 <div class="product-image-preview" data-product-image-preview>
                     @if ($isEdit && $product->thumbnail_path)
-                        <img src="{{ route('products.image', [$product, 'thumbnail']) }}" alt="Miniatura produktu">
+                        <img src="{{ route('products.image', [$product, 'thumbnail']) }}" alt="Miniatura {{ $itemLabel }}">
                     @else
                         <i class="bi bi-image" aria-hidden="true"></i>
                     @endif
@@ -290,7 +340,7 @@
         </section>
 
         <section class="product-form-section">
-            <h2>Sprzedaż i magazyn</h2>
+            <h2>{{ $isBundle ? 'Sprzedaż' : 'Sprzedaż i magazyn' }}</h2>
             <div class="product-form-grid">
                 <div class="product-form-field is-third">
                     <label class="product-form-label" for="product-price">Cena brutto</label>
@@ -316,22 +366,24 @@
                     @error('currency')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
 
-                <div class="product-form-field is-third">
-                    <label class="product-form-label" for="product-stock">Stan magazynowy</label>
-                    <div class="input-group">
-                        <input
-                            class="form-control @error('stock_quantity') is-invalid @enderror"
-                            id="product-stock"
-                            name="stock_quantity"
-                            type="number"
-                            step="1"
-                            value="{{ old('stock_quantity', $product->stock_quantity ?? 0) }}"
-                            required
-                        >
-                        <span class="input-group-text">szt.</span>
-                        @error('stock_quantity')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                @unless ($isBundle)
+                    <div class="product-form-field is-third">
+                        <label class="product-form-label" for="product-stock">Stan magazynowy</label>
+                        <div class="input-group">
+                            <input
+                                class="form-control @error('stock_quantity') is-invalid @enderror"
+                                id="product-stock"
+                                name="stock_quantity"
+                                type="number"
+                                step="1"
+                                value="{{ old('stock_quantity', $product->stock_quantity ?? 0) }}"
+                                required
+                            >
+                            <span class="input-group-text">szt.</span>
+                            @error('stock_quantity')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
                     </div>
-                </div>
+                @endunless
 
                 <div class="product-form-field is-third">
                     <label class="product-form-label" for="product-vat-preset">VAT</label>
@@ -370,8 +422,103 @@
             </div>
         </section>
 
-        <section class="product-form-section">
-            <h2>Opakowanie</h2>
+        @if ($isBundle)
+            <section class="product-form-section">
+                <h2>Skład zestawu</h2>
+                @if ($isEdit)
+                    <div class="bundle-availability">
+                        Dostępna liczba zestawów na podstawie stanów składników:
+                        <strong>{{ $product->availableStockQuantity() }} szt.</strong>
+                    </div>
+                @endif
+                @error('components')<div class="alert alert-danger py-2">{{ $message }}</div>@enderror
+                <div class="bundle-component-list" data-bundle-components>
+                    @foreach ($componentRows as $index => $componentRow)
+                        <div class="bundle-component-row" data-bundle-component-row>
+                            <div>
+                                <label class="visually-hidden" for="bundle-component-product-{{ $index }}">Produkt</label>
+                                <select
+                                    class="form-select @error('components.'.$index.'.product_id') is-invalid @enderror"
+                                    id="bundle-component-product-{{ $index }}"
+                                    name="components[{{ $index }}][product_id]"
+                                    required
+                                >
+                                    <option value="">Wybierz produkt</option>
+                                    @foreach ($componentProducts as $componentProduct)
+                                        <option
+                                            value="{{ $componentProduct->getKey() }}"
+                                            @selected((string) ($componentRow['product_id'] ?? '') === (string) $componentProduct->getKey())
+                                        >
+                                            {{ $componentProduct->name }} (ID {{ $componentProduct->getKey() }}){{ $componentProduct->is_active ? '' : ' - ukryty' }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                @error('components.'.$index.'.product_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                            </div>
+                            <div>
+                                <label class="visually-hidden" for="bundle-component-quantity-{{ $index }}">Ilość</label>
+                                <div class="input-group">
+                                    <input
+                                        class="form-control @error('components.'.$index.'.quantity') is-invalid @enderror"
+                                        id="bundle-component-quantity-{{ $index }}"
+                                        name="components[{{ $index }}][quantity]"
+                                        type="number"
+                                        min="1"
+                                        max="2147483647"
+                                        step="1"
+                                        value="{{ $componentRow['quantity'] ?? 1 }}"
+                                        required
+                                    >
+                                    <span class="input-group-text">szt.</span>
+                                    @error('components.'.$index.'.quantity')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                </div>
+                            </div>
+                            <button
+                                class="btn btn-outline-danger bundle-component-remove"
+                                type="button"
+                                title="Usuń składnik"
+                                data-bundle-component-remove
+                            >
+                                <i class="bi bi-trash" aria-hidden="true"></i>
+                                <span class="visually-hidden">Usuń składnik</span>
+                            </button>
+                        </div>
+                    @endforeach
+                </div>
+                <button class="btn btn-outline-primary mt-3" type="button" data-bundle-component-add>
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                    Dodaj produkt
+                </button>
+                <template data-bundle-component-template>
+                    <div class="bundle-component-row" data-bundle-component-row>
+                        <div>
+                            <label class="visually-hidden" data-component-product-label>Produkt</label>
+                            <select class="form-select" data-component-product name="" required>
+                                <option value="">Wybierz produkt</option>
+                                @foreach ($componentProducts as $componentProduct)
+                                    <option value="{{ $componentProduct->getKey() }}">
+                                        {{ $componentProduct->name }} (ID {{ $componentProduct->getKey() }}){{ $componentProduct->is_active ? '' : ' - ukryty' }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="visually-hidden" data-component-quantity-label>Ilość</label>
+                            <div class="input-group">
+                                <input class="form-control" data-component-quantity name="" type="number" min="1" max="2147483647" step="1" value="1" required>
+                                <span class="input-group-text">szt.</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-outline-danger bundle-component-remove" type="button" title="Usuń składnik" data-bundle-component-remove>
+                            <i class="bi bi-trash" aria-hidden="true"></i>
+                            <span class="visually-hidden">Usuń składnik</span>
+                        </button>
+                    </div>
+                </template>
+            </section>
+        @else
+            <section class="product-form-section">
+                <h2>Opakowanie</h2>
             <div class="product-form-grid">
                 <div class="product-form-field is-quarter">
                     <label class="product-form-label" for="product-weight">Waga</label>
@@ -411,10 +558,11 @@
                     </div>
                 @endforeach
             </div>
-        </section>
+            </section>
+        @endif
 
         <div class="product-form-actions">
-            <a class="btn btn-outline-secondary" href="{{ route('products.index', ['status' => 'all']) }}">Anuluj</a>
+            <a class="btn btn-outline-secondary" href="{{ route('products.index', ['status' => 'all', 'tab' => $isBundle ? 'bundles' : 'products']) }}">Anuluj</a>
             <button class="btn btn-primary" type="submit">
                 <i class="bi bi-check-lg" aria-hidden="true"></i>
                 Zapisz
@@ -473,6 +621,58 @@
                 imageInput.value = '';
             }
         });
+
+        const componentList = form.querySelector('[data-bundle-components]');
+        const componentTemplate = form.querySelector('[data-bundle-component-template]');
+        const addComponent = form.querySelector('[data-bundle-component-add]');
+        let nextComponentIndex = componentList?.children.length ?? 0;
+
+        const syncComponentRemoveButtons = () => {
+            const rows = Array.from(componentList?.querySelectorAll('[data-bundle-component-row]') ?? []);
+            rows.forEach((row) => {
+                const button = row.querySelector('[data-bundle-component-remove]');
+                if (button) {
+                    button.disabled = rows.length <= 2;
+                }
+            });
+        };
+
+        const bindComponentRemove = (row) => {
+            row.querySelector('[data-bundle-component-remove]')?.addEventListener('click', () => {
+                row.remove();
+                syncComponentRemoveButtons();
+            });
+        };
+
+        componentList?.querySelectorAll('[data-bundle-component-row]').forEach(bindComponentRemove);
+        addComponent?.addEventListener('click', () => {
+            const source = componentTemplate?.content.firstElementChild;
+            if (!source || !componentList) {
+                return;
+            }
+
+            const row = source.cloneNode(true);
+            const product = row.querySelector('[data-component-product]');
+            const quantity = row.querySelector('[data-component-quantity]');
+            const productLabel = row.querySelector('[data-component-product-label]');
+            const quantityLabel = row.querySelector('[data-component-quantity-label]');
+            const productId = `bundle-component-product-${nextComponentIndex}`;
+            const quantityId = `bundle-component-quantity-${nextComponentIndex}`;
+
+            product.name = `components[${nextComponentIndex}][product_id]`;
+            product.id = productId;
+            quantity.name = `components[${nextComponentIndex}][quantity]`;
+            quantity.id = quantityId;
+            productLabel.htmlFor = productId;
+            quantityLabel.htmlFor = quantityId;
+            nextComponentIndex += 1;
+
+            componentList.append(row);
+            bindComponentRemove(row);
+            syncComponentRemoveButtons();
+            product.focus();
+        });
+        syncComponentRemoveButtons();
     })();
 </script>
 @endsection

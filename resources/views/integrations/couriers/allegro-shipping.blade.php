@@ -5,6 +5,8 @@
 @section('content')
     @php
         $settings = $account->settings ?? [];
+        $linkedAllegroAccount = $account->allegroAccount;
+        $displayEnvironment = $linkedAllegroAccount?->environment ?? $account->environment;
         $deviceAuthorization = session('allegro_device_authorization');
         $filterValue = fn (string $key, mixed $default = '') => old($key, $filters[$key] ?? $default);
         $activeFilters = collect($filters)->filter(fn ($value) => filled($value))->isNotEmpty();
@@ -87,7 +89,7 @@
                 <thead><tr><th>Nazwa konta</th><th>Dane</th><th>Status</th><th class="text-end"></th></tr></thead>
                 <tbody><tr>
                     <td class="fw-semibold">{{ $account->name ?: 'Wysylam z Allegro' }}</td>
-                    <td><div class="inpost-account-details"><span>Client ID: {{ $account->organization_id ?: '...' }}</span><span>&#346;rodowisko: {{ $account->environment === 'production' ? 'Produkcja' : 'Sandbox' }}</span><span>OAuth: {{ $account->hasCompleteCredentials() ? 'Po&#322;&#261;czono' : 'Nie po&#322;&#261;czono' }}</span><span>Etykieta: {{ data_get($settings, 'label_format', 'PDF') }} / {{ data_get($settings, 'label_type', 'A6') }}</span><span>Opis zawarto&#347;ci: {!! $shipmentTextSourceLabels[data_get($settings, 'content_description_source', 'order_id')] ?? $shipmentTextSourceLabels['order_id'] !!}</span><span>Numer referencyjny: {!! $shipmentTextSourceLabels[data_get($settings, 'reference_number_source', 'order_id')] ?? $shipmentTextSourceLabels['order_id'] !!}</span><span>Ostatni test: {{ $account->last_tested_at?->format('d.m.Y H:i') ?: '...' }}</span></div>@if ($account->last_error)<div class="text-danger mt-2">Ostatni b&#322;&#261;d: {{ $account->last_error }}</div>@endif</td>
+                    <td><div class="inpost-account-details">@if ($linkedAllegroAccount)<span>Konto Allegro: {{ $linkedAllegroAccount->allegro_login ?: $linkedAllegroAccount->name }}</span>@else<span>Client ID: {{ $account->organization_id ?: '...' }}</span>@endif<span>&#346;rodowisko: {{ $displayEnvironment === 'production' ? 'Produkcja' : 'Sandbox' }}</span><span>OAuth: {{ $account->hasCompleteCredentials() ? 'Po&#322;&#261;czono' : 'Nie po&#322;&#261;czono' }}</span><span>Etykieta: {{ data_get($settings, 'label_format', 'PDF') }} / {{ data_get($settings, 'label_type', 'A6') }}</span><span>Opis zawarto&#347;ci: {!! $shipmentTextSourceLabels[data_get($settings, 'content_description_source', 'order_id')] ?? $shipmentTextSourceLabels['order_id'] !!}</span><span>Numer referencyjny: {!! $shipmentTextSourceLabels[data_get($settings, 'reference_number_source', 'order_id')] ?? $shipmentTextSourceLabels['order_id'] !!}</span><span>Ostatni test: {{ $account->last_tested_at?->format('d.m.Y H:i') ?: '...' }}</span></div>@if ($account->last_error)<div class="text-danger mt-2">Ostatni b&#322;&#261;d: {{ $account->last_error }}</div>@endif</td>
                     <td><span class="account-state"><span class="account-state-dot {{ $account->isOperational() ? 'is-active' : '' }}"></span>{{ $account->isOperational() ? 'Konto aktywne' : ($account->hasCompleteCredentials() ? 'Po&#322;&#261;czone, nieaktywne' : 'Niepo&#322;&#261;czone') }}</span></td>
                     <td class="text-end"><button class="account-action bg-white" type="button" data-bs-toggle="modal" data-bs-target="#allegroShippingAccountModal" title="Edytuj konto" aria-label="Edytuj konto Wysy&#322;am z Allegro">&#9998;</button></td>
                 </tr></tbody>
@@ -164,6 +166,17 @@
                     <div class="tab-content">
                         <div class="tab-pane fade show active" id="allegroConnection"><div class="row g-3">
                             <div class="col-md-6"><label class="form-label" for="allegro_name">Nazwa konta</label><input id="allegro_name" class="form-control" name="name" value="{{ old('name', $account->name ?: 'Wysylam z Allegro') }}" required></div>
+                            @if ($linkedAllegroAccount)
+                                <input type="hidden" name="environment" value="{{ $linkedAllegroAccount->environment }}">
+                                <input type="hidden" name="organization_id" value="{{ $linkedAllegroAccount->client_id }}">
+                                <div class="col-md-6">
+                                    <label class="form-label">G&#322;&oacute;wne konto Allegro</label>
+                                    <div class="form-control bg-light">{{ $linkedAllegroAccount->allegro_login ?: $linkedAllegroAccount->name }}</div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="alert alert-info py-2 small mb-0">Autoryzacja jest zarz&#261;dzana w integracji Allegro. Tutaj ustawiasz wy&#322;&#261;cznie parametry przesy&#322;ek.</div>
+                                </div>
+                            @else
                             <div class="col-md-6"><label class="form-label" for="allegro_environment">&#346;rodowisko</label><select id="allegro_environment" class="form-select" name="environment" required><option value="sandbox" @selected(old('environment', $account->environment ?: 'sandbox') === 'sandbox')>Sandbox</option><option value="production" @selected(old('environment', $account->environment) === 'production')>Produkcja</option></select></div>
                             <div class="col-md-6"><label class="form-label" for="allegro_client_id">Client ID</label><input id="allegro_client_id" class="form-control" name="organization_id" value="{{ old('organization_id', $account->organization_id ?: config('services.allegro_shipping.client_id')) }}" required></div>
                             <div class="col-md-6"><label class="form-label" for="allegro_client_secret">Client Secret</label><input id="allegro_client_secret" class="form-control" type="password" name="api_secret"><div class="inpost-modal-help">Pozostaw puste, aby zachowa&#263; zapisany sekret.</div></div>
@@ -188,6 +201,7 @@
                                     @endif
                                 </div>
                             </div>
+                            @endif
                             <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" @checked(old('is_active', $account->is_active))><span class="form-check-label">Konto aktywne</span></label></div>
                         </div></div>
                         <div class="tab-pane fade" id="allegroDefaults"><div class="row g-3">
@@ -204,7 +218,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    @if (! is_array($deviceAuthorization))
+                    @if (! $linkedAllegroAccount && ! is_array($deviceAuthorization))
                         <button class="btn btn-sm btn-outline-primary" type="submit" formaction="{{ route('integrations.couriers.allegro-shipping.device.start') }}" formmethod="POST">
                             @if ($account->hasCompleteCredentials()) Po&#322;&#261;cz ponownie @else Po&#322;&#261;cz z Allegro @endif
                         </button>

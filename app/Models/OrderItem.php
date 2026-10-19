@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderItemLink;
 use Modules\Invoices\Models\InvoiceItem;
+use Modules\Products\Models\OrderItemBundleComponent;
 use Modules\Products\Models\Product;
 
 class OrderItem extends Model
@@ -53,5 +54,10 @@ class OrderItem extends Model
     public function invoiceItems(): HasMany
     {
         return $this->hasMany(InvoiceItem::class);
+    }
+
+    public function bundleComponents(): HasMany
+    {
+        return $this->hasMany(OrderItemBundleComponent::class);
     }
 }

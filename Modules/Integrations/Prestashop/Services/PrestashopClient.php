@@ -218,6 +218,235 @@ class PrestashopClient
         return $orders[0];
     }
 
+    public function orderCurrentState(PrestashopAccount $account, int $orderId): int
+    {
+        if ($orderId < 1) {
+            throw new PrestashopApiException('Nieprawidłowe ID zamówienia PrestaShop.');
+        }
+
+        $order = $this->record(
+            $this->payload($this->getJson($account, 'orders/'.$orderId, [
+                'display' => '[id,current_state]',
+            ])),
+            'orders',
+            'order',
+        );
+        $rawStateId = $order['current_state'] ?? null;
+        $stateId = $this->relationId($rawStateId);
+
+        if ($stateId !== null) {
+            return $stateId;
+        }
+
+        if ($this->isUnassignedOrderState($rawStateId)) {
+            return 0;
+        }
+
+        throw new PrestashopApiException('PrestaShop nie zwrócił bieżącego statusu zamówienia.');
+    }
+
+    /**
+     * @param  array<int, int>  $orderIds
+     * @return array<int, array{id: int, current_state: ?int, date_upd: ?string}>
+     */
+    public function orderStatusesByIds(PrestashopAccount $account, array $orderIds): array
+    {
+        $orderIds = array_values(array_unique(array_filter(
+            array_map('intval', $orderIds),
+            fn (int $id): bool => $id > 0,
+        )));
+
+        if ($orderIds === []) {
+            return [];
+        }
+
+        if (count($orderIds) > 100) {
+            throw new PrestashopApiException('Jedno zapytanie może sprawdzić maksymalnie 100 zamówień PrestaShop.');
+        }
+
+        return $this->normalizeOrderStatusRows(
+            $this->rows(
+                $this->payload($this->getJson($account, 'orders', [
+                    'display' => '[id,current_state,date_upd]',
+                    'filter[id]' => '['.implode('|', $orderIds).']',
+                    'sort' => '[id_ASC]',
+                ])),
+                'orders',
+                'order',
+            ),
+        );
+    }
+
+    /**
+     * @return array<int, array{id: int, current_state: ?int, date_upd: ?string}>
+     */
+    public function orderStatusesUpdatedBetween(
+        PrestashopAccount $account,
+        string $from,
+        string $to,
+        int $offset,
+        int $limit,
+    ): array {
+        if (
+            ! $this->validDateFilter($from)
+            || ! $this->validDateFilter($to)
+            || $offset < 0
+            || $limit < 1
+            || $limit > 100
+        ) {
+            throw new PrestashopApiException('Nieprawidłowy zakres synchronizacji statusów PrestaShop.');
+        }
+
+        return $this->normalizeOrderStatusRows(
+            $this->rows(
+                $this->payload($this->getJson($account, 'orders', [
+                    'display' => '[id,current_state,date_upd]',
+                    'date' => 1,
+                    'filter[date_upd]' => '['.$from.','.$to.']',
+                    'sort' => '[date_upd_ASC,id_ASC]',
+                    'limit' => $offset.','.$limit,
+                ])),
+                'orders',
+                'order',
+            ),
+        );
+    }
+
+    /**
+     * @return array<int, array{id: int, reference: ?string, date_add: string}>
+     */
+    public function ordersCreatedBetween(
+        PrestashopAccount $account,
+        string $from,
+        string $to,
+        int $offset,
+        int $limit,
+    ): array {
+        if (
+            ! $this->validDateFilter($from)
+            || ! $this->validDateFilter($to)
+            || $offset < 0
+            || $limit < 1
+            || $limit > 100
+        ) {
+            throw new PrestashopApiException('Nieprawidłowy zakres pobierania zamówień PrestaShop.');
+        }
+
+        return $this->normalizeOrderDiscoveryRows(
+            $this->rows(
+                $this->payload($this->getJson($account, 'orders', [
+                    'display' => '[id,reference,date_add]',
+                    'date' => 1,
+                    'filter[date_add]' => '['.$from.','.$to.']',
+                    'sort' => '[date_add_ASC,id_ASC]',
+                    'limit' => $offset.','.$limit,
+                ])),
+                'orders',
+                'order',
+            ),
+        );
+    }
+
+    /**
+     * @param  array<int, int>  $orderIds
+     * @return array<int, array{id: int, total_paid_real: string, date_upd: ?string}>
+     */
+    public function orderPaymentSummariesByIds(PrestashopAccount $account, array $orderIds): array
+    {
+        $orderIds = array_values(array_unique(array_filter(
+            array_map('intval', $orderIds),
+            fn (int $id): bool => $id > 0,
+        )));
+
+        if ($orderIds === []) {
+            return [];
+        }
+
+        if (count($orderIds) > 100) {
+            throw new PrestashopApiException('Jedno zapytanie może sprawdzić maksymalnie 100 płatności zamówień PrestaShop.');
+        }
+
+        return $this->normalizeOrderPaymentSummaryRows(
+            $this->rows(
+                $this->payload($this->getJson($account, 'orders', [
+                    'display' => '[id,total_paid_real,date_upd]',
+                    'filter[id]' => '['.implode('|', $orderIds).']',
+                    'sort' => '[id_ASC]',
+                ])),
+                'orders',
+                'order',
+            ),
+        );
+    }
+
+    /** @return array<int, array{id: int, total_paid_real: string, date_upd: ?string}> */
+    public function orderPaymentSummariesUpdatedBetween(
+        PrestashopAccount $account,
+        string $from,
+        string $to,
+        int $offset,
+        int $limit,
+    ): array {
+        if (
+            ! $this->validDateFilter($from)
+            || ! $this->validDateFilter($to)
+            || $offset < 0
+            || $limit < 1
+            || $limit > 100
+        ) {
+            throw new PrestashopApiException('Nieprawidłowy zakres synchronizacji płatności PrestaShop.');
+        }
+
+        return $this->normalizeOrderPaymentSummaryRows(
+            $this->rows(
+                $this->payload($this->getJson($account, 'orders', [
+                    'display' => '[id,total_paid_real,date_upd]',
+                    'date' => 1,
+                    'filter[date_upd]' => '['.$from.','.$to.']',
+                    'sort' => '[date_upd_ASC,id_ASC]',
+                    'limit' => $offset.','.$limit,
+                ])),
+                'orders',
+                'order',
+            ),
+        );
+    }
+
+    public function createOrderHistory(
+        PrestashopAccount $account,
+        int $orderId,
+        int $orderStateId,
+        bool $sendEmail,
+    ): ?int {
+        if ($orderId < 1 || $orderStateId < 1) {
+            throw new PrestashopApiException('Nieprawidłowe dane zmiany statusu PrestaShop.');
+        }
+
+        $xml = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><prestashop/>');
+        $history = $xml->addChild('order_history');
+        $history->addChild('id_order', (string) $orderId);
+        $history->addChild('id_order_state', (string) $orderStateId);
+        $body = $xml->asXML();
+
+        if ($body === false) {
+            throw new PrestashopApiException('Nie udało się przygotować zmiany statusu PrestaShop.');
+        }
+
+        $response = $this->postXml($account, 'order_histories', $body, [
+            'sendemail' => $sendEmail ? 1 : 0,
+        ]);
+
+        try {
+            $responseXml = new SimpleXMLElement($response->body(), LIBXML_NONET | LIBXML_NOCDATA | LIBXML_NOBLANKS);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return isset($responseXml->order_history->id)
+            ? $this->positiveId($this->xmlValue($responseXml->order_history->id))
+            : null;
+    }
+
     /** @return array<string, mixed> */
     public function orderEnrichment(PrestashopAccount $account, int $orderId): array
     {
@@ -338,6 +567,115 @@ class PrestashopClient
         );
     }
 
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array{id: int, current_state: ?int, date_upd: ?string}>
+     */
+    private function normalizeOrderStatusRows(array $rows): array
+    {
+        $result = [];
+
+        foreach ($rows as $row) {
+            $id = $this->positiveId($row['id'] ?? null);
+            $rawStateId = $row['current_state'] ?? null;
+            $stateId = $this->relationId($rawStateId);
+
+            if ($id === null || ($stateId === null && ! $this->isUnassignedOrderState($rawStateId))) {
+                throw new PrestashopApiException('PrestaShop zwrócił nieprawidłowy status zamówienia.');
+            }
+
+            $date = trim((string) ($row['date_upd'] ?? ''));
+
+            $result[] = [
+                'id' => $id,
+                'current_state' => $stateId,
+                'date_upd' => $date !== '' && $date !== '0000-00-00 00:00:00' ? $date : null,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function isUnassignedOrderState(mixed $value): bool
+    {
+        if ($value === 0 || $value === '0') {
+            return true;
+        }
+
+        if (! is_array($value)) {
+            return false;
+        }
+
+        foreach (['id', 'value'] as $key) {
+            if (array_key_exists($key, $value)) {
+                return $this->isUnassignedOrderState($value[$key]);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array{id: int, reference: ?string, date_add: string}>
+     */
+    private function normalizeOrderDiscoveryRows(array $rows): array
+    {
+        $result = [];
+
+        foreach ($rows as $row) {
+            $id = $this->positiveId($row['id'] ?? null);
+            $date = trim((string) ($row['date_add'] ?? ''));
+
+            if ($id === null || ! $this->validDateFilter($date)) {
+                throw new PrestashopApiException('PrestaShop zwrócił nieprawidłowe dane nowego zamówienia.');
+            }
+
+            $reference = trim((string) ($row['reference'] ?? ''));
+            $result[] = [
+                'id' => $id,
+                'reference' => $reference !== '' ? mb_substr($reference, 0, 64) : null,
+                'date_add' => $date,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array{id: int, total_paid_real: string, date_upd: ?string}>
+     */
+    private function normalizeOrderPaymentSummaryRows(array $rows): array
+    {
+        $result = [];
+
+        foreach ($rows as $row) {
+            $id = $this->positiveId($row['id'] ?? null);
+            $paidAmount = trim((string) ($row['total_paid_real'] ?? ''));
+
+            if ($id === null || $paidAmount === '') {
+                throw new PrestashopApiException('PrestaShop zwrócił nieprawidłowe dane płatności zamówienia.');
+            }
+
+            $date = trim((string) ($row['date_upd'] ?? ''));
+            $result[] = [
+                'id' => $id,
+                'total_paid_real' => $paidAmount,
+                'date_upd' => $date !== '' && $date !== '0000-00-00 00:00:00' ? $date : null,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function validDateFilter(string $value): bool
+    {
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $value);
+
+        return $date !== false && $date->format('Y-m-d H:i:s') === $value;
+    }
+
     private function getJson(PrestashopAccount $account, string $resource, array $query = []): Response
     {
         return $this->get($account, $resource, $query, 'JSON', 'application/json');
@@ -373,11 +711,7 @@ class PrestashopClient
         string $format,
         string $accept,
     ): Response {
-        $url = rtrim((string) $account->base_url, '/').'/api/';
-
-        if ($resource !== '') {
-            $url .= implode('/', array_map('rawurlencode', explode('/', trim($resource, '/'))));
-        }
+        $url = $this->resourceUrl($account, $resource);
 
         try {
             $response = Http::withHeaders([
@@ -406,6 +740,61 @@ class PrestashopClient
         }
 
         return $response;
+    }
+
+    private function postXml(
+        PrestashopAccount $account,
+        string $resource,
+        string $body,
+        array $query = [],
+    ): Response {
+        $url = $this->resourceUrl($account, $resource);
+        $queryString = http_build_query(
+            array_merge(['output_format' => 'XML'], $query),
+            '',
+            '&',
+            PHP_QUERY_RFC3986,
+        );
+
+        try {
+            $response = Http::withHeaders([
+                'Accept' => 'application/xml',
+                'Output-Format' => 'XML',
+                'User-Agent' => 'NEX-OMS PrestaShop Integration',
+            ])
+                ->connectTimeout(5)
+                ->timeout(15)
+                ->withBasicAuth((string) $account->api_key, '')
+                ->withOptions(['allow_redirects' => false])
+                ->withBody($body, 'application/xml')
+                ->post($url.'?'.$queryString);
+        } catch (ConnectionException) {
+            throw new PrestashopApiException(
+                'Nie udało się połączyć ze sklepem PrestaShop. Sprawdź adres i połączenie sieciowe.',
+            );
+        } catch (Throwable) {
+            throw new PrestashopApiException('Wystąpił nieoczekiwany błąd komunikacji z PrestaShop.');
+        }
+
+        if (! $response->successful()) {
+            throw new PrestashopApiException(
+                $this->safeWriteErrorMessage($response, $resource),
+                $response->status(),
+            );
+        }
+
+        return $response;
+    }
+
+    private function resourceUrl(PrestashopAccount $account, string $resource): string
+    {
+        $url = rtrim((string) $account->base_url, '/').'/api/';
+
+        if ($resource !== '') {
+            $url .= implode('/', array_map('rawurlencode', explode('/', trim($resource, '/'))));
+        }
+
+        return $url;
     }
 
     /**
@@ -666,6 +1055,29 @@ class PrestashopClient
         return $id === false ? null : (int) $id;
     }
 
+    private function relationId(mixed $value): ?int
+    {
+        if (is_array($value)) {
+            foreach (['id', 'value'] as $key) {
+                if (array_key_exists($key, $value)) {
+                    return $this->relationId($value[$key]);
+                }
+            }
+
+            foreach ($value as $item) {
+                $id = $this->relationId($item);
+
+                if ($id !== null) {
+                    return $id;
+                }
+            }
+
+            return null;
+        }
+
+        return $this->positiveId($value);
+    }
+
     private function toBool(mixed $value): bool
     {
         return in_array($value, [true, 1, '1', 'true', 'TRUE'], true);
@@ -701,6 +1113,25 @@ class PrestashopClient
             429 => 'Limit zapytań PrestaShop został chwilowo przekroczony. Spróbuj ponownie później.',
             500, 502, 503, 504 => 'Sklep PrestaShop jest chwilowo niedostępny. Spróbuj ponownie później.',
             default => 'Test połączenia z PrestaShop nie powiódł się.',
+        };
+    }
+
+    private function safeWriteErrorMessage(Response $response, string $resource): string
+    {
+        if ($response->redirect()) {
+            return 'Adres sklepu przekierowuje żądania API. Sprawdź zapisany adres HTTPS sklepu.';
+        }
+
+        if (in_array($response->status(), [401, 403], true)) {
+            return "Brak uprawnienia zapisu zasobu PrestaShop: {$resource}.";
+        }
+
+        return match ($response->status()) {
+            404 => "Nie znaleziono zasobu PrestaShop: {$resource}.",
+            400, 409, 422 => 'PrestaShop odrzucił zmianę statusu zamówienia.',
+            429 => 'Limit zapytań PrestaShop został chwilowo przekroczony. Spróbuj ponownie później.',
+            500, 502, 503, 504 => 'Sklep PrestaShop jest chwilowo niedostępny. Spróbuj ponownie później.',
+            default => 'Nie udało się przekazać statusu zamówienia do PrestaShop.',
         };
     }
 }

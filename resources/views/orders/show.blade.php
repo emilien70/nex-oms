@@ -131,6 +131,85 @@
             line-height: 1.2;
         }
 
+        .order-navigation {
+            align-items: center;
+            display: flex;
+            flex: 0 0 auto;
+            gap: 8px;
+        }
+
+        .order-navigation-arrow {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #9ca3af;
+            border-radius: 50%;
+            color: #475569;
+            display: inline-flex;
+            flex: 0 0 40px;
+            font-size: 16px;
+            height: 40px;
+            justify-content: center;
+            padding: 0;
+            text-decoration: none;
+            width: 40px;
+        }
+
+        .order-navigation-arrow:hover,
+        .order-navigation-arrow:focus-visible {
+            background: #f8fafc;
+            border-color: #64748b;
+            color: #111827;
+            outline: 0;
+        }
+
+        .order-navigation-arrow:disabled {
+            background: transparent;
+            border-color: #d5dbe3;
+            color: #c1c7d0;
+            cursor: default;
+        }
+
+        .order-list-back {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #0d6efd;
+            border-radius: 999px;
+            color: #0d6efd;
+            display: inline-flex;
+            font-size: 13px;
+            font-weight: 600;
+            gap: 8px;
+            height: 40px;
+            justify-content: center;
+            padding: 0 18px;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .order-list-back:hover,
+        .order-list-back:focus-visible {
+            background: #eff6ff;
+            color: #0a58ca;
+            outline: 0;
+        }
+
+        @media (max-width: 575.98px) {
+            .order-topbar {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .order-navigation {
+                flex-wrap: wrap;
+                width: 100%;
+            }
+
+            .order-list-back {
+                flex: 1 0 100%;
+                order: 2;
+            }
+        }
+
         .nex-card {
             background: #ffffff;
             border: 1px solid #e5e7eb;
@@ -2378,11 +2457,6 @@
             .courier-parcel-row.is-dpd {
                 grid-template-columns: repeat(2, minmax(90px, 1fr)) minmax(100px, 1fr) 34px;
             }
-            .order-topbar {
-                align-items: stretch;
-                flex-direction: column;
-            }
-
             .nex-field-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
@@ -2476,7 +2550,21 @@
             <h1 class="order-title">Zam&oacute;wienie {{ $order->id }}</h1>
             <span class="order-customer {{ $headerCustomerName ? '' : 'd-none' }}" data-order-header-customer>{{ $headerCustomerName }}</span>
         </div>
-        <a class="btn btn-outline-primary btn-sm" href="{{ route('orders.index') }}" data-page-navigation-loading>Powr&oacute;t do listy zam&oacute;wie&#324;</a>
+        <nav class="order-navigation" aria-label="Nawigacja mi&#281;dzy zam&oacute;wieniami">
+            @if ($previousOrderUrl)
+                <a class="order-navigation-arrow" href="{{ $previousOrderUrl }}" data-order-navigation="previous" data-page-navigation-loading aria-label="Poprzednie zam&oacute;wienie" title="Poprzednie zam&oacute;wienie"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+            @else
+                <button class="order-navigation-arrow" type="button" data-order-navigation-disabled="previous" aria-label="Brak poprzedniego zam&oacute;wienia" title="Brak poprzedniego zam&oacute;wienia" disabled><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+            @endif
+
+            @if ($nextOrderUrl)
+                <a class="order-navigation-arrow" href="{{ $nextOrderUrl }}" data-order-navigation="next" data-page-navigation-loading aria-label="Nast&#281;pne zam&oacute;wienie" title="Nast&#281;pne zam&oacute;wienie"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+            @else
+                <button class="order-navigation-arrow" type="button" data-order-navigation-disabled="next" aria-label="Brak nast&#281;pnego zam&oacute;wienia" title="Brak nast&#281;pnego zam&oacute;wienia" disabled><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+            @endif
+
+            <a class="order-list-back" href="{{ $ordersListUrl }}" data-page-navigation-loading><i class="bi bi-arrow-return-left" aria-hidden="true"></i><span>Powr&oacute;t do listy zam&oacute;wie&#324;</span></a>
+        </nav>
     </div>
 
     <div class="nex-card products-card">
@@ -2780,7 +2868,24 @@
                             <div class="col-12"><label class="form-label">Klient (login)</label><input type="text" name="customer_login" class="form-control form-control-sm" value="{{ old('customer_login', $order->customer_login) }}"></div>
                             <div class="col-12"><label class="form-label">E-mail</label><input type="email" name="customer_email" class="form-control form-control-sm" value="{{ old('customer_email', $order->customer_email) }}"></div>
                             <div class="col-12"><label class="form-label">Telefon</label><input type="tel" name="customer_phone" class="form-control form-control-sm" value="{{ old('customer_phone', $order->customer_phone) }}" placeholder="+48 501 294 368"></div>
-                            <div class="col-12"><label class="form-label">&#377;r&oacute;d&#322;o</label><select name="source" class="form-select form-select-sm">@foreach ($sourceOptions as $source => $label)<option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $label }}</option>@endforeach</select></div>
+                            <div class="col-12">
+                                <label class="form-label">&#377;r&oacute;d&#322;o</label>
+                                <select name="source" class="form-select form-select-sm">
+                                    @foreach ($sourceOptions as $source => $label)
+                                        @if ($source === 'manual')
+                                            <optgroup label="Pozostałe" data-other-source-group>
+                                                <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $label }}</option>
+                                            </optgroup>
+                                        @elseif ($source === 'prestashop' && $prestashopDisplayName !== '')
+                                            <optgroup label="{{ $label }}" data-prestashop-source-group>
+                                                <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $prestashopDisplayName }}</option>
+                                            </optgroup>
+                                        @else
+                                            <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $label }}</option>
+                                        @endif
+                                    @endforeach
+                                </select>
+                            </div>
                             <div class="col-12"><label class="form-label">Spos&oacute;b wysy&#322;ki</label><input type="text" name="shipping_method" class="form-control form-control-sm" value="{{ old('shipping_method', $order->shipping_method) }}"></div>
                             <div class="col-12"><label class="form-label">Pobranie</label><select name="cash_on_delivery" class="form-select form-select-sm"><option value="0" @selected(! old('cash_on_delivery', $order->cash_on_delivery))>Nie</option><option value="1" @selected((bool) old('cash_on_delivery', $order->cash_on_delivery))>Tak</option></select></div>
                             <div class="col-12"><label class="form-label">Koszt wysy&#322;ki</label><input type="number" step="0.01" min="0" name="delivery_cost_gross" class="form-control form-control-sm" value="{{ old('delivery_cost_gross', $order->delivery_cost_gross) }}"></div>
@@ -2890,7 +2995,22 @@
                     </div>
                 </div>
                 <div class="nex-card-body">
-                    <div class="inline-section-view inline-edit-trigger" data-edit-section="shipping">@include('orders.partials.address', ['address' => $shippingAddress, 'showTaxId' => false, 'showCountry' => true, 'countryName' => $countryCatalog->name($shippingAddress?->country_code), 'showProvince' => false, 'showPhone' => false, 'showEmail' => false])<span class="inline-pencil">&#9998;</span></div>
+                    <div class="inline-section-view inline-edit-trigger" data-edit-section="shipping">@include('orders.partials.address', [
+                        'address' => $shippingAddress,
+                        'showTaxId' => false,
+                        'showCountry' => true,
+                        'countryName' => $countryCatalog->name($shippingAddress?->country_code),
+                        'showProvince' => false,
+                        'showPhone' => false,
+                        'showEmail' => false,
+                        'editFields' => [
+                            'Imię i Nazwisko' => 'shipping_name',
+                            'Firma' => 'shipping_company_name',
+                            'Adres' => 'shipping_address_line',
+                            'Kod i miasto' => 'shipping_postal_code',
+                            'Kraj' => 'shipping_country_code',
+                        ],
+                    ])<span class="inline-pencil">&#9998;</span></div>
                     <form method="POST" action="{{ route('orders.sections.shipping-address', $order) }}" class="inline-section-edit" data-order-ajax-form data-refresh-courier-defaults>
                         @csrf
                         @method('PATCH')
@@ -2931,12 +3051,12 @@
                 <div class="nex-card-body">
                     <div class="inline-section-view inline-edit-trigger" data-edit-section="billing">
                         <div class="nex-address-grid">
-                            <div class="inline-field-row"><div class="nex-label">Imi&#281; i Nazwisko</div><div class="nex-value {{ $billingAddress?->name ? '' : 'nex-empty' }}">{{ $billingAddress?->name ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row"><div class="nex-label">Firma</div><div class="nex-value {{ $billingAddress?->company_name ? '' : 'nex-empty' }}">{{ $billingAddress?->company_name ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row"><div class="nex-label">Adres</div><div class="nex-value {{ $formatAddressLine($billingAddress) ? '' : 'nex-empty' }}">{{ $formatAddressLine($billingAddress) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row"><div class="nex-label">Kod i miasto</div><div class="nex-value {{ $formatPostalCity($billingAddress) ? '' : 'nex-empty' }}">{{ $formatPostalCity($billingAddress) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row"><div class="nex-label">Kraj</div><div class="nex-value {{ $countryCatalog->name($billingAddress?->country_code) ? '' : 'nex-empty' }}">{{ $countryCatalog->name($billingAddress?->country_code) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row"><div class="nex-label">NIP</div><div class="nex-value {{ $billingAddress?->tax_id ? '' : 'nex-empty' }}">{{ $billingAddress?->tax_id ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+                            <div class="inline-field-row" data-edit-field="billing_name"><div class="nex-label">Imi&#281; i Nazwisko</div><div class="nex-value {{ $billingAddress?->name ? '' : 'nex-empty' }}">{{ $billingAddress?->name ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+                            <div class="inline-field-row" data-edit-field="billing_company_name"><div class="nex-label">Firma</div><div class="nex-value {{ $billingAddress?->company_name ? '' : 'nex-empty' }}">{{ $billingAddress?->company_name ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+                            <div class="inline-field-row" data-edit-field="billing_address_line"><div class="nex-label">Adres</div><div class="nex-value {{ $formatAddressLine($billingAddress) ? '' : 'nex-empty' }}">{{ $formatAddressLine($billingAddress) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+                            <div class="inline-field-row" data-edit-field="billing_postal_code"><div class="nex-label">Kod i miasto</div><div class="nex-value {{ $formatPostalCity($billingAddress) ? '' : 'nex-empty' }}">{{ $formatPostalCity($billingAddress) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+                            <div class="inline-field-row" data-edit-field="billing_country_code"><div class="nex-label">Kraj</div><div class="nex-value {{ $countryCatalog->name($billingAddress?->country_code) ? '' : 'nex-empty' }}">{{ $countryCatalog->name($billingAddress?->country_code) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+                            <div class="inline-field-row" data-edit-field="billing_tax_id"><div class="nex-label">NIP</div><div class="nex-value {{ $billingAddress?->tax_id ? '' : 'nex-empty' }}">{{ $billingAddress?->tax_id ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
                         </div>
                     </div>
                     <form method="POST" action="{{ route('orders.sections.billing-address', $order) }}" class="inline-section-edit" data-billing-form data-gus-lookup-url="{{ route('gus.company-by-nip') }}" data-order-ajax-form>
@@ -3732,7 +3852,7 @@
                 activeSection = null;
             };
 
-            const openSection = (sectionName) => {
+            const openSection = (sectionName, fieldName = null) => {
                 const section = document.querySelector(`[data-inline-section="${sectionName}"]`);
                 if (!section) {
                     return;
@@ -3743,9 +3863,18 @@
                 }
                 section.classList.add('is-editing');
                 activeSection = section;
-                const firstInput = section.querySelector('input, select, textarea');
-                if (firstInput) {
-                    firstInput.focus();
+                const form = section.querySelector('form.inline-section-edit');
+                const requestedField = fieldName && form ? form.elements.namedItem(fieldName) : null;
+                const firstField = form?.querySelector('input:not([type="hidden"]), select, textarea');
+                const focusTarget = requestedField instanceof HTMLElement ? requestedField : firstField;
+                if (focusTarget) {
+                    window.requestAnimationFrame(() => {
+                        focusTarget.focus();
+
+                        if (focusTarget instanceof HTMLInputElement || focusTarget instanceof HTMLTextAreaElement) {
+                            focusTarget.select();
+                        }
+                    });
                 }
             };
 
@@ -3753,7 +3882,8 @@
                 const editTrigger = event.target.closest('[data-edit-section]');
                 if (editTrigger) {
                     event.preventDefault();
-                    openSection(editTrigger.dataset.editSection);
+                    const fieldTrigger = event.target.closest('[data-edit-field]');
+                    openSection(editTrigger.dataset.editSection, fieldTrigger?.dataset.editField);
                     return;
                 }
 

@@ -6,6 +6,15 @@ use Tests\TestCase;
 
 class IntegrationListTest extends TestCase
 {
+    public function test_integration_list_contains_allegro_tile(): void
+    {
+        $this->get(route('integrations.index'))
+            ->assertOk()
+            ->assertSee('data-integration="allegro"', false)
+            ->assertSeeText('Allegro')
+            ->assertSee('href="'.route('integrations.allegro.edit').'"', false);
+    }
+
     public function test_integration_list_contains_active_ksef_tile(): void
     {
         $response = $this->get(route('integrations.index'));

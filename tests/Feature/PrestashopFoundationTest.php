@@ -6,7 +6,9 @@ use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Modules\Integrations\Prestashop\Enums\PrestashopCatalogVatMode;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
+use Modules\Integrations\Prestashop\Models\PrestashopOrderImportAttempt;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderLink;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderPayment;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderState;
@@ -23,6 +25,24 @@ class PrestashopFoundationTest extends TestCase
             'base_url',
             'product_url_template',
             'api_key',
+            'notify_customer_on_status_change',
+            'status_sync_enabled',
+            'status_sync_interval_minutes',
+            'last_status_sync_at',
+            'last_status_sync_error_at',
+            'last_status_sync_error',
+            'payment_sync_enabled',
+            'last_payment_sync_at',
+            'last_payment_sync_error_at',
+            'last_payment_sync_error',
+            'order_import_enabled',
+            'use_linked_products',
+            'use_catalog_product_names',
+            'catalog_vat_mode',
+            'order_import_started_at',
+            'last_order_import_scan_at',
+            'last_order_import_error_at',
+            'last_order_import_error',
             'shop_id',
             'language_id',
             'available_currencies',
@@ -37,6 +57,19 @@ class PrestashopFoundationTest extends TestCase
             'shipped',
             'delivery',
             'refreshed_at',
+        ]));
+        $this->assertTrue(Schema::hasColumns('prestashop_order_import_attempts', [
+            'prestashop_account_id',
+            'order_id',
+            'external_order_id',
+            'external_reference',
+            'status',
+            'attempts',
+            'discovered_at',
+            'external_created_at',
+            'last_attempt_at',
+            'imported_at',
+            'last_error',
         ]));
 
         $account = PrestashopAccount::query()->create([
@@ -59,8 +92,41 @@ class PrestashopFoundationTest extends TestCase
             DB::table('prestashop_accounts')->value('api_key'),
         );
         $this->assertArrayNotHasKey('api_key', $account->toArray());
+        $this->assertFalse($account->fresh()->notify_customer_on_status_change);
+        $this->assertFalse($account->fresh()->status_sync_enabled);
+        $this->assertSame(1, $account->fresh()->status_sync_interval_minutes);
+        $this->assertFalse($account->fresh()->order_import_enabled);
+        $this->assertTrue($account->fresh()->use_linked_products);
+        $this->assertTrue($account->fresh()->use_catalog_product_names);
+        $this->assertSame(PrestashopCatalogVatMode::Fallback, $account->fresh()->catalog_vat_mode);
         $this->assertTrue($state->paid);
         $this->assertSame($account->getKey(), $state->account->getKey());
+    }
+
+    public function test_import_attempt_keeps_history_when_account_or_order_is_deleted(): void
+    {
+        $account = $this->account();
+        $order = Order::query()->create([
+            'source' => 'prestashop',
+            'external_id' => '13581',
+            'status' => 'new',
+            'currency' => 'PLN',
+        ]);
+        $attempt = $account->orderImportAttempts()->create([
+            'order_id' => $order->id,
+            'external_order_id' => 13581,
+            'status' => PrestashopOrderImportAttempt::STATUS_IMPORTED,
+            'discovered_at' => now(),
+            'imported_at' => now(),
+        ]);
+
+        $order->forceDelete();
+        $account->delete();
+
+        $attempt->refresh();
+        $this->assertNull($attempt->prestashop_account_id);
+        $this->assertNull($attempt->order_id);
+        $this->assertSame(PrestashopOrderImportAttempt::STATUS_IMPORTED, $attempt->status);
     }
 
     public function test_discovered_states_are_removed_with_their_integration_account(): void
@@ -92,6 +158,9 @@ class PrestashopFoundationTest extends TestCase
             'external_order_id',
             'external_reference',
             'external_order_state_id',
+            'pending_outbound_state_id',
+            'pending_outbound_event_id',
+            'pending_outbound_since',
             'source_hash',
             'imported_at',
         ]));
@@ -110,6 +179,13 @@ class PrestashopFoundationTest extends TestCase
             'currency',
             'method',
             'paid_at',
+            'accounting_status',
+            'accounted_at',
+            'needs_review',
+            'safe_error_code',
+            'safe_error_message',
+            'matched_payment_source',
+            'matched_payment_record_id',
         ]));
         $this->assertFalse(Schema::hasColumn('prestashop_order_payments', 'card_number'));
         $this->assertFalse(Schema::hasColumn('prestashop_order_payments', 'card_holder'));

@@ -23,6 +23,7 @@ class PrestashopOrderState extends Model
         'shipped',
         'paid',
         'deleted',
+        'is_available',
         'refreshed_at',
     ];
 
@@ -37,6 +38,7 @@ class PrestashopOrderState extends Model
         'shipped' => 'boolean',
         'paid' => 'boolean',
         'deleted' => 'boolean',
+        'is_available' => 'boolean',
         'refreshed_at' => 'immutable_datetime',
     ];
 

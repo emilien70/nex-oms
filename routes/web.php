@@ -22,8 +22,11 @@ use App\Http\Controllers\SettingsVariablesController;
 use App\Http\Controllers\ShipmentController;
 use App\Models\Order;
 use Illuminate\Support\Facades\Route;
+use Modules\Analytics\Http\Controllers\BasicStatisticsController;
+use Modules\Analytics\Http\Controllers\BasicStatisticsCsvController;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroSettingsController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterClientController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterInvoiceController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterSettingsController;
@@ -34,8 +37,16 @@ use Modules\Integrations\PayNow\Http\Controllers\PayNowPaymentLinkController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowSettingsController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowWebhookController;
 use Modules\Integrations\Prestashop\Http\Controllers\PrestashopConnectionTestController;
+use Modules\Integrations\Prestashop\Http\Controllers\PrestashopOrderDiscoveryController;
 use Modules\Integrations\Prestashop\Http\Controllers\PrestashopOrderImportController;
+use Modules\Integrations\Prestashop\Http\Controllers\PrestashopOrderImportRetryController;
+use Modules\Integrations\Prestashop\Http\Controllers\PrestashopOrderImportSettingsController;
+use Modules\Integrations\Prestashop\Http\Controllers\PrestashopPaymentSyncController;
+use Modules\Integrations\Prestashop\Http\Controllers\PrestashopPaymentSyncSettingsController;
+use Modules\Integrations\Prestashop\Http\Controllers\PrestashopProductLinkController;
 use Modules\Integrations\Prestashop\Http\Controllers\PrestashopSettingsController;
+use Modules\Integrations\Prestashop\Http\Controllers\PrestashopStatusMappingController;
+use Modules\Integrations\Prestashop\Http\Controllers\PrestashopStatusSyncController;
 use Modules\Invoices\Http\Controllers\CorrectionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkDeletionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkPdfController;
@@ -63,6 +74,7 @@ use Modules\Ksef\Http\Controllers\KsefOfflineTechnicalCorrectionController;
 use Modules\Ksef\Http\Controllers\KsefPaymentTypeSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSeriesSettingsController;
 use Modules\Ksef\Http\Controllers\KsefSettingsController;
+use Modules\Products\Http\Controllers\ProductBundleController;
 use Modules\Products\Http\Controllers\ProductController;
 
 Route::get('/', function () {
@@ -87,12 +99,22 @@ Route::get('/', function () {
     ]);
 });
 
+Route::get('/analytics/basic', BasicStatisticsController::class)->name('analytics.basic');
+Route::get('/analytics/basic/csv', BasicStatisticsCsvController::class)->name('analytics.basic.csv');
+
 Route::post('/api/gus/company-by-nip', [GusCompanyController::class, 'show'])->name('gus.company-by-nip');
 Route::post('/api/paynow/v1/notifications', PayNowWebhookController::class)
     ->middleware('throttle:paynow-webhook')
     ->name('api.paynow.notifications');
 
 Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
+Route::get('/integrations/allegro', [AllegroSettingsController::class, 'edit'])->name('integrations.allegro.edit');
+Route::put('/integrations/allegro', [AllegroSettingsController::class, 'update'])->name('integrations.allegro.update');
+Route::match(['post', 'put'], '/integrations/allegro/device/start', [AllegroSettingsController::class, 'startDeviceAuthorization'])->name('integrations.allegro.device.start');
+Route::post('/integrations/allegro/device/poll', [AllegroSettingsController::class, 'pollDeviceAuthorization'])->name('integrations.allegro.device.poll');
+Route::match(['post', 'put'], '/integrations/allegro/device/cancel', [AllegroSettingsController::class, 'cancelDeviceAuthorization'])->name('integrations.allegro.device.cancel');
+Route::post('/integrations/allegro/test-connection', [AllegroSettingsController::class, 'testConnection'])->name('integrations.allegro.test-connection');
+Route::delete('/integrations/allegro/disconnect', [AllegroSettingsController::class, 'disconnect'])->name('integrations.allegro.disconnect');
 Route::get('/integrations/nex-printer', [NexPrinterSettingsController::class, 'index'])->name('integrations.nex-printer.index');
 Route::post('/integrations/nex-printer/release/download', [NexPrinterSettingsController::class, 'downloadInstaller'])->name('integrations.nex-printer.release.download');
 Route::post('/integrations/nex-printer/pairing-codes', [NexPrinterSettingsController::class, 'createPairingCode'])->name('integrations.nex-printer.pairing-codes.store');
@@ -104,8 +126,15 @@ Route::put('/integrations/paynow', [PayNowSettingsController::class, 'update'])-
 Route::post('/integrations/paynow/test-connection', PayNowConnectionTestController::class)->name('integrations.paynow.test-connection');
 Route::get('/integrations/prestashop', [PrestashopSettingsController::class, 'edit'])->name('integrations.prestashop.edit');
 Route::put('/integrations/prestashop', [PrestashopSettingsController::class, 'update'])->name('integrations.prestashop.update');
+Route::put('/integrations/prestashop/status-mappings', [PrestashopStatusMappingController::class, 'update'])->name('integrations.prestashop.status-mappings.update');
+Route::post('/integrations/prestashop/status-sync', PrestashopStatusSyncController::class)->name('integrations.prestashop.status-sync');
 Route::post('/integrations/prestashop/test-connection', PrestashopConnectionTestController::class)->name('integrations.prestashop.test-connection');
 Route::post('/integrations/prestashop/orders/import', PrestashopOrderImportController::class)->name('integrations.prestashop.orders.import');
+Route::put('/integrations/prestashop/order-import', [PrestashopOrderImportSettingsController::class, 'update'])->name('integrations.prestashop.order-import.update');
+Route::post('/integrations/prestashop/order-import/discover', PrestashopOrderDiscoveryController::class)->name('integrations.prestashop.order-import.discover');
+Route::post('/integrations/prestashop/order-import/attempts/{attempt}/retry', PrestashopOrderImportRetryController::class)->name('integrations.prestashop.order-import.retry');
+Route::put('/integrations/prestashop/payment-sync', [PrestashopPaymentSyncSettingsController::class, 'update'])->name('integrations.prestashop.payment-sync.update');
+Route::post('/integrations/prestashop/payment-sync/run', PrestashopPaymentSyncController::class)->name('integrations.prestashop.payment-sync.run');
 Route::post('/orders/{order}/paynow/payment-link', PayNowPaymentLinkController::class)->name('orders.paynow.payment-link');
 Route::get('/integrations/ksef', [KsefSettingsController::class, 'edit'])->name('integrations.ksef.edit');
 Route::put('/integrations/ksef', [KsefSettingsController::class, 'update'])->name('integrations.ksef.update');
@@ -162,6 +191,10 @@ Route::get('/settings/variables', [SettingsVariablesController::class, 'index'])
 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
 Route::get('/products/create', [ProductController::class, 'create'])->name('products.create');
 Route::post('/products', [ProductController::class, 'store'])->name('products.store');
+Route::get('/products/bundles/create', [ProductBundleController::class, 'create'])->name('product-bundles.create');
+Route::post('/products/bundles', [ProductBundleController::class, 'store'])->name('product-bundles.store');
+Route::get('/products/bundles/{bundle}/edit', [ProductBundleController::class, 'edit'])->name('product-bundles.edit');
+Route::patch('/products/bundles/{bundle}', [ProductBundleController::class, 'update'])->name('product-bundles.update');
 Route::get('/products/{product}/image/{variant}', [ProductController::class, 'image'])
     ->where('variant', 'original|thumbnail')
     ->name('products.image');
@@ -169,6 +202,12 @@ Route::get('/products/{product}/edit', [ProductController::class, 'edit'])->name
 Route::patch('/products/{product}', [ProductController::class, 'update'])->name('products.update');
 Route::patch('/products/{product}/stock', [ProductController::class, 'updateStock'])->name('products.stock');
 Route::patch('/products/{product}/active', [ProductController::class, 'updateActive'])->name('products.active');
+Route::post('/products/{product}/integrations/prestashop/{prestashopAccount}/links', [PrestashopProductLinkController::class, 'store'])
+    ->name('products.integrations.prestashop.store');
+Route::patch('/products/{product}/integrations/prestashop/{prestashopAccount}/links/{prestashopProductLink}', [PrestashopProductLinkController::class, 'update'])
+    ->name('products.integrations.prestashop.update');
+Route::delete('/products/{product}/integrations/prestashop/{prestashopAccount}/links/{prestashopProductLink}', [PrestashopProductLinkController::class, 'destroy'])
+    ->name('products.integrations.prestashop.destroy');
 
 Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
 Route::get('/invoices/sales-register', [SalesRegisterController::class, 'create'])->name('invoices.sales-register.create');

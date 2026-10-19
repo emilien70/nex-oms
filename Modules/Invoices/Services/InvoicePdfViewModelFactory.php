@@ -74,7 +74,7 @@ class InvoicePdfViewModelFactory
             'place_of_issue' => $this->text($invoice->issuer_snapshot['place_of_issue'] ?? null),
             'payment_method' => $this->paymentMethod($invoice),
             'payment_identifier' => $this->text($payment['payment_identifier'] ?? null),
-            'order_number' => $this->text($order['external_id'] ?? null)
+            'order_number' => $this->text($order['id'] ?? null)
                 ?: $this->text($invoice->order_reference_snapshot),
             'ksef' => $this->ksef->present($invoice),
             'related_proforma_number' => $invoice->isInvoice()

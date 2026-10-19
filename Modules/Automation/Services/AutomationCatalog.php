@@ -103,6 +103,7 @@ class AutomationCatalog
                 'operators' => ['equals', 'not_equals'],
                 'options' => [
                     'paynow' => 'PayNow',
+                    'prestashop' => 'PrestaShop',
                 ],
             ],
             'shipping_method' => [

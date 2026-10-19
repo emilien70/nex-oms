@@ -9,6 +9,12 @@
         'allegro' => 'Allegro',
         'prestashop' => 'PrestaShop',
     ];
+    $prestashopSourceName = $order->source === 'prestashop'
+        ? trim((string) $order->prestashopOrderLinks->first()?->account?->name)
+        : '';
+    $sourceLabel = $prestashopSourceName !== ''
+        ? $prestashopSourceName
+        : ($sourceOptions[$order->source] ?? $order->source);
     $customerLogin = $order->customer_login ?: '...';
 @endphp
 
@@ -58,17 +64,17 @@
 </form>
 
 <div class="order-info-section">
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Klient (login):</div><div class="nex-value {{ $order->customer_login ? '' : 'nex-empty' }}">{{ $customerLogin }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">E-mail:</div><div class="nex-value {{ $order->customer_email ? '' : 'nex-empty' }}">{{ $order->customer_email ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Telefon:</div><div class="nex-value {{ $order->customer_phone ? '' : 'nex-empty' }}">{{ $order->customer_phone ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">&#377;r&oacute;d&#322;o:</div><div class="nex-value">{{ $sourceOptions[$order->source] ?? $order->source }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="customer_login"><div class="nex-label">Klient (login):</div><div class="nex-value {{ $order->customer_login ? '' : 'nex-empty' }}">{{ $customerLogin }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="customer_email"><div class="nex-label">E-mail:</div><div class="nex-value {{ $order->customer_email ? '' : 'nex-empty' }}">{{ $order->customer_email ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="customer_phone"><div class="nex-label">Telefon:</div><div class="nex-value {{ $order->customer_phone ? '' : 'nex-empty' }}">{{ $order->customer_phone ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="source"><div class="nex-label">&#377;r&oacute;d&#322;o:</div><div class="nex-value">{{ $sourceLabel }}<span class="inline-pencil">&#9998;</span></div></div>
 </div>
 <div class="order-info-section">
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Spos&oacute;b wysy&#322;ki:</div><div class="nex-value {{ $order->shipping_method ? '' : 'nex-empty' }}">{{ $order->shipping_method ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Pobranie:</div><div class="nex-value">{{ $order->cash_on_delivery ? 'Tak' : 'Nie' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Koszt wysy&#322;ki:</div><div class="nex-value">{{ $moneyValue($order->delivery_cost_gross) }} {{ $order->currency }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Spos&oacute;b p&#322;atno&#347;ci:</div><div class="nex-value {{ $order->payment_method ? '' : 'nex-empty' }}">{{ $order->payment_method ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="shipping_method"><div class="nex-label">Spos&oacute;b wysy&#322;ki:</div><div class="nex-value {{ $order->shipping_method ? '' : 'nex-empty' }}">{{ $order->shipping_method ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="cash_on_delivery"><div class="nex-label">Pobranie:</div><div class="nex-value">{{ $order->cash_on_delivery ? 'Tak' : 'Nie' }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="delivery_cost_gross"><div class="nex-label">Koszt wysy&#322;ki:</div><div class="nex-value">{{ $moneyValue($order->delivery_cost_gross) }} {{ $order->currency }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="payment_method"><div class="nex-label">Spos&oacute;b p&#322;atno&#347;ci:</div><div class="nex-value {{ $order->payment_method ? '' : 'nex-empty' }}">{{ $order->payment_method ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
 </div>
 <div class="order-info-section">
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info"><div class="nex-label">Uwagi:</div><div class="nex-value {{ $order->notes ? '' : 'nex-empty' }}">{{ $order->notes ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="notes"><div class="nex-label">Uwagi:</div><div class="nex-value {{ $order->notes ? '' : 'nex-empty' }}">{{ $order->notes ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
 </div>

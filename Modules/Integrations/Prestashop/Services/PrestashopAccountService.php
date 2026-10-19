@@ -22,6 +22,19 @@ class PrestashopAccountService
         'last_tested_at' => null,
         'last_test_status' => null,
         'last_test_message' => null,
+        'status_sync_enabled' => false,
+        'last_status_sync_at' => null,
+        'last_status_sync_error_at' => null,
+        'last_status_sync_error' => null,
+        'order_import_enabled' => false,
+        'order_import_started_at' => null,
+        'last_order_import_scan_at' => null,
+        'last_order_import_error_at' => null,
+        'last_order_import_error' => null,
+        'payment_sync_enabled' => false,
+        'last_payment_sync_at' => null,
+        'last_payment_sync_error_at' => null,
+        'last_payment_sync_error' => null,
     ];
 
     public function get(): PrestashopAccount
@@ -95,6 +108,11 @@ class PrestashopAccountService
 
             if ($connectionChanged) {
                 $account->orderStates()->delete();
+            }
+
+            if ($storeChanged) {
+                $account->inboundStatusMappings()->delete();
+                $account->outboundStatusMappings()->delete();
             }
 
             return $account->refresh();

@@ -44,13 +44,19 @@ class PrestashopConnectionTestService
                 $externalIds[] = $state['external_id'];
                 $locked->orderStates()->updateOrCreate(
                     ['external_id' => $state['external_id']],
-                    array_merge($state, ['refreshed_at' => $refreshedAt]),
+                    array_merge($state, [
+                        'is_available' => true,
+                        'refreshed_at' => $refreshedAt,
+                    ]),
                 );
             }
 
             $locked->orderStates()
                 ->whereNotIn('external_id', $externalIds)
-                ->delete();
+                ->update([
+                    'is_available' => false,
+                    'refreshed_at' => $refreshedAt,
+                ]);
 
             $version = $discovery['version'] ?: 'nierozpoznana';
             $message = sprintf(

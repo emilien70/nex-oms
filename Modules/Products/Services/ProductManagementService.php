@@ -41,7 +41,9 @@ class ProductManagementService
         try {
             return DB::transaction(function () use ($data, &$storedImage, &$productId): Product {
                 $product = new Product;
-                $product->fill($this->normalizeData($data));
+                $product->fill($this->normalizeData($data) + [
+                    'item_type' => Product::TYPE_PRODUCT,
+                ]);
                 $product->save();
                 $productId = (int) $product->getKey();
 
@@ -141,6 +143,10 @@ class ProductManagementService
 
     public function setStockQuantity(Product $product, int $stockQuantity): Product
     {
+        if (! $product->isProduct()) {
+            throw new \DomainException('Stan zestawu wynika ze stanów jego składników.');
+        }
+
         return DB::transaction(function () use ($product, $stockQuantity): Product {
             $managedProduct = Product::query()
                 ->lockForUpdate()

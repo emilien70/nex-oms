@@ -7,9 +7,9 @@ use Modules\Ksef\Models\KsefSetting;
 
 class InvoicePdfFilenameGenerator
 {
-    private const INVOICE_LAYOUT_VERSION = 'v46';
+    private const INVOICE_LAYOUT_VERSION = 'v47';
 
-    private const PROFORMA_LAYOUT_VERSION = 'v35';
+    private const PROFORMA_LAYOUT_VERSION = 'v36';
 
     private const CORRECTION_LAYOUT_VERSION = 'v46';
 

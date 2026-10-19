@@ -21,6 +21,7 @@ use Modules\Integrations\DPD\Drivers\DpdDriver;
 use Modules\Integrations\InPost\Drivers\InPostCourierDriver;
 use Modules\Integrations\InPost\Drivers\InPostLockerDriver;
 use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
+use Modules\Integrations\Prestashop\Listeners\DispatchPrestashopStatusSync;
 use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Shipments\Events\ShipmentCreated;
@@ -91,6 +92,7 @@ class AppServiceProvider extends ServiceProvider
         Shipment::observe(ShipmentObserver::class);
         Event::listen(OrderPaymentRegistered::class, DispatchAutomationEvent::class);
         Event::listen(OrderStatusChanged::class, DispatchAutomationEvent::class);
+        Event::listen(OrderStatusChanged::class, DispatchPrestashopStatusSync::class);
         Event::listen(InvoiceIssued::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentCreated::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentStatusChanged::class, DispatchAutomationEvent::class);

@@ -336,6 +336,23 @@ Automatyczne pomniejszanie magazynu po PRODUCTS.1B:
 - stan nadal może zejść poniżej zera,
 - usunięcie Faktury, anulowanie zamówienia ani Korekta nie przywracają stanu automatycznie; wymagają świadomej zmiany ręcznej lub przyszłej, odrębnej akcji magazynowej.
 
+Zestawy katalogowe:
+
+- lista katalogu posiada osobne zakładki „Produkty” i „Zestawy”,
+- produkt i zestaw korzystają ze wspólnej puli wewnętrznych ID,
+- zestaw ma własną nazwę, cenę, VAT, walutę, opcjonalny EAN i zdjęcie,
+- zestaw składa się z co najmniej dwóch różnych, istniejących produktów wraz z ilością każdego składnika,
+- zestaw nie może zawierać innego zestawu ani samego siebie,
+- zestaw nie posiada własnego edytowalnego stanu; jego dostępność jest najmniejszą całkowitą liczbą zestawów możliwych do złożenia ze stanów wszystkich składników,
+- ukryty albo niedostępny składnik powoduje dostępność równą zero,
+- produkt i zestaw mogą posiadać wiele powiązań z ofertami w ramach jednego konta PrestaShop,
+- jedna oferta PrestaShop może wskazywać tylko jeden produkt albo zestaw OMS,
+- lista katalogu grupuje powiązania w jeden kafelek integracji z liczbą przypisanych ofert,
+- import lub ręczne dodanie zestawu tworzy jedną pozycję zamówienia z nazwą i ceną zestawu oraz zapisuje historyczny snapshot składu,
+- późniejsza zmiana składu zestawu nie zmienia już istniejących pozycji zamówień,
+- akcja „Zmniejsz stan magazynowy” odejmuje od każdego składnika iloczyn ilości zestawów i ilości składnika w snapshotcie,
+- ruchy magazynowe są zapisywane osobno dla składników i pozostają idempotentne dla pary pozycja zamówienia-składnik.
+
 Docelowe założenia:
 
 - każdy produkt posiada wewnętrzne ID,
@@ -350,6 +367,9 @@ Relacje po PRODUCTS.1B:
 ```text
 order_items.product_id nullable
 invoice_items.product_id nullable
+product_bundle_components.bundle_id
+product_bundle_components.component_product_id
+order_item_bundle_components.order_item_id
 ```
 
 `order_items.product_id` posiada klucz obcy do katalogu z `nullOnDelete`. `invoice_items.product_id` nie posiada klucza obcego i zachowuje identyfikator jako część historycznego snapshotu dokumentu.
@@ -1047,6 +1067,8 @@ PDF powinien zawierać:
 - oznaczenie duplikatu, jeśli dotyczy.
 
 Pliki są przechowywane prywatnie. Etap 2D używa biblioteki `tecnickcom/tcpdf`; plik jest generowany na żądanie wyłącznie z zapisanych snapshotów dokumentu i pozycji, atomowo zapisywany na prywatnym dysku `local` i udostępniany inline przez kontrolowaną trasę. Faktura VAT, Pro forma i przygotowany renderer Korekty nie zawierają stopki generatora ani numerów stron.
+
+Pole `Numer zamówienia` na dokumencie oznacza wewnętrzne ID zamówienia OMS zapisane w snapshocie, a nie numer zamówienia w zewnętrznym sklepie. Pole `Numer płatności` zawiera zapisany w chwili wystawienia identyfikator transakcji operatora płatności; numer zamówienia sklepu nie może być używany jako jego zastępstwo. Gdy dokument obejmuje kilka zaksięgowanych transakcji, ich unikalne identyfikatory są zachowywane razem w snapshocie.
 
 ---
 
@@ -2359,6 +2381,8 @@ Na ekranie konfiguracji operator może podać ID albo numer referencyjny zamówi
 
 Import tworzy zamówienie OMS ze statusem `new`, pozycje, bezpieczne powiązania identyfikatorów PrestaShop, szczegóły płatności bez danych kartowych oraz wpis historii. Cała operacja jest transakcyjna. Powtórzenie importu zwraca istniejące zamówienie, a unikalne powiązanie konta i zewnętrznego ID zabezpiecza przed duplikatem. Po pierwszym imporcie nie można podmienić adresu sklepu w tym samym koncie integracji.
 
+Jeżeli PrestaShop zwraca dokładnie `current_state = 0`, zamówienie nie posiada jeszcze przypisanego statusu sklepu, ale może zostać zaimportowane. OMS zapisuje wtedy pusty zewnętrzny status, ustawia lokalny status `new`, pokazuje ostrzeżenie w podglądzie i zapisuje tę informację w historii. Inne nieprawidłowe wartości statusu nadal blokują import.
+
 Wewnętrzne `order_items.product_id` pozostaje `null`. Import nie dopasowuje katalogu po nazwie, SKU ani EAN; zewnętrzne ID produktu i wariantu są przechowywane wyłącznie w tabelach integracji. Adres `address1/address2` jest zachowywany jako pełna ulica bez heurystycznego rozdzielania numeru budynku i lokalu. Kwoty są przetwarzane dziesiętnie, a niezgodność sumy pozycji, dostawy, płatności lub wartości zamówienia blokuje zapis.
 
 PRESTASHOP.2A jest jednokierunkowy i uruchamiany ręcznie. Nie synchronizuje ponownie danych biznesowych zaimportowanego zamówienia, nie mapuje statusu sklepu na status OMS, nie wysyła statusów do PrestaShop, nie synchronizuje stanów magazynowych i nie uruchamia harmonogramu. Powtórny import może jedynie bezpiecznie uzupełnić brakujący telefon lub dane punktu odbioru oraz usunąć błędnie zapisany login PrestaShop. Te funkcje należą do kolejnych etapów.
@@ -2372,3 +2396,79 @@ Konto PrestaShop przechowuje konfigurowalny wzór publicznego linku produktu ze 
 PrestaShop nie posiada loginu klienta odpowiadającego polu OMS, dlatego import pozostawia `customer_login` pusty i przechowuje adres wyłącznie jako e-mail. Telefon jest wybierany z pierwszego niepustego pola `phone_mobile` albo `phone`.
 
 Test połączenia opcjonalnie wykrywa rozszerzony, tylko do odczytu zasób `bl_order` lub `base_order`. Jeżeli jest dostępny, importer pobiera z niego nazwę, ID, adres, kod pocztowy i miasto punktu odbioru. Brak rozszerzonego zasobu nie blokuje podstawowego importu zamówienia.
+
+---
+
+# PRESTASHOP.2B.1 — mapowanie statusów
+
+Konfiguracja PrestaShop posiada osobną zakładkę `Statusy` z dwoma niezależnymi mapowaniami. Kierunek przychodzący przypisuje każdy wykryty status PrestaShop do aktywnego statusu OMS albo pozostawia go bez działania. Kierunek wychodzący przypisuje każdy aktywny status OMS do jednego dostępnego statusu PrestaShop albo wyłącza jego przekazywanie. Wiele statusów PrestaShop może wskazywać ten sam status OMS.
+
+Brak mapowania jest wartością domyślną i oznacza brak zmiany. Zapis konfiguracji nie wykonuje żądania do sklepu, nie zmienia zamówień, nie uruchamia automatyzacji ani pracy cyklicznej. Faktyczne pobieranie i przekazywanie statusów należą do kolejnych etapów PRESTASHOP.2B.
+
+Mapowania są związane z kontem integracji, liczbowym ID statusu PrestaShop oraz rekordem aktywnego ustawienia statusu OMS. Ponowny test tego samego sklepu aktualizuje nazwy i flagi statusów bez usuwania mapowań. Status, którego sklep przestał zwracać, pozostaje w słowniku jako niedostępny i nie może być celem mapowania wychodzącego. Zmiana bazowego adresu na inny sklep usuwa mapowania; wymiana Klucza API dla tego samego adresu zachowuje je do ponownego testu połączenia.
+
+# PRESTASHOP.2B.2 — przekazywanie statusów do sklepu
+
+Zmiana statusu powiązanego zamówienia OMS uruchamia po zatwierdzeniu transakcji osobne zadanie kolejki `integrations`. Dotyczy to zmian ręcznych, zbiorczych, edycji zamówienia i automatycznych akcji, ponieważ wszystkie korzystają z `OrderStatusService`. Brak aktywnej integracji, powiązania zamówienia albo mapowania wychodzącego oznacza brak działania.
+
+Zadanie sprawdza, czy status OMS nie został już zastąpiony nowszym, odczytuje bieżący `current_state` zamówienia PrestaShop i nie tworzy powtórnej historii, jeżeli sklep ma już właściwy status. Faktyczna zmiana jest wykonywana natywnym POST XML do `order_histories`. Opcjonalny przełącznik konta pozwala dodać `sendemail=1`; domyślnie pozostaje wyłączony.
+
+Zdalny `current_state = 0` oznacza brak przypisanego statusu i nie blokuje eksportu. Jeżeli lokalny status OMS ma mapowanie wychodzące, utworzenie `order_history` nadaje zamówieniu pierwszy prawidłowy status PrestaShop.
+
+Po powodzeniu lokalne powiązanie przechowuje ostatni znany status sklepu, a zamówienie otrzymuje zdarzenie informacyjne. Błędy chwilowe są ponawiane przez kolejkę, natomiast trwałe błędy API trafiają do historii zamówienia i nie cofają statusu OMS. Zdarzenia o źródle `prestashop` nie są wysyłane z powrotem, co przygotowuje ochronę przed pętlą dla przyszłego kierunku przychodzącego.
+
+PRESTASHOP.2B.2 nie pobiera statusów ze sklepu, nie synchronizuje płatności, nie importuje zamówień cyklicznie i nie wymaga modułu PrestaShop.
+
+# PRESTASHOP.2B.3 — pobieranie statusów ze sklepu
+
+Zakładka `Statusy` pozwala włączyć automatyczne pobieranie zmian co 1, 5 albo 10 minut oraz ręcznie zlecić pełną synchronizację. Pierwszy przebieg sprawdza wszystkie zamówienia posiadające bezpieczne powiązanie z PrestaShop. Kolejne przebiegi pobierają paginowaną listę zamówień zmienionych od ostatniej poprawnej synchronizacji, z dwuminutową zakładką czasową. Nieznane zamówienia sklepu są ignorowane i nie są automatycznie importowane.
+
+Aktualny status sklepu jest zawsze zapisywany w `prestashop_order_links`. Jeżeli istnieje aktywne mapowanie przychodzące, zmiana przechodzi przez `OrderStatusService` ze źródłem `prestashop_status_sync`, tworzy wpis historii i uruchamia zwykłe automatyczne akcje statusowe. Listener kierunku wychodzącego ignoruje źródła PrestaShop, dlatego zmiana nie jest odsyłana do sklepu.
+
+Wartość `current_state = 0` jest obserwowana jako brak zewnętrznego statusu: nie zmienia statusu OMS i nie przerywa synchronizacji pozostałych zamówień. Późniejsze pojawienie się prawidłowego statusu jest przetwarzane zwykłym mapowaniem przychodzącym.
+
+Powiązanie przechowuje krótkotrwały status oczekujący na wysłanie z OMS. Dopóki eksport pozostaje aktywny, pobieranie nie może zastąpić go starszym stanem sklepu. Zakończenie albo trwały błąd eksportu usuwa blokadę, a osierocona blokada wygasa po 15 minutach. Synchronizacja działa w kolejce `integrations`, błędy chwilowe są ponawiane, a ostatni bezpieczny błąd i czas ostatniego powodzenia są prezentowane w konfiguracji.
+
+PRESTASHOP.2B.3 nie pobiera płatności, produktów, adresów ani kwot, nie importuje nowych zamówień i nie wymaga modułu PrestaShop.
+
+---
+
+# PRESTASHOP.2C — automatyczne pobieranie nowych zamówień
+
+Zakładka `Zamówienia` pozwala włączyć automatyczne pobieranie nowych zamówień co minutę. Pierwsze uruchomienie zapamiętuje dokładny moment włączenia i nie importuje wcześniejszych zamówień. Każdy przebieg odczytuje paginowaną listę utworzoną według `orders.date_add`, z dwuminutową zakładką kursora oraz jednominutowym opóźnieniem bezpieczeństwa, aby nie pobrać zamówienia, które PrestaShop jeszcze zapisuje. Kursor przesuwa się dopiero po poprawnym odczycie całego przedziału.
+
+Ręczne zlecenie przebiegu jest dostępne pod przyciskiem `Sprawdź nowe zamówienia`. Potwierdzenie zlecenia jest wyświetlane na stronie tylko raz i znika automatycznie po 5 sekundach.
+
+Wykryte zamówienie otrzymuje trwały rekord próby i osobne zadanie na kolejce `integrations`. Właściwy zapis wykorzystuje ten sam `PrestashopOrderImportService` co import ręczny, dlatego zachowuje pełną walidację kwot, deduplikację, dane adresowe, punkt odbioru, pozycje oraz płatności dostępne w chwili importu. Powtórne wykrycie, nakładanie przedziałów i równoległy import ręczny nie tworzą drugiego zamówienia.
+
+Automatyczny import stosuje również regułę statusu `0`: kompletne zamówienie jest zapisywane jako `new`, a nieudana wcześniej próba może zostać bezpiecznie ponowiona po wdrożeniu tej obsługi.
+
+Po imporcie bieżący status zapisany razem z zamówieniem jest od razu przepuszczany przez mapowanie przychodzące. Zmiana statusu OMS używa źródła `prestashop_order_import`, uruchamia zwykłe automatyczne akcje i nie jest wysyłana z powrotem do sklepu. Brak mapowania pozostawia domyślny status `new`.
+
+Konfiguracja pokazuje czas uruchomienia, zakres sprawdzony do ostatniego powodzenia, bezpieczny komunikat błędu i ostatnie próby importu. Błąd pojedynczego zamówienia nie zatrzymuje wykrywania kolejnych; zadania chwilowo niedostępnego API są ponawiane, a trwały błąd można zlecić ponownie ręcznie. Ręczny przycisk sprawdzenia uruchamia ten sam proces asynchroniczny i nie omija granicy czasu włączenia.
+
+PRESTASHOP.2C nie aktualizuje później danych biznesowych istniejącego zamówienia, nie synchronizuje kolejnych wpłat ani zmian kwot i nie pobiera historii sprzed włączenia. Nadal korzysta z natywnego Webservice API i nie wymaga modułu NEX w PrestaShop. Synchronizacja płatności należy do PRESTASHOP.3, a ewentualny webhook do PRESTASHOP.5.
+
+---
+
+# PRESTASHOP.3A — automatyczna synchronizacja płatności
+
+Zakładka `Płatności` pozwala włączyć pobieranie nowych wpłat i dopłat dla zamówień już powiązanych z PrestaShop. Częstotliwość jest stała i wynosi jedną minutę; operator nie wybiera interwału. Pierwsze uruchomienie i ręczne sprawdzenie wykonują pełną kontrolę znanych zamówień, a kolejne przebiegi korzystają z `orders.date_upd` z dwuminutową zakładką kursora.
+
+Każda zewnętrzna płatność jest identyfikowana przez ID `order_payment` PrestaShop i przechodzi przez trwałe stany: oczekująca, zaksięgowana, odzwierciedlona z innego źródła albo wymagająca sprawdzenia. Poprawna nowa wpłata jednokrotnie zwiększa `orders.paid_amount`, aktualizuje stan płatności i tworzy zdarzenie `Zarejestrowano płatność PrestaShop`. Każda odrębna dopłata może uruchomić istniejącą automatyzację `Zarejestrowano płatność` ze źródłem `PrestaShop`.
+
+Jeżeli identyfikator transakcji odpowiada już zaksięgowanej wpłacie PayNow o tej samej kwocie i walucie, rekord PrestaShop jest oznaczany jako odzwierciedlony i nie zwiększa salda ponownie. Niezgodność waluty, nadpłata, zmiana wcześniej zapisanej płatności albo możliwy duplikat bez wspólnego identyfikatora trafiają do ręcznej weryfikacji i nie modyfikują salda zamówienia.
+
+Etap pokazuje płatności PrestaShop w sekcji `Informacje dodatkowe → Płatności`. Nie obsługuje automatycznych zwrotów, usuwania wcześniej zaksięgowanych wpłat ani ręcznego rozstrzygania pozycji wymagających sprawdzenia. Nadal korzysta z natywnego Webservice API i nie wymaga modułu NEX w PrestaShop.
+
+---
+
+# ANALYTICS.1 — podstawowe statystyki sprzedaży
+
+Pozycja `Analityka` w głównym menu prowadzi bezpośrednio do podstawowych statystyk. Ekran udostępnia raporty: ilość i wartość zamówień, źródła zamówień, rodzaje wysyłki i płatności, klienci oraz produkty. Raport pracowników pozostaje poza zakresem do czasu wprowadzenia użytkowników i wiarygodnego audytu wykonawcy operacji.
+
+Wspólne filtry obejmują zakres dat, źródła, statusy i jedną walutę. Zakres może oznaczać dzień, ostatnie 7, 14, 28 lub 30 dni, bieżący albo poprzedni miesiąc, kwartał lub rok oraz własny przedział. Strzałki przesuwają przedział o jego długość. Raport nie przelicza walut; każda waluta jest analizowana osobno. Datą sprzedaży jest `purchased_at`, a dla danych bez tej wartości używane jest `created_at`.
+
+Źródła PrestaShop są rozdzielane według kont integracji, dzięki czemu `multi-click.pl` jest osobnym wyborem. Zamówienia usunięte do kosza nie uczestniczą w statystykach. Zestaw powiązany z pozycją zamówienia jest liczony jako jedna sprzedana pozycja zestawu i nie jest rozwijany na składniki w statystykach sprzedaży.
+
+Każdy panel wykresu posiada osobny eksport CSV zgodny z aktywnymi filtrami. Raporty używają zapisanych snapshotów zamówień i pozycji. Kwoty są agregowane w groszach bez używania `float`. Podstawowe statystyki nie zmieniają zamówień, produktów, stanów magazynowych ani konfiguracji integracji.

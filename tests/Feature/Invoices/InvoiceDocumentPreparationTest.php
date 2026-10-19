@@ -4,10 +4,14 @@ namespace Tests\Feature\Invoices;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Modules\Integrations\Prestashop\Models\PrestashopAccount;
+use Modules\Integrations\Prestashop\Models\PrestashopOrderPayment;
 use Modules\Invoices\Enums\InvoiceVatRateSource;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Services\AdditionalInformationRenderer;
 use Modules\Invoices\Services\InvoiceDocumentPreparationService;
+use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Invoices\Services\ProformaSourceSnapshotHasher;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
@@ -89,6 +93,128 @@ class InvoiceDocumentPreparationTest extends TestCase
         $this->assertSame('123.00', $prepared->invoiceAttributes['tax_summary_snapshot'][0]['gross']);
         $this->assertSnapshotContainsNoFloat($prepared->invoiceAttributes);
         $this->assertSnapshotContainsNoFloat($prepared->itemAttributes);
+    }
+
+    public function test_prestashop_invoice_uses_provider_transaction_as_payment_identifier(): void
+    {
+        $order = $this->createDocumentOrder([
+            'source' => 'prestashop',
+            'external_id' => '13592',
+            'payment_status' => 'paid',
+            'paid_amount' => '123.00',
+        ]);
+        $this->createDocumentItem($order);
+        $account = PrestashopAccount::query()->create([
+            'account_key' => PrestashopAccount::DEFAULT_ACCOUNT_KEY,
+            'name' => 'multi-click.pl',
+            'base_url' => 'https://multi-click.pl',
+            'api_key' => '12345678901234567890123456789012',
+            'is_active' => true,
+        ]);
+        $link = $account->orderLinks()->create([
+            'order_id' => $order->getKey(),
+            'external_order_id' => 13592,
+            'external_reference' => '13592',
+            'source_hash' => hash('sha256', 'prestashop-order-13592'),
+            'imported_at' => now(),
+        ]);
+        $link->payments()->create([
+            'external_payment_id' => 9129,
+            'transaction_id' => 'PRHS-PBD-I44-JVG',
+            'amount' => '123.00',
+            'currency' => 'PLN',
+            'method' => 'PayNow',
+            'paid_at' => now(),
+            'accounting_status' => PrestashopOrderPayment::STATUS_ACCOUNTED,
+            'accounted_at' => now(),
+        ]);
+
+        $prepared = app(InvoiceDocumentPreparationService::class)
+            ->forCreation($order, $this->createDocumentSeries(), $this->documentContext());
+
+        $this->assertSame($order->getKey(), $prepared->invoiceAttributes['order_snapshot']['id']);
+        $this->assertSame('13592', $prepared->invoiceAttributes['order_snapshot']['external_id']);
+        $this->assertSame(
+            'PRHS-PBD-I44-JVG',
+            $prepared->invoiceAttributes['payment_snapshot']['payment_identifier'],
+        );
+        $this->assertSame(
+            'provider_transaction',
+            $prepared->invoiceAttributes['payment_snapshot']['payment_identifier_source'],
+        );
+    }
+
+    public function test_historical_prestashop_invoice_payment_identifier_is_repaired_reversibly(): void
+    {
+        Storage::fake('local');
+        $order = $this->createDocumentOrder([
+            'source' => 'prestashop',
+            'external_id' => '13592',
+            'payment_status' => 'paid',
+            'paid_amount' => '123.00',
+        ]);
+        $this->createDocumentItem($order);
+        $account = PrestashopAccount::query()->create([
+            'account_key' => PrestashopAccount::DEFAULT_ACCOUNT_KEY,
+            'name' => 'multi-click.pl',
+            'base_url' => 'https://multi-click.pl',
+            'api_key' => '12345678901234567890123456789012',
+            'is_active' => true,
+        ]);
+        $link = $account->orderLinks()->create([
+            'order_id' => $order->getKey(),
+            'external_order_id' => 13592,
+            'external_reference' => '13592',
+            'source_hash' => hash('sha256', 'prestashop-order-13592'),
+            'imported_at' => '2026-07-20 10:00:00',
+        ]);
+        $link->payments()->create([
+            'external_payment_id' => 9129,
+            'transaction_id' => 'PRHS-PBD-I44-JVG',
+            'amount' => '123.00',
+            'currency' => 'PLN',
+            'method' => 'PayNow',
+            'paid_at' => '2026-07-21 11:00:00',
+            'accounting_status' => PrestashopOrderPayment::STATUS_ACCOUNTED,
+            'accounted_at' => '2026-07-21 11:00:00',
+        ]);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+        $legacyPayment = $invoice->payment_snapshot;
+        $legacyPayment['payment_identifier'] = '13592';
+        unset($legacyPayment['payment_identifier_source']);
+        $invoice->update(['payment_snapshot' => $legacyPayment]);
+        $cachePath = 'invoices/'.$invoice->getKey().'/invoice-v47-ksef-demo.pdf';
+        $attachmentPath = 'invoices/'.$invoice->getKey().'/external-document.pdf';
+        Storage::disk('local')->put($cachePath, '%PDF-cache');
+        Storage::disk('local')->put($attachmentPath, '%PDF-attachment');
+
+        $migration = require database_path(
+            'migrations/2026_10_15_020000_correct_invoice_order_and_payment_identifiers.php',
+        );
+        $migration->up();
+        $cacheMigration = require database_path(
+            'migrations/2026_10_15_021000_invalidate_corrected_invoice_pdf_cache.php',
+        );
+        $cacheMigration->up();
+
+        $invoice->refresh();
+        $this->assertSame('PRHS-PBD-I44-JVG', $invoice->payment_snapshot['payment_identifier']);
+        $this->assertSame(
+            'provider_transaction_repair_v1',
+            $invoice->payment_snapshot['payment_identifier_source'],
+        );
+        Storage::disk('local')->assertMissing($cachePath);
+        Storage::disk('local')->assertExists($attachmentPath);
+
+        $migration->down();
+
+        $invoice->refresh();
+        $this->assertSame('13592', $invoice->payment_snapshot['payment_identifier']);
+        $this->assertArrayNotHasKey('payment_identifier_source', $invoice->payment_snapshot);
     }
 
     public function test_preparation_rejects_missing_order_currency_without_inventing_pln(): void

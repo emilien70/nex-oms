@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Products\Models\Product;
+use Modules\Products\Services\OrderItemBundleSnapshotService;
 
 class OrderCatalogProductService
 {
@@ -16,6 +17,7 @@ class OrderCatalogProductService
         private readonly OrderTotalService $orderTotals,
         private readonly OrderCurrencyService $orderCurrencies,
         private readonly InvoiceDecimalCalculator $decimal,
+        private readonly OrderItemBundleSnapshotService $bundleSnapshots,
     ) {}
 
     /**
@@ -64,6 +66,7 @@ class OrderCatalogProductService
                     'vat_rate' => $product->vat_rate,
                     'weight' => $product->package_weight_kg,
                 ]);
+                $this->bundleSnapshots->capture($item, $product);
 
                 $managedOrder->events()->create([
                     'event_type' => 'product_added',
@@ -71,6 +74,7 @@ class OrderCatalogProductService
                     'description' => 'Dodano produkt z katalogu do zamówienia',
                     'payload' => [
                         'product_id' => $product->getKey(),
+                        'item_type' => $product->item_type,
                         'product_name' => $item->product_name,
                         'quantity' => $item->quantity,
                         'catalog_unit_price_gross' => $product->price_gross,

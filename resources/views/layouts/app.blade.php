@@ -1291,6 +1291,12 @@
                         <a class="nav-flyout-link {{ request()->routeIs('products.*') ? 'active' : '' }}" href="{{ route('products.index') }}">Lista produkt&oacute;w</a>
                     </div>
                 </div>
+                <div class="sidebar-nav-item">
+                    <a class="nav-link {{ request()->routeIs('analytics.*') ? 'active' : '' }}" href="{{ route('analytics.basic') }}" aria-label="Analityka" title="Analityka">
+                        <span class="nav-initial" aria-hidden="true"><i class="bi bi-bar-chart-line-fill"></i></span>
+                        <span class="nav-text">Analityka</span>
+                    </a>
+                </div>
                 <div class="sidebar-nav-item has-nav-flyout {{ request()->is('integrations*') ? 'is-open' : '' }}">
                     <a class="nav-link {{ request()->is('integrations*') ? 'active' : '' }}" href="{{ route('integrations.index') }}" aria-label="Integracje" title="Integracje" aria-expanded="{{ request()->is('integrations*') ? 'true' : 'false' }}">
                         <span class="nav-initial nav-integrations-icon" aria-hidden="true"><i class="bi bi-plug"></i></span>
@@ -1396,7 +1402,7 @@
         @endif
 
         <main class="content flex-grow-1 p-4">
-            @if (session('success'))
+            @if (session('success') && ! view()->hasSection('suppress-layout-success'))
                 <div class="alert alert-success alert-dismissible fade show" role="alert">
                     {{ session('success') }}
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Zamknij"></button>

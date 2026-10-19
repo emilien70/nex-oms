@@ -8,6 +8,9 @@ use Modules\Integrations\AllegroShipping\Jobs\RefreshAllegroShipmentJob;
 use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
 use Modules\Integrations\PayNow\Services\PayNowReconciliationService;
+use Modules\Integrations\Prestashop\Services\PrestashopOrderImportDispatcher;
+use Modules\Integrations\Prestashop\Services\PrestashopPaymentSyncDispatcher;
+use Modules\Integrations\Prestashop\Services\PrestashopStatusSyncDispatcher;
 use Modules\Ksef\Services\KsefLatarniaOperationalSyncService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpDispatcher;
 use Modules\Shipments\Models\CourierAccount;
@@ -84,5 +87,20 @@ Schedule::call(fn () => app(OrderEmailQueuedRecoveryService::class)->recover())
 
 Schedule::call(fn () => app(PayNowReconciliationService::class)->reconcileDue())
     ->name('paynow-reconcile-pending-payments')
+    ->everyMinute()
+    ->withoutOverlapping();
+
+Schedule::call(fn () => app(PrestashopStatusSyncDispatcher::class)->dispatchDue())
+    ->name('prestashop-sync-order-statuses')
+    ->everyMinute()
+    ->withoutOverlapping();
+
+Schedule::call(fn () => app(PrestashopOrderImportDispatcher::class)->dispatchDue())
+    ->name('prestashop-import-new-orders')
+    ->everyMinute()
+    ->withoutOverlapping();
+
+Schedule::call(fn () => app(PrestashopPaymentSyncDispatcher::class)->dispatchDue())
+    ->name('prestashop-sync-payments')
     ->everyMinute()
     ->withoutOverlapping();

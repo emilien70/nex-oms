@@ -46,6 +46,7 @@ Aktualne moduły:
 
 ```text
 Modules/Automation
+Modules/Analytics
 Modules/Integrations
 Modules/Invoices
 Modules/Shipments
@@ -895,6 +896,14 @@ Każdy ruch `invoice_issued` zapisuje podpisaną zmianę, stan przed i po zmiani
 Klucz idempotencji jest stabilny dla pary zamówienie-pozycja zamówienia. Ponowienie zadania, druga zgodna reguła oraz ponowne wystawienie Faktury nie odejmują ponownie tej samej pozycji. Serwis blokuje produkty w deterministycznej kolejności, wykonuje wszystkie zmiany i zapisuje ruchy w jednej transakcji. Uwzględnia wyłącznie pozycje produktowe z `product_id` i `order_item_id`; pozycje ręczne oraz dostawa są pomijane. Ułamkowa albo niedodatnia ilość powoduje błąd całej akcji, ponieważ bieżący stan produktu jest liczbą całkowitą.
 
 Mechanizm nie tworzy rezerwacji i pozwala na stan ujemny. Nie odwraca ruchu po usunięciu Faktury, anulowaniu zamówienia ani wystawieniu Korekty. Takie operacje pozostają świadomą zmianą ręczną do czasu wdrożenia odrębnej akcji przywracania stanu.
+
+Zestawy są przechowywane w tej samej tabeli products co zwykłe produkty i są rozróżniane przez item_type = bundle. Dzięki temu produkty i zestawy korzystają z jednej sekwencji ID, tych samych opcjonalnych relacji order_items.product_id i invoice_items.product_id oraz istniejącego mechanizmu powiązań ofert PrestaShop.
+
+Tabela prestashop_product_links przechowuje wiele ofert jednego konta PrestaShop przypisanych do tego samego produktu albo zestawu OMS. Unikalna pozostaje trójka prestashop_account_id, external_product_id i external_product_attribute_id, dlatego jedna oferta zewnętrzna nie może wskazywać kilku pozycji OMS. Lista katalogu grupuje rekordy według konta integracji, pokazuje ich liczbę i udostępnia edycję konkretnego rekordu po jego własnym ID. Import nadal rozwiązuje pozycję OMS jednoznacznie przez konto oraz ID produktu PrestaShop.
+
+Aktualny skład zestawu przechowuje tabela product_bundle_components. Każdy rekord wskazuje zestaw, zwykły produkt oraz dodatnią, całkowitą ilość składnika. Zestaw musi mieć co najmniej dwa różne produkty. Zagnieżdżanie zestawów jest zabronione. Dostępność zestawu jest wyliczana jako minimum z całkowitych ilorazów stan produktu / ilość składnika; stan zestawu nie jest zapisywany ani edytowany niezależnie.
+
+Przy dodaniu zestawu do zamówienia jego skład jest kopiowany do order_item_bundle_components. Snapshot przechowuje identyfikator i nazwę składnika oraz ilość na jeden zestaw. Edycja składu katalogowego nie zmienia historycznych zamówień. Faktura nadal zawiera jedną pozycję zestawu, natomiast InvoiceStockDeductionService rozwija ją wyłącznie na potrzeby magazynu według snapshotu zamówienia. Idempotencja ruchu zestawu obejmuje pozycję zamówienia i konkretny produkt-składnik.
 
 ---
 
@@ -2669,6 +2678,8 @@ Stan akcji dokumentów jest centralnie budowany przez `OrderSalesDocumentActions
 
 `InvoicePdfViewModelFactory` tworzy warianty Faktury VAT, Pro formy i Korekty wyłącznie z zapisanych danych. Pro forma nie pokazuje technicznego stanu blokady, osoby wystawiającej ani dodatkowych informacji. Korekta wymaga kompletnych snapshotów stanu przed, po i różnicy; rzeczywistą zmianę danych Nabywcy pokazuje na podstawie snapshotów w układzie „Było / Powinno być”. Moduł posiada centralny serwis wystawiania i edycji Korekt, prywatny renderer PDF oraz listę wykorzystującą wspólny mechanizm dokumentów sprzedaży. `InvoiceAmountInWordsFormatter` wykonuje konwersję bez `float`, zachowuje grosze i znak wartości ujemnych, a `InvoiceMoneyFormatter` formatuje kwoty interfejsu przez dokładną arytmetykę dziesiętną i operacje na stringach.
 
+Na PDF `order_snapshot.id`, z fallbackiem do `order_reference_snapshot`, jest jedynym źródłem pola `Numer zamówienia`; `order_snapshot.external_id` pozostaje numerem źródłowym integracji. `InvoicePaymentIdentifierResolver` zapisuje podczas przygotowania dokumentu unikalne identyfikatory zaksięgowanych transakcji PrestaShop, a przy ich braku zaksięgowanych transakcji PayNow. Identyfikator jest zamrażany w `payment_snapshot` i nie jest odczytywany z bieżącego zamówienia podczas renderowania. Jednorazowa migracja naprawia historyczny błąd wyłącznie tam, gdzie stary identyfikator płatności był równy numerowi zamówienia sklepu; uwzględnia tylko płatności istniejące nie później niż w chwili wystawienia dokumentu.
+
 `InvoiceFinancialLimits` odwzorowuje rzeczywiste kontrakty precision/scale pól zamówień, dokumentów i pozycji, a `InvoiceFinancialValueValidator` egzekwuje je przez `BigDecimal` na granicach HTTP i serwisów oraz dla obliczonych sum pozycji, dokumentów i Korekt. Walidacja nie opiera się na `PHP_INT_MAX` ani `float`. Biznesowe wejście procentowego VAT ma leksykalną postać liczby całkowitej `0..100` bez whitelisty, natomiast serwisy akceptują równoważną kanoniczną reprezentację dziesiętną i zapisują ją ze skalą 2. `InvoiceTaxIdentityNormalizer` najpierw rozstrzyga `vat_code`, więc kod podatkowy usuwa nieaktywną stawkę przed jej walidacją.
 
 `InvoiceItemBuilder` zachowuje pozycję dostawy o wartości `0.00`, jeśli metoda dostawy istnieje i seria ją uwzględnia. `InvoiceIssuingService` kopiuje do `order_snapshot.related_documents.proforma` identyfikator, numer i datę istniejącej Pro formy przed jej oznaczeniem jako zastąpionej.
@@ -2839,6 +2850,8 @@ Etap nie instaluje modułu w PrestaShop, nie wymaga dodatkowej biblioteki Compos
 
 Stan PrestaShop jest zachowany w powiązaniu importu, lecz nowe zamówienie OMS zawsze otrzymuje `new`. Etap nie synchronizuje istniejącego zamówienia przy kolejnym odczycie, poza kontrolowanym uzupełnieniem brakującego telefonu i punktu odbioru oraz wyczyszczeniem błędnego loginu PrestaShop. Nie publikuje zadań cyklicznych i nie wywołuje metod zapisu API sklepu. Moduł PrestaShop nadal korzysta z centralnych tras i migracji projektu, bez własnego providera.
 
+`current_state = 0` jest jedyną dopuszczoną reprezentacją braku statusu po stronie sklepu. `PrestashopOrderPreviewService` normalizuje ją do `null`, dodaje ostrzeżenie i pozwala utworzyć zamówienie `new`; `prestashop_order_links.external_order_state_id` oraz `external_order_state_name` pozostają puste. Brak, tekst, liczba ujemna lub nieznane dodatnie ID nadal kończą import błędem.
+
 ---
 
 # 43. Integracja PrestaShop — etap PRESTASHOP.2A.1
@@ -2848,3 +2861,77 @@ Stan PrestaShop jest zachowany w powiązaniu importu, lecz nowe zamówienie OMS 
 `prestashop_accounts.order_enrichment_resource` przechowuje opcjonalnie wykryty zasób `bl_order` albo `base_order`. `PrestashopClient` pobiera rozszerzenie tylko przez GET, a brak lub błąd tego zasobu nie blokuje podstawowego importu. Dane `bl_delivery_point_*` są normalizowane przez `PrestashopOrderPreviewService` i zapisywane do istniejących pól `pickup_point_*` zamówienia.
 
 Powtórny import nie nadpisuje niepustego telefonu ani danych punktu zmienionych w OMS. Uzupełnia wyłącznie brakujące wartości, zawsze usuwa błędny login źródła PrestaShop i zapisuje zdarzenie `prestashop_order_metadata_completed`, jeżeli rekord został zmieniony.
+
+---
+
+# 44. Integracja PrestaShop — etap PRESTASHOP.2B.1
+
+`prestashop_inbound_status_mappings` przechowuje relację zewnętrznego ID statusu PrestaShop do aktywnego `order_status_settings`, a `prestashop_outbound_status_mappings` relację w przeciwnym kierunku. Osobne tabele pozwalają na wiele mapowań przychodzących do jednego statusu OMS i dokładnie jeden cel wychodzący dla każdego statusu OMS. Brak wiersza oznacza brak działania.
+
+`PrestashopStatusMappingService` jest jedyną ścieżką pełnego zastępowania konfiguracji obu kierunków. Waliduje bieżący słownik statusów sklepu i aktywne ustawienia statusów OMS, blokuje niedostępny lub usunięty cel wychodzący i zapisuje całość transakcyjnie. Endpoint konfiguracji nie korzysta z `PrestashopClient` i nie wykonuje komunikacji sieciowej.
+
+`prestashop_order_states.is_available` odróżnia status aktualnie zwrócony przez sklep od historycznego wpisu słownika. Ponowny test połączenia ustawia zwrócone rekordy jako dostępne, a brakujące jako niedostępne zamiast je usuwać. Dzięki kluczowaniu mapowań przez zewnętrzne ID konfiguracja przetrwa odświeżenie nazw i flag oraz czasową nieobecność statusu. Zmiana bazowego adresu sklepu usuwa mapowania, natomiast zmiana samego Klucza API zachowuje je.
+
+Widok konfiguracji ma zakładki `Połączenie`, `Zamówienia` i `Statusy`. PRESTASHOP.2B.1 nie dodaje listenera `OrderStatusChanged`, klienta zapisu `order_histories`, kolejki, schedulera, synchronizacji płatności ani modyfikowania istniejących zamówień.
+
+# 45. Integracja PrestaShop — etap PRESTASHOP.2B.2
+
+`DispatchPrestashopStatusSync` reaguje na `OrderStatusChanged` dopiero po zatwierdzeniu transakcji. Listener odrzuca źródło `prestashop` oraz zdarzenia bez aktywnego powiązania i mapowania, a następnie przekazuje identyfikator zdarzenia do unikalnego `SyncPrestashopOrderStatusJob` na kolejce `integrations`.
+
+`PrestashopOutboundStatusSyncService` ponownie rozwiązuje mapowanie w chwili wykonania zadania, odrzuca zadania zastąpione nowszym statusem i przed zapisem odczytuje `orders.current_state`. `PrestashopClient` wysyła zmianę jako POST XML do `order_histories`, ponieważ wejście JSON nie jest obsługiwane przez Webservice PrestaShop 8. Opcjonalny parametr `sendemail` pochodzi z `prestashop_accounts.notify_customer_on_status_change`.
+
+Odczyt `current_state = 0` zwraca techniczny brak bieżącego statusu, ale nie blokuje utworzenia historii dla mapowanego statusu OMS. Dzięki temu zmiana lokalnego zamówienia może nadać pierwszy prawidłowy status zamówieniu zaimportowanemu bez statusu.
+
+Sukces aktualizuje cache statusu w `prestashop_order_links` i zapisuje `prestashop_status_exported` w `order_events`. Trwały błąd zapisuje `prestashop_status_export_failed`; błędy połączenia, HTTP 429 i 5xx są ponawiane przez kolejkę. Błąd zewnętrzny nie wycofuje lokalnej zmiany statusu OMS. Kierunek PrestaShop → OMS, płatności i harmonogram pozostają poza etapem.
+
+# 46. Integracja PrestaShop — etap PRESTASHOP.2B.3
+
+`PrestashopStatusSyncDispatcher` jest wywoływany przez Laravel Scheduler co minutę i zleca unikalne `SyncPrestashopInboundStatusesJob` tylko dla aktywnego konta, gdy upłynął skonfigurowany interwał. Ten sam job może zostać zlecony ręcznie jako pełny przebieg. Pierwszy przebieg pobiera statusy wyłącznie znanych ID w partiach po 100, a kolejne używają filtrowania `orders.date_upd`, stabilnego sortowania, paginacji i dwuminutowej zakładki kursora. Kursor jest przesuwany dopiero po pełnym powodzeniu.
+
+`PrestashopInboundStatusSyncService` aktualizuje cache zewnętrznego statusu, rozwiązuje `prestashop_inbound_status_mappings` i przekazuje faktyczną zmianę do centralnego `OrderStatusService`. Źródło `prestashop_status_sync` uruchamia automatyzacje po zatwierdzeniu transakcji, ale jest pomijane przez listener eksportu. Brak mapowania, usunięte zamówienie albo identyczny status kończą się wyłącznie aktualizacją cache integracji.
+
+Normalizacja list statusów zachowuje wiersz z `current_state = 0` jako `current_state = null`. Serwis czyści wtedy zewnętrzny cache statusu danego powiązania, pozostawia lokalny status OMS bez zmian i kontynuuje pozostałe rekordy przebiegu. Późniejszy prawidłowy status jest obsługiwany standardowo.
+
+Kolumny `pending_outbound_*` w `prestashop_order_links` chronią przed cofnięciem świeżej zmiany OMS przez starszy stan odczytany ze sklepu. Listener eksportu zapisuje oczekiwany cel przed zleceniem zadania, a sukces, trwały błąd lub zastąpienie nowszą lokalną zmianą usuwa znacznik. Synchronizacja przychodząca pomija aktywny znacznik i usuwa go po 15 minutach, jeżeli został osierocony.
+
+Konto przechowuje przełącznik, interwał, czas ostatniego powodzenia oraz bezpieczny komunikat ostatniego błędu. Etap korzysta z natywnego Webservice API i istniejących procesów `integrations` oraz Scheduler; nie wprowadza modułu PrestaShop, webhooka, automatycznego importu nowych zamówień ani synchronizacji płatności.
+
+---
+
+# 47. Integracja PrestaShop — etap PRESTASHOP.2C
+
+`PrestashopOrderImportDispatcher` jest wywoływany przez Laravel Scheduler co minutę i zleca unikalny `DiscoverPrestashopOrdersJob` dla aktywnego konta z włączonym importem. `PrestashopOrderDiscoveryService` pobiera lekką listę `id`, `reference` i `date_add`, używa paginacji po 100 rekordów, stabilnego sortowania oraz dwuminutowej zakładki czasowej. Górna granica pozostaje minutę za bieżącym czasem. `order_import_started_at` jest twardą dolną granicą, a `last_order_import_scan_at` przesuwa się dopiero po pełnym powodzeniu zapytania.
+
+`prestashop_order_import_attempts` jest trwałą kolejką biznesową i historią ostatnich prób. Unikalność konta i zewnętrznego ID zabezpiecza wykrywanie przed duplikacją. Każda oczekująca próba jest przekazywana do osobnego, unikalnego `ImportPrestashopOrderJob` na kolejce `integrations`; stan `processing` starszy niż 15 minut może zostać bezpiecznie odzyskany. Relacje do konta oraz zamówienia używają `nullOnDelete`, dzięki czemu diagnostyka nie znika wraz z rekordem źródłowym.
+
+`PrestashopAutomaticOrderImportService` korzysta z istniejącego `PrestashopOrderImportService`, więc automatyczny i ręczny import mają jedną ścieżkę transakcyjną i te same ograniczenia danych. Po zapisie `PrestashopInboundStatusSyncService::applyStoredOrderState()` stosuje aktualne mapowanie ze źródłem `prestashop_order_import`. Listener wychodzący ignoruje każde źródło zaczynające się od `prestashop`, natomiast automatyzacje statusowe działają normalnie.
+
+Próby chwilowych błędów sieci, HTTP 429 i 5xx są ponawiane przez kolejkę. Błąd trwały zapisuje skrócony, bezpieczny komunikat i pozostawia próbę do ręcznego ponowienia. Błąd wykrywania nie przesuwa kursora. Panel nie wykonuje importu synchronicznie w żądaniu HTTP; zarówno harmonogram, jak i ręczne sprawdzenie jedynie zlecają pracę.
+
+Etap nie dodaje webhooka ani modułu PrestaShop, nie odświeża danych już zaimportowanego zamówienia i nie synchronizuje kolejnych płatności. Do działania na VPS wymagane są stale uruchomione Laravel Scheduler oraz worker kolejki `integrations`.
+
+---
+
+# 48. Integracja PrestaShop — etap PRESTASHOP.3A
+
+`PrestashopPaymentSyncDispatcher` jest uruchamiany przez Laravel Scheduler co minutę. Dla aktywnego konta z włączoną synchronizacją zleca unikalny `SyncPrestashopPaymentsJob` na kolejce `integrations`; częstotliwość nie jest konfigurowalna. Pełny przebieg pobiera lekkie podsumowania znanych zamówień w partiach, a następne używają `orders.date_upd`, paginacji oraz dwuminutowej zakładki. Kursor powodzenia jest przesuwany dopiero po ukończeniu całego przebiegu.
+
+`PrestashopPaymentSyncService` pobiera natywne `order_payments` dla zamówień, których `total_paid_real` wymaga kontroli, i sprawdza zgodność sumy płatności z podsumowaniem zamówienia. `prestashop_order_payments.external_payment_id` zapewnia idempotencję odkrywania, natomiast `accounting_status` rozdziela rekordy oczekujące, zaksięgowane, odzwierciedlone z PayNow i wymagające ręcznego sprawdzenia.
+
+`PrestashopPaymentAccountingService` blokuje rekord płatności i zamówienie w jednej transakcji. Poprawna płatność zwiększa saldo przez istniejący `OrderPaymentStateService`, aktualizuje stan płatności, zapisuje historię i publikuje po zatwierdzeniu `OrderPaymentRegistered` ze źródłem `prestashop`. Ta sama zewnętrzna płatność nie może zostać zaksięgowana ani uruchomić automatyzacji ponownie.
+
+Potwierdzona płatność PayNow o zgodnym identyfikatorze transakcji, kwocie i walucie jest traktowana jako ten sam przepływ środków i oznaczana jako odzwierciedlona bez ponownego naliczenia. Niezgodność waluty, nadpłata, zmiana historycznej płatności, brak zamówienia lub możliwy duplikat bez wspólnego identyfikatora tworzą bezpieczne zdarzenie wymagające weryfikacji i nie zmieniają salda.
+
+Warstwa widoku dołącza płatności PrestaShop do istniejącej sekcji płatności zamówienia. Etap nie modyfikuje pozycji, adresów ani kwot zamówienia poza saldem wpłat, nie implementuje zwrotów i nie wymaga modułu po stronie sklepu. Scheduler i worker kolejki `integrations` pozostają wymagane na VPS.
+
+---
+
+# 49. Analityka — etap ANALYTICS.1
+
+Moduł `Modules/Analytics` zawiera kontrolery, Form Request, resolver okresów, warstwę filtrów oraz serwis budujący raporty. Trasy pozostają centralnie w `routes/web.php`, a widok znajduje się w `resources/views/analytics/basic.blade.php`. Moduł nie posiada własnego providera ani osobnych migracji modułowych.
+
+`AnalyticsFilterService` jest wspólną granicą filtrowania. Stosuje walutę, statusy, źródła i przedział dat do zapytań `Order`, rozdziela konta PrestaShop przez `prestashop_order_links` i pomija rekordy usunięte przez globalny zakres `SoftDeletes`. Data raportowa wykorzystuje `purchased_at`, a przy jej braku `created_at`.
+
+`BasicStatisticsService` strumieniuje zamówienia i pozycje partiami, a następnie buduje wyłącznie agregaty potrzebne aktywnemu raportowi. Kwoty są przeliczane na całkowite grosze przy użyciu `brick/math`; wykresy otrzymują wartości w groszach, a prezentacja przelicza je wyłącznie do formatowania. Eksport CSV używa tych samych agregatów i filtrów co ekran.
+
+Warstwa widoku korzysta z Chart.js oraz `chartjs-chart-geo` ładowanych z przypiętych wersji CDN. Dane wykresów pochodzą wyłącznie z JSON wygenerowanego przez serwer. Mapa krajów pobiera publiczny atlas świata; niedostępność atlasu nie wpływa na pozostałe raporty ani eksport CSV. Indeksy analityczne obejmują daty zakupu i utworzenia w kontekście waluty, status i źródło oraz relację pozycji z produktem.

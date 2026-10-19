@@ -29,6 +29,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
+use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
 use Modules\Invoices\Services\InvoiceFinancialLimits;
@@ -362,7 +363,7 @@ class OrdersController extends Controller
         OrderPaymentStateService $paymentStates,
         InvoiceFinancialValueValidator $financial,
     ): RedirectResponse {
-        $order->load(['items']);
+        $order->load(['items.bundleComponents']);
 
         try {
             $newOrder = DB::transaction(function () use ($order, $orderTotalService, $paymentStates, $financial): Order {
@@ -439,7 +440,21 @@ class OrdersController extends Controller
                         $itemData['vat_rate'] = $financial->assertVatPercentage($itemData['vat_rate']);
                     }
 
-                    $newOrder->items()->create($itemData);
+                    $newItem = $newOrder->items()->create($itemData);
+
+                    if ($item->bundleComponents->isNotEmpty()) {
+                        $newItem->bundleComponents()->createMany(
+                            $item->bundleComponents
+                                ->map(fn ($component): array => $component->only([
+                                    'bundle_product_id',
+                                    'component_product_id',
+                                    'component_product_name',
+                                    'component_ean',
+                                    'quantity_per_bundle',
+                                ]))
+                                ->all(),
+                        );
+                    }
                 }
 
                 $newOrder->events()->create([
@@ -487,6 +502,7 @@ class OrdersController extends Controller
         return Order::query()
             ->when($withItems, fn (Builder $query) => $query
                 ->with('items')
+                ->with('prestashopOrderLinks.account')
                 ->withExists(['visibleShipments as shipments_exists']))
             ->when($showTrash, fn (Builder $query) => $query->onlyTrashed())
             ->when(
@@ -684,8 +700,12 @@ class OrdersController extends Controller
         return '%'.str_replace(['%', '_'], ['\%', '\_'], $value).'%';
     }
 
-    public function show(Order $order): View
+    public function show(Request $request, Order $order): View
     {
+        $statuses = OrderStatusSetting::orderedStatuses();
+        $navigationStatus = $this->resolveOrderNavigationStatus($request, $order, $statuses);
+        $adjacentOrderIds = $this->adjacentOrderIds($order, $navigationStatus);
+        $navigationStatusQuery = $navigationStatus ?? 'all';
         $activeCourierAccounts = CourierAccount::query()
             ->where('is_active', true)
             ->get();
@@ -694,6 +714,9 @@ class OrdersController extends Controller
             'items.product',
             'items.prestashopItemLink.orderLink.account',
             'prestashopOrderLinks.account',
+            'prestashopOrderLinks.payments' => fn ($query) => $query
+                ->orderByDesc('paid_at')
+                ->orderByDesc('id'),
             'shipments' => fn ($query) => $query
                 ->whereNotNull('tracking_number')
                 ->orderByDesc('created_at'),
@@ -708,9 +731,16 @@ class OrdersController extends Controller
 
         return view('orders.show', [
             'order' => $order,
-            'statuses' => OrderStatusSetting::orderedStatuses(),
+            'statuses' => $statuses,
             'statusSettings' => OrderStatusSetting::orderedSettings()->keyBy('code'),
             'activeCourierAccounts' => $activeCourierAccounts,
+            'previousOrderUrl' => $adjacentOrderIds['previous'] === null
+                ? null
+                : route('orders.show', ['order' => $adjacentOrderIds['previous'], 'status' => $navigationStatusQuery]),
+            'nextOrderUrl' => $adjacentOrderIds['next'] === null
+                ? null
+                : route('orders.show', ['order' => $adjacentOrderIds['next'], 'status' => $navigationStatusQuery]),
+            'ordersListUrl' => route('orders.index', $navigationStatus === null ? [] : ['status' => $navigationStatus]),
             'quickStatusActions' => [
                 Order::STATUS_PENDING => [
                     'label' => html_entity_decode('Oznacz jako oczekuj&#261;ce', ENT_QUOTES, 'UTF-8'),
@@ -730,12 +760,76 @@ class OrdersController extends Controller
                 ],
             ],
             'sourceOptions' => $this->sourceOptions(),
+            'prestashopDisplayName' => trim((string) PrestashopAccount::query()
+                ->where('account_key', PrestashopAccount::DEFAULT_ACCOUNT_KEY)
+                ->value('name')),
             'paymentStatusOptions' => $this->paymentStatusOptions(),
             'itemRows' => $this->itemRows($order),
             'salesDocumentActions' => $this->salesDocumentActionsView->data($order),
             'countries' => $this->countries->all(),
             'currencyOptions' => $this->currencies->all(),
         ]);
+    }
+
+    private function resolveOrderNavigationStatus(Request $request, Order $order, array $statuses): ?string
+    {
+        $requestedStatus = $request->query('status');
+
+        if ($requestedStatus === 'all') {
+            return null;
+        }
+
+        if (
+            is_string($requestedStatus)
+            && $requestedStatus === $order->status
+            && array_key_exists($requestedStatus, $statuses)
+        ) {
+            return $requestedStatus;
+        }
+
+        return array_key_exists((string) $order->status, $statuses) ? $order->status : null;
+    }
+
+    /**
+     * @return array{previous: int|null, next: int|null}
+     */
+    private function adjacentOrderIds(Order $order, ?string $status): array
+    {
+        $orders = Order::query()
+            ->when($status !== null, fn (Builder $query) => $query->where('status', $status));
+
+        $previousOrderId = (clone $orders)
+            ->where(function (Builder $query) use ($order): void {
+                $query
+                    ->where('created_at', '>', $order->created_at)
+                    ->orWhere(function (Builder $query) use ($order): void {
+                        $query
+                            ->where('created_at', $order->created_at)
+                            ->where('id', '>', $order->getKey());
+                    });
+            })
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->value('id');
+
+        $nextOrderId = (clone $orders)
+            ->where(function (Builder $query) use ($order): void {
+                $query
+                    ->where('created_at', '<', $order->created_at)
+                    ->orWhere(function (Builder $query) use ($order): void {
+                        $query
+                            ->where('created_at', $order->created_at)
+                            ->where('id', '<', $order->getKey());
+                    });
+            })
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->value('id');
+
+        return [
+            'previous' => $previousOrderId === null ? null : (int) $previousOrderId,
+            'next' => $nextOrderId === null ? null : (int) $nextOrderId,
+        ];
     }
 
     public function edit(Order $order): View

@@ -3,6 +3,7 @@
 namespace Modules\Integrations\Prestashop\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\OrderStatusSetting;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
 use Modules\Integrations\Prestashop\Enums\PrestashopConnectionTestStatus;
@@ -24,12 +25,25 @@ class PrestashopSettingsController extends Controller
     ): View {
         $account = $accountService->get()->load([
             'orderStates' => fn ($query) => $query->orderBy('external_id'),
+            'inboundStatusMappings.statusSetting',
+            'outboundStatusMappings.statusSetting',
         ]);
+        $recentImportAttempts = $account->orderImportAttempts()
+            ->with('order')
+            ->latest('discovered_at')
+            ->limit(10)
+            ->get();
         $identifier = $request->validated('order_identifier');
+        $requestedTab = (string) $request->query('tab', 'connection');
+        $activeTab = in_array($requestedTab, ['connection', 'orders', 'statuses', 'payments'], true)
+            ? $requestedTab
+            : 'connection';
         $preview = null;
         $previewError = null;
 
         if ($identifier) {
+            $activeTab = 'orders';
+
             try {
                 $preview = $previewService->preview($account, $identifier);
             } catch (PrestashopApiException|PrestashopImportException $exception) {
@@ -45,6 +59,25 @@ class PrestashopSettingsController extends Controller
             'orderPreview' => $preview,
             'orderPreviewError' => $previewError,
             'moneyFormatter' => $moneyFormatter,
+            'activeTab' => $activeTab,
+            'orderStatuses' => OrderStatusSetting::orderedSettings(),
+            'recentImportAttempts' => $recentImportAttempts,
+            'inboundStatusMappings' => $account->inboundStatusMappings
+                ->mapWithKeys(function ($mapping): array {
+                    $statusCode = $mapping->statusSetting?->status;
+
+                    return $statusCode
+                        ? [(string) $mapping->external_order_state_id => $statusCode]
+                        : [];
+                }),
+            'outboundStatusMappings' => $account->outboundStatusMappings
+                ->mapWithKeys(function ($mapping): array {
+                    $statusCode = $mapping->statusSetting?->status;
+
+                    return $statusCode
+                        ? [$statusCode => (string) $mapping->external_order_state_id]
+                        : [];
+                }),
         ]);
     }
 

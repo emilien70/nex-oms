@@ -45,6 +45,13 @@ class OrderAjaxUpdatesTest extends TestCase
 
         $this->assertStringContainsString('Produkt AJAX', $response->json('fragments.products'));
         $this->assertStringContainsString('Zdarzenie AJAX', $response->json('fragments.history'));
+        $this->assertStringContainsString('data-edit-field="shipping_company_name"', $response->json('fragments.shipping'));
+        $this->assertStringContainsString('data-edit-field="billing_tax_id"', $response->json('fragments.billing'));
+        $this->assertStringContainsString('data-edit-field="pickup_point_id"', $response->json('fragments.pickup'));
+        $this->assertStringContainsString('nex-empty">...', $response->json('fragments.shipping'));
+        $this->assertStringContainsString('nex-empty">...', $response->json('fragments.billing'));
+        $this->assertStringNotContainsString('nex-empty">-', $response->json('fragments.shipping'));
+        $this->assertStringNotContainsString('nex-empty">-', $response->json('fragments.billing'));
     }
 
     public function test_inline_order_section_returns_ajax_refresh_instructions(): void
@@ -80,6 +87,46 @@ class OrderAjaxUpdatesTest extends TestCase
             'shipping_method' => 'Paczkomat',
             'total_gross' => '112.50',
         ]);
+    }
+
+    public function test_order_page_maps_inline_rows_to_their_editor_fields(): void
+    {
+        $response = $this->get(route('orders.show', $this->order()))->assertOk();
+
+        foreach ([
+            'customer_login',
+            'customer_email',
+            'customer_phone',
+            'source',
+            'shipping_method',
+            'cash_on_delivery',
+            'delivery_cost_gross',
+            'payment_method',
+            'notes',
+            'shipping_name',
+            'shipping_company_name',
+            'shipping_address_line',
+            'shipping_postal_code',
+            'shipping_country_code',
+            'billing_name',
+            'billing_company_name',
+            'billing_address_line',
+            'billing_postal_code',
+            'billing_country_code',
+            'billing_tax_id',
+            'pickup_point_name',
+            'pickup_point_id',
+            'pickup_point_address',
+            'pickup_point_postal_code',
+        ] as $fieldName) {
+            $response->assertSee('data-edit-field="'.$fieldName.'"', false);
+        }
+
+        $response
+            ->assertSee('form.elements.namedItem(fieldName)', false)
+            ->assertSee('input:not([type="hidden"]), select, textarea', false)
+            ->assertSee('focusTarget.focus()', false)
+            ->assertSee('focusTarget.select()', false);
     }
 
     public function test_payment_and_product_mutations_return_ajax_refresh_instructions(): void

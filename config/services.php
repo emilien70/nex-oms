@@ -1,5 +1,7 @@
 <?php
 
+use Modules\Integrations\Allegro\Models\AllegroAccount;
+
 return [
 
     /*
@@ -71,6 +73,17 @@ return [
         'timeout' => (int) env('ALLEGRO_API_TIMEOUT', 25),
         'rate_limit_per_minute' => (int) env('ALLEGRO_API_RATE_LIMIT_PER_MINUTE', 60),
         'sync_interval_minutes' => (int) env('ALLEGRO_SHIPMENT_SYNC_INTERVAL_MINUTES', 60),
+    ],
+
+    'allegro' => [
+        'production_url' => env('ALLEGRO_API_URL', 'https://api.allegro.pl'),
+        'sandbox_url' => env('ALLEGRO_SANDBOX_API_URL', 'https://api.allegro.pl.allegrosandbox.pl'),
+        'production_auth_url' => env('ALLEGRO_AUTH_URL', 'https://allegro.pl/auth/oauth/token'),
+        'sandbox_auth_url' => env('ALLEGRO_SANDBOX_AUTH_URL', 'https://allegro.pl.allegrosandbox.pl/auth/oauth/token'),
+        'production_device_url' => env('ALLEGRO_DEVICE_URL', 'https://allegro.pl/auth/oauth/device'),
+        'sandbox_device_url' => env('ALLEGRO_SANDBOX_DEVICE_URL', 'https://allegro.pl.allegrosandbox.pl/auth/oauth/device'),
+        'scopes' => implode(' ', AllegroAccount::REQUIRED_SCOPES),
+        'timeout' => (int) env('ALLEGRO_API_TIMEOUT', 25),
     ],
 
     'automation_url' => [

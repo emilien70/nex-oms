@@ -1,4 +1,5 @@
 @forelse ($products as $product)
+    @php($catalogStock = $product->availableStockQuantity())
     <div class="catalog-product-result" data-catalog-result data-product-id="{{ $product->getKey() }}">
         <div class="catalog-product-result-main">
             @if ($product->thumbnail_path)
@@ -18,8 +19,8 @@
                 <span>ID {{ $product->getKey() }}</span>
             </div>
         </div>
-        <span class="catalog-product-result-stock {{ $product->stock_quantity < 0 ? 'is-negative' : '' }}">
-            {{ $product->stock_quantity }} szt.
+        <span class="catalog-product-result-stock {{ $catalogStock < 0 ? 'is-negative' : '' }}">
+            {{ $catalogStock }} szt.
         </span>
         <span class="catalog-product-result-price">
             {{ number_format((float) $product->price_gross, 2, ',', ' ') }} {{ $product->currency }}
@@ -32,7 +33,7 @@
             data-product-name="{{ $product->name }}"
             data-product-price="{{ $product->price_gross }}"
             data-product-currency="{{ $product->currency }}"
-            data-product-stock="{{ $product->stock_quantity }}"
+            data-product-stock="{{ $catalogStock }}"
             data-product-image="{{ $product->thumbnail_path ? route('products.image', [$product, 'thumbnail']) : '' }}"
         >
             <i class="bi bi-plus-lg" aria-hidden="true"></i>
@@ -41,7 +42,7 @@
     </div>
 @empty
     <div class="catalog-product-results-empty">
-        Nie znaleziono aktywnych produktów spełniających kryteria.
+        Nie znaleziono aktywnych produktów ani zestawów spełniających kryteria.
     </div>
 @endforelse
 
@@ -71,6 +72,6 @@
     </div>
 @elseif ($products->total() > 0)
     <div class="catalog-product-pagination is-single-page">
-        <span>{{ $products->total() }} {{ $products->total() === 1 ? 'produkt' : 'produktów' }}</span>
+        <span>{{ $products->total() }} {{ $products->total() === 1 ? 'pozycja' : 'pozycji' }}</span>
     </div>
 @endif

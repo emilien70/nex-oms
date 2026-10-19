@@ -229,7 +229,7 @@ class InvoicePdfTest extends TestCase
         $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
 
-        $this->assertStringEndsWith('/invoice-v46-ksef-test.pdf', $newPath);
+        $this->assertStringEndsWith('/invoice-v47-ksef-test.pdf', $newPath);
         $this->assertSame($first, $second);
         Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($newPath);
@@ -243,7 +243,7 @@ class InvoicePdfTest extends TestCase
         $correction->id = 9002;
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
-        $this->assertStringEndsWith('/proforma-v35.pdf', $filenames->storagePath($proforma));
+        $this->assertStringEndsWith('/proforma-v36.pdf', $filenames->storagePath($proforma));
         $this->assertStringEndsWith('/correction-v46-ksef-test.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
@@ -436,7 +436,7 @@ class InvoicePdfTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_invoice_and_correction_v46_cache_renders_warsaw_timestamp_and_preserves_attachments(): void
+    public function test_invoice_v47_and_correction_v46_cache_render_warsaw_timestamp_and_preserve_attachments(): void
     {
         $invoice = $this->issueInvoice();
         $correction = $this->createCorrection($invoice);
@@ -470,7 +470,11 @@ class InvoicePdfTest extends TestCase
             $html = $renderer->html($document);
             $newPath = $filenames->storagePath($document);
 
-            $this->assertSame('invoices/'.$document->id.'/'.$kind.'-v46-ksef-production.pdf', $newPath);
+            $version = $kind === 'invoice' ? 'v47' : 'v46';
+            $this->assertSame(
+                'invoices/'.$document->id.'/'.$kind.'-'.$version.'-ksef-production.pdf',
+                $newPath,
+            );
             $this->assertStringStartsWith('%PDF-', $contents);
             $this->assertNotSame('%PDF-OLD-UTC-CACHE', $contents);
             $this->assertSame($contents, $cached);
@@ -984,7 +988,7 @@ class InvoicePdfTest extends TestCase
 
         foreach ([
             'Faktura VAT', $invoice->number, 'Data sprzedaży', 'Data wystawienia', 'Katowice',
-            'Przelew', 'SHOP-100',
+            'Przelew', (string) $invoice->order_id,
             'Sprzedawca:', 'Nabywca:', 'Nazwa towaru/usługi',
             'Przesyłka:', 'Netto', 'VAT', 'Brutto', 'Razem:', 'Słownie:',
             'Operator NEX-OMS', 'SN-001',
@@ -993,6 +997,7 @@ class InvoicePdfTest extends TestCase
         }
 
         $this->assertStringNotContainsString('Wygenerowano w', $html);
+        $this->assertStringNotContainsString('SHOP-100', $html);
         $this->assertStringNotContainsString('Wygenerowano przez', $html);
         $this->assertStringNotContainsString('Odbiorca:', $html);
         $this->assertStringNotContainsString('REGON:', $html);
@@ -1224,11 +1229,11 @@ class InvoicePdfTest extends TestCase
         $this->assertGreaterThan(1, count($matches[0]));
     }
 
-    public function test_invoice_pdf_uses_order_reference_when_external_id_snapshot_is_empty(): void
+    public function test_invoice_pdf_uses_order_reference_when_oms_order_id_snapshot_is_empty(): void
     {
         $invoice = $this->issueInvoice();
         $snapshot = $invoice->order_snapshot;
-        $snapshot['external_id'] = null;
+        $snapshot['id'] = null;
         $invoice->update([
             'order_reference_snapshot' => 'ORD-ALTERNATIVE-42',
             'order_snapshot' => $snapshot,

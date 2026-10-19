@@ -135,7 +135,10 @@ class PayNowPaymentAutomationTest extends TestCase
             $catalog->triggers()['payment.registered'],
         );
         $this->assertSame(
-            ['paynow' => 'PayNow'],
+            [
+                'paynow' => 'PayNow',
+                'prestashop' => 'PrestaShop',
+            ],
             $catalog->conditionDefinitions()['payment_source']['options'],
         );
 
@@ -143,7 +146,8 @@ class PayNowPaymentAutomationTest extends TestCase
             ->assertOk()
             ->assertSee('payment.registered')
             ->assertSee('payment_source')
-            ->assertSee('PayNow');
+            ->assertSee('PayNow')
+            ->assertSee('PrestaShop');
 
         $this->postJson(route('orders.automatic-actions.store'), [
             'name' => 'Płatność PayNow',

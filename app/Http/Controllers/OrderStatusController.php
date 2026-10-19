@@ -114,6 +114,13 @@ class OrderStatusController extends Controller
                 'showProvince' => false,
                 'showPhone' => false,
                 'showEmail' => false,
+                'editFields' => [
+                    'Imię i Nazwisko' => 'shipping_name',
+                    'Firma' => 'shipping_company_name',
+                    'Adres' => 'shipping_address_line',
+                    'Kod i miasto' => 'shipping_postal_code',
+                    'Kraj' => 'shipping_country_code',
+                ],
             ])->render();
         }
 
@@ -127,6 +134,14 @@ class OrderStatusController extends Controller
                 'showPhone' => false,
                 'showEmail' => false,
                 'taxIdLast' => true,
+                'editFields' => [
+                    'Imię i Nazwisko' => 'billing_name',
+                    'Firma' => 'billing_company_name',
+                    'Adres' => 'billing_address_line',
+                    'Kod i miasto' => 'billing_postal_code',
+                    'Kraj' => 'billing_country_code',
+                    'NIP' => 'billing_tax_id',
+                ],
             ])->render();
         }
 

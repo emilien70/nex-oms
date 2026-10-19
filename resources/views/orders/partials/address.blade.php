@@ -5,6 +5,7 @@
     $showPhone = $showPhone ?? true;
     $showEmail = $showEmail ?? true;
     $taxIdLast = $taxIdLast ?? false;
+    $editFields = $editFields ?? [];
     $resolvedCountryName = $countryName ?? app(\App\Support\CountryCatalog::class)->name($address?->country_code);
     $streetLine = trim(($address?->street ?? '') . ' ' . ($address?->building_number ?? ''));
     if ($address?->apartment_number) {
@@ -42,9 +43,9 @@
 <address class="mb-0">
     <div class="nex-address-grid">
         @foreach ($rows as $label => $value)
-            <div class="inline-field-row">
+            <div class="inline-field-row" @if (isset($editFields[$label])) data-edit-field="{{ $editFields[$label] }}" @endif>
                 <div class="nex-label">{{ $label }}</div>
-                <div class="nex-value {{ $value ? '' : 'nex-empty' }}">{{ $value ?: '-' }}<span class="inline-pencil">&#9998;</span></div>
+            <div class="nex-value {{ $value ? '' : 'nex-empty' }}">{{ $value ?: '...' }}<span class="inline-pencil">&#9998;</span></div>
             </div>
         @endforeach
     </div>

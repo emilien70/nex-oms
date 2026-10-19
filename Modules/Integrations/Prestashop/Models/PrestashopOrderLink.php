@@ -18,6 +18,9 @@ class PrestashopOrderLink extends Model
         'external_reference',
         'external_order_state_id',
         'external_order_state_name',
+        'pending_outbound_state_id',
+        'pending_outbound_event_id',
+        'pending_outbound_since',
         'external_created_at',
         'external_updated_at',
         'source_hash',
@@ -27,6 +30,8 @@ class PrestashopOrderLink extends Model
     protected $casts = [
         'external_order_id' => 'integer',
         'external_order_state_id' => 'integer',
+        'pending_outbound_state_id' => 'integer',
+        'pending_outbound_since' => 'immutable_datetime',
         'external_created_at' => 'immutable_datetime',
         'external_updated_at' => 'immutable_datetime',
         'imported_at' => 'immutable_datetime',

@@ -12,6 +12,7 @@ use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Products\Models\Product;
 use Modules\Products\Models\ProductStockMovement;
+use Modules\Products\Services\OrderItemBundleSnapshotService;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -186,6 +187,85 @@ class InvoiceStockAutomationTest extends TestCase
             'order_id' => $order->getKey(),
             'event_type' => 'stock_decreased',
         ]);
+    }
+
+    public function test_bundle_deducts_snapshot_components_once_instead_of_bundle_stock(): void
+    {
+        Event::fake([InvoiceIssued::class]);
+        $decoder = $this->product([
+            'name' => 'Dekoder',
+            'stock_quantity' => 10,
+        ]);
+        $adapter = $this->product([
+            'name' => 'Adapter',
+            'stock_quantity' => 20,
+        ]);
+        $replacement = $this->product([
+            'name' => 'Pilot',
+            'stock_quantity' => 30,
+        ]);
+        $bundle = $this->product([
+            'item_type' => Product::TYPE_BUNDLE,
+            'name' => 'Dekoder + WiFi',
+            'stock_quantity' => 0,
+        ]);
+        $bundle->bundleComponents()->createMany([
+            ['component_product_id' => $decoder->getKey(), 'quantity' => 1],
+            ['component_product_id' => $adapter->getKey(), 'quantity' => 2],
+        ]);
+        $order = $this->createDocumentOrder(['total_gross' => '400.00']);
+        $orderItem = $this->createDocumentItem($order, [
+            'product_id' => $bundle->getKey(),
+            'product_name' => $bundle->name,
+            'quantity' => 2,
+            'unit_price_gross' => '200.00',
+            'total_price_gross' => '400.00',
+        ]);
+        app(OrderItemBundleSnapshotService::class)->capture($orderItem, $bundle);
+
+        $bundle->bundleComponents()->delete();
+        $bundle->bundleComponents()->createMany([
+            ['component_product_id' => $decoder->getKey(), 'quantity' => 5],
+            ['component_product_id' => $replacement->getKey(), 'quantity' => 1],
+        ]);
+
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+        $this->stockRule('Pomniejszenie zestawu A');
+        $this->stockRule('Pomniejszenie zestawu B');
+        $event = new InvoiceIssued($invoice, 'manual');
+
+        app(AutomationEngine::class)->evaluate($event->name(), $event->payload());
+
+        $this->assertSame(8, $decoder->fresh()->stock_quantity);
+        $this->assertSame(16, $adapter->fresh()->stock_quantity);
+        $this->assertSame(30, $replacement->fresh()->stock_quantity);
+        $this->assertSame(0, $bundle->fresh()->stock_quantity);
+        $this->assertDatabaseCount('product_stock_movements', 2);
+        $this->assertDatabaseHas('product_stock_movements', [
+            'product_id' => $decoder->getKey(),
+            'order_item_id' => $orderItem->getKey(),
+            'quantity_delta' => -2,
+            'idempotency_key' => 'invoice_issued:order:'.$order->getKey()
+                .':order_item:'.$orderItem->getKey()
+                .':component:'.$decoder->getKey(),
+        ]);
+        $this->assertDatabaseHas('product_stock_movements', [
+            'product_id' => $adapter->getKey(),
+            'order_item_id' => $orderItem->getKey(),
+            'quantity_delta' => -4,
+        ]);
+
+        $runs = AutomationRun::query()->with('steps')->orderBy('id')->get();
+        $this->assertSame([2, 0], $runs->map(
+            fn (AutomationRun $run): int => $run->steps->sole()->output['movement_count'],
+        )->all());
+        $this->assertSame([0, 2], $runs->map(
+            fn (AutomationRun $run): int => $run->steps->sole()->output['already_applied_count'],
+        )->all());
     }
 
     public function test_invoice_issued_by_automation_continues_the_same_chain_for_stock_action(): void

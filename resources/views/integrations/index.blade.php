@@ -93,6 +93,13 @@
             font-weight: 800;
         }
 
+        .integration-allegro-logo {
+            color: #ff5a00;
+            font-size: 25px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
         .integration-tile-name {
             color: #28323d;
             font-size: 13px;
@@ -106,6 +113,15 @@
         </header>
 
         <section class="integrations-grid" aria-label="Dostępne integracje">
+            <a
+                class="integration-tile"
+                data-integration="allegro"
+                aria-label="Allegro"
+                href="{{ route('integrations.allegro.edit') }}"
+            >
+                <span class="integration-allegro-logo" aria-hidden="true">allegro</span>
+                <span class="integration-tile-name">Allegro</span>
+            </a>
             <a
                 class="integration-tile"
                 data-integration="ksef"

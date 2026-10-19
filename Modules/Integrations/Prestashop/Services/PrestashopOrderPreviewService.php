@@ -74,29 +74,31 @@ class PrestashopOrderPreviewService
         $deliveryCostGross = $this->money($remoteOrder['total_shipping_tax_incl'] ?? '0', 'kosztu dostawy');
         $this->assertSupportedTotals($remoteOrder, $items, $deliveryCostGross, $totalGross, $currency);
 
-        $paymentRows = $this->client->orderPayments($account, $reference);
-        $payments = array_map(
-            fn (array $payment): array => $this->payment($account, $payment, $currency),
-            $paymentRows,
-        );
+        $payments = $this->payments($account, $reference, $currency);
         $paidAmount = $this->money($remoteOrder['total_paid_real'] ?? '0', 'kwoty zapłaconej');
         $this->assertPaymentsMatch($payments, $paidAmount, $currency);
         $paymentStatus = $this->paymentStatus($totalGross, $paidAmount);
-        $currentStateId = $this->positiveId($remoteOrder['current_state'] ?? null, 'statusu zamówienia');
-        $currentState = $account->orderStates()->where('external_id', $currentStateId)->first();
+        $currentStateId = $this->orderStateId($remoteOrder['current_state'] ?? null);
+        $currentState = $currentStateId === null
+            ? null
+            : $account->orderStates()->where('external_id', $currentStateId)->first();
 
-        if (! $currentState) {
+        if ($currentStateId !== null && ! $currentState) {
             throw new PrestashopImportException(
                 'Status zamówienia nie występuje w zapisanej konfiguracji. Wykonaj ponownie test połączenia.',
             );
         }
         $warnings = $this->warnings($shippingAddress, $billingAddress, $paidAmount, $payments, $remoteOrder, $pickupPoint);
 
+        if ($currentStateId === null) {
+            $warnings[] = 'PrestaShop nie przypisał statusu. Zamówienie zostanie zaimportowane do OMS jako Nowe.';
+        }
+
         $preview = [
             'external_order_id' => $externalOrderId,
             'reference' => $reference,
             'external_status_id' => $currentStateId,
-            'external_status_name' => $currentState->name,
+            'external_status_name' => $currentState?->name,
             'customer_login' => null,
             'customer_email' => $this->nullableText($customer['email'] ?? null, 255),
             'customer_phone' => $shippingAddress['phone'] ?: $billingAddress['phone'],
@@ -217,6 +219,18 @@ class PrestashopOrderPreviewService
             'vat_rate' => $this->vatRate($unitGross, $unitNet),
             'weight' => $this->weight($detail['product_weight'] ?? null),
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function payments(
+        PrestashopAccount $account,
+        string $reference,
+        string $orderCurrency,
+    ): array {
+        return array_map(
+            fn (array $payment): array => $this->payment($account, $payment, $orderCurrency),
+            $this->client->orderPayments($account, $reference),
+        );
     }
 
     /** @return array<string, mixed> */
@@ -501,6 +515,15 @@ class PrestashopOrderPreviewService
         }
 
         return $id;
+    }
+
+    private function orderStateId(mixed $value): ?int
+    {
+        if ($value === 0 || $value === '0') {
+            return null;
+        }
+
+        return $this->positiveId($value, 'statusu zamówienia');
     }
 
     private function optionalId(mixed $value): ?int

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\OrderStatusSetting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -181,6 +182,35 @@ class PrestashopSettingsTest extends TestCase
             ->assertSeeText('Wykryta konfiguracja')
             ->assertSeeText('Płatność zaakceptowana')
             ->assertSeeText('Wysłane');
+    }
+
+    public function test_connection_refresh_preserves_mappings_and_marks_missing_states_unavailable(): void
+    {
+        $account = $this->account();
+        $missingState = $account->orderStates()->create([
+            'external_id' => 99,
+            'name' => 'Historyczny status',
+            'is_available' => true,
+            'refreshed_at' => now()->subDay(),
+        ]);
+        OrderStatusSetting::syncDefaults();
+        $newStatus = OrderStatusSetting::query()->where('status', 'new')->firstOrFail();
+        $mapping = $account->inboundStatusMappings()->create([
+            'external_order_state_id' => $missingState->external_id,
+            'order_status_setting_id' => $newStatus->id,
+        ]);
+        Http::fake(fn (Request $request) => $this->prestashopResponse($request));
+
+        $this->post(route('integrations.prestashop.test-connection'))
+            ->assertRedirect(route('integrations.prestashop.edit'));
+
+        $this->assertFalse($missingState->fresh()->is_available);
+        $this->assertDatabaseHas('prestashop_inbound_status_mappings', [
+            'id' => $mapping->id,
+            'prestashop_account_id' => $account->id,
+            'external_order_state_id' => 99,
+            'order_status_setting_id' => $newStatus->id,
+        ]);
     }
 
     public function test_missing_read_permissions_fail_safely_and_deactivate_account(): void

@@ -1149,7 +1149,12 @@
                         @forelse ($orders as $order)
                             @php
                                 $storeOrderNumber = $order->source === 'prestashop' ? $order->external_id : null;
-                                $sourceLabel = $sourceOptions[$order->source] ?? ($order->source ?: '...');
+                                $prestashopSourceName = $order->source === 'prestashop'
+                                    ? trim((string) $order->prestashopOrderLinks->first()?->account?->name)
+                                    : '';
+                                $sourceLabel = $prestashopSourceName !== ''
+                                    ? $prestashopSourceName
+                                    : ($sourceOptions[$order->source] ?? ($order->source ?: '...'));
                                 $sourceDisplayLabel = $order->source === 'allegro'
                                     ? ($order->customer_login ?: $sourceLabel)
                                     : $sourceLabel;
@@ -1206,7 +1211,7 @@
                                     @if ($showTrash)
                                         <span class="fw-bold text-secondary">{{ $order->id }}</span>
                                     @else
-                                        <a class="order-number-link" href="{{ route('orders.show', $order) }}" data-page-navigation-loading>{{ $order->id }}</a>
+                                        <a class="order-number-link" href="{{ route('orders.show', ['order' => $order, 'status' => $currentStatus ?? 'all']) }}" data-page-navigation-loading>{{ $order->id }}</a>
                                     @endif
                                     @if ($storeOrderNumber)
                                         <div class="order-subline">({{ $storeOrderNumber }})</div>

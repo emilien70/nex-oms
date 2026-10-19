@@ -5,6 +5,8 @@ namespace Modules\Integrations\AllegroShipping\Services;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
+use Modules\Integrations\Allegro\Services\AllegroOAuthService;
 use Modules\Integrations\AllegroShipping\Exceptions\AllegroShippingApiException;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\IntegrationApiLog;
@@ -143,11 +145,17 @@ class AllegroShippingClient
         $startedAt = hrtime(true);
 
         try {
+            if ($account->allegroAccount?->isOperational() === true
+                && $account->allegroAccount->access_token_expires_at?->lessThanOrEqualTo(now()->addMinutes(5))) {
+                $this->refreshAccessToken($account);
+                $account->refresh()->load('allegroAccount');
+            }
+
             $response = $this->perform($account, $method, $url, $payload, $accept);
 
-            if ($response->status() === 401 && filled($account->api_refresh_token)) {
+            if ($response->status() === 401 && filled($account->resolvedApiRefreshToken())) {
                 $this->refreshAccessToken($account);
-                $response = $this->perform($account->fresh(), $method, $url, $payload, $accept);
+                $response = $this->perform($account->fresh()->load('allegroAccount'), $method, $url, $payload, $accept);
             }
 
             $responsePayload = str_contains((string) $response->header('Content-Type'), 'json')
@@ -184,8 +192,18 @@ class AllegroShippingClient
 
     private function refreshAccessToken(CourierAccount $account): void
     {
-        $clientId = (string) ($account->organization_id ?: config('services.allegro_shipping.client_id'));
-        $clientSecret = (string) ($account->api_secret ?: config('services.allegro_shipping.client_secret'));
+        if ($account->allegroAccount?->isOperational() === true) {
+            try {
+                app(AllegroOAuthService::class)->refresh($account->allegroAccount);
+            } catch (AllegroApiException $exception) {
+                throw new AllegroShippingApiException($exception->getMessage(), $exception->statusCode);
+            }
+
+            return;
+        }
+
+        $clientId = (string) $account->resolvedOrganizationId();
+        $clientSecret = (string) $account->resolvedApiSecret();
 
         if ($clientId === '' || $clientSecret === '') {
             throw new AllegroShippingApiException('Token Allegro wygasl, a konfiguracja nie zawiera Client ID i Client Secret do jego odnowienia.', 401);
@@ -202,7 +220,7 @@ class AllegroShippingClient
                 ->timeout((int) config('services.allegro_shipping.timeout', 25))
                 ->post($url, [
                     'grant_type' => 'refresh_token',
-                    'refresh_token' => $account->api_refresh_token,
+                    'refresh_token' => $account->resolvedApiRefreshToken(),
                 ]);
 
             $successful = $response->successful() && filled($response->json('access_token'));
@@ -251,7 +269,7 @@ class AllegroShippingClient
 
         $account->update([
             'api_token' => $response->json('access_token'),
-            'api_refresh_token' => $response->json('refresh_token') ?: $account->api_refresh_token,
+            'api_refresh_token' => $response->json('refresh_token') ?: $account->resolvedApiRefreshToken(),
         ]);
     }
 

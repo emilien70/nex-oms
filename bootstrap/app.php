@@ -20,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->dontFlash([
             'api_key',
             'api_token',
+            'client_secret',
             'authentication_private_key_passphrase',
             'offline_private_key_passphrase',
             'signature_key',
