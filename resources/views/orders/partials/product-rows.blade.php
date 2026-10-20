@@ -6,9 +6,10 @@
         $prestashopItemLink = $item->prestashopItemLink;
         $prestashopProductId = $prestashopItemLink?->external_product_id;
         $prestashopProductUrl = $prestashopItemLink?->orderLink?->account?->productUrl($prestashopProductId);
+        $allegroOfferUrl = $order->source === 'allegro' ? $order->allegroOrderLink?->offerUrl($item->offer_id) : null;
     @endphp
     <tr>
-        <td>
+        <td class="product-photo-column">
             @if ($item->product?->thumbnail_path)
                 <span
                     class="product-thumbnail-wrap"
@@ -48,7 +49,7 @@
                 <span class="text-secondary">&mdash;</span>
             @endif
         </td>
-        <td>
+        <td class="product-main-column">
             <div class="product-name">
                 {{ $item->product_name }}
                 @if ($prestashopProductId && $prestashopProductUrl)
@@ -60,24 +61,28 @@
                         aria-label="Otwórz produkt PrestaShop ID {{ $prestashopProductId }}"
                     >{{ $prestashopProductId }}</a><span>)</span>
                 @elseif ($prestashopProductId)
-                    <span class="text-primary">({{ $prestashopProductId }})</span>
+                    <span class="product-id-link">({{ $prestashopProductId }})</span>
+                @elseif ($allegroOfferUrl)
+                    <span>(</span><a class="product-id-link" href="{{ $allegroOfferUrl }}" target="_blank" rel="noopener noreferrer" aria-label="Otwórz ofertę Allegro {{ $item->offer_id }}">{{ $item->offer_id }}</a><span>)</span>
                 @endif
             </div>
         </td>
-        <td class="product-metric">{{ $item->quantity }}</td>
-        <td class="product-metric">{{ number_format((float) $item->unit_price_gross, 2, ',', ' ') }} {{ $item->currency ?? $order->currency }}</td>
-        <td class="product-metric">{{ $item->vat_rate !== null ? number_format((float) $item->vat_rate, 2, ',', ' ') . '%' : '-' }}</td>
-        <td class="product-metric">{{ $item->weight !== null ? number_format((float) $item->weight, 3, ',', ' ') : '-' }}</td>
-        <td class="product-metric">
+        <td class="product-metric product-quantity">{{ $item->quantity }}</td>
+        <td class="product-metric product-price">{{ number_format((float) $item->unit_price_gross, 2, '.', ' ') }} {{ $item->currency ?? $order->currency }}</td>
+        <td class="product-metric">{{ $item->vat_rate !== null ? rtrim(rtrim($item->vat_rate, '0'), '.') . '%' : '-' }}</td>
+        <td class="product-metric">{{ $item->weight !== null ? number_format((float) $item->weight, str_ends_with($item->weight, '0') ? 2 : 3, '.', ' ') : '-' }}</td>
+        <td class="product-metric product-date-column">
             @if ($item->created_at)
-                <div class="product-date-stack">{{ $item->created_at->format('Y-m-d') }}<br>{{ $item->created_at->format('H:i') }}</div>
+                <div class="product-date-stack">{{ $item->created_at->format('d.m.Y') }}<br>{{ $item->created_at->format('H:i') }}</div>
             @else
                 -
             @endif
         </td>
         <td class="text-end product-actions product-actions-column">
             <div class="dropdown">
-                <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false">&#8942;</button>
+                <button class="btn product-actions-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-config='{"popperConfig":{"strategy":"fixed"}}' aria-expanded="false" aria-label="Akcje produktu {{ $item->product_name }}">
+                    <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
+                </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                     <li><button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#productEdit{{ $item->id }}">Edytuj</button></li>
                     <li>

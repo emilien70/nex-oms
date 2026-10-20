@@ -2935,3 +2935,57 @@ Moduł `Modules/Analytics` zawiera kontrolery, Form Request, resolver okresów, 
 `BasicStatisticsService` strumieniuje zamówienia i pozycje partiami, a następnie buduje wyłącznie agregaty potrzebne aktywnemu raportowi. Kwoty są przeliczane na całkowite grosze przy użyciu `brick/math`; wykresy otrzymują wartości w groszach, a prezentacja przelicza je wyłącznie do formatowania. Eksport CSV używa tych samych agregatów i filtrów co ekran.
 
 Warstwa widoku korzysta z Chart.js oraz `chartjs-chart-geo` ładowanych z przypiętych wersji CDN. Dane wykresów pochodzą wyłącznie z JSON wygenerowanego przez serwer. Mapa krajów pobiera publiczny atlas świata; niedostępność atlasu nie wpływa na pozostałe raporty ani eksport CSV. Indeksy analityczne obejmują daty zakupu i utworzenia w kontekście waluty, status i źródło oraz relację pozycji z produktem.
+
+---
+
+# Integracja Allegro — etap ALLEGRO.2A
+
+`AllegroClient::order()` odczytuje `GET /order/checkout-forms/{id}` z istniejącą obsługą OAuth. Log odpowiedzi obejmuje wyłącznie ID, status, revision i updatedAt, bez danych adresowych i wiadomości kupującego. `AllegroOrderPreviewService` normalizuje dane, uzgadnia kwoty za pomocą istniejących serwisów decimal i wylicza SHA-256 znormalizowanego snapshotu. Walidacja pieniędzy nie przyjmuje `float`. Daty wymagają poprawnej daty kalendarzowej i formatu ISO 8601.
+
+Potwierdzenie podglądu jest przechowywane w sesji przez 15 minut i związane z kontem, seller_user_id, środowiskiem, UUID oraz hashem. Kontroler POST wymaga tego potwierdzenia. `AllegroOrderImportService` najpierw rozpoznaje istniejący import, a dla nowego zamówienia ponownie pobiera dane i porównuje hash. Żądanie API odbywa się przed transakcją bazy. Zapis blokuje konto i ponownie sprawdza jego tożsamość oraz duplikaty.
+
+Migracja `2026_10_19_040000_create_allegro_order_import_tables` tworzy `allegro_order_links` i `allegro_order_payments`. Unikalność importu obejmuje `(environment, seller_user_id, external_order_id)`, niezależnie od lokalnego ID konta. `order_id` ma osobną unikalność. Klucze do konta i zamówienia używają `nullOnDelete`; powiązanie z płatnościami ma `restrictOnDelete`. Dzięki temu usunięcie źródła nie usuwa historii i nie otwiera ponownie możliwości importu tego samego zamówienia.
+
+Zapis w jednej transakcji obejmuje `orders`, `order_items`, powiązanie, wpłaty i jedno zdarzenie historii. Błąd zapisu wycofuje cały import. `order_items.external_id` przechowuje ID pozycji Allegro, `offer_id` numer oferty, a `product_id` pozostaje null. Dane Smart, żądania faktury, wiadomości kupującego, konta i rewizji znajdują się w powiązaniu, bez rozszerzania głównej tabeli zamówień. `orders.notes` nie jest używane dla wiadomości kupującego.
+
+`InvoicePaymentIdentifierResolver` rozpoznaje zaksięgowane wpłaty Allegro. Istniejący mechanizm wystawiania dokumentu zapisuje ich ID w niezależnym snapshotcie; wcześniejsze dokumenty nie są modyfikowane. Widoki zamówień dołączają relacje konta i płatności, prezentują nazwę integracji, Smart, żądanie faktury i wiadomość oraz bezpieczny link do oferty.
+
+Import ręczny nie emituje `OrderStatusChanged` ani `OrderPaymentRegistered`, nie zleca zadań, nie zmienia magazynu i nie wysyła niczego do Allegro. Nie dodano providera, dodatkowych zależności ani osobnego routingu. Trasy pozostają w `routes/web.php`.
+
+---
+
+# Integracja Allegro — etap ALLEGRO.2B
+
+Migracja `2026_10_19_050000_add_allegro_product_links_and_import_settings` dodaje tabelę `allegro_product_links` i trzy ustawienia boolean na `allegro_accounts`: `use_linked_products`, `use_catalog_product_names` i `use_catalog_vat`, domyślnie true. Powiązania są konfiguracją, nie historią dokumentową: klucze do produktu i konta mają `cascadeOnDelete`. Historyczne `order_items.product_id` nadal korzysta z istniejącego `nullOnDelete`, a nazwa, VAT i ceny pozostają w pozycji.
+
+Numery ofert są stringami do 32 cyfr, bez konwersji do JavaScript Number i bez utożsamiania z `product_id` OMS. Indeks unikalny obejmuje `(allegro_account_id, environment, seller_user_id, external_offer_id)`. `AllegroProductLinkService` blokuje konto przed dodawaniem, edycją i usuwaniem, sprawdza tożsamość oraz przynależność powiązania do produktu. Baza zapewnia końcową ochronę unikalności. Zapisy nie wywołują API Allegro; klikalny URL powstaje z kontrolowanego hosta produkcji albo sandbox.
+
+Interfejs produktów rozszerza istniejący modal zamiast tworzyć równoległy ekran. Typ integracji i ID konta są osobnymi częściami kontekstu, dzięki czemu identyczne lokalne ID kont Allegro i PrestaShop nie kolidują. Odpowiedzi AJAX obu integracji renderują wspólny partial z obiema grupami. `AllegroOfferUrl` jest wspólnym generatorem URL dla historycznego powiązania zamówienia i konfiguracji produktu.
+
+`AllegroOrderCatalogService` dopasowuje wyłącznie ręczne powiązania dla aktualnego konta, sprzedawcy i środowiska. Wzbogaca podgląd o docelowe `product_id`, nazwę, VAT, metadane miniatury i skład zestawu, nigdy o cenę katalogową. Używa istniejącej walidacji VAT i odczytu składu z `OrderItemBundleSnapshotService::components()`. Wadliwy zestaw blokuje import przed zapisem.
+
+Hash podglądu obejmuje wynik dopasowania i ustawienia. Import ponownie wykonuje podgląd z API, a następnie w transakcji po blokadzie konta powtarza dopasowanie z blokadami powiązań, produktów i składu. Osobny `catalog_hash` wykrywa zmianę między ponownym podglądem a transakcją. Dopiero po tej kontroli powstają pozycje i snapshoty składu. Ceny i stany katalogu nie uczestniczą w hashu, ponieważ nie są źródłem danych finansowych importu.
+
+Przenoszenie VAT jest ograniczone do jawnego `allegro-pl` i krajów dostawy oraz faktury `PL`; rynek bazowy sprzedawcy nie jest dowodem rynku zamówienia. Dla pozostałych przypadków stawka pozostaje null z ostrzeżeniem. Nie dodano silnika podatkowego, OSS ani nowych uprawnień OAuth.
+
+Wcześniejsze zamówienia i faktury nie są automatycznie aktualizowane. Zdjęcie w podglądzie i karcie zamówienia korzysta z istniejącego kontrolera obrazów produktu; nie tworzono historycznego archiwum zdjęć. Nie dodano nowych zadań, listenerów, providerów, zależności ani zapisów do zewnętrznych API.
+
+---
+
+# Integracja Allegro - obowiązkowy User-Agent
+
+Każde żądanie HTTP do API lub OAuth Allegro musi wysyłać jawny, niepusty nagłówek `User-Agent`. Reguła dotyczy wszystkich obecnych i przyszłych funkcji, produkcji i sandbox, interfejsu, kolejki i harmonogramu oraz każdego ponowienia żądania.
+
+Wartość jest utrzymywana wyłącznie w `config/services.php` pod kluczem `services.allegro.user_agent`:
+
+```text
+NEX-OMS_device/v1.0.0 (+https://multi-click.pl/nex-oms/doc.html)
+```
+
+`AllegroClient`, `AllegroOAuthService`, `AllegroShippingClient` i `AllegroShippingDeviceAuthService` używają `withUserAgent((string) config('services.allegro.user_agent'))`. Obejmuje to odczyt zamówień i rozliczeń, testy połączenia, OAuth Device Flow i odnowienie tokenów, operacje przesyłkowe oraz pobieranie binarnych etykiet. Nagłówek jest wymagany także przy starszej konfiguracji kurierskiej i ponowieniu po HTTP 401.
+
+Nowe połączenia z Allegro muszą korzystać z tej samej konfiguracji; nie wolno polegać na domyślnym nagłówku Guzzle/cURL ani powielać wartości w klientach produkcyjnych. Zmiana zatwierdzonej wartości wymaga decyzji właściciela. Stała reguła dla agentów znajduje się również w sekcji 45 `AGENTS.md`.
+
+`tests/Feature/AllegroSettingsTest.php` i `tests/Feature/AllegroShippingTest.php` weryfikują dokładną wartość nagłówka na wszystkich żądaniach w objętych testami przepływach, także podczas autoryzacji, pobierania etykiet i odnowienia tokenów z ponowieniem. Nowe ścieżki komunikacji wymagają analogicznej kontroli. Testy używają symulowanego HTTP i nie stanowią potwierdzenia rzeczywistej akceptacji żądania przez Allegro.
+
+Po zmianie konfiguracji należy odświeżyć jej cache, jeżeli jest używany, oraz ponownie uruchomić długo działające workery, aby wczytały nową wartość. Nie wymaga to migracji ani ponownego udzielenia uprawnień kontu Allegro.

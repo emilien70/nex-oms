@@ -9,7 +9,6 @@
     $billingAddress = $order->billingAddressData();
     $headerCustomerName = $shippingAddress?->name ?: $order->customer_login;
     $formatAddressLine = fn ($address) => $address ? \App\Support\AddressLineFormatter::formatAddressLine($address->street, $address->building_number, $address->apartment_number) : null;
-    $formatPostalCity = fn ($address) => $address ? \App\Support\AddressLineFormatter::formatPostalCity($address->postal_code, $address->city) : null;
     $countryCatalog = app(\App\Support\CountryCatalog::class);
     $shippingCountryCode = $countryCatalog->normalize(old('shipping_country_code', $shippingAddress?->country_code));
     $billingCountryCode = $countryCatalog->normalize(old('billing_country_code', $billingAddress?->country_code));
@@ -21,6 +20,12 @@
     $managementDateParts = fn ($value) => $value ? ['date' => $value->format('Y-m-d'), 'time' => $value->format('H:i')] : null;
     $statusChangedAt = $order->status_changed_at ?? $order->created_at;
     $prestashopOrderLink = $order->prestashopOrderLinks->first();
+    $allegroOrderLink = $order->allegroOrderLink;
+    $allegroTransactionId = $allegroOrderLink?->external_order_id ?: $order->external_id;
+    $allegroTransactionUrl = $order->source === 'allegro'
+        ? \Modules\Integrations\Allegro\Support\AllegroOrderUrl::make($allegroOrderLink?->environment ?? 'production', $allegroTransactionId)
+        : null;
+    $allegroIntegrationName = $allegroOrderLink?->account?->name ?: $allegroOrderLink?->account_name;
     $selectedShipmentProvider = old('shipment_provider');
     $starColors = [
         '' => ['label' => 'Usu&#324; kolor gwiazdki', 'class' => 'star-empty', 'icon' => '&#9734;'],
@@ -44,6 +49,7 @@
 @section('content')
     <style>
         .order-page {
+            --order-detail-line-height: 18.5px;
             background: #f4f6f8;
             margin: -1.5rem;
             min-height: calc(100vh - 0px);
@@ -52,27 +58,34 @@
 
         .order-topbar {
             align-items: center;
+            background: #f5f6f8;
             border-bottom: 1px solid #dfe3e8;
             display: flex;
             gap: 16px;
             justify-content: space-between;
-            margin-bottom: 16px;
-            min-height: 52px;
-            padding: 0 0 8px;
+            margin-bottom: 0;
+            min-height: 64px;
+            padding: 0 20px 8px;
         }
 
         .order-heading {
             align-items: center;
             display: flex;
-            flex-wrap: wrap;
             gap: 10px;
             min-width: 0;
         }
 
-        .order-star {
-            color: #9ca3af;
-            font-size: 18px;
-            line-height: 1;
+        .order-heading-text {
+            align-items: baseline;
+            column-gap: 26px;
+            display: flex;
+            flex-wrap: wrap;
+            min-width: 0;
+            row-gap: 2px;
+        }
+
+        .order-heading > .dropdown {
+            flex: 0 0 22px;
         }
 
         .star-button {
@@ -81,6 +94,20 @@
             font-size: 19px;
             line-height: 1;
             padding: 0;
+        }
+
+        .order-star {
+            align-items: center;
+            display: inline-flex;
+            font-size: 20px;
+            height: 26px;
+            justify-content: center;
+            line-height: 1;
+            width: 22px;
+        }
+
+        .order-star.star-empty {
+            color: #4e565f;
         }
 
         .star-empty { color: #94a3b8; }
@@ -117,18 +144,17 @@
             border-color: #93c5fd;
         }
 
-        .order-title {
-            color: #111827;
-            font-size: 16px;
-            font-weight: 600;
-            line-height: 1.2;
-            margin: 0;
+        .order-title,
+        .order-customer {
+            color: #4e565f;
+            font-size: 20px;
+            font-weight: 300;
+            line-height: 26px;
+            overflow-wrap: anywhere;
         }
 
-        .order-customer {
-            color: #6b7280;
-            font-size: 13px;
-            line-height: 1.2;
+        .order-title {
+            margin: 0;
         }
 
         .order-navigation {
@@ -197,6 +223,15 @@
             .order-topbar {
                 align-items: flex-start;
                 flex-direction: column;
+                padding: 8px 0 12px;
+            }
+
+            .order-heading {
+                align-items: flex-start;
+            }
+
+            .order-heading-text {
+                column-gap: 16px;
             }
 
             .order-navigation {
@@ -269,6 +304,26 @@
             padding: 12px 14px;
         }
 
+        .billing-invoice-request {
+            align-items: center;
+            background: #fef5eb;
+            border-bottom: 1px solid #f7d1a5;
+            border-top: 1px solid #f7d1a5;
+            color: #c15c37;
+            display: flex;
+            font-size: 13px;
+            font-weight: 700;
+            gap: 5px;
+            line-height: 17px;
+            margin-top: -1px;
+            padding: 12px 14px;
+        }
+
+        .billing-invoice-request .bi {
+            flex: 0 0 auto;
+            font-size: 12px;
+        }
+
         .nex-field-grid {
             display: grid;
             gap: 14px 18px;
@@ -332,9 +387,10 @@
         .management-status-form {
             align-items: center;
             display: grid;
-            gap: 8px;
+            gap: 2px 8px;
             grid-template-columns: 25% 150px max-content;
             justify-content: stretch;
+            line-height: var(--order-detail-line-height);
         }
 
         .management-status-fields,
@@ -353,24 +409,67 @@
         .management-invoice-label,
         .management-meta-label {
             grid-column: 1;
-            margin-top: 8px;
-        }
-
-        .management-meta-label {
-            margin-top: 10px;
+            margin-top: 0;
         }
 
         .management-meta-value {
             color: #111827;
             font-size: 13px;
             grid-column: 2 / 4;
-            margin-top: 10px;
-            min-height: 24px;
+            margin-top: 0;
+            min-height: var(--order-detail-line-height);
         }
 
         .management-meta-label.is-status-date,
         .management-meta-value.is-status-date {
             margin-top: 0;
+        }
+
+        .allegro-transaction-link {
+            color: #0864b1;
+            cursor: pointer;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .management-status-form.is-allegro {
+            container-type: inline-size;
+        }
+
+        .allegro-transaction-details {
+            display: grid;
+            gap: 0 8px;
+            grid-column: 1 / -1;
+            grid-template-columns: minmax(110px, 25%) minmax(0, 1fr);
+            min-width: 0;
+            width: 100cqw;
+        }
+
+        .allegro-transaction-details .management-meta-value {
+            grid-column: 2;
+        }
+
+        @container (max-width: 340px) {
+            .allegro-transaction-details {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .allegro-transaction-details .management-meta-value {
+                grid-column: 1;
+                margin-top: 2px;
+            }
+        }
+
+        .allegro-transaction-link:hover,
+        .allegro-transaction-link:focus-visible {
+            color: #0864b1;
+        }
+
+        .allegro-transaction-source {
+            color: #0864b1;
+            display: block;
+            font-weight: 400;
+            margin-top: 2px;
         }
 
         .management-meta-time {
@@ -381,7 +480,7 @@
             font-size: 12px;
             font-weight: 700;
             grid-column: 2;
-            margin-top: 8px;
+            margin-top: 0;
             min-height: 30px;
             width: 150px;
         }
@@ -405,12 +504,12 @@
             display: flex;
             gap: 8px;
             grid-column: 2 / 4;
-            margin-top: 8px;
+            margin-top: 0;
         }
 
         .management-correction-label,
         .management-issued-correction-actions {
-            margin-top: -4px;
+            margin-top: 0;
         }
 
         .management-issued-invoice-group {
@@ -650,7 +749,7 @@
             font-weight: 700;
             grid-column: 3;
             justify-self: start;
-            margin-top: 8px;
+            margin-top: 0;
             min-height: 30px;
         }
 
@@ -764,8 +863,14 @@
         }
 
         .products-card {
+            border-radius: 3px;
             box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+            margin-bottom: 20px;
             overflow: visible;
+        }
+
+        .products-card .nex-card-body {
+            padding: 0;
         }
 
         .products-card .nex-card-body,
@@ -779,42 +884,87 @@
             flex-wrap: wrap;
             gap: 10px;
             justify-content: space-between;
-            margin-top: 14px;
+            margin-bottom: 24px;
+            min-height: 40px;
         }
 
         .products-table {
-            font-size: 13px;
+            --bs-table-color: #4e565f;
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 15px;
             table-layout: auto;
             width: 100%;
         }
 
         .products-table thead th {
-            color: #374151;
+            background: #ffffff;
+            border-bottom-color: #cdd2db;
+            color: #192027;
+            font-size: 11px;
+            font-weight: 400;
+            height: 66px;
+            line-height: 14px;
+            padding: 0 10px 12px;
+            vertical-align: bottom;
             white-space: nowrap;
         }
 
         .products-table tbody td {
+            border-bottom-color: #cdd2db;
             height: 60px;
+            padding: 7px 10px;
             vertical-align: middle;
         }
 
+        .products-table .product-photo-column {
+            text-align: center;
+            width: 80px;
+        }
+
+        .products-table thead .bi-camera {
+            font-size: 15px;
+        }
+
         .products-table .product-main-column {
+            overflow-wrap: anywhere;
+            padding-left: 4px;
             width: 100%;
         }
 
         .products-table .product-id-column {
-            padding-left: 8px;
-            padding-right: 8px;
+            min-width: 96px;
+            padding-left: 4px;
+            padding-right: 12px;
             white-space: nowrap;
             width: 1%;
         }
 
-        .products-table .product-metric {
+        .products-table tbody .product-id-column {
             padding-left: 10px;
-            padding-right: 10px;
+        }
+
+        .products-table tbody .product-main-column {
+            padding-left: 9px;
+        }
+
+        .products-table .product-metric {
+            padding-left: 5px;
+            padding-right: 5px;
             text-align: center;
             white-space: nowrap;
             width: 1%;
+        }
+
+        .products-table .product-quantity,
+        .products-table .product-price {
+            color: #192027;
+        }
+
+        .products-table .product-date-column {
+            padding-left: 10px;
+            padding-right: 38px;
+            text-align: left;
         }
 
         .products-table .product-actions-column {
@@ -824,20 +974,21 @@
         }
 
         .product-date-stack {
-            line-height: 1.15;
+            line-height: 15px;
         }
 
         .product-thumb {
             align-items: center;
-            background: #f8fafc;
-            border: 1px solid #e5e7eb;
-            border-radius: 3px;
+            background: #ffffff;
+            border: 1px solid #cdd2db;
+            border-radius: 2px;
             color: #64748b;
             display: inline-flex;
             font-size: 16px;
-            height: 46px;
+            height: 44px;
             justify-content: center;
             object-fit: contain;
+            vertical-align: middle;
             width: 60px;
         }
 
@@ -845,6 +996,7 @@
             display: inline-flex;
             outline: none;
             position: relative;
+            vertical-align: middle;
         }
 
         .product-thumbnail-wrap:focus-visible .product-thumb {
@@ -894,20 +1046,22 @@
         }
 
         .product-id-link {
-            color: #0d6efd;
-            font-weight: 500;
+            color: #0864b1;
+            font-weight: 400;
             text-decoration: none;
         }
 
         .product-id-link:hover,
         .product-id-link:focus-visible {
+            color: #0864b1;
             text-decoration: underline;
         }
 
         .product-name {
-            color: #111827;
-            font-size: 14px;
-            font-weight: 600;
+            color: #4e565f;
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 15px;
         }
 
         .product-actions {
@@ -918,14 +1072,24 @@
             display: inline-block;
         }
 
-        .product-actions .btn {
+        .product-actions .product-actions-toggle {
             align-items: center;
+            background: #ffffff;
+            border: 1px solid #cdd2db;
             border-radius: 999px;
+            color: #192027;
             display: inline-flex;
-            height: 30px;
+            font-size: 14px;
+            height: 34px;
             justify-content: center;
             padding: 0;
-            width: 30px;
+            width: 34px;
+        }
+
+        .product-actions .product-actions-toggle:hover,
+        .product-actions .product-actions-toggle:focus-visible {
+            background: #f5f7fb;
+            border-color: #94a3b8;
         }
 
         .product-actions .dropdown-menu {
@@ -937,13 +1101,90 @@
             z-index: 1055;
         }
 
-        .product-add-button {
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            border-radius: 999px;
-            color: #374151;
+        .product-add-group {
+            background: #fafafb;
+            border: 1px solid #cdd2db;
+            border-radius: 20px;
+            display: inline-flex;
+            max-width: 100%;
+            position: relative;
+            width: 282px;
+        }
+
+        .product-add-button,
+        .product-add-options,
+        .product-operations-button {
+            align-items: center;
+            background: transparent;
+            border: 0;
+            color: #2d353d;
+            display: inline-flex;
             font-size: 13px;
-            padding: 7px 13px;
+            font-weight: 400;
+            height: 38px;
+            justify-content: center;
+            line-height: 18px;
+            white-space: nowrap;
+        }
+
+        .product-add-button {
+            border-radius: 20px 0 0 20px;
+            flex: 1 1 auto;
+            gap: 6px;
+            min-width: 0;
+            padding: 0 18px;
+        }
+
+        .product-add-button .bi-plus-lg {
+            font-size: 12px;
+        }
+
+        .product-add-button span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .product-add-options {
+            border-left: 1px solid #cdd2db;
+            border-radius: 0 20px 20px 0;
+            flex: 0 0 38px;
+            padding: 0;
+            width: 38px;
+        }
+
+        .product-add-options .bi-chevron-down,
+        .product-operations-button .bi-chevron-down {
+            font-size: 9px;
+        }
+
+        .product-operations {
+            margin-left: auto;
+            max-width: 100%;
+        }
+
+        .product-operations-button {
+            background: #fafafb;
+            border: 1px solid #cdd2db;
+            border-radius: 20px;
+            color: #4e565f;
+            gap: 6px;
+            height: 40px;
+            max-width: 100%;
+            padding: 0 18px;
+            width: 214px;
+        }
+
+        .product-add-button:hover,
+        .product-add-options:hover,
+        .product-operations-button:hover {
+            background: #f0f2f5;
+            color: #2d353d;
+        }
+
+        .product-add-button:focus-visible,
+        .product-add-options:focus-visible,
+        .product-operations-button:focus-visible {
+            box-shadow: inset 0 0 0 2px #86b7fe;
         }
 
         .product-add-panel,
@@ -959,6 +1200,10 @@
             background: #f8fafc;
             margin-top: 0;
             padding: 14px;
+        }
+
+        .product-add-panel {
+            margin: 0 0 24px;
         }
 
         .catalog-product-dialog {
@@ -1301,14 +1546,25 @@
             display: grid;
             gap: 10px;
             grid-template-columns: 126px minmax(0, 1fr);
-            min-height: 26px;
-            padding: 1px 6px;
+            min-height: var(--order-detail-line-height);
+            padding: 0 6px;
             position: relative;
+        }
+
+        .order-info-row + .order-info-row {
+            margin-top: 2px;
+        }
+
+        .inline-field-row .nex-value,
+        .order-info-row .nex-value {
+            line-height: var(--order-detail-line-height);
+            min-height: var(--order-detail-line-height);
         }
 
         .inline-field-row .nex-label,
         .order-info-row .nex-label {
             align-self: center;
+            line-height: var(--order-detail-line-height);
             margin-bottom: 0;
             min-width: 0;
             overflow: hidden;
@@ -1318,9 +1574,59 @@
 
         .inline-field-row:hover,
         .order-info-row:hover {
-            background: #f7fbff;
-            border-radius: 4px;
             cursor: pointer;
+        }
+
+        .inline-edit-value {
+            background: transparent;
+            border: 0;
+            color: inherit;
+            cursor: pointer;
+            display: inline-block;
+            font: inherit;
+            font-weight: 400;
+            line-height: inherit;
+            margin-left: -24px;
+            max-width: calc(100% + 24px);
+            min-height: var(--order-detail-line-height);
+            min-width: 0;
+            overflow-wrap: anywhere;
+            padding: 0 0 0 24px;
+            position: relative;
+            text-align: left;
+            vertical-align: baseline;
+            white-space: normal;
+        }
+
+        .inline-edit-value:hover,
+        .inline-edit-value:focus-visible,
+        .inline-field-row:not(.inline-split-row)[data-edit-field]:hover .inline-edit-value {
+            color: #0077da;
+        }
+
+        .inline-edit-value:hover .inline-edit-text,
+        .inline-edit-value:focus-visible .inline-edit-text,
+        .inline-field-row:not(.inline-split-row)[data-edit-field]:hover .inline-edit-text {
+            color: inherit;
+            text-decoration: underline;
+        }
+
+        .inline-field-row .inline-postal-city {
+            flex-wrap: wrap;
+            gap: 0 8px;
+            justify-content: flex-start;
+        }
+
+        .inline-postal-city .inline-edit-value + .inline-edit-value {
+            margin-left: 0;
+            margin-right: -24px;
+            max-width: 100%;
+            padding: 0 24px 0 0;
+        }
+
+        .inline-postal-city .inline-edit-value + .inline-edit-value .inline-pencil {
+            left: auto;
+            right: 0;
         }
 
         .inline-section-edit-button {
@@ -1350,18 +1656,31 @@
         }
 
         .inline-pencil {
-            color: #0d6efd;
-            flex: 0 0 auto;
-            font-size: 11px;
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid currentColor;
+            border-radius: 50%;
+            color: inherit;
+            display: inline-flex;
+            font-size: 10px;
+            height: 18px;
+            justify-content: center;
+            left: 0;
             line-height: 1;
-            margin-left: 8px;
             opacity: 0;
+            position: absolute;
+            top: calc(var(--order-detail-line-height) / 2);
+            transform: translateY(-50%);
             transition: opacity .15s ease;
+            visibility: hidden;
+            width: 18px;
         }
 
-        .inline-field-row:hover .inline-pencil,
-        .order-info-row:hover .inline-pencil {
+        .inline-edit-value:hover .inline-pencil,
+        .inline-edit-value:focus-visible .inline-pencil,
+        .inline-field-row:not(.inline-split-row)[data-edit-field]:hover .inline-pencil {
             opacity: 1;
+            visibility: visible;
         }
 
         .inline-section-edit {
@@ -1447,42 +1766,74 @@
 
         .inline-section-edit .row.g-2 {
             display: grid;
-            gap: 3px;
+            gap: 4px;
             margin: 0;
+        }
+
+        .inline-section.is-editing .nex-card-header {
+            border-bottom: 0;
+            padding: 14px 12px 12px;
+        }
+
+        .inline-section.is-editing .nex-card-title {
+            color: #192027;
+            font-size: 16px;
+            font-weight: 400;
+            line-height: 22px;
+        }
+
+        .inline-section.is-editing .nex-card-header > :not(.nex-card-title) {
+            display: none !important;
+        }
+
+        .inline-section.is-editing .nex-card-body {
+            padding: 12px;
         }
 
         .inline-section-edit .row.g-2 > [class*="col-"] {
             align-items: center;
             display: grid;
             gap: 10px;
-            grid-template-columns: 126px minmax(0, 1fr);
+            grid-template-columns: 115px minmax(0, 1fr);
+            margin-top: 0;
             max-width: none;
-            min-height: 29px;
-            padding: 1px 6px;
+            min-height: 27px;
+            padding: 0;
             width: 100%;
         }
 
         .inline-section-edit .form-label {
-            color: #6b7280;
-            font-size: 11px;
-            letter-spacing: .03em;
+            color: #4e565f;
+            font-size: 12px;
+            letter-spacing: 0;
+            line-height: 18px;
             margin: 0;
             min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
-            text-transform: uppercase;
+            text-transform: none;
             white-space: nowrap;
         }
 
         .inline-section-edit .form-control,
         .inline-section-edit .form-select {
             background-color: #ffffff;
-            border: 1px solid #cbd5e1;
-            border-radius: 4px;
-            color: #111827;
+            border: 1px solid #cdd2db;
+            border-radius: 3px;
+            color: #4e565f;
             font-size: 13px;
-            min-height: 26px;
-            padding: 3px 7px;
+            height: 27px;
+            line-height: 19px;
+            min-height: 27px;
+            padding: 3px 12px;
+        }
+
+        .inline-section-edit .form-label::after {
+            content: ':';
+        }
+
+        .inline-section-edit .form-select {
+            padding-right: 30px;
         }
 
         .inline-section-edit textarea.form-control {
@@ -1523,6 +1874,10 @@
             min-height: 14px;
         }
 
+        .billing-gus-message:empty {
+            display: none;
+        }
+
         .billing-gus-results {
             align-items: center;
             display: grid;
@@ -1536,18 +1891,48 @@
         }
 
         .inline-actions {
-            border-top: 1px solid #eef0f3;
             display: flex;
-            gap: 8px;
-            justify-content: flex-end;
-            margin-top: 8px;
-            padding-top: 9px;
+            flex-wrap: wrap;
+            gap: 9px;
+            justify-content: flex-start;
+            margin-top: 24px;
+            padding: 0 0 3px 3px;
         }
 
         .inline-actions .btn {
-            font-size: 12px;
-            line-height: 1.2;
-            padding: 4px 9px;
+            align-items: center;
+            border-radius: 20px;
+            display: inline-flex;
+            font-size: 13px;
+            height: 40px;
+            justify-content: center;
+            line-height: 18px;
+            min-width: 80px;
+            padding: 0 20px;
+        }
+
+        .inline-actions .inline-save {
+            background: #0077da;
+            border: 1px solid #0077da;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .inline-actions .inline-save:hover {
+            background: #0068bf;
+            border-color: #0068bf;
+        }
+
+        .inline-actions .inline-cancel {
+            background: #fafafb;
+            border: 1px solid #cdd2db;
+            color: #4e565f;
+            font-weight: 400;
+        }
+
+        .inline-actions .inline-cancel:hover {
+            background: #f0f2f5;
+            border-color: #94a3b8;
         }
 
         .paid-amount-row {
@@ -2400,6 +2785,219 @@
             padding: 8px 12px;
         }
 
+        .order-information-accordion .order-automation-item {
+            border: 0;
+            border-radius: 0;
+        }
+
+        .order-information-accordion .order-automation-toggle {
+            background: #fcfcfd;
+            border: 1px solid #cfd6e2;
+            border-radius: 3px;
+            font-weight: 400;
+        }
+
+        .order-automation-toggle::after { display: none; }
+        .order-automation-toggle:not(.collapsed) .bi-chevron-down { transform: rotate(180deg); }
+
+        .order-information-accordion .order-automation-item .accordion-body {
+            border: 0;
+            padding: 8px 0;
+        }
+
+        .order-automation-history {
+            color: #4b5563;
+            font-size: 13px;
+            line-height: 20px;
+        }
+
+        .order-automation-history-heading {
+            border-bottom: 1px solid #cfd6e2;
+            padding: 3px 0 5px;
+            text-align: center;
+        }
+
+        .order-automation-run { margin-top: 5px; }
+
+        .order-automation-run-heading {
+            display: grid;
+            gap: 4px 12px;
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+            margin: 0 4px 7px;
+            overflow-wrap: anywhere;
+        }
+
+        .order-automation-run-heading strong { font-weight: 600; }
+
+        .order-automation-steps {
+            border-collapse: separate;
+            border-spacing: 0;
+            color: #17212c;
+            font-size: 11px;
+            line-height: 14px;
+            margin: 0 0 8px;
+            table-layout: fixed;
+            width: 100%;
+        }
+
+        .order-automation-status-column { width: 26px; }
+        .order-automation-action-column { width: 37%; }
+
+        .order-automation-steps td {
+            border-bottom: 1px solid #cfd6e2;
+            border-right: 1px solid #cfd6e2;
+            padding: 3px 5px;
+            overflow-wrap: anywhere;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .order-automation-steps tr:first-child td { border-top: 1px solid #cfd6e2; }
+        .order-automation-step-action { background: #ededed; }
+
+        .order-automation-steps td.order-automation-step-status {
+            background: #edf0f3;
+            border-color: #d6dde6;
+            color: #596674;
+            font-size: 13px;
+            padding: 3px;
+        }
+
+        .order-automation-steps td.order-automation-step-status.is-completed {
+            background: #157347;
+            border-color: #157347;
+            color: #ffffff;
+        }
+
+        .order-automation-steps td.order-automation-step-status.is-failed {
+            background: #c63838;
+            border-color: #c63838;
+            color: #ffffff;
+        }
+
+        .order-automation-steps td.order-automation-step-status.is-running {
+            background: #0077da;
+            border-color: #0077da;
+            color: #ffffff;
+        }
+
+        .order-automation-steps td.order-automation-step-status.is-waiting {
+            background: #f58a00;
+            border-color: #f58a00;
+            color: #ffffff;
+        }
+
+        .order-automation-step-error { color: #b42318; overflow-wrap: anywhere; }
+        .order-automation-empty { color: #6b7280; padding: 8px 4px; }
+
+        .order-automation-pagination {
+            align-items: center;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            padding: 8px 0 2px;
+        }
+
+        .order-automation-pagination button {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #cfd6e2;
+            border-radius: 4px;
+            color: #344054;
+            display: inline-flex;
+            height: 28px;
+            justify-content: center;
+            width: 28px;
+        }
+
+        .order-automation-pagination button:disabled { opacity: 0.4; }
+        .order-automation-pagination button:not(:disabled):hover { background: #f1f7fe; }
+
+        .allegro-order-details,
+        .allegro-order-fees {
+            color: #4b6580;
+            font-size: 13px;
+            font-weight: 400;
+            line-height: 20px;
+            overflow-wrap: anywhere;
+        }
+
+        .allegro-order-details a {
+            color: #0077da;
+        }
+
+        .allegro-inline-link {
+            background: transparent;
+            border: 0;
+            color: #0077da;
+            font: inherit;
+            padding: 0;
+            text-decoration: underline;
+        }
+
+        .allegro-buyer-message {
+            white-space: pre-wrap;
+        }
+
+        .allegro-delivery-windows,
+        .allegro-order-fees {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        .allegro-delivery-windows td {
+            font-size: 12px;
+            line-height: 15px;
+            padding: 6px 5px;
+            vertical-align: top;
+        }
+
+        .allegro-delivery-windows tr + tr {
+            border-top: 1px solid #cfd6e2;
+        }
+
+        .allegro-delivery-windows td:first-child {
+            width: 24%;
+        }
+
+        .allegro-delivery-windows td:last-child {
+            text-align: right;
+        }
+
+        .allegro-detail-badge {
+            border-radius: 2px;
+            color: #ffffff;
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 20px;
+            padding: 0 5px;
+            white-space: nowrap;
+        }
+
+        .allegro-detail-badge.is-dispatch {
+            background: #f58a00;
+        }
+
+        .allegro-detail-badge.is-delivery {
+            background: #137642;
+        }
+
+        .allegro-detail-group {
+            margin-top: 20px;
+        }
+
+        .allegro-order-fees th,
+        .allegro-order-fees td {
+            font-weight: 400;
+            padding: 5px;
+            text-align: left;
+        }
+
+        .allegro-order-fees th {
+            border-bottom: 1px solid #cfd6e2;
+        }
+
         @media (max-width: 991.98px) {
             .order-communication-grid {
                 grid-template-columns: 1fr;
@@ -2437,6 +3035,14 @@
         }
 
         @media (max-width: 991.98px) {
+            .products-table-wrapper {
+                overflow: auto;
+            }
+
+            .products-table {
+                min-width: 800px;
+            }
+
             .shipments-table-wrap {
                 overflow-x: auto;
                 padding-bottom: 4px;
@@ -2532,7 +3138,7 @@
         <div class="order-heading">
             <div class="dropdown">
                 <button class="star-button order-star {{ $starClass }}" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false" aria-label="Wybierz kolor oznaczenia zamowienia">
-                    {!! $currentStar ? '&#9733;' : '&#9734;' !!}
+                    <i class="bi {{ $currentStar ? 'bi-star-fill' : 'bi-star' }}" data-order-star-icon aria-hidden="true"></i>
                 </button>
                 <div class="dropdown-menu star-picker">
                     <div class="d-flex gap-1">
@@ -2547,8 +3153,10 @@
                     </div>
                 </div>
             </div>
-            <h1 class="order-title">Zam&oacute;wienie {{ $order->id }}</h1>
-            <span class="order-customer {{ $headerCustomerName ? '' : 'd-none' }}" data-order-header-customer>{{ $headerCustomerName }}</span>
+            <div class="order-heading-text">
+                <h1 class="order-title">Zam&oacute;wienie {{ $order->id }}</h1>
+                <span class="order-customer {{ $headerCustomerName ? '' : 'd-none' }}" data-order-header-customer>{{ $headerCustomerName }}</span>
+            </div>
         </div>
         <nav class="order-navigation" aria-label="Nawigacja mi&#281;dzy zam&oacute;wieniami">
             @if ($previousOrderUrl)
@@ -2568,26 +3176,23 @@
     </div>
 
     <div class="nex-card products-card">
-        <div class="nex-card-header">
-            <h2 class="nex-card-title">Produkty</h2>
-        </div>
         <div class="nex-card-body">
             <div class="products-table-wrapper">
-                <table class="table nex-table products-table align-middle mb-0">
+                <table class="table nex-table products-table align-middle mb-0" aria-label="Produkty w zam&oacute;wieniu">
                     <thead>
                         <tr>
-                            <th class="text-center" style="width: 80px;">
+                            <th class="product-photo-column" scope="col">
                                 <i class="bi bi-camera" aria-hidden="true"></i>
                                 <span class="visually-hidden">Zdjęcie</span>
                             </th>
-                            <th class="product-id-column">ID prod.</th>
-                            <th class="product-main-column">Nazwa produktu</th>
-                            <th class="product-metric">Ilo&#347;&#263;</th>
-                            <th class="product-metric">Cena</th>
-                            <th class="product-metric">VAT</th>
-                            <th class="product-metric">Waga</th>
-                            <th class="product-metric">Data</th>
-                            <th class="text-end product-actions-column">Akcje</th>
+                            <th class="product-id-column" scope="col">ID PROD.</th>
+                            <th class="product-main-column" scope="col">NAZWA PRODUKTU</th>
+                            <th class="product-metric" scope="col">ILO&#346;&#262;</th>
+                            <th class="product-metric" scope="col">CENA</th>
+                            <th class="product-metric" scope="col">VAT</th>
+                            <th class="product-metric" scope="col">WAGA</th>
+                            <th class="product-metric product-date-column" scope="col">DATA</th>
+                            <th class="text-end product-actions-column" scope="col">AKCJE</th>
                         </tr>
                     </thead>
                     <tbody data-products-table-body>
@@ -2595,92 +3200,99 @@
                     </tbody>
                 </table>
             </div>
-
-            <div class="products-toolbar">
-                <div class="dropdown">
-                    <button class="btn product-add-button dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="bi bi-plus-lg" aria-hidden="true"></i>
-                        Dodaj produkty do zam&oacute;wienia
-                    </button>
-                    <ul class="dropdown-menu">
-                        <li>
-                            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#catalogProductModal">
-                                Dodaj produkty z magazynu...
-                            </button>
-                        </li>
-                        <li>
-                            <button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#productAddPanel">
-                                Dodaj produkt ręcznie...
-                            </button>
-                        </li>
-                    </ul>
-                </div>
-
-                <div class="dropdown">
-                    <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown" aria-expanded="false">Operacje na produktach</button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li><span class="dropdown-item text-secondary">Przelicz warto&#347;ci</span></li>
-                        <li><span class="dropdown-item text-secondary">Od&#347;wie&#380; sekcj&#281;</span></li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="collapse product-add-panel" id="productAddPanel">
-                <h3 class="h6 mb-3">Dodaj produkt ręcznie</h3>
-                <form method="POST" action="{{ route('orders.products.store', $order) }}" data-order-ajax-form>
-                    @csrf
-                    <div class="row g-2">
-                        <div class="col-12 col-lg-4">
-                            <label class="form-label">Nazwa produktu</label>
-                            <input type="text" name="product_name" class="form-control form-control-sm" value="{{ old('product_name') }}" required>
-                        </div>
-                        <div class="col-6 col-lg-2">
-                            <label class="form-label">Ilo&#347;&#263;</label>
-                            <input type="number" min="1" name="quantity" class="form-control form-control-sm" value="{{ old('quantity', 1) }}" required>
-                        </div>
-                        <div class="col-6 col-lg-2">
-                            <label class="form-label">Cena jednostkowa</label>
-                            <input type="number" step="0.01" min="0" name="unit_price_gross" class="form-control form-control-sm" value="{{ old('unit_price_gross', 0) }}" required>
-                        </div>
-                        <div class="col-6 col-lg-1">
-                            <label class="form-label">Waluta</label>
-                            @php
-                                $newProductCurrency = strtoupper((string) old('currency', $order->currency));
-                                $newProductCurrencyKnown = array_key_exists($newProductCurrency, $currencyOptions);
-                                if (! $newProductCurrencyKnown && $order->items->isEmpty() && (string) $order->total_gross === '0.00') {
-                                    $newProductCurrency = 'PLN';
-                                    $newProductCurrencyKnown = true;
-                                }
-                            @endphp
-                            <select name="currency" class="form-select form-select-sm" required>
-                                @if (! $newProductCurrencyKnown && $newProductCurrency !== '')
-                                    <option value="{{ $newProductCurrency }}" selected disabled class="text-secondary">
-                                        {{ $newProductCurrency }}
-                                    </option>
-                                @endif
-                                @foreach ($currencyOptions as $currencyCode)
-                                    <option value="{{ $currencyCode }}" @selected($newProductCurrency === $currencyCode)>
-                                        {{ $currencyCode }}
-                                    </option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div class="col-6 col-lg-1">
-                            <label class="form-label">VAT (%)</label>
-                            <input type="number" step="1" min="0" max="100" name="vat_rate" class="form-control form-control-sm" value="{{ old('vat_rate', 23) }}">
-                        </div>
-                        <div class="col-6 col-lg-1">
-                            <label class="form-label">Waga</label>
-                            <input type="number" step="0.001" min="0" name="weight" class="form-control form-control-sm" value="{{ old('weight', 1) }}">
-                        </div>
-                    </div>
-                    <div class="d-flex justify-content-end gap-2 mt-3">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#productAddPanel">Anuluj</button>
-                        <button type="submit" class="btn btn-sm btn-primary">Zapisz</button>
-                    </div>
-                </form>
-            </div>
         </div>
+    </div>
+
+    <div class="products-toolbar" role="group" aria-label="Dodawanie i operacje na produktach">
+        <div class="dropdown product-add-group">
+            <button class="btn product-add-button" type="button" data-bs-toggle="modal" data-bs-target="#catalogProductModal">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                <span>Dodaj produkty do zam&oacute;wienia...</span>
+            </button>
+            <button class="btn product-add-options" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Wi&#281;cej opcji dodawania produkt&oacute;w">
+                <i class="bi bi-chevron-down" aria-hidden="true"></i>
+            </button>
+            <ul class="dropdown-menu">
+                <li>
+                    <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#catalogProductModal">
+                        Dodaj produkty z magazynu...
+                    </button>
+                </li>
+                <li>
+                    <button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#productAddPanel">
+                        Dodaj produkt ręcznie...
+                    </button>
+                </li>
+            </ul>
+        </div>
+
+        <div class="dropdown product-operations">
+            <button class="btn product-operations-button" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-wrench" aria-hidden="true"></i>
+                <span>Operacje na produktach</span>
+                <i class="bi bi-chevron-down" aria-hidden="true"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><span class="dropdown-item text-secondary">Przelicz warto&#347;ci</span></li>
+                <li><span class="dropdown-item text-secondary">Od&#347;wie&#380; sekcj&#281;</span></li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="collapse product-add-panel" id="productAddPanel">
+        <h3 class="h6 mb-3">Dodaj produkt ręcznie</h3>
+        <form method="POST" action="{{ route('orders.products.store', $order) }}" data-order-ajax-form>
+            @csrf
+            <div class="row g-2">
+                <div class="col-12 col-lg-4">
+                    <label class="form-label">Nazwa produktu</label>
+                    <input type="text" name="product_name" class="form-control form-control-sm" value="{{ old('product_name') }}" required>
+                </div>
+                <div class="col-6 col-lg-2">
+                    <label class="form-label">Ilo&#347;&#263;</label>
+                    <input type="number" min="1" name="quantity" class="form-control form-control-sm" value="{{ old('quantity', 1) }}" required>
+                </div>
+                <div class="col-6 col-lg-2">
+                    <label class="form-label">Cena jednostkowa</label>
+                    <input type="number" step="0.01" min="0" name="unit_price_gross" class="form-control form-control-sm" value="{{ old('unit_price_gross', 0) }}" required>
+                </div>
+                <div class="col-6 col-lg-1">
+                    <label class="form-label">Waluta</label>
+                    @php
+                        $newProductCurrency = strtoupper((string) old('currency', $order->currency));
+                        $newProductCurrencyKnown = array_key_exists($newProductCurrency, $currencyOptions);
+                        if (! $newProductCurrencyKnown && $order->items->isEmpty() && (string) $order->total_gross === '0.00') {
+                            $newProductCurrency = 'PLN';
+                            $newProductCurrencyKnown = true;
+                        }
+                    @endphp
+                    <select name="currency" class="form-select form-select-sm" required>
+                        @if (! $newProductCurrencyKnown && $newProductCurrency !== '')
+                            <option value="{{ $newProductCurrency }}" selected disabled class="text-secondary">
+                                {{ $newProductCurrency }}
+                            </option>
+                        @endif
+                        @foreach ($currencyOptions as $currencyCode)
+                            <option value="{{ $currencyCode }}" @selected($newProductCurrency === $currencyCode)>
+                                {{ $currencyCode }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-6 col-lg-1">
+                    <label class="form-label">VAT (%)</label>
+                    <input type="number" step="1" min="0" max="100" name="vat_rate" class="form-control form-control-sm" value="{{ old('vat_rate', 23) }}">
+                </div>
+                <div class="col-6 col-lg-1">
+                    <label class="form-label">Waga</label>
+                    <input type="number" step="0.001" min="0" name="weight" class="form-control form-control-sm" value="{{ old('weight', 1) }}">
+                </div>
+            </div>
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#productAddPanel">Anuluj</button>
+                <button type="submit" class="btn btn-sm btn-primary">Zapisz</button>
+            </div>
+        </form>
     </div>
 
     <div
@@ -2892,7 +3504,7 @@
                             <div class="col-12"><label class="form-label">Spos&oacute;b p&#322;atno&#347;ci</label><input type="text" name="payment_method" class="form-control form-control-sm" value="{{ old('payment_method', $order->payment_method) }}"></div>
                             <div class="col-12"><label class="form-label">Uwagi</label><textarea name="notes" class="form-control form-control-sm" rows="2">{{ old('notes', $order->notes) }}</textarea></div>
                         </div>
-                        <div class="inline-actions"><button type="button" class="btn btn-sm btn-light border inline-cancel">Anuluj</button><button type="submit" class="btn btn-sm btn-primary">Zapisz</button></div>
+                        <div class="inline-actions"><button type="submit" class="btn inline-save">Zapisz</button><button type="button" class="btn inline-cancel">Anuluj</button></div>
                     </form>
                 </div>
             </div>
@@ -2905,7 +3517,7 @@
                 </div>
                 <div class="nex-card-body">
                     @if (! $order->trashed())
-                        <div class="management-status-form">
+                        <div class="management-status-form {{ $order->source === 'allegro' ? 'is-allegro' : '' }}">
                         <form method="POST" action="{{ route('orders.status.update', $order) }}" class="management-status-fields" data-management-status-form>
                             @csrf
                             @method('PATCH')
@@ -2947,12 +3559,28 @@
                                     @endif
                                 </div>
                             @elseif ($order->source === 'allegro')
+                                <div class="allegro-transaction-details">
                                 <div class="management-meta-label">Numer transakcji:</div>
-                                <div class="management-meta-value">{{ $order->external_id ?: '...' }}</div>
+                                <div class="management-meta-value" style="overflow-wrap: anywhere; min-width: 0">
+                                    @if ($allegroTransactionUrl)
+                                        <a href="{{ $allegroTransactionUrl }}" class="allegro-transaction-link" data-allegro-transaction="{{ $allegroTransactionId }}" target="_blank" rel="noopener noreferrer" title="Kopiuj numer transakcji">{{ $allegroTransactionId }}</a>
+                                    @else
+                                        {{ $allegroTransactionId ?: '...' }}
+                                    @endif
+                                    @if ($allegroIntegrationName)
+                                        <span class="allegro-transaction-source">({{ $allegroIntegrationName }})</span>
+                                    @endif
+                                </div>
+                                </div>
+                                @if ($allegroOrderLink)
+                                    @if ($allegroOrderLink->buyer_message)
+                                        <div class="management-meta-label">Wiadomość kupującego:</div><div class="management-meta-value" style="white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0">{{ $allegroOrderLink->buyer_message }}</div>
+                                    @endif
+                                @endif
                             @endif
                             <div class="management-meta-label">Data z&#322;o&#380;enia:</div>
                             <div class="management-meta-value">
-                                @if ($createdAtParts = $managementDateParts($order->created_at))
+                                @if ($createdAtParts = $managementDateParts($allegroOrderLink ? ($order->purchased_at ?? $order->created_at) : $order->created_at))
                                     <span>{{ $createdAtParts['date'] }}</span><span class="management-meta-time">{{ $createdAtParts['time'] }}</span>
                                 @else
                                     ...
@@ -2991,7 +3619,7 @@
                     <h2 class="nex-card-title">Adres dostawy</h2>
                     <div class="card-header-actions">
                         <button class="btn btn-sm btn-light border icon-action-button" type="button" data-copy-shipping-to-billing title="Skopiuj adres do danych faktury" aria-label="Skopiuj adres do danych faktury">&#10697;</button>
-                        <button class="btn btn-sm btn-light border icon-action-button inline-section-edit-button" type="button" data-edit-section="shipping" title="Edytuj adres dostawy" aria-label="Edytuj adres dostawy">&#9998;</button>
+                        <button class="btn btn-sm btn-light border icon-action-button" type="button" data-edit-section="shipping" title="Edytuj adres dostawy" aria-label="Edytuj adres dostawy"><i class="bi bi-pencil" aria-hidden="true"></i></button>
                     </div>
                 </div>
                 <div class="nex-card-body">
@@ -3008,14 +3636,15 @@
                             'Firma' => 'shipping_company_name',
                             'Adres' => 'shipping_address_line',
                             'Kod i miasto' => 'shipping_postal_code',
+                            'Miasto' => 'shipping_city',
                             'Kraj' => 'shipping_country_code',
                         ],
-                    ])<span class="inline-pencil">&#9998;</span></div>
+                    ])</div>
                     <form method="POST" action="{{ route('orders.sections.shipping-address', $order) }}" class="inline-section-edit" data-order-ajax-form data-refresh-courier-defaults>
                         @csrf
                         @method('PATCH')
                         <div class="row g-2">
-                            <div class="col-12"><label class="form-label">Imi&#281; i Nazwisko</label><input type="text" name="shipping_name" class="form-control form-control-sm" value="{{ old('shipping_name', $shippingAddress?->name) }}"></div>
+                            <div class="col-12"><label class="form-label">Imi&#281; i nazwisko</label><input type="text" name="shipping_name" class="form-control form-control-sm" value="{{ old('shipping_name', $shippingAddress?->name) }}"></div>
                             <div class="col-12"><label class="form-label">Firma</label><input type="text" name="shipping_company_name" class="form-control form-control-sm" value="{{ old('shipping_company_name', $shippingAddress?->company_name) }}"></div>
                             <div class="col-12"><label class="form-label">Adres</label><input type="text" name="shipping_address_line" class="form-control form-control-sm" value="{{ old('shipping_address_line', $formatAddressLine($shippingAddress)) }}"></div>
                             <div class="col-12"><label class="form-label">Kod pocztowy</label><input type="text" name="shipping_postal_code" class="form-control form-control-sm" value="{{ old('shipping_postal_code', $shippingAddress?->postal_code) }}"></div>
@@ -3033,7 +3662,7 @@
                                 @enderror
                             </div>
                         </div>
-                        <div class="inline-actions"><button type="button" class="btn btn-sm btn-light border inline-cancel">Anuluj</button><button type="submit" class="btn btn-sm btn-primary">Zapisz</button></div>
+                        <div class="inline-actions"><button type="submit" class="btn inline-save">Zapisz</button><button type="button" class="btn inline-cancel">Anuluj</button></div>
                     </form>
                 </div>
             </div>
@@ -3045,26 +3674,43 @@
                     <h2 class="nex-card-title">Dane do faktury</h2>
                     <div class="card-header-actions">
                         <button class="btn btn-sm btn-light border icon-action-button" type="button" data-copy-billing-to-shipping title="Skopiuj dane faktury do adresu dostawy" aria-label="Skopiuj dane faktury do adresu dostawy">&#10697;</button>
-                        <button class="btn btn-sm btn-light border icon-action-button inline-section-edit-button" type="button" data-edit-section="billing" title="Edytuj dane do faktury" aria-label="Edytuj dane do faktury">&#9998;</button>
+                        <button class="btn btn-sm btn-light border icon-action-button" type="button" data-edit-section="billing" title="Edytuj dane do faktury" aria-label="Edytuj dane do faktury"><i class="bi bi-pencil" aria-hidden="true"></i></button>
                     </div>
                 </div>
+                @if ($order->source === 'allegro' && $allegroOrderLink?->invoice_required)
+                    <div class="billing-invoice-request" data-invoice-request-notice role="note">
+                        <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                        <span>Klient prosi o fakturę</span>
+                    </div>
+                @endif
                 <div class="nex-card-body">
                     <div class="inline-section-view inline-edit-trigger" data-edit-section="billing">
-                        <div class="nex-address-grid">
-                            <div class="inline-field-row" data-edit-field="billing_name"><div class="nex-label">Imi&#281; i Nazwisko</div><div class="nex-value {{ $billingAddress?->name ? '' : 'nex-empty' }}">{{ $billingAddress?->name ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row" data-edit-field="billing_company_name"><div class="nex-label">Firma</div><div class="nex-value {{ $billingAddress?->company_name ? '' : 'nex-empty' }}">{{ $billingAddress?->company_name ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row" data-edit-field="billing_address_line"><div class="nex-label">Adres</div><div class="nex-value {{ $formatAddressLine($billingAddress) ? '' : 'nex-empty' }}">{{ $formatAddressLine($billingAddress) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row" data-edit-field="billing_postal_code"><div class="nex-label">Kod i miasto</div><div class="nex-value {{ $formatPostalCity($billingAddress) ? '' : 'nex-empty' }}">{{ $formatPostalCity($billingAddress) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row" data-edit-field="billing_country_code"><div class="nex-label">Kraj</div><div class="nex-value {{ $countryCatalog->name($billingAddress?->country_code) ? '' : 'nex-empty' }}">{{ $countryCatalog->name($billingAddress?->country_code) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                            <div class="inline-field-row" data-edit-field="billing_tax_id"><div class="nex-label">NIP</div><div class="nex-value {{ $billingAddress?->tax_id ? '' : 'nex-empty' }}">{{ $billingAddress?->tax_id ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-                        </div>
+                        @include('orders.partials.address', [
+                            'address' => $billingAddress,
+                            'showTaxId' => true,
+                            'showCountry' => true,
+                            'showProvince' => false,
+                            'showPhone' => false,
+                            'showEmail' => false,
+                            'taxIdLast' => true,
+                            'countryName' => $countryCatalog->name($billingAddress?->country_code),
+                            'editFields' => [
+                                'Imię i Nazwisko' => 'billing_name',
+                                'Firma' => 'billing_company_name',
+                                'Adres' => 'billing_address_line',
+                                'Kod i miasto' => 'billing_postal_code',
+                                'Miasto' => 'billing_city',
+                                'Kraj' => 'billing_country_code',
+                                'NIP' => 'billing_tax_id',
+                            ],
+                        ])
                     </div>
                     <form method="POST" action="{{ route('orders.sections.billing-address', $order) }}" class="inline-section-edit" data-billing-form data-gus-lookup-url="{{ route('gus.company-by-nip') }}" data-order-ajax-form>
                         @csrf
                         @method('PATCH')
                         <input type="hidden" name="billing_province" value="{{ old('billing_province', $billingAddress?->province) }}">
                         <div class="row g-2">
-                            <div class="col-12"><label class="form-label">Imi&#281; i Nazwisko</label><input type="text" name="billing_name" class="form-control form-control-sm" value="{{ old('billing_name', $billingAddress?->name) }}"></div>
+                            <div class="col-12"><label class="form-label">Imi&#281; i nazwisko</label><input type="text" name="billing_name" class="form-control form-control-sm" value="{{ old('billing_name', $billingAddress?->name) }}"></div>
                             <div class="col-12"><label class="form-label">Firma</label><input type="text" name="billing_company_name" class="form-control form-control-sm" value="{{ old('billing_company_name', $billingAddress?->company_name) }}"></div>
                             <div class="col-12"><label class="form-label">Adres</label><input type="text" name="billing_address_line" class="form-control form-control-sm" value="{{ old('billing_address_line', $formatAddressLine($billingAddress)) }}"></div>
                             <div class="col-12"><label class="form-label">Kod pocztowy</label><input type="text" name="billing_postal_code" class="form-control form-control-sm" value="{{ old('billing_postal_code', $billingAddress?->postal_code) }}"></div>
@@ -3096,7 +3742,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="inline-actions"><button type="button" class="btn btn-sm btn-light border inline-cancel">Anuluj</button><button type="submit" class="btn btn-sm btn-primary">Zapisz</button></div>
+                        <div class="inline-actions"><button type="submit" class="btn inline-save">Zapisz</button><button type="button" class="btn inline-cancel">Anuluj</button></div>
                     </form>
                 </div>
             </div>
@@ -3104,7 +3750,12 @@
 
         <div class="col-12 col-xl-4">
             <div class="nex-card h-100 inline-section" data-inline-section="pickup">
-                <div class="nex-card-header"><h2 class="nex-card-title">Odbi&oacute;r w punkcie</h2><button class="btn btn-sm btn-light border inline-section-edit-button" type="button" data-edit-section="pickup">Edytuj</button></div>
+                <div class="nex-card-header">
+                    <h2 class="nex-card-title">Odbi&oacute;r w punkcie</h2>
+                    <div class="card-header-actions">
+                        <button class="btn btn-sm btn-light border icon-action-button" type="button" data-edit-section="pickup" title="Edytuj odbi&oacute;r w punkcie" aria-label="Edytuj odbi&oacute;r w punkcie"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+                    </div>
+                </div>
                 <div class="nex-card-body">
                     <div class="inline-section-view inline-edit-trigger" data-edit-section="pickup" data-pickup-view>
                         @include('orders.partials.pickup-view', ['order' => $order])
@@ -3119,7 +3770,7 @@
                             <div class="col-6"><label class="form-label">Kod</label><input type="text" name="pickup_point_postal_code" class="form-control form-control-sm" value="{{ old('pickup_point_postal_code', $order->pickup_point_postal_code) }}"></div>
                             <div class="col-6"><label class="form-label">Miasto</label><input type="text" name="pickup_point_city" class="form-control form-control-sm" value="{{ old('pickup_point_city', $order->pickup_point_city) }}"></div>
                         </div>
-                        <div class="inline-actions"><button type="button" class="btn btn-sm btn-light border inline-cancel">Anuluj</button><button type="submit" class="btn btn-sm btn-primary">Zapisz</button></div>
+                        <div class="inline-actions"><button type="submit" class="btn inline-save">Zapisz</button><button type="button" class="btn inline-cancel">Anuluj</button></div>
                     </form>
                 </div>
             </div>
@@ -3263,10 +3914,48 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            let activeSection = null;
+            const deferredFormFields = new WeakMap();
+            let deferredOrderInfoHtml = null;
             const paymentLinkClickTimers = new WeakMap();
+            const allegroTransactionClickTimers = new WeakMap();
             const paymentLinkRequests = new Map();
             const pageCsrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            const refreshAllegroInformation = async (panel) => {
+                if (!panel || panel.dataset.loading === '1') return;
+                const error = panel.querySelector('[data-allegro-information-error]');
+                const body = panel.querySelector('[data-allegro-information-body]');
+                panel.dataset.loading = '1';
+                body.setAttribute('aria-busy', 'true');
+                error.textContent = '';
+                error.hidden = true;
+                try {
+                    const response = await fetch(panel.dataset.refreshUrl, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {'Accept': 'application/json', 'X-CSRF-TOKEN': pageCsrfToken},
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || typeof payload.html !== 'string') {
+                        throw new Error(payload.message || 'Nie udało się pobrać danych Allegro.');
+                    }
+                    body.innerHTML = payload.html;
+                    panel.dataset.informationLoaded = '1';
+                } catch (exception) {
+                    error.textContent = exception.message || 'Nie udało się pobrać danych Allegro.';
+                    error.hidden = false;
+                } finally {
+                    delete panel.dataset.loading;
+                    body.removeAttribute('aria-busy');
+                }
+            };
+            document.querySelectorAll('[data-allegro-information-panel]').forEach((panel) => {
+                panel.addEventListener('show.bs.collapse', (event) => {
+                    if (event.target !== panel) return;
+                    if (panel.dataset.refreshOnOpen === '1' || panel.dataset.informationLoaded !== '1') {
+                        return refreshAllegroInformation(panel);
+                    }
+                });
+            });
             const catalogProductModal = document.querySelector('[data-catalog-product-modal]');
             const catalogProductForm = catalogProductModal?.querySelector('[data-catalog-products-form]');
             const catalogResults = catalogProductModal?.querySelector('[data-catalog-results]');
@@ -3849,7 +4538,10 @@
                     form.reset();
                 }
                 section.classList.remove('is-editing');
-                activeSection = null;
+                const deferredFields = form && deferredFormFields.get(form);
+                if (deferredFields) {
+                    syncEditableFields(deferredFields, form);
+                }
             };
 
             const openSection = (sectionName, fieldName = null) => {
@@ -3857,12 +4549,7 @@
                 if (!section) {
                     return;
                 }
-                if (activeSection && activeSection !== section) {
-                    alert('Najpierw zapisz albo anuluj aktualnie edytowana sekcje.');
-                    return;
-                }
                 section.classList.add('is-editing');
-                activeSection = section;
                 const form = section.querySelector('form.inline-section-edit');
                 const requestedField = fieldName && form ? form.elements.namedItem(fieldName) : null;
                 const firstField = form?.querySelector('input:not([type="hidden"]), select, textarea');
@@ -3990,13 +4677,6 @@
 
             if (copyShippingToBillingButton && billingForm && shippingForm) {
                 copyShippingToBillingButton.addEventListener('click', () => {
-                    const billingSection = document.querySelector('[data-inline-section="billing"]');
-
-                    if (activeSection && activeSection !== billingSection) {
-                        alert('Najpierw zapisz albo anuluj aktualnie edytowana sekcje.');
-                        return;
-                    }
-
                     openSection('billing');
 
                     setFormValue(billingForm, 'billing_name', getFormValue(shippingForm, 'shipping_name'));
@@ -4013,11 +4693,6 @@
 
             if (copyBillingToShippingButton && billingForm && shippingForm) {
                 copyBillingToShippingButton.addEventListener('click', () => {
-                    if (activeSection && activeSection !== shippingSection) {
-                        alert('Najpierw zapisz albo anuluj aktualnie edytowana sekcje.');
-                        return;
-                    }
-
                     openSection('shipping');
 
                     setFormValue(shippingForm, 'shipping_name', getFormValue(billingForm, 'billing_name'));
@@ -4105,10 +4780,6 @@
                 if (!paidEdit || !paidView || !paidInput) {
                     return;
                 }
-                if (activeSection) {
-                    alert('Najpierw zapisz albo anuluj aktualnie edytowana sekcje.');
-                    return;
-                }
                 paidView.style.display = 'none';
                 paidEdit.classList.add('is-editing');
                 paidInput.dataset.originalValue = paidInput.value;
@@ -4127,6 +4798,15 @@
                 paidInput.value = paidInput.dataset.originalValue || paidInput.value;
                 paidEdit.classList.remove('is-editing');
                 paidView.style.display = '';
+                const deferredFields = deferredFormFields.get(paidEdit);
+                if (deferredFields) {
+                    syncEditableFields(deferredFields, paidEdit);
+                }
+                if (deferredOrderInfoHtml !== null) {
+                    const html = deferredOrderInfoHtml;
+                    deferredOrderInfoHtml = null;
+                    applyOrderFragments({ fragments: { 'order-info': html } });
+                }
             };
 
             document.addEventListener('click', (event) => {
@@ -4234,14 +4914,14 @@
                 return request;
             };
 
-            const copyPaymentLink = async (url) => {
+            const copyToClipboard = async (text) => {
                 if (navigator.clipboard?.writeText && window.isSecureContext) {
-                    await navigator.clipboard.writeText(url);
+                    await navigator.clipboard.writeText(text);
                     return;
                 }
 
                 const input = document.createElement('textarea');
-                input.value = url;
+                input.value = text;
                 input.setAttribute('readonly', 'readonly');
                 input.style.position = 'fixed';
                 input.style.opacity = '0';
@@ -4252,9 +4932,56 @@
                 input.remove();
 
                 if (!copied) {
-                    throw new Error('Nie udało się skopiować linku do schowka.');
+                    throw new Error('Nie udało się skopiować tekstu do schowka.');
                 }
             };
+
+            document.addEventListener('click', (event) => {
+                const link = event.target.closest('[data-allegro-transaction]');
+                if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+                    return;
+                }
+
+                event.preventDefault();
+                const currentTimer = allegroTransactionClickTimers.get(link);
+                if (currentTimer) {
+                    window.clearTimeout(currentTimer);
+                    allegroTransactionClickTimers.delete(link);
+                }
+                if (event.detail > 1) {
+                    return;
+                }
+
+                const timer = window.setTimeout(async () => {
+                    allegroTransactionClickTimers.delete(link);
+                    try {
+                        await copyToClipboard(link.dataset.allegroTransaction);
+                    } catch (error) {
+                        const message = 'Nie udało się skopiować numeru transakcji do schowka. Sprawdź uprawnienia przeglądarki.';
+                        if (typeof window.nexOmsShowError === 'function') {
+                            window.nexOmsShowError(message);
+                        } else {
+                            window.alert(message);
+                        }
+                    }
+                }, 300);
+                allegroTransactionClickTimers.set(link, timer);
+            });
+
+            document.addEventListener('dblclick', (event) => {
+                const link = event.target.closest('[data-allegro-transaction]');
+                if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+                    return;
+                }
+
+                event.preventDefault();
+                const currentTimer = allegroTransactionClickTimers.get(link);
+                if (currentTimer) {
+                    window.clearTimeout(currentTimer);
+                    allegroTransactionClickTimers.delete(link);
+                }
+                window.open(link.href, '_blank', 'noopener,noreferrer');
+            });
 
             const showPaymentLinkActivity = (payload, statusLabel, message) => {
                 window.nexOmsShowActivity?.({
@@ -4299,7 +5026,7 @@
                     paymentLinkClickTimers.delete(button);
                     try {
                         const payload = await requestPaymentLink(button);
-                        await copyPaymentLink(payload.url);
+                        await copyToClipboard(payload.url);
                         showPaymentLinkActivity(payload, 'Link skopiowany', payload.message || 'Link płatności PayNow został skopiowany do schowka.');
                     } catch (error) {
                         showPaymentLinkError(button, error);
@@ -4825,12 +5552,25 @@
                 products: '[data-products-table-body]',
                 shipments: '[data-shipments-table-body]',
                 history: '[data-order-history-body]',
+                'automation-history': '[data-order-automation-history-body]',
                 payments: '[data-order-payments-body]',
             };
 
-            const syncEditableFields = (fields) => {
+            const syncEditableFields = (fields, savedForm = null) => {
+                if (savedForm) {
+                    deferredFormFields.delete(savedForm);
+                }
                 Object.entries(fields || {}).forEach(([name, value]) => {
                     document.querySelectorAll(`[data-order-ajax-form] [name="${name}"]`).forEach((field) => {
+                        const form = field.closest('form');
+                        const hasDraft = form?.closest('.inline-section.is-editing')
+                            || form?.matches('[data-paid-edit].is-editing');
+                        if (hasDraft && form !== savedForm) {
+                            const deferredFields = deferredFormFields.get(form) || {};
+                            deferredFields[name] = value;
+                            deferredFormFields.set(form, deferredFields);
+                            return;
+                        }
                         const normalizedValue = value ?? '';
 
                         if (field.type === 'checkbox' || field.type === 'radio') {
@@ -4860,7 +5600,9 @@
                 const starClasses = ['star-empty', 'star-orange', 'star-navy', 'star-green', 'star-blue', 'star-red'];
                 starButton.classList.remove(...starClasses);
                 starButton.classList.add(color ? `star-${color}` : 'star-empty');
-                starButton.innerHTML = color ? '&#9733;' : '&#9734;';
+                const starIcon = starButton.querySelector('[data-order-star-icon]');
+                starIcon?.classList.toggle('bi-star', !color);
+                starIcon?.classList.toggle('bi-star-fill', Boolean(color));
 
                 document.querySelectorAll('.star-picker form').forEach((form) => {
                     const button = form.querySelector('.star-color-button');
@@ -4910,7 +5652,7 @@
                 replaceSalesDocumentActions(html);
             }
 
-            const applyOrderFragments = (state) => {
+            const applyOrderFragments = (state, savedForm = null) => {
                 Object.entries(state.fragments || {}).forEach(([name, html]) => {
                     if (name === 'sales-documents') {
                         if (salesDocumentInteractionActive()) {
@@ -4929,6 +5671,12 @@
                         }
 
                         if (name === 'order-info') {
+                            const paidEditor = target.querySelector('[data-paid-edit].is-editing');
+                            if (paidEditor && paidEditor !== savedForm) {
+                                deferredOrderInfoHtml = String(html || '');
+                                return;
+                            }
+                            deferredOrderInfoHtml = null;
                             disposePaymentLinkTooltips(target);
                         }
 
@@ -4951,7 +5699,7 @@
                 }
             };
 
-            const applyOrderState = (state, forceSelection = false, syncFields = false) => {
+            const applyOrderState = (state, forceSelection = false, syncFields = false, savedForm = null) => {
                 if (!state?.status) {
                     return;
                 }
@@ -4978,7 +5726,7 @@
                     managementStatusDate?.setAttribute('title', state.status_changed_at?.iso || '');
                 }
 
-                applyOrderFragments(state);
+                applyOrderFragments(state, savedForm);
                 applyStarState(state.star_color || '');
 
                 const headerCustomer = document.querySelector('[data-order-header-customer]');
@@ -4988,19 +5736,23 @@
                 }
 
                 if (syncFields) {
-                    syncEditableFields(state.fields);
+                    syncEditableFields(state.fields, savedForm);
                 }
 
                 currentLatestEventId = Number(state.latest_event_id || 0);
                 currentShipmentsSignature = state.shipments_signature || '';
             };
 
-            const fetchOrderState = async (fragments = [], syncFields = false) => {
+            const fetchOrderState = async (fragments = [], syncFields = false, savedForm = null, automationPage = null) => {
                 if (!orderStateUrl) {
                     return null;
                 }
 
                 const url = new URL(orderStateUrl, window.location.origin);
+                const historyPage = automationPage ?? document.querySelector('[data-automation-history-current-page]')?.dataset.automationHistoryCurrentPage;
+                if (historyPage) {
+                    url.searchParams.set('automation_page', String(historyPage));
+                }
                 if (fragments.length) {
                     url.searchParams.set('fragments', Array.from(new Set(fragments)).join(','));
                 }
@@ -5023,7 +5775,7 @@
                 }
 
                 const state = await response.json();
-                applyOrderState(state, false, syncFields);
+                applyOrderState(state, false, syncFields, savedForm);
 
                 return state;
             };
@@ -5043,6 +5795,49 @@
                     orderStateRequestRunning = false;
                 }
             };
+
+            const automationHistoryPanel = document.getElementById('orderAutomationHistoryCollapse');
+            let automationHistoryRequestRunning = false;
+
+            const loadAutomationHistory = async (page = null) => {
+                if (!automationHistoryPanel || automationHistoryRequestRunning) {
+                    return;
+                }
+                const body = automationHistoryPanel.querySelector('[data-order-automation-history-body]');
+                const error = automationHistoryPanel.querySelector('[data-automation-history-error]');
+                const controls = Array.from(body.querySelectorAll('[data-automation-history-page]'))
+                    .map((button) => [button, button.disabled]);
+                automationHistoryRequestRunning = true;
+                body.setAttribute('aria-busy', 'true');
+                controls.forEach(([button]) => { button.disabled = true; });
+                error.hidden = true;
+                try {
+                    const state = await fetchOrderState(['automation-history'], false, null, page);
+                    if (typeof state?.fragments?.['automation-history'] !== 'string') {
+                        throw new Error('Invalid automation history response');
+                    }
+                } catch (exception) {
+                    error.textContent = 'Nie udało się odświeżyć historii automatycznych akcji.';
+                    error.hidden = false;
+                } finally {
+                    automationHistoryRequestRunning = false;
+                    body.removeAttribute('aria-busy');
+                    controls.forEach(([button, disabled]) => { button.disabled = disabled; });
+                }
+            };
+
+            automationHistoryPanel?.addEventListener('show.bs.collapse', (event) => {
+                if (event.target === automationHistoryPanel) {
+                    return loadAutomationHistory();
+                }
+            });
+
+            automationHistoryPanel?.addEventListener('click', (event) => {
+                const button = event.target.closest('[data-automation-history-page]');
+                if (button && !button.disabled) {
+                    return loadAutomationHistory(Number(button.dataset.automationHistoryPage));
+                }
+            });
 
             const ksefAutomaticRefreshMaximumMs = 10 * 60 * 1000;
             let ksefAutomaticRefreshStartedAt = 0;
@@ -5206,7 +6001,7 @@
                         throw new Error(messages[0] || payload.message || 'Nie udało się zapisać zmian.');
                     }
 
-                    await fetchOrderState(payload.refresh || [], true);
+                    await fetchOrderState(payload.refresh || [], true, form);
 
                     if (form.matches('[data-refresh-courier-defaults]')) {
                         await reloadActiveCourierFormDefaults();
@@ -5747,18 +6542,20 @@
                 scheduleKsefAutomaticRefresh(true);
 
                 payNowRefreshTimer = window.setInterval(() => {
-                    refreshOrderState(['payments']);
+                    refreshOrderState(automationHistoryPanel?.classList.contains('show')
+                        ? ['payments', 'automation-history'] : ['payments']);
                 }, 15000);
 
                 document.addEventListener('nexoms:automation-finished', (event) => {
                     if (Number(event.detail?.orderId || 0) === currentOrderId) {
-                        refreshOrderState(['sales-documents', 'history']);
+                        refreshOrderState(['sales-documents', 'history', 'automation-history']);
                     }
                 });
 
                 document.addEventListener('visibilitychange', () => {
                     if (!document.hidden) {
-                        refreshOrderState(['sales-documents', 'payments']);
+                        refreshOrderState(automationHistoryPanel?.classList.contains('show')
+                            ? ['sales-documents', 'payments', 'automation-history'] : ['sales-documents', 'payments']);
                         scheduleKsefAutomaticRefresh();
                     }
                 });

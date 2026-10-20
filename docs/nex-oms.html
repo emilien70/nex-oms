@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="NEX-OMS: informacje o wewnetrznym systemie obslugi zamowien Multi-Click i jego integracji z Allegro REST API.">
+    <title>NEX-OMS - informacje o aplikacji i integracji Allegro</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            color: #20292e;
+            background: #ffffff;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-size: 16px;
+            line-height: 1.65;
+        }
+
+        main {
+            width: min(100% - 40px, 880px);
+            margin: 48px auto;
+        }
+
+        header {
+            padding-bottom: 28px;
+            border-bottom: 3px solid #187644;
+        }
+
+        .eyebrow {
+            margin: 0 0 8px;
+            color: #187644;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 32px;
+            line-height: 1.2;
+            font-weight: 650;
+        }
+
+        h2 {
+            margin: 0 0 12px;
+            font-size: 20px;
+            line-height: 1.4;
+            font-weight: 600;
+        }
+
+        p { margin: 0 0 14px; }
+        header p:last-child, section p:last-child { margin-bottom: 0; }
+
+        section {
+            padding: 28px 0;
+            border-bottom: 1px solid #dce2e5;
+        }
+
+        dl {
+            display: grid;
+            grid-template-columns: 240px minmax(0, 1fr);
+            gap: 10px 24px;
+            margin: 0;
+        }
+
+        dt { color: #58636b; }
+        dd { margin: 0; }
+        ul { margin: 0; padding-left: 24px; }
+        li + li { margin-top: 8px; }
+
+        a {
+            color: #0067b1;
+            text-underline-offset: 3px;
+        }
+
+        a:hover { color: #004b81; }
+        a:focus-visible { outline: 2px solid #0067b1; outline-offset: 4px; }
+
+        code {
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 15px;
+        }
+
+        p, dd, li, a, code { overflow-wrap: anywhere; }
+
+        footer {
+            padding-top: 22px;
+            color: #58636b;
+            font-size: 13px;
+        }
+
+        @media (max-width: 600px) {
+            main { margin: 28px auto; }
+            dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+            dd + dt { margin-top: 12px; }
+        }
+
+        @media print {
+            main { width: 100%; margin: 0; }
+            section { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <header>
+            <p class="eyebrow">Informacje o aplikacji</p>
+            <h1>NEX-OMS</h1>
+            <p>Wewn&#281;trzny system obs&#322;ugi zam&oacute;wie&#324; Multi-Click.</p>
+        </header>
+
+        <section aria-labelledby="identity-heading">
+            <h2 id="identity-heading">Identyfikacja aplikacji</h2>
+            <dl>
+                <dt>Nazwa systemu</dt>
+                <dd>NEX-OMS</dd>
+                <dt>Nazwa aplikacji w Allegro</dt>
+                <dd><code>NEX-OMS_device</code></dd>
+                <dt>Wersja identyfikacyjna integracji</dt>
+                <dd><code>1.0.0</code></dd>
+                <dt>Podmiot korzystaj&#261;cy z systemu</dt>
+                <dd>Multi-Click</dd>
+                <dt>Sklep internetowy</dt>
+                <dd><a href="https://multi-click.pl/">multi-click.pl</a></dd>
+                <dt>Kontakt w sprawie integracji</dt>
+                <dd><a href="https://multi-click.pl/kontakt">Formularz kontaktowy Multi-Click</a></dd>
+            </dl>
+        </section>
+
+        <section aria-labelledby="purpose-heading">
+            <h2 id="purpose-heading">Przeznaczenie systemu</h2>
+            <p>NEX-OMS jest wewn&#281;trzn&#261; aplikacj&#261; wspieraj&#261;c&#261; obs&#322;ug&#281;
+                sprzeda&#380;y Multi-Click. Integracja z Allegro REST API umo&#380;liwia prac&#281;
+                z zam&oacute;wieniami autoryzowanego konta sprzedawcy w jednym systemie OMS.</p>
+            <p>Aplikacja nie jest publiczn&#261; us&#322;ug&#261; dla innych sprzedawc&oacute;w.
+                Ta strona zawiera wy&#322;&#261;cznie informacje identyfikuj&#261;ce oprogramowanie;
+                nie udost&#281;pnia panelu OMS ani danych zam&oacute;wie&#324;.</p>
+        </section>
+
+        <section aria-labelledby="scope-heading">
+            <h2 id="scope-heading">Zakres integracji z Allegro</h2>
+            <ul>
+                <li>Autoryzacja konta sprzedawcy przez OAuth 2.0 Device Flow oraz odnawianie token&oacute;w dost&#281;pu.</li>
+                <li>Podgl&#261;d i r&#281;czny import zam&oacute;wie&#324;, w tym pozycji, danych dostawy,
+                    danych do faktury, punktu odbioru i informacji o p&#322;atno&#347;ciach.</li>
+                <li>Powi&#261;zanie numer&oacute;w ofert Allegro z produktami i zestawami w katalogu OMS.</li>
+                <li>Odczyt szczeg&oacute;&#322;&oacute;w zam&oacute;wienia oraz przypisanych do niego prowizji
+                    i op&#322;at, po udzieleniu odpowiednich uprawnie&#324;.</li>
+                <li>Obs&#322;uga przesy&#322;ek przez modu&#322; Wysy&#322;am z Allegro, w tym tworzenie
+                    przesy&#322;ek, pobieranie etykiet i sprawdzanie statusu.</li>
+            </ul>
+            <p style="margin-top: 16px">Obecny zakres integracji nie obejmuje wystawiania ani edycji ofert Allegro.
+                Lokalne powi&#261;zania katalogowe nie zmieniaj&#261; ofert w serwisie Allegro.</p>
+        </section>
+
+        <section aria-labelledby="contact-heading">
+            <h2 id="contact-heading">Kontakt i identyfikacja ruchu API</h2>
+            <p>W sprawach dotycz&#261;cych ruchu API generowanego przez aplikacj&#281;
+                <code>NEX-OMS_device</code> prosimy o kontakt za po&#347;rednictwem
+                <a href="https://multi-click.pl/kontakt">formularza Multi-Click</a>.
+                W wiadomo&#347;ci prosimy poda&#263; nazw&#281; aplikacji i przybli&#380;ony czas zdarzenia.</p>
+            <p>Prosimy nie przesy&#322;a&#263; token&oacute;w dost&#281;pu, hase&#322; ani sekret&oacute;w aplikacji.</p>
+        </section>
+
+        <footer>NEX-OMS &middot; Multi-Click &middot; Informacje o integracji Allegro</footer>
+    </main>
+</body>
+</html>

@@ -103,7 +103,7 @@ class PrestashopOrderImportTest extends TestCase
             ->assertOk()
             ->assertSeeText('13581')
             ->assertSeeText('multi-click.pl')
-            ->assertSee('<div class="nex-value nex-empty">...<span class="inline-pencil">&#9998;</span></div>', false)
+            ->assertSee('<span class="inline-edit-text nex-empty">...</span>', false)
             ->assertSee('<input type="text" name="customer_login" class="form-control form-control-sm" value="">', false)
             ->assertSee('href="https://multi-click.pl/index.php?controller=product&amp;id_product=96"', false)
             ->assertSeeText('JDC02M');

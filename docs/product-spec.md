@@ -2472,3 +2472,35 @@ Wspólne filtry obejmują zakres dat, źródła, statusy i jedną walutę. Zakre
 Źródła PrestaShop są rozdzielane według kont integracji, dzięki czemu `multi-click.pl` jest osobnym wyborem. Zamówienia usunięte do kosza nie uczestniczą w statystykach. Zestaw powiązany z pozycją zamówienia jest liczony jako jedna sprzedana pozycja zestawu i nie jest rozwijany na składniki w statystykach sprzedaży.
 
 Każdy panel wykresu posiada osobny eksport CSV zgodny z aktywnymi filtrami. Raporty używają zapisanych snapshotów zamówień i pozycji. Kwoty są agregowane w groszach bez używania `float`. Podstawowe statystyki nie zmieniają zamówień, produktów, stanów magazynowych ani konfiguracji integracji.
+
+---
+
+# ALLEGRO.2A — ręczny podgląd i import zamówienia
+
+Zakładka `Integracje → Allegro → Zamówienia` pozwala pobrać podgląd po identyfikatorze UUID zamówienia. Podgląd nie tworzy zamówienia OMS. Import wymaga potwierdzenia podglądu ważnego przez 15 minut, przypisanego do połączonego konta i środowiska. Przed zapisem OMS ponownie odczytuje zamówienie. Zmiana danych wymaga ponownego potwierdzenia odświeżonego podglądu.
+
+Import obejmuje kompletne zamówienia `READY_FOR_PROCESSING` realizowane przez sprzedawcę, z płatnością internetową albo pobraniem. Zamówienie otrzymuje własny numer OMS oraz status `new`. Oddzielnie zachowywane są UUID zamówienia Allegro, ID pozycji, numery ofert i identyfikatory płatności. Źródło na liście i karcie pokazuje nazwę konta integracji. Data zakupu pochodzi z pozycji Allegro.
+
+Zachowywane są login, pełny maskowany adres e-mail, telefon, adres dostawy z formularza Allegro, osobne dane fakturowe, punkt odbioru, Smart i żądanie faktury. Przy braku danych fakturowych i braku żądania faktury kopiowany jest adres dostawy. Wiadomość kupującego ma osobne miejsce i nie trafia do uwag sprzedawcy z numerami seryjnymi.
+
+Pozycje zachowują nazwy i ceny po rabatach z Allegro, bez automatycznego dopasowania do katalogu OMS. Usługi dodatkowe są osobnymi pozycjami. VAT pozostaje nieustalony i wymaga sprawdzenia przed wystawieniem faktury. Suma pozycji i dostawy musi odpowiadać kwocie zamówienia. Płatności i dopłaty są zapisywane osobno; pobranie nie oznacza wpłaty. Częściowa wpłata pozostawia zamówienie nieopłacone. Nadpłaty, Allegro Ceny, płatności odroczone, split payment i niezgodne kwoty wymagają odrębnej obsługi i nie są importowane w tym etapie.
+
+Ponowienie importu otwiera istniejące zamówienie bez nadpisania ręcznych zmian i bez ponownego naliczenia wpłat. Kosz, trwałe usunięcie zamówienia albo usunięcie konta integracji nie znoszą ochrony przed duplikatem. Przy późniejszym ręcznym wystawieniu faktury numerem zamówienia jest ID OMS, a numerem płatności są identyfikatory zaksięgowanych wpłat Allegro zapisane w snapshotcie dokumentu.
+
+Etap nie uruchamia automatyzacji, cyklicznego importu, synchronizacji późniejszych płatności i statusów, wystawiania faktur, e-maili, przesyłek ani zmniejszania stanów. Powiązania katalogowe należą do następnego etapu. Import nie wykonuje zapisów do Allegro.
+
+---
+
+# ALLEGRO.2B — powiązania produktów i zestawów
+
+Wspólne okno powiązań na listach Produkty i Zestawy pozwala wybrać połączone konto Allegro obok integracji PrestaShop. Jeden produkt lub zestaw OMS może mieć wiele ofert tego samego konta. Kafelek pokazuje ich liczbę, a kliknięcie otwiera listę z edycją. Przycisk `+` zawsze rozpoczyna dodawanie nowego powiązania. Po zapisie formularz pozostaje otwarty i pokazuje klikalny numer oferty. Wpisywany jest numer oferty Allegro, nie identyfikator produktu w katalogu Allegro ani EAN.
+
+Powiązanie jest przypisane do lokalnej integracji, środowiska i sprzedawcy. Zmiana środowiska lub połączenie innego sprzedawcy nie przenosi poprzednich powiązań. Ten sam numer oferty w tej samej tożsamości integracji może wskazywać tylko jeden produkt lub zestaw OMS. Usunięcie powiązania nie usuwa produktu ani zamówienia. Trwałe usunięcie konta lub produktu usuwa jego konfigurację powiązań, ale nie usuwa historycznych pozycji zamówień.
+
+Zakładka Allegro → Zamówienia ma trzy ustawienia: używanie powiązanych produktów, nazw katalogowych i VAT katalogowego. Domyślnie są włączone. Nowy import przypisuje wewnętrzne ID OMS, udostępnia zdjęcie katalogowe i opcjonalnie kopiuje nazwę oraz VAT. Cena jednostkowa, wartość, ilość, waluta, koszt dostawy i wpłaty pozostają z zamówienia Allegro. Brak powiązania nie blokuje importu i nie tworzy produktu; pozostają oryginalna nazwa i cena. Usługi dodatkowe nie są dopasowywane do oferty głównej.
+
+Automatyczne kopiowanie VAT wymaga jawnego rynku `allegro-pl` oraz obu krajów adresów `PL`. Brak rynku nie jest zastępowany rynkiem bazowym konta na potrzeby VAT. Dla pozostałych przypadków VAT pozostaje pusty z ostrzeżeniem. Stawka katalogowa musi spełniać istniejące reguły walidacji faktur; nie ma domyślnego przypisywania 23% w importerze.
+
+Zestaw pozostaje jedną pozycją z jego ID, nazwą i zdjęciem oraz ceną Allegro. Import utrwala skład zestawu i ilości na jeden zestaw. Nie zmniejsza stanów. Podgląd pokazuje dopasowanie i uwzględnia jego dane w potwierdzeniu; zmiana powiązania, nazwy, VAT, zdjęcia, składu lub ustawień wymaga nowego potwierdzenia. Zmiana ceny lub stanu katalogowego nie zmienia ceny Allegro.
+
+Powiązania dotyczą nowych importów. Ponowienie wcześniej pobranego zamówienia nie uzupełnia ani nie nadpisuje jego pozycji lub dokumentów. Nie dodano podpowiedzi, operacji masowych, synchronizacji stanów i cen ani tworzenia lub modyfikacji ofert Allegro.

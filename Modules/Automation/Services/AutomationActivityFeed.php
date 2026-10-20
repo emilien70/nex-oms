@@ -43,7 +43,7 @@ class AutomationActivityFeed
             ->all();
     }
 
-    private function present(AutomationRun $run): array
+    public function present(AutomationRun $run): array
     {
         $actions = collect($run->rule_snapshot['actions'] ?? []);
         $currentStep = $this->currentStep($run);

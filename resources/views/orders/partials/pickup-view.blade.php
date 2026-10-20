@@ -1,6 +1,22 @@
+@php
+    $pickupRows = [
+        'Nazwa' => ['pickup_point_name', $order->pickup_point_name],
+        'ID' => ['pickup_point_id', $order->pickup_point_id],
+        'Adres' => ['pickup_point_address', $order->pickup_point_address],
+    ];
+@endphp
 <div class="nex-address-grid">
-    <div class="inline-field-row" data-edit-field="pickup_point_name"><div class="nex-label">Nazwa</div><div class="nex-value {{ $order->pickup_point_name ? '' : 'nex-empty' }}">{{ $order->pickup_point_name ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="inline-field-row" data-edit-field="pickup_point_id"><div class="nex-label">ID</div><div class="nex-value {{ $order->pickup_point_id ? '' : 'nex-empty' }}">{{ $order->pickup_point_id ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="inline-field-row" data-edit-field="pickup_point_address"><div class="nex-label">Adres</div><div class="nex-value {{ $order->pickup_point_address ? '' : 'nex-empty' }}">{{ $order->pickup_point_address ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="inline-field-row" data-edit-field="pickup_point_postal_code"><div class="nex-label">Kod i miasto</div><div class="nex-value {{ ($order->pickup_point_postal_code || $order->pickup_point_city) ? '' : 'nex-empty' }}">{{ trim(($order->pickup_point_postal_code ?? '') . ' ' . ($order->pickup_point_city ?? '')) ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
+    @foreach ($pickupRows as $label => [$field, $value])
+        <div class="inline-field-row" data-edit-field="{{ $field }}">
+            <div class="nex-label">{{ $label }}</div>
+            <div class="nex-value">@include('orders.partials.inline-edit-value', compact('field', 'value', 'label'))</div>
+        </div>
+    @endforeach
+    <div class="inline-field-row inline-split-row" data-edit-field="pickup_point_postal_code">
+        <div class="nex-label">Kod i miasto</div>
+        <div class="nex-value inline-postal-city">
+            @include('orders.partials.inline-edit-value', ['field' => 'pickup_point_postal_code', 'value' => $order->pickup_point_postal_code, 'label' => 'Kod pocztowy'])
+            @include('orders.partials.inline-edit-value', ['field' => 'pickup_point_city', 'value' => $order->pickup_point_city, 'label' => 'Miasto'])
+        </div>
+    </div>
 </div>

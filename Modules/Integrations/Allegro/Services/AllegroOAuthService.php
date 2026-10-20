@@ -134,6 +134,7 @@ class AllegroOAuthService
 
         try {
             $response = Http::withBasicAuth((string) $account->client_id, (string) $account->client_secret)
+                ->withUserAgent((string) config('services.allegro.user_agent'))
                 ->asForm()
                 ->timeout((int) config('services.allegro.timeout', 25))
                 ->post($url, $data);

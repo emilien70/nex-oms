@@ -185,6 +185,7 @@ class AllegroShippingClient
         $options = $payload === [] ? [] : ['json' => $payload];
 
         return Http::withToken((string) $account->resolvedApiToken())
+            ->withUserAgent((string) config('services.allegro.user_agent'))
             ->withHeaders(['Accept' => $accept, 'Content-Type' => self::MEDIA_TYPE])
             ->timeout((int) config('services.allegro_shipping.timeout', 25))
             ->send(strtoupper($method), $url, $options);
@@ -216,6 +217,7 @@ class AllegroShippingClient
 
         try {
             $response = Http::withBasicAuth($clientId, $clientSecret)
+                ->withUserAgent((string) config('services.allegro.user_agent'))
                 ->asForm()
                 ->timeout((int) config('services.allegro_shipping.timeout', 25))
                 ->post($url, [

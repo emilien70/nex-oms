@@ -15,6 +15,7 @@
             class="product-integration-link"
             type="button"
             data-integration-list
+            data-integration-type="prestashop"
             data-account-id="{{ $account->getKey() }}"
             data-account-label="{{ $account->name }} (PrestaShop)"
             title="Pokaż powiązania: {{ $account->name }} (PrestaShop) — {{ $links->count() }}"
@@ -26,7 +27,7 @@
             </span>
         </button>
 
-        <div data-integration-group data-account-id="{{ $account->getKey() }}" hidden>
+        <div data-integration-group data-integration-type="prestashop" data-account-id="{{ $account->getKey() }}" hidden>
             @foreach ($links as $link)
                 <span
                     data-integration-link-record
@@ -34,6 +35,20 @@
                     data-external-product-id="{{ $link->external_product_id }}"
                     data-offer-url="{{ $account->productUrl($link->external_product_id) }}"
                 ></span>
+            @endforeach
+        </div>
+    @endforeach
+
+    @foreach ($product->allegroProductLinks->filter(fn ($link) => $link->belongsToCurrentIdentity())->sortBy(fn ($link) => str_pad($link->external_offer_id, 32, '0', STR_PAD_LEFT))->groupBy('allegro_account_id') as $links)
+        @php($account = $links->first()->account)
+        <button class="product-integration-link product-integration-link-allegro" type="button" data-integration-list data-integration-type="allegro"
+            data-account-id="{{ $account->id }}" data-account-label="{{ $account->name }} (Allegro)" title="Pokaż powiązania: {{ $account->name }} (Allegro) - {{ $links->count() }}">
+            <i class="bi bi-bag" aria-hidden="true"></i><span>{{ $account->name }}</span>
+            <span class="product-integration-count" aria-label="Liczba powiązań: {{ $links->count() }}">{{ $links->count() }}</span>
+        </button>
+        <div data-integration-group data-integration-type="allegro" data-account-id="{{ $account->id }}" hidden>
+            @foreach ($links as $link)
+                <span data-integration-link-record data-link-id="{{ $link->id }}" data-external-product-id="{{ $link->external_offer_id }}" data-offer-url="{{ $link->offerUrl() }}"></span>
             @endforeach
         </div>
     @endforeach

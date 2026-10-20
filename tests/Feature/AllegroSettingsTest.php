@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Services\AllegroAccountService;
+use Modules\Integrations\Allegro\Services\AllegroClient;
 use Modules\Integrations\AllegroShipping\Services\AllegroShippingClient;
 use Modules\Shipments\Models\CourierAccount;
 use Tests\TestCase;
@@ -117,6 +118,8 @@ class AllegroSettingsTest extends TestCase
         $this->assertStringNotContainsString('new-shared-access-token', $oauthLogs);
         $this->assertStringNotContainsString('new-shared-refresh-token', $oauthLogs);
         $this->assertStringNotContainsString('private-device-code', $oauthLogs);
+        Http::assertSentCount(5);
+        $this->assertUserAgentSentOnAllRequests();
     }
 
     public function test_authorization_without_required_scopes_is_rejected(): void
@@ -158,7 +161,7 @@ class AllegroSettingsTest extends TestCase
             $queryString = (string) parse_url($request->url(), PHP_URL_QUERY);
             parse_str($queryString, $query);
 
-            if (($query['scope'] ?? null) !== implode(' ', AllegroAccount::REQUIRED_SCOPES)
+            if (($query['scope'] ?? null) !== implode(' ', [...AllegroAccount::REQUIRED_SCOPES, AllegroAccount::BILLING_SCOPE])
                 || str_contains($queryString, '+')
                 || ! str_contains($queryString, '%20')
                 || array_key_exists('scope', $request->data())) {
@@ -277,6 +280,28 @@ class AllegroSettingsTest extends TestCase
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/me')
             && $request->hasHeader('Authorization', 'Bearer refreshed-access-token'));
         Http::assertSentCount(4);
+        $this->assertUserAgentSentOnAllRequests();
+    }
+
+    public function test_unauthorized_order_request_keeps_user_agent_after_refreshing_the_token(): void
+    {
+        $account = $this->connectedAccount();
+        Http::preventStrayRequests();
+        Http::fakeSequence('https://api.allegro.pl/order/checkout-forms/order-id')
+            ->push([], 401)
+            ->push(['id' => 'order-id']);
+        Http::fake([
+            'https://allegro.pl/auth/oauth/token' => Http::response([
+                'access_token' => 'refreshed-access-token',
+                'refresh_token' => 'rotated-refresh-token',
+                'expires_in' => 43200,
+            ]),
+        ]);
+
+        $this->assertSame(['id' => 'order-id'], app(AllegroClient::class)->order($account, 'order-id'));
+        $this->assertSame('refreshed-access-token', $account->fresh()->access_token);
+        Http::assertSentCount(3);
+        $this->assertUserAgentSentOnAllRequests();
     }
 
     public function test_shipping_uses_the_shared_token_without_overwriting_legacy_environment_or_credentials(): void
@@ -312,6 +337,7 @@ class AllegroSettingsTest extends TestCase
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/delivery-services')
             && $request->hasHeader('Authorization', 'Bearer shared-refreshed-access-token'));
         Http::assertSentCount(2);
+        $this->assertUserAgentSentOnAllRequests();
 
         $accounts->disconnect($account);
 
@@ -355,6 +381,14 @@ class AllegroSettingsTest extends TestCase
         $this->assertNull($shipping->allegro_account_id);
         $this->assertSame('legacy-access-token', $shipping->resolvedApiToken());
         $this->assertDatabaseHas('courier_accounts', ['id' => $shipping->id]);
+    }
+
+    private function assertUserAgentSentOnAllRequests(): void
+    {
+        Http::assertNotSent(fn ($request) => ! $request->hasHeader(
+            'User-Agent',
+            'NEX-OMS_device/v1.0.0 (+https://multi-click.pl/nex-oms/doc.html)',
+        ));
     }
 
     private function settingsPayload(): array

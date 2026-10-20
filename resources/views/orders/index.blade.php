@@ -308,6 +308,33 @@
             margin-top: 1px;
         }
 
+        .order-login-copy {
+            background: transparent;
+            border: 0;
+            color: inherit;
+            cursor: pointer;
+            font: inherit;
+            padding: 0;
+            text-align: left;
+        }
+
+        .order-login-copy:focus-visible {
+            outline: 2px solid #0864b1;
+            outline-offset: 2px;
+        }
+
+        .order-login-tooltip {
+            --bs-tooltip-bg: #414b54;
+            --bs-tooltip-border-radius: 2px;
+            --bs-tooltip-font-size: 12px;
+            --bs-tooltip-opacity: 1;
+        }
+
+        .order-login-tooltip .tooltip-inner {
+            padding: 3px 8px;
+            white-space: nowrap;
+        }
+
         .order-source-icon {
             align-items: center;
             border-radius: 3px;
@@ -1156,8 +1183,13 @@
                                     ? $prestashopSourceName
                                     : ($sourceOptions[$order->source] ?? ($order->source ?: '...'));
                                 $sourceDisplayLabel = $order->source === 'allegro'
-                                    ? ($order->customer_login ?: $sourceLabel)
+                                    ? '('.($order->customer_login ?: '...').')'
                                     : $sourceLabel;
+                                $allegroSourceName = '';
+                                if ($order->source === 'allegro' && $order->allegroOrderLink) {
+                                    $allegroSourceName = trim((string) ($order->allegroOrderLink->account?->name ?: $order->allegroOrderLink->account_name));
+                                    $sourceDisplayLabel .= $allegroSourceName !== '' ? ' z '.$allegroSourceName : '';
+                                }
                                 $sourceIconClass = match ($order->source) {
                                     'allegro' => 'source-allegro',
                                     'prestashop' => 'source-prestashop',
@@ -1221,7 +1253,11 @@
                                     <div class="order-customer-name">{{ $order->shipping_name ?: ($order->customer_login ?: '...') }}</div>
                                     <div class="order-subline order-source-line">
                                         <span class="order-source-icon {{ $sourceIconClass }}" aria-hidden="true">{!! $sourceIcon !!}</span>
-                                        <span>{{ $sourceDisplayLabel }}</span>
+                                        @if ($order->source === 'allegro' && filled($order->customer_login))
+                                            <span>(<button type="button" class="order-login-copy" data-order-copy-login="{{ $order->customer_login }}" title="Kopiuj do schowka" aria-label="Kopiuj login {{ $order->customer_login }} do schowka">{{ $order->customer_login }}</button>){{ $allegroSourceName !== '' ? ' z '.$allegroSourceName : '' }}</span>
+                                        @else
+                                            <span>{{ $sourceDisplayLabel }}</span>
+                                        @endif
                                     </div>
                                 </td>
                                 <td>
@@ -1380,6 +1416,46 @@
             if (!ordersPage) {
                 return;
             }
+
+            ordersPage.querySelectorAll('[data-order-copy-login]').forEach((button) => {
+                bootstrap.Tooltip.getOrCreateInstance(button, {
+                    container: 'body',
+                    placement: 'left',
+                    trigger: 'hover',
+                    customClass: 'order-login-tooltip',
+                });
+
+                button.addEventListener('click', async (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    try {
+                        if (navigator.clipboard?.writeText && window.isSecureContext) {
+                            await navigator.clipboard.writeText(button.dataset.orderCopyLogin);
+                            return;
+                        }
+
+                        const input = document.createElement('textarea');
+                        input.value = button.dataset.orderCopyLogin;
+                        input.setAttribute('readonly', 'readonly');
+                        input.style.position = 'fixed';
+                        input.style.opacity = '0';
+                        document.body.appendChild(input);
+
+                        try {
+                            input.select();
+                            if (!document.execCommand('copy')) {
+                                throw new Error('Nie udało się skopiować loginu do schowka.');
+                            }
+                        } finally {
+                            input.remove();
+                            button.focus({ preventScroll: true });
+                        }
+                    } catch (error) {
+                        showRequestError('Nie udało się skopiować loginu do schowka. Sprawdź uprawnienia przeglądarki.');
+                    }
+                });
+            });
 
             const parseOrderIds = (value) => {
                 try {
@@ -2035,6 +2111,9 @@
                         throw new Error('Odpowied\u017a serwera nie zawiera listy zam\u00f3wie\u0144.');
                     }
 
+                    activeOrdersPage.querySelectorAll('[data-order-copy-login]').forEach((button) => {
+                        bootstrap.Tooltip.getInstance(button)?.dispose();
+                    });
                     activeOrdersPage.replaceWith(nextOrdersPage);
                     replaceOrdersContext(nextDocument);
                     const globalSearchInput = document.querySelector('[data-global-order-search-input]');

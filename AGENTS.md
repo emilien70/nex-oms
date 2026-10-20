@@ -1305,3 +1305,28 @@ Formularz wystawienia Korekty przesyła `expected_source_document_id` oraz oczek
 KSeF.0 dodaje nullable `invoices.finalized_at` jako neutralną blokadę domenową treści, a nie status przyjęcia przez KSeF. Finalizować można wyłącznie wystawioną Fakturę VAT lub Korektę; Pro forma nie podlega temu mechanizmowi. Finalizacja jest idempotentna, nie zmienia `lock_version`, numeru, snapshotów, pozycji, cache PDF ani zdarzeń. Zamknięta Faktura lub Korekta jest nieedytowalna i nieusuwalna. Finalizacja bieżącej Korekty usuwa jej slot, dzięki czemu można wystawić kolejne, odrębne ogniwo łańcucha bez wprowadzania `InvoiceRevision` ani historii edycji.
 
 Edycja i usuwanie Korekty zostały dodane później. Zwykła Korekta walutowa korzysta z historycznego kursu zapisanego na Fakturze źródłowej, zapisuje różnicowe podsumowanie w walucie dokumentu i PLN oraz nie pobiera nowego kursu NBP. Automatyzacje, JPK, KSeF, dokumenty zewnętrzne i szczególne korekty rabatów zbiorczych pozostają poza zakresem.
+
+---
+
+# 45. Obowiązkowy User-Agent dla Allegro
+
+Każde żądanie HTTP wysyłane przez NEX-OMS do API lub OAuth Allegro musi zawierać jawny, niepusty nagłówek `User-Agent`. Jest to stała zasada dla obecnych i przyszłych funkcji integracji.
+
+Jedynym źródłem wartości nagłówka w kodzie jest `config('services.allegro.user_agent')`, zdefiniowane w `config/services.php`. Aktualna wartość zatwierdzona przez właściciela:
+
+```text
+NEX-OMS_device/v1.0.0 (+https://multi-click.pl/nex-oms/doc.html)
+```
+
+Zasada obowiązuje w środowisku produkcyjnym i sandbox, w żądaniach z interfejsu, kolejki oraz harmonogramu. Obejmuje w szczególności:
+
+- zamówienia, płatności, szczegóły zamówień oraz prowizje i opłaty,
+- testowanie połączenia i odczyt danych konta,
+- OAuth Device Flow, pobieranie i odnawianie tokenów,
+- Wysyłam z Allegro, w tym tworzenie przesyłek, etykiety, tracking i anulowanie,
+- starszą konfigurację konta kurierskiego oraz wspólne konto integracji,
+- wszystkie ponowienia żądań, także po HTTP 401 i odnowieniu tokenu.
+
+Nie polegaj na domyślnym User-Agent biblioteki HTTP, nie pomijaj nagłówka w nowych klientach i nie duplikuj jego wartości w kodzie produkcyjnym. Korzystaj z `withUserAgent((string) config('services.allegro.user_agent'))` zgodnie z istniejącą implementacją. Nie zmieniaj zatwierdzonej wartości bez decyzji właściciela.
+
+Po dodaniu lub zmianie ścieżki komunikacji z Allegro testy muszą sprawdzać dokładną wartość nagłówka na wszystkich wysyłanych żądaniach, w tym autoryzacji, odpowiedziach binarnych i ponowieniach.

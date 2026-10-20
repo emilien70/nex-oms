@@ -43,9 +43,18 @@
 <address class="mb-0">
     <div class="nex-address-grid">
         @foreach ($rows as $label => $value)
-            <div class="inline-field-row" @if (isset($editFields[$label])) data-edit-field="{{ $editFields[$label] }}" @endif>
+            <div class="inline-field-row {{ $label === 'Kod i miasto' ? 'inline-split-row' : '' }}" @if (isset($editFields[$label])) data-edit-field="{{ $editFields[$label] }}" @endif>
                 <div class="nex-label">{{ $label }}</div>
-            <div class="nex-value {{ $value ? '' : 'nex-empty' }}">{{ $value ?: '...' }}<span class="inline-pencil">&#9998;</span></div>
+                @if ($label === 'Kod i miasto' && isset($editFields['Miasto']))
+                    <div class="nex-value inline-postal-city">
+                        @include('orders.partials.inline-edit-value', ['field' => $editFields[$label] ?? null, 'value' => $address?->postal_code, 'label' => 'Kod pocztowy'])
+                        @include('orders.partials.inline-edit-value', ['field' => $editFields['Miasto'], 'value' => $address?->city, 'label' => 'Miasto'])
+                    </div>
+                @else
+                    <div class="nex-value">
+                        @include('orders.partials.inline-edit-value', ['field' => $editFields[$label] ?? null, 'value' => $value, 'label' => $label])
+                    </div>
+                @endif
             </div>
         @endforeach
     </div>

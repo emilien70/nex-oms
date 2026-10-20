@@ -26,6 +26,10 @@ use Modules\Analytics\Http\Controllers\BasicStatisticsController;
 use Modules\Analytics\Http\Controllers\BasicStatisticsCsvController;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroOrderImportController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroOrderImportSettingsController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroOrderInformationController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroProductLinkController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroSettingsController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterClientController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterInvoiceController;
@@ -115,6 +119,15 @@ Route::post('/integrations/allegro/device/poll', [AllegroSettingsController::cla
 Route::match(['post', 'put'], '/integrations/allegro/device/cancel', [AllegroSettingsController::class, 'cancelDeviceAuthorization'])->name('integrations.allegro.device.cancel');
 Route::post('/integrations/allegro/test-connection', [AllegroSettingsController::class, 'testConnection'])->name('integrations.allegro.test-connection');
 Route::delete('/integrations/allegro/disconnect', [AllegroSettingsController::class, 'disconnect'])->name('integrations.allegro.disconnect');
+Route::post('/integrations/allegro/orders/import', AllegroOrderImportController::class)->name('integrations.allegro.orders.import');
+Route::put('/integrations/allegro/orders/settings', AllegroOrderImportSettingsController::class)->name('integrations.allegro.orders.settings');
+Route::post('/orders/{order}/allegro-information', AllegroOrderInformationController::class)
+    ->middleware('throttle:20,1')->name('orders.allegro-information.refresh');
+Route::post('/orders/{order}/allegro-fees', [AllegroOrderInformationController::class, 'fees'])
+    ->middleware('throttle:20,1')->name('orders.allegro-fees.refresh');
+Route::post('/products/{product}/integrations/allegro/{allegroAccount}', [AllegroProductLinkController::class, 'store'])->name('products.integrations.allegro.store');
+Route::patch('/products/{product}/integrations/allegro/{allegroAccount}/{allegroProductLink}', [AllegroProductLinkController::class, 'update'])->name('products.integrations.allegro.update');
+Route::delete('/products/{product}/integrations/allegro/{allegroAccount}/{allegroProductLink}', [AllegroProductLinkController::class, 'destroy'])->name('products.integrations.allegro.destroy');
 Route::get('/integrations/nex-printer', [NexPrinterSettingsController::class, 'index'])->name('integrations.nex-printer.index');
 Route::post('/integrations/nex-printer/release/download', [NexPrinterSettingsController::class, 'downloadInstaller'])->name('integrations.nex-printer.release.download');
 Route::post('/integrations/nex-printer/pairing-codes', [NexPrinterSettingsController::class, 'createPairingCode'])->name('integrations.nex-printer.pairing-codes.store');

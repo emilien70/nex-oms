@@ -2,6 +2,7 @@
     $prestashopPayments = $order->prestashopOrderLinks
         ->flatMap(fn ($link) => $link->payments)
         ->sortByDesc(fn ($payment) => $payment->paid_at?->getTimestamp() ?? $payment->id);
+    $allegroPayments = $order->allegroOrderLink?->payments ?? collect();
 @endphp
 
 @forelse ($order->payNowPayments as $payment)
@@ -75,6 +76,21 @@
     </div>
 @endforeach
 
-@if ($order->payNowPayments->isEmpty() && $prestashopPayments->isEmpty())
+@foreach ($allegroPayments as $payment)
+    <div class="nex-timeline-item">
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+            <div>
+                <div class="small text-secondary">{{ $payment->paid_at?->format('Y-m-d H:i') ?? $payment->created_at?->format('Y-m-d H:i') }}</div>
+                <div class="fw-semibold">Płatność Allegro</div>
+            </div>
+            <div class="fw-semibold">{{ $payment->amount !== null ? str_replace('.', ',', (string) $payment->amount).' '.$payment->currency : 'Brak wpłaty' }}</div>
+        </div>
+        <div class="small text-secondary mt-1" style="overflow-wrap: anywhere">ID płatności Allegro: {{ $payment->external_payment_id }}</div>
+        <div class="small text-secondary">{{ $payment->type }}{{ $payment->provider ? ' / '.\Modules\Integrations\Allegro\Support\AllegroPaymentProvider::label($payment->provider) : '' }}</div>
+        <div class="small {{ $payment->accounted_at ? 'text-success' : 'text-secondary' }} mt-1">{{ $payment->accounted_at ? 'Zaksięgowano podczas importu' : ($payment->type === 'CASH_ON_DELIVERY' ? 'Pobranie' : 'Płatność niezakończona') }}</div>
+    </div>
+@endforeach
+
+@if ($order->payNowPayments->isEmpty() && $prestashopPayments->isEmpty() && $allegroPayments->isEmpty())
     <div class="text-secondary">Brak zarejestrowanych płatności.</div>
 @endif

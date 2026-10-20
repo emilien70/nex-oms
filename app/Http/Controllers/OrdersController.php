@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Modules\Automation\Services\OrderAutomationHistory;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
@@ -502,7 +503,7 @@ class OrdersController extends Controller
         return Order::query()
             ->when($withItems, fn (Builder $query) => $query
                 ->with('items')
-                ->with('prestashopOrderLinks.account')
+                ->with(['prestashopOrderLinks.account', 'allegroOrderLink.account'])
                 ->withExists(['visibleShipments as shipments_exists']))
             ->when($showTrash, fn (Builder $query) => $query->onlyTrashed())
             ->when(
@@ -700,7 +701,7 @@ class OrdersController extends Controller
         return '%'.str_replace(['%', '_'], ['\%', '\_'], $value).'%';
     }
 
-    public function show(Request $request, Order $order): View
+    public function show(Request $request, Order $order, OrderAutomationHistory $automationHistory): View
     {
         $statuses = OrderStatusSetting::orderedStatuses();
         $navigationStatus = $this->resolveOrderNavigationStatus($request, $order, $statuses);
@@ -714,6 +715,8 @@ class OrdersController extends Controller
             'items.product',
             'items.prestashopItemLink.orderLink.account',
             'prestashopOrderLinks.account',
+            'allegroOrderLink.account',
+            'allegroOrderLink.payments',
             'prestashopOrderLinks.payments' => fn ($query) => $query
                 ->orderByDesc('paid_at')
                 ->orderByDesc('id'),
@@ -731,6 +734,7 @@ class OrdersController extends Controller
 
         return view('orders.show', [
             'order' => $order,
+            'automationHistory' => $automationHistory->forOrder($order, $request->integer('automation_page', 1)),
             'statuses' => $statuses,
             'statusSettings' => OrderStatusSetting::orderedSettings()->keyBy('code'),
             'activeCourierAccounts' => $activeCourierAccounts,

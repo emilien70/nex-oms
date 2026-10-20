@@ -3,6 +3,7 @@
 namespace Modules\Invoices\Services;
 
 use App\Models\Order;
+use Modules\Integrations\Allegro\Models\AllegroOrderPayment;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderPayment;
 
@@ -10,6 +11,14 @@ class InvoicePaymentIdentifierResolver
 {
     public function resolve(Order $order): ?string
     {
+        $allegroIdentifiers = AllegroOrderPayment::query()
+            ->whereHas('orderLink', fn ($query) => $query->where('order_id', $order->id))
+            ->whereNotNull('accounted_at')->where('amount', '>', 0)
+            ->orderBy('paid_at')->orderBy('id')->pluck('external_payment_id')->unique();
+        if ($allegroIdentifiers->isNotEmpty()) {
+            return $allegroIdentifiers->implode(', ');
+        }
+
         $prestashopIdentifiers = PrestashopOrderPayment::query()
             ->whereHas('orderLink', fn ($query) => $query->where('order_id', $order->getKey()))
             ->whereIn('accounting_status', [

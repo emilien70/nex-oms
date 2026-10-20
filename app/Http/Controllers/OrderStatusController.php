@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Modules\Automation\Services\OrderAutomationHistory;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 
@@ -20,6 +21,7 @@ class OrderStatusController extends Controller
     public function __construct(
         private readonly CountryCatalog $countries,
         private readonly OrderSalesDocumentActionsView $salesDocumentActions,
+        private readonly OrderAutomationHistory $automationHistory,
     ) {}
 
     public function state(Request $request, Order $order): JsonResponse
@@ -48,6 +50,8 @@ class OrderStatusController extends Controller
             'items.product',
             'items.prestashopItemLink.orderLink.account',
             'prestashopOrderLinks.account',
+            'allegroOrderLink.account',
+            'allegroOrderLink.payments',
             'shipments' => fn ($query) => $query
                 ->whereNotNull('tracking_number')
                 ->orderByDesc('created_at'),
@@ -68,6 +72,7 @@ class OrderStatusController extends Controller
 
         if ($request?->has('latest_event_id') && (int) $request->query('latest_event_id') !== $latestEventId) {
             $requestedFragments->push('history');
+            $requestedFragments->push('automation-history');
             $requestedFragments->push('payments');
         }
 
@@ -93,11 +98,11 @@ class OrderStatusController extends Controller
             'header_customer' => $order->shipping_name ?: $order->customer_login,
             'star_color' => $order->star_color,
             'fields' => $this->editableFields($order),
-            'fragments' => $this->renderFragments($order, $requestedFragments->unique()),
+            'fragments' => $this->renderFragments($order, $requestedFragments->unique(), $request?->integer('automation_page', 1) ?? 1),
         ])->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 
-    private function renderFragments(Order $order, Collection $requested): array
+    private function renderFragments(Order $order, Collection $requested, int $automationPage): array
     {
         $fragments = [];
 
@@ -119,6 +124,7 @@ class OrderStatusController extends Controller
                     'Firma' => 'shipping_company_name',
                     'Adres' => 'shipping_address_line',
                     'Kod i miasto' => 'shipping_postal_code',
+                    'Miasto' => 'shipping_city',
                     'Kraj' => 'shipping_country_code',
                 ],
             ])->render();
@@ -139,6 +145,7 @@ class OrderStatusController extends Controller
                     'Firma' => 'billing_company_name',
                     'Adres' => 'billing_address_line',
                     'Kod i miasto' => 'billing_postal_code',
+                    'Miasto' => 'billing_city',
                     'Kraj' => 'billing_country_code',
                     'NIP' => 'billing_tax_id',
                 ],
@@ -161,6 +168,12 @@ class OrderStatusController extends Controller
 
         if ($requested->contains('history')) {
             $fragments['history'] = view('orders.partials.history', compact('order'))->render();
+        }
+
+        if ($requested->contains('automation-history')) {
+            $fragments['automation-history'] = view('orders.partials.automation-history', [
+                'automationHistory' => $this->automationHistory->forOrder($order, $automationPage),
+            ])->render();
         }
 
         if ($requested->contains('payments')) {

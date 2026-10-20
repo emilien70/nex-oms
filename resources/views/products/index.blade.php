@@ -344,8 +344,16 @@
         font-size: 12px;
         gap: 5px;
         min-height: 32px;
+        max-width: 240px;
         padding: 5px 8px;
     }
+
+    .product-integration-link > span:not(.product-integration-count),
+    .product-integration-choice > span { min-width: 0; overflow-wrap: anywhere; }
+    .product-integration-link > i,
+    .product-integration-count,
+    .product-integration-choice > i,
+    .product-integration-offer-row > button { flex-shrink: 0; }
 
     .product-integration-link:hover,
     .product-integration-link:focus {
@@ -355,6 +363,7 @@
         outline: 0;
     }
 
+    .product-integration-link-allegro { background: #fff4ec; border-color: #ffd2b5; color: #a33f00; }
     .product-integration-count {
         align-items: center;
         background: #0d6efd;
@@ -435,6 +444,8 @@
     }
 
     .product-integration-offer-link {
+        min-width: 0;
+        overflow-wrap: anywhere;
         font-variant-numeric: tabular-nums;
         font-weight: 650;
         text-decoration: none;
@@ -878,6 +889,9 @@
     data-integration-store-url="{{ route('products.integrations.prestashop.store', ['__product__', '__account__']) }}"
     data-integration-update-url="{{ route('products.integrations.prestashop.update', ['__product__', '__account__', '__link__']) }}"
     data-integration-delete-url="{{ route('products.integrations.prestashop.destroy', ['__product__', '__account__', '__link__']) }}"
+    data-integration-allegro-store-url="{{ route('products.integrations.allegro.store', ['__product__', '__account__']) }}"
+    data-integration-allegro-update-url="{{ route('products.integrations.allegro.update', ['__product__', '__account__', '__link__']) }}"
+    data-integration-allegro-delete-url="{{ route('products.integrations.allegro.destroy', ['__product__', '__account__', '__link__']) }}"
 >
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -889,20 +903,28 @@
                 <div data-integration-choice-step>
                     <div class="fw-semibold mb-3">Wybierz integrację</div>
                     <div class="d-grid gap-2">
-                        @forelse ($prestashopAccounts as $account)
+                        @foreach ($prestashopAccounts as $account)
                             <button
                                 class="product-integration-choice"
                                 type="button"
                                 data-integration-choice
+                                data-integration-type="prestashop"
                                 data-account-id="{{ $account->getKey() }}"
                                 data-account-label="{{ $account->name }} (PrestaShop)"
                             >
                                 <span>{{ $account->name }} (PrestaShop)</span>
                                 <i class="bi bi-chevron-right" aria-hidden="true"></i>
                             </button>
-                        @empty
+                        @endforeach
+                        @foreach ($allegroAccounts as $account)
+                            <button class="product-integration-choice" type="button" data-integration-choice data-integration-type="allegro"
+                                data-account-id="{{ $account->id }}" data-account-label="{{ $account->name }} (Allegro)">
+                                <span>{{ $account->name }} (Allegro)</span><i class="bi bi-chevron-right" aria-hidden="true"></i>
+                            </button>
+                        @endforeach
+                        @if ($prestashopAccounts->isEmpty() && $allegroAccounts->isEmpty())
                             <div class="text-muted small">Brak aktywnych integracji.</div>
-                        @endforelse
+                        @endif
                     </div>
                 </div>
 
@@ -945,7 +967,7 @@
                     </dl>
 
                     <div class="mb-3">
-                        <label class="form-label fw-semibold" for="prestashopExternalProductId">ID produktu w PrestaShop</label>
+                        <label class="form-label fw-semibold" for="prestashopExternalProductId" data-integration-id-label>ID produktu w PrestaShop</label>
                         <input
                             class="form-control"
                             id="prestashopExternalProductId"
@@ -1156,6 +1178,7 @@
         const integrationOffer = integrationModalElement?.querySelector('[data-integration-offer]');
         const integrationOfferEmpty = integrationModalElement?.querySelector('[data-integration-offer-empty]');
         const integrationExternalId = integrationModalElement?.querySelector('[data-integration-external-id]');
+        const integrationIdLabel = integrationModalElement?.querySelector('[data-integration-id-label]');
         const integrationFieldError = integrationModalElement?.querySelector('[data-integration-field-error]');
         const integrationError = integrationModalElement?.querySelector('[data-integration-error]');
         const integrationSuccess = integrationModalElement?.querySelector('[data-integration-success]');
@@ -1168,10 +1191,20 @@
             ? window.bootstrap.Modal.getOrCreateInstance(integrationModalElement)
             : null;
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
-        const integrationStoreUrl = integrationModalElement?.dataset.integrationStoreUrl ?? '';
-        const integrationUpdateUrl = integrationModalElement?.dataset.integrationUpdateUrl ?? '';
-        const integrationDeleteUrl = integrationModalElement?.dataset.integrationDeleteUrl ?? '';
+        const integrationUrls = {
+            prestashop: {
+                store: integrationModalElement?.dataset.integrationStoreUrl ?? '',
+                update: integrationModalElement?.dataset.integrationUpdateUrl ?? '',
+                delete: integrationModalElement?.dataset.integrationDeleteUrl ?? '',
+            },
+            allegro: {
+                store: integrationModalElement?.dataset.integrationAllegroStoreUrl ?? '',
+                update: integrationModalElement?.dataset.integrationAllegroUpdateUrl ?? '',
+                delete: integrationModalElement?.dataset.integrationAllegroDeleteUrl ?? '',
+            },
+        };
         let activeIntegrationCell = null;
+        let activeIntegrationType = 'prestashop';
         let activeIntegrationAccountId = null;
         let activeIntegrationAccountLabel = '';
         let activeIntegrationLinkId = null;
@@ -1244,6 +1277,7 @@
             clearIntegrationError();
             clearIntegrationListSuccess();
             activeIntegrationAccountId = null;
+            activeIntegrationType = 'prestashop';
             activeIntegrationAccountLabel = '';
             activeIntegrationLinkId = null;
 
@@ -1261,7 +1295,8 @@
         const integrationRecords = (accountId) => {
             const group = Array.from(
                 activeIntegrationCell?.querySelectorAll('[data-integration-group]') ?? [],
-            ).find((element) => element.dataset.accountId === String(accountId));
+            ).find((element) => element.dataset.accountId === String(accountId)
+                && element.dataset.integrationType === activeIntegrationType);
 
             return Array.from(group?.querySelectorAll('[data-integration-link-record]') ?? []);
         };
@@ -1350,6 +1385,13 @@
             activeIntegrationAccountLabel = accountLabel;
             activeIntegrationLinkId = record?.dataset.linkId ?? null;
             integrationFormReturnStep = returnStep;
+            const isAllegro = activeIntegrationType === 'allegro';
+            integrationExternalId.type = isAllegro ? 'text' : 'number';
+            integrationExternalId.name = isAllegro ? 'external_offer_id' : 'external_product_id';
+            integrationExternalId.pattern = isAllegro ? '[1-9][0-9]{0,31}' : '';
+            if (isAllegro) integrationExternalId.maxLength = 32;
+            else integrationExternalId.removeAttribute('maxlength');
+            if (integrationIdLabel) integrationIdLabel.textContent = isAllegro ? 'ID oferty Allegro' : 'ID produktu w PrestaShop';
 
             if (integrationProductName) {
                 integrationProductName.textContent = activeIntegrationCell.dataset.productName ?? '';
@@ -1399,6 +1441,7 @@
 
             if (listButton) {
                 activeIntegrationCell = listButton.closest('[data-product-integrations]');
+                activeIntegrationType = listButton.dataset.integrationType ?? 'prestashop';
                 getIntegrationModal()?.show();
                 showIntegrationList(
                     listButton.dataset.accountId,
@@ -1424,12 +1467,15 @@
         });
 
         integrationModalElement?.querySelectorAll('[data-integration-choice]').forEach((choice) => {
-            choice.addEventListener('click', () => showIntegrationForm(
+            choice.addEventListener('click', () => {
+                activeIntegrationType = choice.dataset.integrationType ?? 'prestashop';
+                showIntegrationForm(
                 choice.dataset.accountId,
                 choice.dataset.accountLabel ?? 'PrestaShop',
                 null,
                 'choices',
-            ));
+                );
+            });
         });
 
         integrationListAdd?.addEventListener('click', () => showIntegrationForm(
@@ -1466,7 +1512,7 @@
             try {
                 const isEditing = Boolean(activeIntegrationLinkId);
                 const response = await fetch(integrationUrl(
-                    isEditing ? integrationUpdateUrl : integrationStoreUrl,
+                    integrationUrls[activeIntegrationType][isEditing ? 'update' : 'store'],
                     activeIntegrationCell.dataset.productId,
                     activeIntegrationAccountId,
                     activeIntegrationLinkId,
@@ -1479,13 +1525,13 @@
                         'X-Requested-With': 'XMLHttpRequest',
                     },
                     body: JSON.stringify({
-                        external_product_id: integrationExternalId.value,
+                        [integrationExternalId.name]: integrationExternalId.value,
                     }),
                 });
                 const payload = await response.json().catch(() => ({}));
 
                 if (!response.ok) {
-                    const fieldMessage = payload.errors?.external_product_id?.[0];
+                    const fieldMessage = payload.errors?.[integrationExternalId.name]?.[0];
 
                     if (fieldMessage && integrationFieldError) {
                         integrationExternalId.classList.add('is-invalid');
@@ -1545,7 +1591,7 @@
 
             try {
                 const response = await fetch(integrationUrl(
-                    integrationDeleteUrl,
+                    integrationUrls[activeIntegrationType].delete,
                     activeIntegrationCell.dataset.productId,
                     activeIntegrationAccountId,
                     activeIntegrationLinkId,

@@ -54,8 +54,8 @@
         </header>
 
         <nav class="allegro-tabs" aria-label="Ustawienia Allegro">
-            <a class="allegro-tab active" href="{{ route('integrations.allegro.edit') }}">Połączenie</a>
-            <span class="allegro-tab disabled">Zamówienia</span>
+            <a class="allegro-tab {{ $tab === 'connection' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit') }}">Połączenie</a>
+            <a class="allegro-tab {{ $tab === 'orders' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'orders']) }}">Zamówienia</a>
             <span class="allegro-tab disabled">Statusy</span>
             <span class="allegro-tab disabled">Przesyłki i faktury</span>
         </nav>
@@ -73,6 +73,9 @@
             <div class="alert alert-success py-2 small">{{ session('allegro_connection_success') }}</div>
         @endif
 
+        @if ($tab === 'orders')
+            @include('integrations.allegro._orders')
+        @else
         <section class="allegro-panel">
             <div class="allegro-panel-header">
                 <h2 class="allegro-panel-title">Konto Allegro</h2>
@@ -134,6 +137,12 @@
                             @endforeach
                         </div>
                         <div class="form-text mt-2">Integracja nie prosi o dostęp do tworzenia ani edytowania ofert.</div>
+                        <div class="allegro-scope-list mt-2">
+                            <span class="allegro-scope {{ $account->hasOAuthTokens() && ! $account->hasBillingScope() ? 'is-missing' : '' }}">Odczyt prowizji i opłat</span>
+                        </div>
+                        @if ($account->hasOAuthTokens() && ! $account->hasBillingScope())
+                            <div class="alert alert-warning py-2 small mt-2 mb-0">Prowizje wymagają dodatkowego uprawnienia do odczytu rozliczeń. Włącz je w aplikacji Allegro i wybierz „Połącz ponownie”. Obsługa zamówień pozostaje aktywna.</div>
+                        @endif
                     </div>
 
                     <div class="allegro-device mt-3" id="allegroDevicePanel">
@@ -178,9 +187,10 @@
                 @endif
             </div>
         </section>
+        @endif
     </div>
 
-    @if (is_array($deviceAuthorization))
+    @if ($tab === 'connection' && is_array($deviceAuthorization))
         <script>
             document.addEventListener('DOMContentLoaded', () => {
                 const status = document.getElementById('allegroDeviceStatus');

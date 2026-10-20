@@ -31,6 +31,29 @@ class AllegroClient
         ];
     }
 
+    public function order(AllegroAccount $account, string $identifier): array
+    {
+        if (! $account->isOperational() || blank($account->allegro_user_id)) {
+            throw new AllegroApiException('Najpierw połącz konto Allegro i wykonaj poprawny test połączenia.');
+        }
+
+        return $this->get($account, 'get_order', '/order/checkout-forms/'.rawurlencode($identifier));
+    }
+
+    public function billingEntries(AllegroAccount $account, string $identifier, string $marketplace, int $offset): array
+    {
+        if (! $account->isOperational() || ! $account->hasBillingScope()) {
+            throw new AllegroApiException('Połącz konto Allegro z uprawnieniem do odczytu rozliczeń.');
+        }
+
+        return $this->get($account, 'get_order_fees', '/billing/billing-entries?'.http_build_query([
+            'order.id' => $identifier,
+            'marketplaceId' => $marketplace,
+            'limit' => 100,
+            'offset' => $offset,
+        ], '', '&', PHP_QUERY_RFC3986));
+    }
+
     private function get(AllegroAccount $account, string $operation, string $path): array
     {
         $requestId = (string) Str::uuid();
@@ -47,7 +70,11 @@ class AllegroClient
 
             $payload = is_array($response->json()) ? $response->json() : [];
             $successful = $response->successful();
-            $error = $successful ? null : $this->errorMessage($payload, $response->status());
+            $error = $successful ? null : match ($operation) {
+                'get_order' => $this->orderErrorMessage($response->status()),
+                'get_order_fees' => $this->feesErrorMessage($response->status()),
+                default => $this->errorMessage($payload, $response->status()),
+            };
             $this->log(
                 $operation,
                 $requestId,
@@ -76,7 +103,8 @@ class AllegroClient
     private function perform(AllegroAccount $account, string $url): Response
     {
         return Http::withToken($this->oauth->accessToken($account))
-            ->withHeaders(['Accept' => self::MEDIA_TYPE, 'Content-Type' => self::MEDIA_TYPE])
+            ->withUserAgent((string) config('services.allegro.user_agent'))
+            ->withHeaders(['Accept' => self::MEDIA_TYPE, 'Content-Type' => self::MEDIA_TYPE, 'Accept-Language' => 'pl-PL'])
             ->timeout((int) config('services.allegro.timeout', 25))
             ->get($url);
     }
@@ -94,8 +122,37 @@ class AllegroClient
             : (string) ($payload['message'] ?? 'API Allegro zwróciło błąd HTTP '.$status.'.');
     }
 
+    private function orderErrorMessage(int $status): string
+    {
+        return match ($status) {
+            401 => 'Sesja Allegro wygasła. Połącz konto ponownie.',
+            403 => 'Brak dostępu do tego zamówienia Allegro. Sprawdź konto sprzedawcy i uprawnienia integracji.',
+            404 => 'Nie znaleziono zamówienia Allegro na połączonym koncie.',
+            429 => 'Przekroczono limit zapytań Allegro. Spróbuj ponownie później.',
+            default => 'Nie udało się pobrać zamówienia Allegro (HTTP '.$status.'). Spróbuj ponownie później.',
+        };
+    }
+
+    private function feesErrorMessage(int $status): string
+    {
+        return match ($status) {
+            401 => 'Sesja Allegro wygasła. Połącz konto ponownie.',
+            403 => 'Brak dostępu do rozliczeń Allegro. Włącz odczyt rozliczeń w aplikacji Allegro i ponownie połącz integrację.',
+            429 => 'Przekroczono limit zapytań Allegro. Spróbuj ponownie później.',
+            default => 'Nie udało się pobrać prowizji i opłat Allegro (HTTP '.$status.'). Spróbuj ponownie później.',
+        };
+    }
+
     private function sanitizedResponse(string $operation, array $payload): array
     {
+        if ($operation === 'get_order_fees') {
+            return ['count' => is_array($payload['billingEntries'] ?? null) ? count($payload['billingEntries']) : null];
+        }
+
+        if ($operation === 'get_order') {
+            return collect($payload)->only(['id', 'status', 'revision', 'updatedAt'])->all();
+        }
+
         if ($operation !== 'test_profile') {
             return $payload;
         }

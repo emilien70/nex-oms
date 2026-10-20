@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Products\Http\Requests\SaveProductRequest;
 use Modules\Products\Http\Requests\UpdateProductActiveRequest;
@@ -43,6 +44,7 @@ class ProductController extends Controller
         $query = Product::query()
             ->with([
                 'prestashopProductLinks.account',
+                'allegroProductLinks.account',
                 'bundleComponents.component',
             ])
             ->where('item_type', $itemType)
@@ -79,6 +81,8 @@ class ProductController extends Controller
                 ->orderBy('name')
                 ->orderBy('id')
                 ->get(),
+            'allegroAccounts' => AllegroAccount::query()->where('is_active', true)->orderBy('name')->orderBy('id')->get()
+                ->filter(fn (AllegroAccount $account): bool => $account->isOperational() && filled($account->allegro_user_id)),
         ]);
     }
 

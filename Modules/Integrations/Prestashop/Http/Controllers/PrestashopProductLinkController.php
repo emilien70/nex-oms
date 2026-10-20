@@ -73,7 +73,7 @@ class PrestashopProductLinkController extends Controller
         string $message,
         ?PrestashopProductLink $link = null,
     ): JsonResponse {
-        $product->load('prestashopProductLinks.account');
+        $product->load(['prestashopProductLinks.account', 'allegroProductLinks.account']);
 
         return response()->json([
             'message' => $message,

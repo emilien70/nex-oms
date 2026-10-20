@@ -15,7 +15,9 @@
     $sourceLabel = $prestashopSourceName !== ''
         ? $prestashopSourceName
         : ($sourceOptions[$order->source] ?? $order->source);
-    $customerLogin = $order->customer_login ?: '...';
+    if ($order->source === 'allegro' && $order->allegroOrderLink) {
+        $sourceLabel = $order->allegroOrderLink->account?->name ?: $order->allegroOrderLink->account_name;
+    }
 @endphp
 
 <div class="paid-amount-row" data-paid-view>
@@ -63,18 +65,30 @@
     <button class="mini-icon-button" type="button" data-paid-cancel aria-label="Anuluj edycj&#281; wp&#322;aty">&#10005;</button>
 </form>
 
-<div class="order-info-section">
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="customer_login"><div class="nex-label">Klient (login):</div><div class="nex-value {{ $order->customer_login ? '' : 'nex-empty' }}">{{ $customerLogin }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="customer_email"><div class="nex-label">E-mail:</div><div class="nex-value {{ $order->customer_email ? '' : 'nex-empty' }}">{{ $order->customer_email ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="customer_phone"><div class="nex-label">Telefon:</div><div class="nex-value {{ $order->customer_phone ? '' : 'nex-empty' }}">{{ $order->customer_phone ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="source"><div class="nex-label">&#377;r&oacute;d&#322;o:</div><div class="nex-value">{{ $sourceLabel }}<span class="inline-pencil">&#9998;</span></div></div>
-</div>
-<div class="order-info-section">
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="shipping_method"><div class="nex-label">Spos&oacute;b wysy&#322;ki:</div><div class="nex-value {{ $order->shipping_method ? '' : 'nex-empty' }}">{{ $order->shipping_method ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="cash_on_delivery"><div class="nex-label">Pobranie:</div><div class="nex-value">{{ $order->cash_on_delivery ? 'Tak' : 'Nie' }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="delivery_cost_gross"><div class="nex-label">Koszt wysy&#322;ki:</div><div class="nex-value">{{ $moneyValue($order->delivery_cost_gross) }} {{ $order->currency }}<span class="inline-pencil">&#9998;</span></div></div>
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="payment_method"><div class="nex-label">Spos&oacute;b p&#322;atno&#347;ci:</div><div class="nex-value {{ $order->payment_method ? '' : 'nex-empty' }}">{{ $order->payment_method ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-</div>
-<div class="order-info-section">
-    <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="notes"><div class="nex-label">Uwagi:</div><div class="nex-value {{ $order->notes ? '' : 'nex-empty' }}">{{ $order->notes ?: '...' }}<span class="inline-pencil">&#9998;</span></div></div>
-</div>
+@php
+    $infoSections = [
+        [
+            'customer_login' => ['Klient (login):', $order->customer_login],
+            'customer_email' => ['E-mail:', $order->customer_email],
+            'customer_phone' => ['Telefon:', $order->customer_phone],
+            'source' => ['Źródło:', $sourceLabel],
+        ],
+        [
+            'shipping_method' => ['Sposób wysyłki:', $order->shipping_method],
+            'cash_on_delivery' => ['Pobranie:', $order->cash_on_delivery ? 'Tak' : 'Nie'],
+            'delivery_cost_gross' => ['Koszt wysyłki:', $moneyValue($order->delivery_cost_gross).' '.$order->currency],
+            'payment_method' => ['Sposób płatności:', $order->payment_method],
+        ],
+        ['notes' => ['Uwagi:', $order->notes]],
+    ];
+@endphp
+@foreach ($infoSections as $infoRows)
+    <div class="order-info-section">
+        @foreach ($infoRows as $field => [$label, $value])
+            <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="{{ $field }}">
+                <div class="nex-label">{{ $label }}</div>
+                <div class="nex-value">@include('orders.partials.inline-edit-value', compact('field', 'label', 'value'))</div>
+            </div>
+        @endforeach
+    </div>
+@endforeach

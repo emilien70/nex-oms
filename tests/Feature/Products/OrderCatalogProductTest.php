@@ -70,7 +70,7 @@ class OrderCatalogProductTest extends TestCase
 
         $this->get(route('orders.show', $order))
             ->assertOk()
-            ->assertSee('ID prod.')
+            ->assertSee('ID PROD.')
             ->assertSee('bi bi-camera', false)
             ->assertSee($escapedProductListUrl, false)
             ->assertSee($thumbnailUrl, false)

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Modules\Integrations\AllegroShipping\Drivers\AllegroShippingDriver;
 use Modules\Integrations\AllegroShipping\Jobs\CreateAllegroShipmentJob;
+use Modules\Integrations\AllegroShipping\Services\AllegroShippingClient;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\CourierDriverRegistry;
@@ -88,6 +89,28 @@ class AllegroShippingTest extends TestCase
             'device-access-token-long-enough',
             (string) \DB::table('integration_api_logs')->where('operation', 'device_authorization_poll')->value('response_payload'),
         );
+        Http::assertSentCount(2);
+        $this->assertUserAgentSentOnAllRequests();
+    }
+
+    public function test_legacy_shipping_keeps_user_agent_during_token_refresh_and_retry(): void
+    {
+        $account = $this->account();
+        Http::preventStrayRequests();
+        Http::fakeSequence('https://api.allegro.pl.allegrosandbox.pl/shipment-management/delivery-services')
+            ->push([], 401)
+            ->push(['services' => []]);
+        Http::fake([
+            'https://allegro.pl.allegrosandbox.pl/auth/oauth/token' => Http::response([
+                'access_token' => 'refreshed-shipping-access-token',
+                'refresh_token' => 'rotated-shipping-refresh-token',
+            ]),
+        ]);
+
+        $this->assertSame(['services' => []], app(AllegroShippingClient::class)->testConnection($account));
+        $this->assertSame('refreshed-shipping-access-token', $account->fresh()->api_token);
+        Http::assertSentCount(3);
+        $this->assertUserAgentSentOnAllRequests();
     }
 
     public function test_form_uses_delivery_proposal_for_allegro_order(): void
@@ -255,6 +278,7 @@ class AllegroShippingTest extends TestCase
 
         $label = app(CourierDriverRegistry::class)->forShipment($shipment)->label($shipment);
         $this->assertSame('%PDF-ALLEGRO', $label->body());
+        $this->assertUserAgentSentOnAllRequests();
     }
 
     public function test_manual_order_cannot_use_allegro_shipping(): void
@@ -357,6 +381,15 @@ class AllegroShippingTest extends TestCase
             'shipment_id' => $shipment->id,
             'operation' => 'get_tracking',
         ]);
+        $this->assertUserAgentSentOnAllRequests();
+    }
+
+    private function assertUserAgentSentOnAllRequests(): void
+    {
+        Http::assertNotSent(fn ($request) => ! $request->hasHeader(
+            'User-Agent',
+            'NEX-OMS_device/v1.0.0 (+https://multi-click.pl/nex-oms/doc.html)',
+        ));
     }
 
     private function account(): CourierAccount

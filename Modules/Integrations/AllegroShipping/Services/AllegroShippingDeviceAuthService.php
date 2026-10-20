@@ -113,6 +113,7 @@ class AllegroShippingDeviceAuthService
 
         try {
             $response = Http::withBasicAuth($clientId, $clientSecret)
+                ->withUserAgent((string) config('services.allegro.user_agent'))
                 ->asForm()
                 ->timeout((int) config('services.allegro_shipping.timeout', 25))
                 ->post($url, $data);

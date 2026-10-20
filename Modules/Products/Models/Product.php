@@ -6,6 +6,7 @@ use App\Models\OrderItem;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\Integrations\Allegro\Models\AllegroProductLink;
 use Modules\Integrations\Prestashop\Models\PrestashopProductLink;
 use Modules\Invoices\Models\InvoiceItem;
 
@@ -68,6 +69,11 @@ class Product extends Model
     public function prestashopProductLinks(): HasMany
     {
         return $this->hasMany(PrestashopProductLink::class);
+    }
+
+    public function allegroProductLinks(): HasMany
+    {
+        return $this->hasMany(AllegroProductLink::class);
     }
 
     public function bundleComponents(): HasMany

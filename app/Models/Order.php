@@ -2,12 +2,16 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Modules\Automation\Models\AutomationRun;
+use Modules\Integrations\Allegro\Models\AllegroOrderLink;
+use Modules\Integrations\Allegro\Support\AllegroPaymentProvider;
 use Modules\Integrations\PayNow\Models\PayNowPayment;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderLink;
 use Modules\Invoices\Models\Invoice;
@@ -89,6 +93,12 @@ class Order extends Model
         'purchased_at' => 'datetime',
         'paid_at' => 'datetime',
     ];
+
+    protected function paymentMethod(): Attribute
+    {
+        return Attribute::get(fn (?string $value, array $attributes): ?string => ($attributes['source'] ?? null) === 'allegro' ? AllegroPaymentProvider::label($value) : $value
+        );
+    }
 
     protected static function booted(): void
     {
@@ -225,6 +235,11 @@ class Order extends Model
     public function prestashopOrderLinks(): HasMany
     {
         return $this->hasMany(PrestashopOrderLink::class);
+    }
+
+    public function allegroOrderLink(): HasOne
+    {
+        return $this->hasOne(AllegroOrderLink::class);
     }
 
     public function invoices(): HasMany

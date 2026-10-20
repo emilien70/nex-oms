@@ -6,22 +6,55 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
+use Modules\Integrations\Allegro\Exceptions\AllegroImportException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Services\AllegroAccountService;
 use Modules\Integrations\Allegro\Services\AllegroClient;
 use Modules\Integrations\Allegro\Services\AllegroOAuthService;
+use Modules\Integrations\Allegro\Services\AllegroOrderPreviewService;
 
 class AllegroSettingsController extends Controller
 {
     private const SESSION_KEY = 'allegro_account_device_authorization';
 
-    public function edit(AllegroAccountService $accounts): View
+    public function edit(Request $request, AllegroAccountService $accounts, AllegroOrderPreviewService $previews): View
     {
+        $account = $accounts->get();
+        $tab = $request->query('tab') === 'orders' ? 'orders' : 'connection';
+        $preview = null;
+        $previewError = null;
+        $identifier = is_string($request->query('order_identifier')) ? strtolower(trim($request->query('order_identifier'))) : '';
+        if ($tab === 'orders' && $identifier !== '') {
+            $request->session()->forget('allegro_order_preview');
+            if (! Str::isUuid($identifier)) {
+                $previewError = 'Wpisz prawidłowy identyfikator zamówienia Allegro (UUID).';
+            } else {
+                try {
+                    $preview = $previews->preview($account, $identifier);
+                    $request->session()->put('allegro_order_preview', [
+                        'account_id' => $account->id,
+                        'seller_user_id' => $account->allegro_user_id,
+                        'environment' => $account->environment,
+                        'identifier' => $identifier,
+                        'hash' => $preview['source_hash'],
+                        'expires_at' => now()->addMinutes(15)->timestamp,
+                    ]);
+                } catch (AllegroApiException|AllegroImportException $exception) {
+                    $previewError = $exception->getMessage();
+                }
+            }
+        }
+
         return view('integrations.allegro.edit', [
-            'account' => $accounts->get(),
+            'account' => $account,
             'requiredScopes' => AllegroAccount::REQUIRED_SCOPES,
+            'tab' => $tab,
+            'orderIdentifier' => $identifier,
+            'orderPreview' => $preview,
+            'orderPreviewError' => $previewError,
         ]);
     }
 
