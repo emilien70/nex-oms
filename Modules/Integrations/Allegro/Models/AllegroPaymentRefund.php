@@ -8,6 +8,7 @@ use Brick\Math\BigDecimal;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class AllegroPaymentRefund extends Model
 {
@@ -40,6 +41,11 @@ class AllegroPaymentRefund extends Model
     public function events(): HasMany
     {
         return $this->hasMany(AllegroPaymentRefundEvent::class)->orderByDesc('id');
+    }
+
+    public function command(): HasOne
+    {
+        return $this->hasOne(AllegroRefundCommand::class);
     }
 
     public function statusLabel(): string

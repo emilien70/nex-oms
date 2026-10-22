@@ -17,9 +17,13 @@ class AllegroOAuthService
     public function start(AllegroAccount $account): array
     {
         $this->assertApplicationCredentials($account);
+        $scopes = array_values(array_diff($this->parseScopes((string) config('services.allegro.scopes')), [AllegroAccount::PAYMENTS_WRITE_SCOPE]));
+        if ($account->refund_write_scope_requested) {
+            $scopes[] = AllegroAccount::PAYMENTS_WRITE_SCOPE;
+        }
         $query = http_build_query([
             'client_id' => $account->client_id,
-            'scope' => (string) config('services.allegro.scopes'),
+            'scope' => implode(' ', $scopes),
         ], '', '&', PHP_QUERY_RFC3986);
 
         $response = $this->oauthRequest(

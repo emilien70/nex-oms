@@ -8,6 +8,8 @@ use Illuminate\Support\Str;
 use Modules\Integrations\Allegro\Enums\AllegroFulfillmentStatus;
 use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Models\AllegroCommissionRefundClaim;
+use Modules\Integrations\Allegro\Models\AllegroRefundCommand;
 use Modules\Shipments\Models\IntegrationApiLog;
 use Throwable;
 
@@ -111,9 +113,58 @@ class AllegroClient
         return $this->get($account, 'get_order_shipments', '/order/checkout-forms/'.rawurlencode($identifier).'/shipments');
     }
 
+    public function initiateRefund(AllegroAccount $account, AllegroRefundCommand $command): array
+    {
+        $payload = $command->payload;
+        if (! $account->isOperational() || ! $account->refund_write_enabled
+            || $account->refund_write_identity !== $account->orderImportIdentity()
+            || ! in_array(AllegroAccount::PAYMENTS_WRITE_SCOPE, $account->granted_scopes ?? [], true)
+            || ! in_array(AllegroAccount::PAYMENTS_READ_SCOPE, $account->granted_scopes ?? [], true)
+            || ! $command->exists || $command->state !== 'sending' || ! $command->started_at
+            || $command->allegro_account_id !== $account->id || $command->environment !== $account->environment
+            || $command->seller_user_id !== $account->allegro_user_id || $command->configuration_revision !== $account->refund_write_revision
+            || $command->payload_hash !== AllegroRefundContextService::hash($payload)
+            || $command->command_id !== ($payload['commandId'] ?? null) || ! Str::isUuid($payload['commandId'] ?? '')) {
+            throw new AllegroApiException('Zlecanie zwrotów wpłat jest wyłączone lub brak wymaganych uprawnień.', 403);
+        }
+
+        return $this->request($account, 'initiate_payment_refund', '/payments/refunds', 'POST', $payload);
+    }
+
     public function carriers(AllegroAccount $account): array
     {
         return $this->get($account, 'get_order_carriers', '/order/carriers');
+    }
+
+    public function commissionRefundClaims(AllegroAccount $account, array $query): array
+    {
+        if (! $account->isOperational()) {
+            throw new AllegroApiException('Brak aktywnego połączenia z kontem Allegro.', 403);
+        }
+
+        return $this->get($account, 'get_commission_refund_claims', '/order/refund-claims?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986));
+    }
+
+    public function commissionRefundClaim(AllegroAccount $account, string $id): array
+    {
+        if (! $account->isOperational()) {
+            throw new AllegroApiException('Brak aktywnego połączenia z kontem Allegro.', 403);
+        }
+
+        return $this->get($account, 'get_commission_refund_claim', '/order/refund-claims/'.rawurlencode($id));
+    }
+
+    public function createCommissionRefundClaim(AllegroAccount $account, AllegroCommissionRefundClaim $claim): array
+    {
+        if (! $account->isOperational() || ! $claim->exists || $claim->state !== 'sending' || ! $claim->started_at
+            || $account->id !== $claim->allegro_account_id || $account->environment !== $claim->environment
+            || $account->allegro_user_id !== $claim->seller_user_id
+            || AllegroCommissionRefundService::accountIdentity($account) !== $claim->account_identity) {
+            throw new AllegroApiException('Konto lub wniosek zmieniły się przed wysłaniem.', 403);
+        }
+
+        return $this->request($account, 'create_commission_refund_claim', '/order/refund-claims', 'POST',
+            ['lineItem' => ['id' => $claim->line_item_id], 'quantity' => $claim->quantity]);
     }
 
     public function addOrderShipment(AllegroAccount $account, string $identifier, string $carrierId, string $waybill, array $lineItemIds): array
@@ -146,7 +197,17 @@ class AllegroClient
 
             if ($response->status() === 401) {
                 $this->oauth->refresh($account);
-                $response = $this->perform($account->fresh(), $url, $method, $data, $file);
+                $freshAccount = $account->fresh();
+                if ($operation === 'initiate_payment_refund' && ($freshAccount->orderImportIdentity() !== $account->orderImportIdentity()
+                    || $freshAccount->refund_write_revision !== $account->refund_write_revision || ! $freshAccount->refund_write_enabled
+                    || ! $freshAccount->isOperational() || ! in_array(AllegroAccount::PAYMENTS_WRITE_SCOPE, $freshAccount->granted_scopes ?? [], true))) {
+                    throw new AllegroApiException('Konto zmieniło się podczas autoryzacji refundacji.');
+                }
+                if ($operation === 'create_commission_refund_claim' && (! $freshAccount->isOperational()
+                    || AllegroCommissionRefundService::accountIdentity($freshAccount) !== AllegroCommissionRefundService::accountIdentity($account))) {
+                    throw new AllegroApiException('Konto zmieniło się podczas autoryzacji wniosku o prowizję.');
+                }
+                $response = $this->perform($freshAccount, $url, $method, $data, $file);
             }
 
             $payload = is_array($response->json()) ? $response->json() : [];
@@ -159,6 +220,8 @@ class AllegroClient
                 'get_order_invoices', 'upload_order_invoice' => $this->invoiceErrorMessage($response->status()),
                 'get_customer_returns', 'get_customer_return' => 'Nie udało się pobrać zwrotów Allegro (HTTP '.$response->status().').',
                 'get_payment_refunds' => 'Nie udało się pobrać refundacji Allegro (HTTP '.$response->status().').',
+                'initiate_payment_refund' => 'Allegro odpowiedziało na zlecenie zwrotu wpłaty kodem HTTP '.$response->status().'.',
+                'create_commission_refund_claim', 'get_commission_refund_claim', 'get_commission_refund_claims' => 'Nie udało się obsłużyć wniosku o zwrot prowizji (HTTP '.$response->status().').',
                 default => $this->errorMessage($payload, $response->status()),
             };
             $this->log(
@@ -181,6 +244,14 @@ class AllegroClient
         } catch (AllegroApiException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
+            if (in_array($operation, ['create_commission_refund_claim', 'get_commission_refund_claim', 'get_commission_refund_claims'], true)) {
+                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Nie potwierdzono wyniku obsługi wniosku o zwrot prowizji.', $method);
+                throw new AllegroApiException('Nie potwierdzono wyniku obsługi wniosku o zwrot prowizji.');
+            }
+            if (in_array($operation, ['initiate_payment_refund', 'get_payment_refunds'], true)) {
+                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Nie potwierdzono wyniku połączenia dotyczącego refundacji.', $method);
+                throw new AllegroApiException('Nie potwierdzono wyniku połączenia dotyczącego refundacji.');
+            }
             if (in_array($operation, ['get_customer_returns', 'get_customer_return'], true)) {
                 $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Błąd połączenia podczas pobierania zwrotów.', $method);
                 throw new AllegroApiException('Nie udało się połączyć z Allegro podczas pobierania zwrotów.');
@@ -288,6 +359,12 @@ class AllegroClient
 
     private function sanitizedResponse(string $operation, array $payload): array
     {
+        if (in_array($operation, ['create_commission_refund_claim', 'get_commission_refund_claim', 'get_commission_refund_claims'], true)) {
+            return [];
+        }
+        if ($operation === 'initiate_payment_refund') {
+            return [];
+        }
         if ($operation === 'get_payment_refunds') {
             return ['count' => is_array($payload['refunds'] ?? null) ? count($payload['refunds']) : null];
         }

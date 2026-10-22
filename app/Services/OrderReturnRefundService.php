@@ -10,7 +10,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\Allegro\Models\AllegroPaymentRefund;
+use Modules\Integrations\Allegro\Models\AllegroRefundCommand;
 
 class OrderReturnRefundService
 {
@@ -104,12 +106,23 @@ class OrderReturnRefundService
 
         return ['current' => $current, 'products_max' => (string) ($maxProducts->isNegative() ? BigDecimal::zero()->toScale(2) : $maxProducts),
             'delivery_max' => (string) ($maxDelivery->isNegative() ? BigDecimal::zero()->toScale(2) : $maxDelivery),
-            'can_allocate' => $refund->status === 'SUCCESS' && $refund->products_value !== null && ! $refund->sync_error && $refund->currency === $return->currency];
+            'managed' => $refund->command !== null,
+            'can_allocate' => ! $refund->command && $refund->status === 'SUCCESS' && $refund->products_value !== null && ! $refund->sync_error && $refund->currency === $return->currency];
     }
 
     public function allocate(int $returnId, int $refundId, array $data): void
     {
         DB::transaction(function () use ($returnId, $refundId, $data): void {
+            $identity = $this->identity(OrderReturn::query()->findOrFail($returnId));
+            if ($identity) {
+                AllegroOrderLink::query()->where($identity)->lockForUpdate()->first();
+                if (AllegroRefundCommand::query()->where($identity)->whereIn('state', AllegroRefundCommand::RESERVING_STATES)->exists()) {
+                    $this->invalid('Zwrot wpłaty jest w toku lub wymaga sprawdzenia. Przypisania są chwilowo zablokowane.');
+                }
+            }
+            if (AllegroRefundCommand::query()->where('allegro_payment_refund_id', $refundId)->exists()) {
+                $this->invalid('To przypisanie jest obsługiwane przez zlecenie zwrotu wpłaty OMS i nie może być zmieniane ręcznie.');
+            }
             // The refund lock serializes allocations of the same money, including different return cards.
             $refund = AllegroPaymentRefund::query()->lockForUpdate()->findOrFail($refundId);
             $return = OrderReturn::query()->lockForUpdate()->findOrFail($returnId);

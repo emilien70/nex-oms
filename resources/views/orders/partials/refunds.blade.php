@@ -5,6 +5,13 @@
     $refundMoney = app(\Modules\Invoices\Services\InvoiceMoneyFormatter::class);
 @endphp
 @if ($refundIdentity)
+    @php
+        $refundCommands = \Modules\Integrations\Allegro\Models\AllegroRefundCommand::query()->where($refundIdentity)->where('state', '!=', 'draft')->latest('id')->paginate(20, ['*'], 'order_command_page')->withQueryString();
+    @endphp
+    @if ($refundCommands->isNotEmpty())
+        <h3 class="h6 mt-3">Zlecenia zwrotu wpłaty OMS</h3>
+        @include('returns._refund-commands')
+    @endif
     <h3 class="h6 mt-3">Zwroty wpłat Allegro</h3>
     @forelse ($orderRefunds as $refund)
         <div class="nex-timeline-item">

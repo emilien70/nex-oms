@@ -42,6 +42,20 @@
     <div class="returns-grid">
         <section class="returns-card">
             <h2>Informacje o zwrocie</h2>
+            @if ($refundWriteAccount)
+                <div class="d-flex flex-wrap gap-2 px-3 mb-3">
+                    @if ($refundWriteAccount->refund_write_enabled)
+                        <a class="btn btn-sm btn-outline-primary" href="{{ route('returns.refund-payment.create', $orderReturn) }}"><i class="bi bi-cash-coin me-1" aria-hidden="true"></i>Zwróć wpłatę</a>
+                    @else
+                        <button class="btn btn-sm btn-outline-secondary" type="button" disabled title="Ręczne zwroty wpłat są wyłączone w integracji Allegro"><i class="bi bi-cash-coin me-1" aria-hidden="true"></i>Zwróć wpłatę</button>
+                    @endif
+                    @if ($refundWriteAccount->isOperational() && $order && ! $order->trashed())
+                        <a class="btn btn-sm btn-outline-primary" href="{{ route('returns.commission-refund.create', $orderReturn) }}"><i class="bi bi-percent me-1" aria-hidden="true"></i>Zwrot Prowizji</a>
+                    @else
+                        <button class="btn btn-sm btn-outline-secondary" type="button" disabled title="Wymagane aktywne konto Allegro i powiązane zamówienie"><i class="bi bi-percent me-1" aria-hidden="true"></i>Zwrot Prowizji</button>
+                    @endif
+                </div>
+            @endif
             <form method="POST" action="{{ route('returns.status', $orderReturn) }}" class="d-flex gap-2 px-3 mb-3">@csrf @method('PATCH')<input type="hidden" name="expected_lock_version" value="{{ $orderReturn->lock_version }}"><label class="visually-hidden" for="localReturnStatus">Status zwrotu</label><select class="form-select form-select-sm" id="localReturnStatus" name="local_status_id">@foreach ($returnStatuses as $returnStatus)<option value="{{ $returnStatus->id }}" @selected($orderReturn->local_status_id === $returnStatus->id)>{{ $returnStatus->name }}</option>@endforeach</select><button class="btn btn-sm btn-outline-secondary" type="submit" title="Zmień status zwrotu" aria-label="Zmień status zwrotu"><i class="bi bi-check-lg"></i></button></form>
             <div class="returns-body"><dl class="returns-fields mb-0">
                 <dt>Status:</dt><dd><span class="returns-badge" style="background:{{ $orderReturn->localStatus?->color ?? '#9ca3af' }};color:{{ $orderReturn->localStatus?->textColor() ?? '#fff' }}">{{ $orderReturn->localStatusLabel() }}</span></dd>
@@ -100,6 +114,20 @@
         </section>
     </div>
 
+    @if ($refundCommands->isNotEmpty())
+        <section class="returns-card returns-section">
+            <h2>Zlecenia zwrotu wpłaty</h2>
+            <div class="returns-body">
+                @include('returns._refund-commands')
+            </div>
+        </section>
+    @endif
+    @if ($commissionClaims->isNotEmpty())
+        <section class="returns-card returns-section">
+            <h2>Zwroty prowizji Allegro</h2>
+            <div class="returns-body">@include('returns._commission-refunds')</div>
+        </section>
+    @endif
     <section class="returns-card returns-section">
         <h2>Przesyłki (zamówienie)</h2>
         <div class="returns-body returns-table-wrap"><table class="returns-small-table">
@@ -151,6 +179,8 @@
                                 Utworzono zwrot ręcznie:
                             @elseif ($event->type === 'refund_allocation_changed')
                                 Zmieniono przypisanie refundacji:
+                            @elseif ($event->type === 'allegro_commission_claim')
+                                Zwrot prowizji:
                             @elseif (in_array($event->type, ['status_changed', 'local_status_changed'], true))
                                 Zmieniono status:
                             @else
@@ -158,6 +188,7 @@
                             @endif
                             {{ \App\Models\OrderReturn::STATUSES[$event->status] ?? $event->status }}
                             @if ($event->type === 'refund_allocation_changed')<br>Produkty: {{ $money->format($event->data['products']) }} {{ $event->data['currency'] }}; dostawa: {{ $money->format($event->data['delivery']) }} {{ $event->data['currency'] }}@endif
+                            @if ($event->type === 'allegro_commission_claim')<br>{{ $event->data['product_name'] ?? '' }} · Ilość: {{ $event->data['quantity'] ?? '' }}@endif
                         </li>
                     @endforeach
                     </ul>

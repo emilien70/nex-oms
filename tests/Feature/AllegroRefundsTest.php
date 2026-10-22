@@ -285,7 +285,7 @@ class AllegroRefundsTest extends TestCase
         $this->assertDatabaseCount('allegro_payment_refunds', 1);
     }
 
-    public function test_populated_views_show_separate_shipping_and_no_payment_execution_controls(): void
+    public function test_populated_views_show_separate_shipping_and_disabled_payment_execution(): void
     {
         $account = $this->account();
         $order = $this->order($account);
@@ -295,7 +295,8 @@ class AllegroRefundsTest extends TestCase
         $refund = $this->store($account, $raw);
         $this->get(route('returns.show', $return))->assertOk()->assertSee('Historia płatności zwrotu')
             ->assertSee('Zapisz przypisanie')->assertSee('Dostawa')->assertSee('70,02')->assertSee('60,02')->assertSee('10,00')
-            ->assertSee($raw['sellerComment'])->assertDontSee($raw['sellerComment'], false)->assertDontSee('Zwróć wpłatę');
+            ->assertSee($raw['sellerComment'])->assertDontSee($raw['sellerComment'], false)
+            ->assertSee('Ręczne zwroty wpłat są wyłączone w integracji Allegro')->assertDontSee(route('returns.refund-payment.create', $return), false);
         $this->get(route('orders.show', $order))->assertOk()->assertSee('Zwroty wpłat Allegro')->assertSee(Fixture::ID);
         $this->get(route('integrations.allegro.edit', ['tab' => 'returns']))->assertOk()->assertSee('Pobieraj zwroty wpłat');
         $this->assertTrue($refund->fresh()->requested_at->equalTo('2026-10-21T11:00:00.292Z'));

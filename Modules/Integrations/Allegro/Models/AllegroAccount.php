@@ -20,6 +20,8 @@ class AllegroAccount extends Model
 
     public const PAYMENTS_READ_SCOPE = 'allegro:api:payments:read';
 
+    public const PAYMENTS_WRITE_SCOPE = 'allegro:api:payments:write';
+
     public const REQUIRED_SCOPES = [
         'allegro:api:profile:read',
         'allegro:api:orders:read',
@@ -47,6 +49,9 @@ class AllegroAccount extends Model
         'refunds_enabled' => false,
         'refunds_revision' => 0,
         'refunds_scan_offset' => 0,
+        'refund_write_scope_requested' => false,
+        'refund_write_enabled' => false,
+        'refund_write_revision' => 0,
     ];
 
     protected $fillable = [
@@ -96,6 +101,7 @@ class AllegroAccount extends Model
         'refunds_enabled', 'refunds_from_at', 'refunds_identity', 'refunds_revision',
         'refunds_scan_offset', 'refunds_scan_until', 'refunds_last_scan_at', 'refunds_error',
         'refunds_retry_after',
+        'refund_write_scope_requested', 'refund_write_enabled', 'refund_write_identity', 'refund_write_revision',
     ];
 
     protected $hidden = [
@@ -137,6 +143,7 @@ class AllegroAccount extends Model
         'refunds_from_at' => 'immutable_datetime', 'refunds_scan_until' => 'immutable_datetime',
         'refunds_last_scan_at' => 'immutable_datetime',
         'refunds_retry_after' => 'immutable_datetime',
+        'refund_write_scope_requested' => 'boolean', 'refund_write_enabled' => 'boolean', 'refund_write_revision' => 'integer',
     ];
 
     public function courierAccounts(): HasMany

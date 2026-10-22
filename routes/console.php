@@ -6,7 +6,9 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use Modules\Integrations\Allegro\Jobs\DiscoverAllegroOrdersJob;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Services\AllegroCommissionRefundService;
 use Modules\Integrations\Allegro\Services\AllegroInvoiceExportService;
+use Modules\Integrations\Allegro\Services\AllegroRefundCommandService;
 use Modules\Integrations\Allegro\Services\AllegroRefundSyncService;
 use Modules\Integrations\Allegro\Services\AllegroReturnSyncService;
 use Modules\Integrations\Allegro\Services\AllegroShipmentExportService;
@@ -127,3 +129,9 @@ Schedule::call(fn () => app(AllegroReturnSyncService::class)->dispatchDue())
 
 Schedule::call(fn () => app(AllegroRefundSyncService::class)->dispatchDue())
     ->name('allegro-import-payment-refunds')->everyMinute()->withoutOverlapping();
+
+Schedule::call(fn () => app(AllegroRefundCommandService::class)->dispatchDue())
+    ->name('allegro-refund-commands')->everyMinute()->withoutOverlapping();
+
+Schedule::call(fn () => app(AllegroCommissionRefundService::class)->dispatchDue())
+    ->name('allegro-commission-refund-claims')->everyMinute()->withoutOverlapping();

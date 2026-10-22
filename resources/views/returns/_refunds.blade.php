@@ -28,7 +28,8 @@
                 </form>
             </details>
         @endif
-        @if ($allocationState['current'] && ($allocationState['current']->products_value !== '0.00' || $allocationState['current']->delivery_value !== '0.00'))
+        @if ($allocationState['managed'])<div class="small text-secondary mt-2">Rozliczenie zlecenia zwrotu wpłaty OMS.</div>@endif
+        @if (! $allocationState['managed'] && $allocationState['current'] && ($allocationState['current']->products_value !== '0.00' || $allocationState['current']->delivery_value !== '0.00'))
             <form method="POST" action="{{ route('returns.refunds.allocate', [$orderReturn, $refund]) }}" class="mt-2">@csrf @method('PATCH')
                 <input type="hidden" name="expected_refund_version" value="{{ $refund->lock_version }}"><input type="hidden" name="expected_return_version" value="{{ $orderReturn->lock_version }}"><input type="hidden" name="products_value" value="0.00"><input type="hidden" name="delivery_value" value="0.00">
                 <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="bi bi-x-circle" aria-hidden="true"></i> Wyzeruj przypisanie</button>

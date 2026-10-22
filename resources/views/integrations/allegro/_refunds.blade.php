@@ -12,3 +12,16 @@
         <div class="row"><div class="offset-sm-4 col-sm-8"><button class="btn btn-primary allegro-shipment-save" type="submit"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Zapisz</button></div></div>
     </form>
 </section>
+
+<section aria-label="Ręczne zwroty wpłat Allegro" class="border-top mt-4 pt-4">
+    <h3 class="h6 mb-3">Ręczne zwroty wpłat</h3>
+    @if (! in_array(\Modules\Integrations\Allegro\Models\AllegroAccount::PAYMENTS_WRITE_SCOPE, $account->granted_scopes ?? [], true))<div class="alert alert-warning py-2">Brak uprawnienia allegro:api:payments:write. Po zapisaniu zgody na uprawnienie wymagane jest ponowne połączenie konta.</div>@endif
+    <form method="POST" action="{{ route('integrations.allegro.refund-commands.settings') }}">
+        @csrf @method('PUT')
+        <input type="hidden" name="identity" value="{{ $account->orderImportIdentity() }}"><input type="hidden" name="configuration_revision" value="{{ $account->refund_write_revision }}">
+        @error('refund_write')<div class="alert alert-danger py-2">{{ $message }}</div>@enderror
+        <div class="form-check form-switch mb-3"><input type="hidden" name="refund_write_scope_requested" value="0"><input class="form-check-input" type="checkbox" id="refundWriteScope" name="refund_write_scope_requested" value="1" @checked(old('refund_write_scope_requested', $account->refund_write_scope_requested))><label class="form-check-label" for="refundWriteScope">Zezwól na uprawnienie zlecania zwrotów wpłat przy łączeniu konta</label></div>
+        <div class="form-check form-switch mb-3"><input type="hidden" name="refund_write_enabled" value="0"><input class="form-check-input" type="checkbox" id="refundWriteEnabled" name="refund_write_enabled" value="1" @checked(old('refund_write_enabled', $account->refund_write_enabled))><label class="form-check-label" for="refundWriteEnabled">Włącz ręczne zlecanie zwrotów wpłat z OMS</label></div>
+        <button class="btn btn-primary allegro-shipment-save" type="submit"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Zapisz</button>
+    </form>
+</section>

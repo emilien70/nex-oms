@@ -18,7 +18,9 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Models\AllegroCommissionRefundClaim;
 use Modules\Integrations\Allegro\Models\AllegroPaymentRefundEvent;
+use Modules\Integrations\Allegro\Models\AllegroRefundCommand;
 use Modules\Integrations\Allegro\Support\AllegroShipmentNumbers;
 use Modules\Invoices\Services\InvoiceMoneyFormatter;
 
@@ -108,12 +110,21 @@ class OrderReturnController extends Controller
         $refundService = app(OrderReturnRefundService::class);
         $refundQuery = $refundService->query($refundService->identity($orderReturn))
             ->orWhereIn('id', $orderReturn->refundAllocations->pluck('allegro_payment_refund_id'));
-        $refunds = (clone $refundQuery)->with('allocations')->orderByDesc('requested_at')->orderByDesc('id')->paginate(20, ['*'], 'refund_page')->withQueryString();
+        $refunds = (clone $refundQuery)->with(['allocations', 'command'])->orderByDesc('requested_at')->orderByDesc('id')->paginate(20, ['*'], 'refund_page')->withQueryString();
         $refundEvents = AllegroPaymentRefundEvent::query()
             ->whereIn('allegro_payment_refund_id', (clone $refundQuery)->select('id'))->orderByDesc('id')->paginate(20, ['*'], 'refund_event_page')->withQueryString();
         $refundSummary = $refundService->summary($orderReturn);
+        $refundCommands = AllegroRefundCommand::query()->where('return_number', $orderReturn->id)->where('state', '!=', 'draft')
+            ->latest('id')->paginate(20, ['*'], 'command_page')->withQueryString();
+        $refundWriteAccount = $refundService->identity($orderReturn) ? AllegroAccount::query()
+            ->where('environment', $refundService->identity($orderReturn)['environment'])
+            ->where('allegro_user_id', $refundService->identity($orderReturn)['seller_user_id'])->first() : null;
 
-        return view('returns.show', compact('orderReturn', 'order', 'address', 'money', 'countries', 'previous', 'next', 'events', 'messages', 'orderShipments', 'returnStatuses', 'refunds', 'refundEvents', 'refundSummary', 'refundService'));
+        $commissionIdentity = $refundService->identity($orderReturn);
+        $commissionClaims = AllegroCommissionRefundClaim::query()->when($commissionIdentity, fn ($q) => $q->where($commissionIdentity), fn ($q) => $q->whereRaw('1 = 0'))
+            ->orWhere('return_number', $orderReturn->id)->latest('id')->paginate(20, ['*'], 'commission_page')->withQueryString();
+
+        return view('returns.show', compact('orderReturn', 'order', 'address', 'money', 'countries', 'previous', 'next', 'events', 'messages', 'orderShipments', 'returnStatuses', 'refunds', 'refundEvents', 'refundSummary', 'refundService', 'refundCommands', 'refundWriteAccount', 'commissionClaims'));
     }
 
     public function create(Request $request, OrderReturnService $service, CurrencyCatalog $currencies, CountryCatalog $countries)
