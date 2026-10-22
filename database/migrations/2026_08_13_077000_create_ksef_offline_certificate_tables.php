@@ -33,8 +33,8 @@ return new class extends Migration
             $table->id();
             $table->string('environment', 20)->unique();
             $table->foreignId('offline_certificate_id')
-                ->unique()
-                ->constrained('ksef_offline_certificates')
+                ->unique('ksef_off_cert_selection_cert_uq')
+                ->constrained('ksef_offline_certificates', indexName: 'ksef_off_cert_selection_cert_fk')
                 ->cascadeOnDelete();
             $table->timestamps();
         });

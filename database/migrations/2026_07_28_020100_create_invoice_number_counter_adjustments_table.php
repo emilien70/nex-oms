@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('invoice_number_counter_adjustments', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('invoice_number_counter_id')
-                ->constrained('invoice_number_counters')
+                ->constrained('invoice_number_counters', indexName: 'inv_num_adj_counter_fk')
                 ->cascadeOnDelete();
             $table->string('numbering_period_key_snapshot', 30);
             $table->string('series_name_snapshot', 120)->nullable();

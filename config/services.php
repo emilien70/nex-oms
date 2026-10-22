@@ -83,7 +83,7 @@ return [
         'sandbox_auth_url' => env('ALLEGRO_SANDBOX_AUTH_URL', 'https://allegro.pl.allegrosandbox.pl/auth/oauth/token'),
         'production_device_url' => env('ALLEGRO_DEVICE_URL', 'https://allegro.pl/auth/oauth/device'),
         'sandbox_device_url' => env('ALLEGRO_SANDBOX_DEVICE_URL', 'https://allegro.pl.allegrosandbox.pl/auth/oauth/device'),
-        'scopes' => implode(' ', [...AllegroAccount::REQUIRED_SCOPES, AllegroAccount::BILLING_SCOPE]),
+        'scopes' => implode(' ', [...AllegroAccount::REQUIRED_SCOPES, AllegroAccount::BILLING_SCOPE, AllegroAccount::PAYMENTS_READ_SCOPE]),
         'timeout' => (int) env('ALLEGRO_API_TIMEOUT', 25),
     ],
 

@@ -161,7 +161,7 @@ class AllegroSettingsTest extends TestCase
             $queryString = (string) parse_url($request->url(), PHP_URL_QUERY);
             parse_str($queryString, $query);
 
-            if (($query['scope'] ?? null) !== implode(' ', [...AllegroAccount::REQUIRED_SCOPES, AllegroAccount::BILLING_SCOPE])
+            if (($query['scope'] ?? null) !== implode(' ', [...AllegroAccount::REQUIRED_SCOPES, AllegroAccount::BILLING_SCOPE, AllegroAccount::PAYMENTS_READ_SCOPE])
                 || str_contains($queryString, '+')
                 || ! str_contains($queryString, '%20')
                 || array_key_exists('scope', $request->data())) {

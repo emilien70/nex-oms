@@ -66,7 +66,7 @@ return new class extends Migration
             $table->json('source_snapshot')->nullable();
             $table->timestamps();
 
-            $table->unique(['order_email_message_id', 'position']);
+            $table->unique(['order_email_message_id', 'position'], 'order_email_attachment_message_position_uq');
         });
     }
 

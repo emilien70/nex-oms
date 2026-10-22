@@ -95,7 +95,8 @@
                     <span class="order-status-badge" style="background:{{ $record->localStatus?->color ?? '#9ca3af' }};color:{{ $record->localStatus?->textColor() ?? '#fff' }}">{{ $record->localStatusLabel() }}</span>
                     @if ($record->order && ! $record->order->trashed())<div class="order-subline"><a href="{{ route('orders.show', $record->order) }}">Zamówienie {{ $record->order_id }}</a></div>@endif
                 </div><div class="return-list-indicators">
-                    <span title="Zwrot środków: brak danych" aria-label="Zwrot środków: brak danych">$</span>
+                    @php($refundSummary = $refundIndicators[$record->id])
+                    <span class="{{ $refundSummary['tone'] === 'success' ? 'is-completed' : '' }}" @if($refundSummary['tone'] === 'warning')style="background:#ef8a00"@endif title="{{ $refundSummary['label'] }}" aria-label="{{ $refundSummary['label'] }}">$</span>
                     <span class="{{ $record->localStatus?->code === 'completed' ? 'is-completed' : (in_array($record->localStatus?->code, ['received','in_progress'], true) ? 'is-active' : '') }}" title="Obsługa: {{ $record->localStatusLabel() }}"><i class="bi bi-{{ $record->localStatus?->code === 'completed' ? 'box-seam' : 'check-lg' }}" aria-hidden="true"></i></span>
                     <span class="{{ $record->parcels->contains(fn ($parcel) => filled($parcel->waybill) || filled($parcel->transporting_waybill)) ? 'is-active' : '' }}" title="Przesyłki zwrotne: {{ $record->parcels->count() }}"><i class="bi bi-truck" aria-hidden="true"></i></span>
                     @if ($record->notes || $record->items->contains(fn ($item) => filled($item->comment)))<span title="Uwagi lub komentarz do zwrotu"><i class="bi bi-info-circle-fill" aria-hidden="true"></i></span>@endif

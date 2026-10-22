@@ -27,3 +27,5 @@
         <div class="row"><div class="offset-sm-4 col-sm-8"><button class="btn btn-primary allegro-shipment-save" type="submit"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Zapisz</button></div></div>
     </form>
 </section>
+
+@include('integrations.allegro._refunds')

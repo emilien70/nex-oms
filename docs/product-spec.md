@@ -2640,3 +2640,21 @@ Statusy obslugi zwrotu sa konfigurowane w OMS, nie w integracji. Poczatkowo sa t
 Lokalny status i jego data sa oddzielone od statusu Allegro i daty jego odczytu. Import nie nadpisuje decyzji operatora, gwiazdki ani uwag OMS. Zrodlo zamowienia i sposob utworzenia zwrotu sa osobnymi informacjami. Reczny zwrot do zamowienia Allegro nie posiada zewnetrznego ID zwrotu i nie jest automatycznie laczony z pozniej pobranym zgloszeniem Allegro.
 
 Utworzenie jest chronione przed podwojnym wyslaniem formularza, zmiana zamowienia w innym oknie i przekroczeniem znanych pozostalych ilosci. Ceny i sumy sa liczone dokladnie, bez float. Pozycje i adres maja wlasne snapshoty; usuniecie zamowienia lub produktu nie kasuje historii zwrotu. Oryginalne przesylki wyslane klientowi sa nadal pokazywane oddzielnie od przesylek zwrotnych. Ten etap nie wykonuje refundacji, korekt, operacji magazynowych ani zapisu do API Allegro. Szczegoly wdrozenia: docs/returns-general-report.md.
+
+---
+
+# ALLEGRO.4B.1 - odczyt refundacji i lokalne przypisanie
+
+Integracje -> Allegro -> Zwroty zawiera niezalezna sekcje Zwroty wplat. Pobieranie jest domyslnie wylaczone, ma wlasna date poczatkowa i wymaga opcjonalnego uprawnienia allegro:api:payments:read. Brak tego uprawnienia nie blokuje dotychczasowego importu zamowien. Zapis ustawien nie wywoluje API. Po wlaczeniu kolejka pobiera refundacje oraz odswieza znane rekordy, takze zakonczone, co okolo 5 minut. Otwarcie karty czyta lokalne dane, bez przycisku odswiezania i bez wywolania API.
+
+Refundacja jest faktem z Allegro, niezaleznym od zgloszenia zwrotu towaru. Jedno zamowienie moze miec wiele refundacji i wiele kart zwrotu. Deduplikacja obejmuje srodowisko, sprzedawce i ID refundacji. Powiazanie wykorzystuje wylacznie jawne ID zamowienia Allegro i pelna tozsamosc konta; OMS nie zgaduje po kliencie, nazwie produktu ani samym ID platnosci. Rekord bez ID zamowienia jest zachowany, ale nie pojawia sie na przypadkowej karcie. Brak lokalnego zamowienia nie blokuje zapisu; relacje mozna uzupelnic przy kolejnym odczycie.
+
+Historia platnosci zwrotu na karcie zwrotu i historia refundacji w platnosciach zamowienia pokazuja status, kwote zlecenia, produkty, dostawe, pozostale skladniki, date zlecenia i ID refundacji. Data utworzenia zlecenia nie jest przedstawiana jako data wykonania przelewu. Historia zapisuje tylko zaobserwowane zmiany, po 20 pozycji na strone. Nieznane statusy sa zachowane. PARTIAL nie oznacza pelnego potwierdzenia kwoty zlecenia.
+
+Operator moze lokalnie przypisac potwierdzona refundacje SUCCESS do karty zwrotu, osobno za produkty i dostawe. Poczatkowe przypisanie wynosi zero; brak automatycznego przypisania nawet przy jednej karcie zwrotu. Kwota produktow nie moze przekroczyc wartosci produktow zwrotu ani pozostalej puli refundacji, a dostawa ma osobny limit wynikajacy z danych Allegro. Ta sama kwota nie moze zostac przypisana drugi raz. Mozna zmienic lub wyzerowac przypisanie; historia zachowuje poprzednie kwoty. Dotyczy to takze recznych kart powiazanych z zamowieniem Allegro.
+
+Podsumowanie Zwrocono srodki i ikona dolara dotycza wylacznie przypisanych, potwierdzonych kwot. Brak przypisania oznacza Brak danych, a nie dowod braku przelewu. Refundacja zamowienia w toku lub wymagajaca sprawdzenia daje ostrzezenie, bez automatycznego przypisania jej kwoty. Blad odczytu zachowuje ostatnie poprawne dane. Pozniejsza zmiana statusu lub kwot nie usuwa starych przypisan, lecz oznacza je do sprawdzenia i nie zalicza niespojnych kwot do potwierdzonego podsumowania.
+
+OMS nie kopiuje kosztu pierwotnej dostawy jako kwoty refundacji. Brak delivery oznacza zero, a nie pelny koszt wysylki zamowienia. Nieustalony podzial skladnikow, w tym zlecenie obejmujace doplaty surcharges, nie pozwala przypisywac domniemanej kwoty produktow. Odczyt zachowuje znane skladniki i kwote zlecenia bez zgadywania.
+
+Etap nie zleca przelewow, nie zmienia paid_amount ani statusu platnosci zamowienia, nie wystawia Korekt, nie zmienia magazynu i nie wysyla zadania zwrotu prowizji. Faktyczny zwrot pieniedzy z decyzja, czy zwracac koszt dostawy, nalezy do osobnego ALLEGRO.4B.2. Szczegoly wdrozenia i weryfikacji: docs/allegro-4b1-report.md.

@@ -47,7 +47,12 @@
                 <dt>Status:</dt><dd><span class="returns-badge" style="background:{{ $orderReturn->localStatus?->color ?? '#9ca3af' }};color:{{ $orderReturn->localStatus?->textColor() ?? '#fff' }}">{{ $orderReturn->localStatusLabel() }}</span></dd>
                 <dt>Numer referencyjny:</dt><dd>{{ $orderReturn->reference_number ?: '...' }}</dd>
                 <dt>Wartość produktów:</dt><dd>{{ $money->format($orderReturn->total_value) }} {{ $orderReturn->currency }}</dd>
-                <dt>Zwrócono środki:</dt><dd class="returns-muted">Brak danych</dd>
+                <dt>Zwrócono środki:</dt><dd class="text-{{ $refundSummary['tone'] }}">{{ $refundSummary['total'] !== '0.00' ? $money->format($refundSummary['total']).' '.$orderReturn->currency : 'Brak danych' }}</dd>
+                @if ($refundSummary['total'] !== '0.00')
+                    <dt>Za produkty:</dt><dd>{{ $money->format($refundSummary['products']) }} {{ $orderReturn->currency }}</dd>
+                    <dt>Za dostawę:</dt><dd>{{ $money->format($refundSummary['delivery']) }} {{ $orderReturn->currency }}</dd>
+                @endif
+                @if ($refundSummary['tone'] === 'warning')<dt>Rozliczenie:</dt><dd class="text-warning-emphasis">{{ $refundSummary['label'] }}</dd>@endif
                 <dt>Data utworzenia:</dt><dd>{{ $orderReturn->submitted_at->timezone(config('app.timezone'))->format('d.m.Y H:i:s') }}</dd>
                 <dt>Data w statusie:</dt><dd>{{ $orderReturn->local_status_changed_at?->timezone(config('app.timezone'))->format('d.m.Y H:i:s') ?: '...' }}</dd>
                 <dt>Źródło:</dt><dd>{{ $orderReturn->sourceLabel() }}</dd>
@@ -133,6 +138,9 @@
         <section class="returns-card">
             <h2>Informacje dodatkowe</h2>
             <div class="returns-body returns-history">
+                <details @if(request()->hasAny(['refund_page', 'refund_event_page']) || $errors->has('refund_allocation')) open @endif><summary>Historia płatności zwrotu</summary>
+                    @include('returns._refunds')
+                </details>
                 <details open><summary>Historia zmian zwrotu</summary>
                     <ul>
                     @foreach ($events as $event)
@@ -141,12 +149,15 @@
                                 Pobrano zwrot:
                             @elseif ($event->type === 'manual_created')
                                 Utworzono zwrot ręcznie:
+                            @elseif ($event->type === 'refund_allocation_changed')
+                                Zmieniono przypisanie refundacji:
                             @elseif (in_array($event->type, ['status_changed', 'local_status_changed'], true))
                                 Zmieniono status:
                             @else
                                 Zaktualizowano dane:
                             @endif
                             {{ \App\Models\OrderReturn::STATUSES[$event->status] ?? $event->status }}
+                            @if ($event->type === 'refund_allocation_changed')<br>Produkty: {{ $money->format($event->data['products']) }} {{ $event->data['currency'] }}; dostawa: {{ $money->format($event->data['delivery']) }} {{ $event->data['currency'] }}@endif
                         </li>
                     @endforeach
                     </ul>

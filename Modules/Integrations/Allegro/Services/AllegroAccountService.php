@@ -94,6 +94,8 @@ class AllegroAccountService
                     'correction_sync_revision' => (int) $account->correction_sync_revision + 1,
                     'returns_enabled' => false, 'returns_identity' => null, 'returns_revision' => $account->returns_revision + 1,
                     'returns_scan_offset' => 0, 'returns_scan_until' => null,
+                    'refunds_enabled' => false, 'refunds_identity' => null, 'refunds_revision' => $account->refunds_revision + 1,
+                    'refunds_scan_offset' => 0, 'refunds_scan_until' => null,
                 ]);
             }
             $account->save();
@@ -160,6 +162,8 @@ class AllegroAccountService
             'correction_sync_revision' => (int) $account->correction_sync_revision + 1,
             'returns_enabled' => false, 'returns_identity' => null, 'returns_revision' => $account->returns_revision + 1,
             'returns_scan_offset' => 0, 'returns_scan_until' => null,
+            'refunds_enabled' => false, 'refunds_identity' => null, 'refunds_revision' => $account->refunds_revision + 1,
+            'refunds_scan_offset' => 0, 'refunds_scan_until' => null,
         ]);
     }
 

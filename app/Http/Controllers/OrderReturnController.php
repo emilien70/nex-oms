@@ -6,6 +6,7 @@ use App\Http\Requests\StoreOrderReturnRequest;
 use App\Models\Order;
 use App\Models\OrderReturn;
 use App\Models\ReturnStatusSetting;
+use App\Services\OrderReturnRefundService;
 use App\Services\OrderReturnService;
 use App\Support\CountryCatalog;
 use App\Support\CurrencyCatalog;
@@ -17,6 +18,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Models\AllegroPaymentRefundEvent;
 use Modules\Integrations\Allegro\Support\AllegroShipmentNumbers;
 use Modules\Invoices\Services\InvoiceMoneyFormatter;
 
@@ -33,7 +35,7 @@ class OrderReturnController extends Controller
             'creation_method' => ['nullable', 'in:manual,allegro_import'], 'starred' => ['nullable', 'boolean'],
             'sort' => ['nullable', 'in:newest,oldest,amount_desc,amount_asc'],
         ]);
-        $query = OrderReturn::query()->with(['items', 'order', 'localStatus', 'parcels']);
+        $query = OrderReturn::query()->with(['items', 'order', 'localStatus', 'parcels', 'refundAllocations.refund.allocations']);
         if ($q = trim((string) ($filters['q'] ?? ''))) {
             $query->where(function ($query) use ($q): void {
                 $pattern = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q).'%';
@@ -66,8 +68,10 @@ class OrderReturnController extends Controller
             default => $query->orderByDesc('submitted_at')->orderByDesc('id'),
         };
 
+        $returns = $query->paginate($perPage)->withQueryString();
+
         return view('returns.index', [
-            'returns' => $query->paginate($perPage)->withQueryString(), 'filters' => $filters, 'perPage' => $perPage,
+            'returns' => $returns, 'refundIndicators' => app(OrderReturnRefundService::class)->summaries($returns->getCollection()), 'filters' => $filters, 'perPage' => $perPage,
             'counts' => OrderReturn::query()->selectRaw('status, COUNT(*) as total')->groupBy('status')->pluck('total', 'status'),
             'accountNames' => OrderReturn::query()->distinct()->orderBy('account_name')->pluck('account_name'),
             'syncAccounts' => AllegroAccount::query()->get(), 'money' => $money,
@@ -79,7 +83,7 @@ class OrderReturnController extends Controller
     public function show(OrderReturn $orderReturn, InvoiceMoneyFormatter $money, CountryCatalog $countries): View
     {
         $orderReturn->load(['localStatus', 'items.product', 'parcels', 'order.allegroOrderLink',
-            'order.shipments.courierAccount', 'order.shipments.parcels', 'order.invoices']);
+            'order.shipments.courierAccount', 'order.shipments.parcels', 'order.invoices', 'refundAllocations.refund.allocations']);
         $order = $orderReturn->order;
         $address = $order ? $order->shippingAddressData() : (object) ($orderReturn->order_snapshot ?? []);
         $previous = OrderReturn::query()->where('id', '<', $orderReturn->id)->orderByDesc('id')->value('id');
@@ -101,7 +105,15 @@ class OrderReturnController extends Controller
 
         $returnStatuses = ReturnStatusSetting::query()->orderBy('sort_order')->orderBy('id')->get();
 
-        return view('returns.show', compact('orderReturn', 'order', 'address', 'money', 'countries', 'previous', 'next', 'events', 'messages', 'orderShipments', 'returnStatuses'));
+        $refundService = app(OrderReturnRefundService::class);
+        $refundQuery = $refundService->query($refundService->identity($orderReturn))
+            ->orWhereIn('id', $orderReturn->refundAllocations->pluck('allegro_payment_refund_id'));
+        $refunds = (clone $refundQuery)->with('allocations')->orderByDesc('requested_at')->orderByDesc('id')->paginate(20, ['*'], 'refund_page')->withQueryString();
+        $refundEvents = AllegroPaymentRefundEvent::query()
+            ->whereIn('allegro_payment_refund_id', (clone $refundQuery)->select('id'))->orderByDesc('id')->paginate(20, ['*'], 'refund_event_page')->withQueryString();
+        $refundSummary = $refundService->summary($orderReturn);
+
+        return view('returns.show', compact('orderReturn', 'order', 'address', 'money', 'countries', 'previous', 'next', 'events', 'messages', 'orderShipments', 'returnStatuses', 'refunds', 'refundEvents', 'refundSummary', 'refundService'));
     }
 
     public function create(Request $request, OrderReturnService $service, CurrencyCatalog $currencies, CountryCatalog $countries)

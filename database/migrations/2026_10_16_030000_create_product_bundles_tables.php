@@ -48,8 +48,8 @@ return new class extends Migration
             $table->unsignedInteger('quantity_per_bundle');
             $table->timestamps();
 
-            $table->unique(['order_item_id', 'component_product_id']);
-            $table->index(['bundle_product_id', 'order_item_id']);
+            $table->unique(['order_item_id', 'component_product_id'], 'order_bundle_item_component_uq');
+            $table->index(['bundle_product_id', 'order_item_id'], 'order_bundle_product_item_idx');
         });
     }
 

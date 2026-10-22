@@ -10,5 +10,5 @@ class OrderReturnEvent extends Model
 
     protected $guarded = ['id'];
 
-    protected $casts = ['observed_at' => 'immutable_datetime'];
+    protected $casts = ['observed_at' => 'immutable_datetime', 'data' => 'array'];
 }

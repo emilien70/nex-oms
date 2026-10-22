@@ -63,6 +63,9 @@ class OrderReturnService
             $address = $order ? (array) $order->shippingAddressData() : ($data['address'] ?? []);
             if ($order) {
                 $address += ['order_id' => $order->id, 'order_external_id' => $order->external_id];
+                if ($identity = app(OrderReturnRefundService::class)->orderIdentity($order)) {
+                    $address['allegro_identity'] = $identity;
+                }
             } else {
                 $address['name'] ??= $data['buyer_name'];
             }

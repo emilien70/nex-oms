@@ -18,6 +18,8 @@ class AllegroAccount extends Model
 
     public const BILLING_SCOPE = 'allegro:api:billing:read';
 
+    public const PAYMENTS_READ_SCOPE = 'allegro:api:payments:read';
+
     public const REQUIRED_SCOPES = [
         'allegro:api:profile:read',
         'allegro:api:orders:read',
@@ -42,6 +44,9 @@ class AllegroAccount extends Model
         'returns_enabled' => false,
         'returns_revision' => 0,
         'returns_scan_offset' => 0,
+        'refunds_enabled' => false,
+        'refunds_revision' => 0,
+        'refunds_scan_offset' => 0,
     ];
 
     protected $fillable = [
@@ -88,6 +93,9 @@ class AllegroAccount extends Model
         'correction_sync_revision',
         'returns_enabled', 'returns_from_at', 'returns_identity', 'returns_revision',
         'returns_scan_offset', 'returns_scan_until', 'returns_last_scan_at', 'returns_error',
+        'refunds_enabled', 'refunds_from_at', 'refunds_identity', 'refunds_revision',
+        'refunds_scan_offset', 'refunds_scan_until', 'refunds_last_scan_at', 'refunds_error',
+        'refunds_retry_after',
     ];
 
     protected $hidden = [
@@ -125,6 +133,10 @@ class AllegroAccount extends Model
         'returns_enabled' => 'boolean', 'returns_revision' => 'integer', 'returns_scan_offset' => 'integer',
         'returns_from_at' => 'immutable_datetime', 'returns_scan_until' => 'immutable_datetime',
         'returns_last_scan_at' => 'immutable_datetime',
+        'refunds_enabled' => 'boolean', 'refunds_revision' => 'integer', 'refunds_scan_offset' => 'integer',
+        'refunds_from_at' => 'immutable_datetime', 'refunds_scan_until' => 'immutable_datetime',
+        'refunds_last_scan_at' => 'immutable_datetime',
+        'refunds_retry_after' => 'immutable_datetime',
     ];
 
     public function courierAccounts(): HasMany

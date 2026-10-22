@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('invoice_id')->constrained('invoices')->restrictOnDelete();
             $table->foreignId('offline_issuance_id')->constrained('ksef_offline_issuances')->restrictOnDelete();
-            $table->foreignId('rejected_submission_id')->constrained('ksef_invoice_submissions')->restrictOnDelete();
+            $table->foreignId('rejected_submission_id')->constrained('ksef_invoice_submissions', indexName: 'ksef_off_tech_rejected_sub_fk')->restrictOnDelete();
             $table->string('environment', 20);
             $table->string('context_nip', 10);
             $table->string('seller_nip', 10);

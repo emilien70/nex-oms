@@ -81,4 +81,9 @@ class OrderReturn extends Model
     {
         return $this->hasMany(OrderReturnEvent::class)->orderByDesc('id');
     }
+
+    public function refundAllocations(): HasMany
+    {
+        return $this->hasMany(OrderReturnRefundAllocation::class);
+    }
 }

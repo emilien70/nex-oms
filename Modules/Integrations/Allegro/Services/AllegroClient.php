@@ -97,6 +97,15 @@ class AllegroClient
         return $this->get($account, 'get_customer_return', '/order/customer-returns/'.rawurlencode($id));
     }
 
+    public function refunds(AllegroAccount $account, array $query): array
+    {
+        if (! $account->isOperational() || ! in_array(AllegroAccount::PAYMENTS_READ_SCOPE, $account->granted_scopes ?? [], true)) {
+            throw new AllegroApiException('Połącz konto Allegro z uprawnieniem do odczytu płatności.', 403);
+        }
+
+        return $this->get($account, 'get_payment_refunds', '/payments/refunds?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986));
+    }
+
     public function orderShipments(AllegroAccount $account, string $identifier): array
     {
         return $this->get($account, 'get_order_shipments', '/order/checkout-forms/'.rawurlencode($identifier).'/shipments');
@@ -149,6 +158,7 @@ class AllegroClient
                 'get_order_shipments', 'get_order_carriers', 'add_order_shipment' => $this->shipmentErrorMessage($response->status()),
                 'get_order_invoices', 'upload_order_invoice' => $this->invoiceErrorMessage($response->status()),
                 'get_customer_returns', 'get_customer_return' => 'Nie udało się pobrać zwrotów Allegro (HTTP '.$response->status().').',
+                'get_payment_refunds' => 'Nie udało się pobrać refundacji Allegro (HTTP '.$response->status().').',
                 default => $this->errorMessage($payload, $response->status()),
             };
             $this->log(
@@ -278,6 +288,9 @@ class AllegroClient
 
     private function sanitizedResponse(string $operation, array $payload): array
     {
+        if ($operation === 'get_payment_refunds') {
+            return ['count' => is_array($payload['refunds'] ?? null) ? count($payload['refunds']) : null];
+        }
         if (in_array($operation, ['get_customer_returns', 'get_customer_return'], true)) {
             return ['count' => is_array($payload['customerReturns'] ?? null) ? count($payload['customerReturns']) : null];
         }

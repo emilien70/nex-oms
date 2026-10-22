@@ -94,3 +94,5 @@
 @if ($order->payNowPayments->isEmpty() && $prestashopPayments->isEmpty() && $allegroPayments->isEmpty())
     <div class="text-secondary">Brak zarejestrowanych płatności.</div>
 @endif
+
+@include('orders.partials.refunds')
