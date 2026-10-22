@@ -54,6 +54,7 @@ class OrderProductController extends Controller
         try {
             DB::transaction(function () use ($order, $validated, $orderTotalService, $orderCurrencyService): void {
                 $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
+                $managedOrder->assertPurchaseReady();
                 $quantity = (int) $validated['quantity'];
                 $unitPriceGross = (string) $validated['unit_price_gross'];
                 $previousOrderCurrency = $this->currencies->normalize($managedOrder->currency);
@@ -115,6 +116,7 @@ class OrderProductController extends Controller
             DB::transaction(function () use ($orderItem, $validated, $orderTotalService, $orderCurrencyService): void {
                 $managedItem = OrderItem::query()->lockForUpdate()->findOrFail($orderItem->getKey());
                 $managedOrder = Order::query()->lockForUpdate()->findOrFail($managedItem->order_id);
+                $managedOrder->assertPurchaseReady();
                 $quantity = (int) $validated['quantity'];
                 $unitPriceGross = (string) $validated['unit_price_gross'];
                 $currency = $orderCurrencyService->currencyForExistingItem(
@@ -162,6 +164,7 @@ class OrderProductController extends Controller
         try {
             DB::transaction(function () use ($orderItem, $orderTotalService): void {
                 $order = $orderItem->order;
+                $order->assertPurchaseReady();
                 $productName = $orderItem->product_name;
                 $quantity = $orderItem->quantity;
                 $unitPriceGross = $orderItem->unit_price_gross;

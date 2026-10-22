@@ -32,6 +32,12 @@ class AllegroOrderPreviewService
     {
         $raw = $this->client->order($account, $identifier);
 
+        return $this->normalize($account, $identifier, $raw);
+    }
+
+    public function normalize(AllegroAccount $account, string $identifier, array $raw): array
+    {
+
         if (! is_string($raw['id'] ?? null) || ! Str::isUuid($raw['id'])
             || strtolower($raw['id']) !== strtolower($identifier)) {
             throw new AllegroImportException('Allegro zwróciło nieprawidłowy identyfikator zamówienia.');
@@ -159,6 +165,7 @@ class AllegroOrderPreviewService
             'revision' => $this->text($raw['revision'] ?? null),
             'marketplace_id' => $this->text(data_get($raw, 'marketplace.id'), 40),
             'customer_login' => $this->text(data_get($raw, 'buyer.login')),
+            'buyer_name' => $this->text(trim((string) data_get($raw, 'buyer.firstName').' '.(string) data_get($raw, 'buyer.lastName'))),
             'customer_email' => $email,
             'customer_phone' => $phone,
             'shipping_address' => $shipping,
@@ -211,6 +218,67 @@ class AllegroOrderPreviewService
         $preview['blockers'] = array_values(array_unique($blockers));
         $preview['warnings'] = $warnings;
         $preview['importable'] = $blockers === [] && ! $preview['existing_order_trashed'];
+
+        return $preview;
+    }
+
+    public function provisional(AllegroAccount $account, string $identifier, array $raw, ?string $error = null): array
+    {
+        if (! Str::isUuid($identifier) || strtolower((string) ($raw['id'] ?? '')) !== strtolower($identifier)) {
+            throw new AllegroImportException('Nieprawidlowy identyfikator zakupu Allegro.');
+        }
+        $currency = strtoupper((string) data_get($raw, 'summary.totalToPay.currency', data_get($raw, 'lineItems.0.price.currency', '')));
+        if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
+            throw new AllegroImportException('Brak prawidlowej waluty zakupu.');
+        }
+        $items = $this->items((array) ($raw['lineItems'] ?? []), $currency);
+        if ($items === []) {
+            throw new AllegroImportException('Zakup nie zawiera pozycji.');
+        }
+        $sum = '0.00';
+        foreach ($items as $item) {
+            $sum = $this->decimal->add($sum, $item['total_price_gross']);
+        }
+        $knownDelivery = is_array(data_get($raw, 'delivery.cost'));
+        $ready = ($raw['status'] ?? null) === 'READY_FOR_PROCESSING';
+        $delivery = $knownDelivery ? $this->money(data_get($raw, 'delivery.cost'), $currency) : '0.00';
+        $preview = [
+            'external_order_id' => strtolower($identifier), 'seller_user_id' => (string) $account->allegro_user_id,
+            'environment' => $account->environment, 'external_status' => (string) ($raw['status'] ?? 'BOUGHT'),
+            'fulfillment_status' => $this->text(data_get($raw, 'fulfillment.status')),
+            'revision' => $this->text($raw['revision'] ?? null), 'marketplace_id' => $this->text(data_get($raw, 'marketplace.id')),
+            'customer_login' => $this->text(data_get($raw, 'buyer.login')), 'customer_email' => $this->text(data_get($raw, 'buyer.email')),
+            'buyer_name' => $this->text(trim((string) data_get($raw, 'buyer.firstName').' '.(string) data_get($raw, 'buyer.lastName'))),
+            'customer_phone' => PhoneNumberFormatter::normalize($this->text(data_get($raw, 'buyer.phoneNumber'))),
+            // Profile addresses are not delivery instructions before the completed checkout form.
+            'shipping_address' => $this->address($ready ? (array) data_get($raw, 'delivery.address', []) : [], null),
+            'billing_address' => $ready && is_array(data_get($raw, 'invoice.address')) ? $this->billingAddress(data_get($raw, 'invoice.address'), null) : $this->address([], null),
+            'invoice_required' => $ready && data_get($raw, 'invoice.required') === true, 'smart' => $ready && data_get($raw, 'delivery.smart') === true, 'delivery_method_id' => $this->text(data_get($raw, 'delivery.method.id')),
+            'declared_packages' => null, 'shipping_method' => $this->text(data_get($raw, 'delivery.method.name')),
+            'pickup_point' => array_fill_keys(['id', 'name', 'address', 'postal_code', 'city'], null),
+            'buyer_message' => $this->text($raw['messageToSeller'] ?? null, 10000),
+            'purchased_at' => collect($items)->pluck('bought_at')->filter()->sortBy(fn ($date) => $date->getTimestamp())->first(),
+            'external_updated_at' => $this->date($raw['updatedAt'] ?? null), 'currency' => $currency,
+            'total_gross' => is_array(data_get($raw, 'summary.totalToPay')) ? $this->money(data_get($raw, 'summary.totalToPay'), $currency) : $this->decimal->add($sum, $delivery), 'delivery_cost_gross' => $delivery,
+            'paid_amount' => '0.00', 'payment_status' => OrderPaymentStateService::STATUS_UNPAID, 'paid_at' => null,
+            'payment_method' => AllegroPaymentProvider::label($this->text(data_get($raw, 'payment.provider'))),
+            'cash_on_delivery' => data_get($raw, 'payment.type') === 'CASH_ON_DELIVERY',
+            'items' => $items, 'payments' => [], 'details_snapshot' => $this->information->snapshot($raw), 'delivery_cost_known' => $knownDelivery,
+            'processing_error' => $error,
+        ];
+        $preview = $this->catalog->apply($account, $preview);
+        if (! $ready) {
+            $preview['details_snapshot']['shipping_address'] = '';
+        }
+        if ($preview['catalog_blockers'] !== []) {
+            $preview['processing_error'] = trim(($error ?? '').' '.implode(' ', $preview['catalog_blockers']));
+            $preview['catalog_unavailable'] = true;
+            $fallbackAccount = clone $account;
+            $fallbackAccount->use_linked_products = false;
+            $preview = $this->catalog->apply($fallbackAccount, $preview);
+        }
+        $preview['source_hash'] = hash('sha256', json_encode($preview, JSON_THROW_ON_ERROR));
+        $preview['importable'] = false;
 
         return $preview;
     }

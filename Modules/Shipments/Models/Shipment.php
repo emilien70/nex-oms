@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Modules\Integrations\Allegro\Models\AllegroShipmentExport;
 
 class Shipment extends Model
 {
@@ -156,6 +157,11 @@ class Shipment extends Model
     public function parcels(): HasMany
     {
         return $this->hasMany(ShipmentParcel::class)->orderBy('position');
+    }
+
+    public function allegroExports(): HasMany
+    {
+        return $this->hasMany(AllegroShipmentExport::class)->orderBy('id');
     }
 
     public function statusLabel(): string

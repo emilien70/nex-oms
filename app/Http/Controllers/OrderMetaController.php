@@ -32,6 +32,7 @@ class OrderMetaController extends Controller
         InvoiceDecimalCalculator $decimal,
         OrderPaymentStateService $paymentStates,
     ): JsonResponse|RedirectResponse {
+        $order->assertPurchaseReady();
         $this->normalizeDecimalFields($request, ['paid_amount']);
         $maximum = $decimal->max((string) ($order->total_gross ?? '0'), '0.00');
 
@@ -81,6 +82,7 @@ class OrderMetaController extends Controller
 
     public function recalculateTotal(Request $request, Order $order, OrderTotalService $orderTotalService): JsonResponse|RedirectResponse
     {
+        $order->assertPurchaseReady();
         try {
             $totalGross = $orderTotalService->recalculate($order);
         } catch (OrderCurrencyException $exception) {
@@ -109,6 +111,7 @@ class OrderMetaController extends Controller
 
     public function updatePickupPoint(Request $request, Order $order): JsonResponse|RedirectResponse
     {
+        $order->assertPurchaseReady();
         $validated = $request->validate([
             'pickup_point_name' => ['nullable', 'string', 'max:255'],
             'pickup_point_id' => ['nullable', 'string', 'max:255'],

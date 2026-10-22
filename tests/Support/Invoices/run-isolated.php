@@ -32,7 +32,12 @@ try {
             throw new RuntimeException('Missing parallel test start signal.');
         }
     }
-    $command = [PHP_BINARY, '-d', 'sys_temp_dir='.$workspace->root.'/scratch', 'artisan', 'test', '--compact',
+    $direct = ($arguments[0] ?? null) === '--direct-phpunit';
+    if ($direct) {
+        array_shift($arguments);
+    }
+    $runner = $direct ? ['vendor/phpunit/phpunit/phpunit', '--no-output'] : ['artisan', 'test', '--compact'];
+    $command = [PHP_BINARY, '-d', 'sys_temp_dir='.$workspace->root.'/scratch', ...$runner,
         '--do-not-cache-result', '--cache-directory='.$workspace->root.'/cache/phpunit', ...$arguments];
     $process = proc_open($command, [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pipes, dirname(__DIR__, 3));
     if (! is_resource($process)) {

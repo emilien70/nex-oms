@@ -44,20 +44,38 @@
         .allegro-scope.is-missing { background: #fff5f4; border-color: #f4b4ad; color: #b42318; }
         .allegro-device { background: #f8fafc; border: 1px solid #dbe2ea; border-radius: 5px; padding: 14px; }
         .allegro-actions { align-items: center; border-top: 1px solid #e5e7eb; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 18px; padding-top: 16px; }
+        .allegro-page.is-statuses { background: #fff; }
+        .is-statuses .allegro-title { font-size: 16px; font-weight: 600; }
+        .is-statuses .allegro-tab.active { border-color: #007bff; }
+        .allegro-status-direction { align-items: center; background: #f8f9fb; border: 1px solid #d1d5dc; border-radius: 4px; color: #4e565f; display: flex; gap: 14px; margin-bottom: 20px; padding: 13px 16px; }
+        .allegro-status-switch { align-items: center; display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; padding: 0 0 12px; }
+        .allegro-status-switch .form-check { margin: 0; }
+        .allegro-status-row { align-items: center; border-bottom: 1px solid #d1d5dc; display: grid; gap: 20px; grid-template-columns: minmax(0, 44fr) 24px minmax(0, 56fr); min-height: 52px; padding: 6px 8px 6px 0; }
+        .allegro-status-row label { color: #4e565f; font-size: 13px; margin: 0; overflow-wrap: anywhere; }
+        .allegro-status-arrow { color: #58616b; text-align: center; }
+        .allegro-status-row .form-select { border-color: #cfd5df; border-radius: 3px; color: #4e565f; font-size: 13px; min-height: 39px; min-width: 0; width: 100%; }
+        .allegro-status-footer { display: grid; gap: 20px; grid-template-columns: minmax(0, 44fr) 24px minmax(0, 56fr); padding-top: 10px; }
+        .allegro-status-footer .btn, .allegro-shipment-save { background: #007bdf; border-color: #007bdf; border-radius: 999px; font-size: 13px; grid-column: 3; justify-self: start; min-height: 39px; padding: 8px 20px; }
+        @media (max-width: 600px) {
+            .allegro-status-row, .allegro-status-footer { gap: 8px; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1.3fr); }
+            .allegro-status-row label, .allegro-status-row .form-select { font-size: 12px; }
+            .allegro-status-row { padding-right: 0; }
+        }
         @media (max-width: 800px) { .allegro-details { grid-template-columns: 1fr; } .allegro-page { margin: -1rem; padding: 16px; } }
     </style>
 
-    <div class="allegro-page">
+    <div class="allegro-page {{ in_array($tab, ['statuses', 'shipments', 'invoices'], true) ? 'is-statuses' : '' }}">
         <header class="allegro-header">
-            <h1 class="allegro-title">Allegro</h1>
+            <h1 class="allegro-title">@if (in_array($tab, ['statuses', 'shipments', 'invoices'], true))Konto Allegro &raquo; {{ $account->name }}@else Allegro @endif</h1>
             <a class="btn btn-sm btn-outline-secondary" href="{{ route('integrations.index') }}">Lista integracji</a>
         </header>
 
         <nav class="allegro-tabs" aria-label="Ustawienia Allegro">
             <a class="allegro-tab {{ $tab === 'connection' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit') }}">Połączenie</a>
             <a class="allegro-tab {{ $tab === 'orders' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'orders']) }}">Zamówienia</a>
-            <span class="allegro-tab disabled">Statusy</span>
-            <span class="allegro-tab disabled">Przesyłki i faktury</span>
+            <a class="allegro-tab {{ $tab === 'statuses' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'statuses']) }}">Statusy zamówień</a>
+            <a class="allegro-tab {{ $tab === 'shipments' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'shipments']) }}">Przesyłki</a>
+            <a class="allegro-tab {{ $tab === 'invoices' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'invoices']) }}">Faktury</a>
         </nav>
 
         @if (session('success'))
@@ -75,6 +93,12 @@
 
         @if ($tab === 'orders')
             @include('integrations.allegro._orders')
+        @elseif ($tab === 'statuses')
+            @include('integrations.allegro._statuses')
+        @elseif ($tab === 'shipments')
+            @include('integrations.allegro._shipments')
+        @elseif ($tab === 'invoices')
+            @include('integrations.allegro._invoices')
         @else
         <section class="allegro-panel">
             <div class="allegro-panel-header">

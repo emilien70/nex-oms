@@ -4,6 +4,7 @@ namespace Modules\Invoices\Services;
 
 use App\Models\Order;
 use Illuminate\Support\Collection;
+use Modules\Integrations\Allegro\Services\AllegroInvoiceExportView;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
@@ -77,6 +78,11 @@ class OrderSalesDocumentActionsView
 
         return [
             'issuedInvoice' => $issuedInvoice,
+            'allegroInvoice' => app(AllegroInvoiceExportView::class)->data($order, $issuedInvoice),
+            'allegroCorrections' => $order->source === 'allegro' ? $corrections
+                ->filter(fn (Invoice $correction): bool => $correction->isFinalized())
+                ->mapWithKeys(fn (Invoice $correction): array => [$correction->id => app(AllegroInvoiceExportView::class)->data($order, $correction)])
+                ->all() : [],
             'issuedProforma' => $issuedProforma,
             'issuedCorrection' => $corrections->first(
                 static fn (Invoice $correction): bool => ! $correction->isFinalized(),

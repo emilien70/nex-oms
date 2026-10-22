@@ -3,14 +3,20 @@
 namespace Modules\Integrations\Allegro\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\OrderStatusSetting;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Modules\Integrations\Allegro\Enums\AllegroFulfillmentStatus;
 use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
 use Modules\Integrations\Allegro\Exceptions\AllegroImportException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Models\AllegroOrderImportEvent;
 use Modules\Integrations\Allegro\Services\AllegroAccountService;
 use Modules\Integrations\Allegro\Services\AllegroClient;
 use Modules\Integrations\Allegro\Services\AllegroOAuthService;
@@ -23,7 +29,7 @@ class AllegroSettingsController extends Controller
     public function edit(Request $request, AllegroAccountService $accounts, AllegroOrderPreviewService $previews): View
     {
         $account = $accounts->get();
-        $tab = $request->query('tab') === 'orders' ? 'orders' : 'connection';
+        $tab = in_array($request->query('tab'), ['orders', 'statuses', 'shipments', 'invoices'], true) ? $request->query('tab') : 'connection';
         $preview = null;
         $previewError = null;
         $identifier = is_string($request->query('order_identifier')) ? strtolower(trim($request->query('order_identifier'))) : '';
@@ -55,6 +61,13 @@ class AllegroSettingsController extends Controller
             'orderIdentifier' => $identifier,
             'orderPreview' => $preview,
             'orderPreviewError' => $previewError,
+            'importOrders' => $this->recentImportOrders($account),
+            'omsStatuses' => in_array($tab, ['statuses', 'shipments', 'invoices'], true) ? OrderStatusSetting::orderedSettings() : collect(),
+            'fulfillmentStatuses' => AllegroFulfillmentStatus::cases(),
+            'outboundMappings' => $tab === 'statuses'
+                ? $account->outboundStatusMappings()->where('environment', $account->environment)
+                    ->where('seller_user_id', (string) $account->allegro_user_id)->get()->keyBy('order_status_setting_id')
+                : collect(),
         ]);
     }
 
@@ -164,6 +177,51 @@ class AllegroSettingsController extends Controller
         $request->session()->forget(self::SESSION_KEY);
 
         return back()->with('success', 'Konto Allegro zostało rozłączone. Dotychczasowe dane OMS pozostają bez zmian.');
+    }
+
+    private function recentImportOrders(AllegroAccount $account): Collection
+    {
+        $events = AllegroOrderImportEvent::query()
+            ->where('environment', $account->environment)
+            ->where('seller_user_id', $account->allegro_user_id)
+            ->where('allegro_account_id', $account->id);
+
+        $groups = (clone $events)->select('external_order_id')
+            ->selectRaw('MAX(updated_at) AS last_updated_at, MAX(id) AS last_event_id')
+            ->selectRaw('MAX(CASE WHEN status = ? THEN id ELSE NULL END) AS failed_event_id', ['failed'])
+            ->selectRaw('MAX(CASE WHEN status = ? THEN 1 ELSE 0 END) AS has_pending', ['pending'])
+            ->groupBy('external_order_id')
+            ->orderByDesc('last_updated_at')->orderByDesc('last_event_id')->limit(10);
+
+        // Choose the latest source event, not an older event retried more recently.
+        $latestEvent = (clone $events)->select('id')
+            ->whereColumn('external_order_id', 'recent_orders.external_order_id')
+            ->orderByDesc('occurred_at')->orderByDesc('id')->limit(1);
+        $recentOrders = DB::query()->fromSub($groups, 'recent_orders')
+            ->select('recent_orders.*')->selectSub($latestEvent, 'latest_event_id')
+            ->orderByDesc('last_updated_at')->orderByDesc('last_event_id')->get();
+        $eventIds = $recentOrders->pluck('latest_event_id')
+            ->merge($recentOrders->pluck('failed_event_id'))->filter()->unique();
+        $selectedEvents = (clone $events)->whereKey($eventIds)->get()->keyBy('id');
+
+        return $recentOrders->map(function (object $row) use ($selectedEvents): ?array {
+            $latest = $selectedEvents->get($row->latest_event_id);
+            if (! $latest) {
+                return null;
+            }
+            $failed = $selectedEvents->get($row->failed_event_id);
+            if ($failed?->status !== 'failed') {
+                $failed = null;
+            }
+
+            return [
+                'latest_event' => $latest,
+                'state' => $failed ? 'failed' : ($row->has_pending ? 'pending' : $latest->status),
+                'last_error' => $failed?->last_error,
+                'retry_event' => $failed,
+                'updated_at' => CarbonImmutable::parse($row->last_updated_at),
+            ];
+        })->filter()->values();
     }
 
     private function validated(Request $request): array

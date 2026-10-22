@@ -5,6 +5,7 @@ namespace Modules\Invoices\Services;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
+use Modules\Invoices\Events\CorrectionFinalized;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Ksef\Services\KsefFa3CorrectionFinalizationGate;
@@ -78,6 +79,8 @@ class InvoiceFinalizationService
         $managed->finalized_at = now(config('app.timezone'));
         $managed->save();
         $chain->slot->delete();
+
+        CorrectionFinalized::dispatch($managed);
 
         return $managed->refresh();
     }

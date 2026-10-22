@@ -4,6 +4,8 @@ namespace Modules\Integrations\Allegro\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\Integrations\Allegro\Enums\AllegroInvoiceSyncMode;
+use Modules\Integrations\Allegro\Enums\AllegroShipmentSyncMode;
 use Modules\Shipments\Models\CourierAccount;
 
 class AllegroAccount extends Model
@@ -28,6 +30,15 @@ class AllegroAccount extends Model
         'use_linked_products' => true,
         'use_catalog_product_names' => true,
         'use_catalog_vat' => true,
+        'status_sync_enabled' => false,
+        'status_sync_revision' => 0,
+        'shipment_sync_mode' => 'disabled',
+        'shipment_sync_revision' => 0,
+        'invoice_sync_mode' => 'disabled',
+        'invoice_sync_only_required' => false,
+        'invoice_sync_revision' => 0,
+        'correction_sync_mode' => 'disabled',
+        'correction_sync_revision' => 0,
     ];
 
     protected $fillable = [
@@ -50,6 +61,28 @@ class AllegroAccount extends Model
         'use_linked_products',
         'use_catalog_product_names',
         'use_catalog_vat',
+        'order_import_enabled',
+        'order_import_identity',
+        'order_event_cursor',
+        'order_import_started_at',
+        'last_order_scan_at',
+        'last_order_import_error',
+        'status_sync_enabled',
+        'status_sync_identity',
+        'status_sync_revision',
+        'shipment_sync_mode',
+        'shipment_sync_status_setting_id',
+        'shipment_sync_identity',
+        'shipment_sync_revision',
+        'invoice_sync_mode',
+        'invoice_sync_status_setting_id',
+        'invoice_sync_only_required',
+        'invoice_sync_identity',
+        'invoice_sync_revision',
+        'correction_sync_mode',
+        'correction_sync_status_setting_id',
+        'correction_sync_identity',
+        'correction_sync_revision',
     ];
 
     protected $hidden = [
@@ -68,12 +101,37 @@ class AllegroAccount extends Model
         'use_linked_products' => 'boolean',
         'use_catalog_product_names' => 'boolean',
         'use_catalog_vat' => 'boolean',
+        'order_import_enabled' => 'boolean',
+        'order_import_started_at' => 'immutable_datetime',
+        'last_order_scan_at' => 'immutable_datetime',
         'last_tested_at' => 'immutable_datetime',
+        'status_sync_enabled' => 'boolean',
+        'status_sync_revision' => 'integer',
+        'shipment_sync_mode' => AllegroShipmentSyncMode::class,
+        'shipment_sync_status_setting_id' => 'integer',
+        'shipment_sync_revision' => 'integer',
+        'invoice_sync_mode' => AllegroInvoiceSyncMode::class,
+        'invoice_sync_status_setting_id' => 'integer',
+        'invoice_sync_only_required' => 'boolean',
+        'invoice_sync_revision' => 'integer',
+        'correction_sync_mode' => AllegroInvoiceSyncMode::class,
+        'correction_sync_status_setting_id' => 'integer',
+        'correction_sync_revision' => 'integer',
     ];
 
     public function courierAccounts(): HasMany
     {
         return $this->hasMany(CourierAccount::class);
+    }
+
+    public function orderImportIdentity(): string
+    {
+        return $this->environment.':'.$this->allegro_user_id;
+    }
+
+    public function outboundStatusMappings(): HasMany
+    {
+        return $this->hasMany(AllegroOutboundStatusMapping::class);
     }
 
     public function hasApplicationCredentials(): bool

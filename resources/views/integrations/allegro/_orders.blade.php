@@ -9,6 +9,64 @@
 </style>
 
 <section class="allegro-panel">
+    <div class="allegro-panel-header"><h2 class="allegro-panel-title">Automatyczne pobieranie zamówień</h2></div>
+    <div class="allegro-panel-body">
+        <form method="POST" action="{{ route('integrations.allegro.orders.automatic') }}" class="d-flex flex-wrap gap-3 align-items-center mb-3">
+            @csrf @method('PUT')
+            <input type="hidden" name="order_import_enabled" value="0">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" name="order_import_enabled" id="automaticAllegroOrders" value="1" @checked($account->order_import_enabled)>
+                <label class="form-check-label" for="automaticAllegroOrders">Pobieraj zakupy i aktualizuj zamówienia co minutę</label>
+            </div>
+            <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Zapisz</button>
+        </form>
+        @error('order_import_enabled')<div class="alert alert-danger">{{ $message }}</div>@enderror
+        <div class="d-flex flex-wrap justify-content-between gap-3 align-items-center">
+            <div class="small">
+                <div>Pobieranie: <strong>{{ $account->order_import_enabled ? 'Włączone' : 'Wyłączone' }}</strong></div>
+                <div>Ostatnie poprawne sprawdzenie: {{ $account->last_order_scan_at?->format('d.m.Y H:i:s') ?: '...' }}</div>
+            </div>
+            <form method="POST" action="{{ route('integrations.allegro.orders.scan') }}">@csrf
+                <button class="btn btn-sm btn-outline-primary" @disabled(! $account->order_import_enabled || ! $account->isOperational())><i class="bi bi-download me-1" aria-hidden="true"></i>Sprawdź teraz</button>
+            </form>
+        </div>
+        @if ($account->last_order_import_error)<div class="alert alert-warning mt-3 mb-0">{{ $account->last_order_import_error }}</div>@endif
+        <details class="mt-3">
+            <summary>Starsze zakupy niepełne</summary>
+            <form class="d-flex flex-wrap align-items-end gap-2 mt-3" method="POST" action="{{ route('integrations.allegro.orders.history.preview') }}">@csrf
+                <div><label for="allegroHistoryFrom" class="form-label">Zakupy od</label><input class="form-control form-control-sm" id="allegroHistoryFrom" type="date" name="history_from" min="{{ now()->subDays(60)->toDateString() }}" max="{{ now()->toDateString() }}" value="{{ old('history_from', now()->subDays(7)->toDateString()) }}" required></div>
+                <button class="btn btn-sm btn-outline-primary" @disabled(! $account->order_import_enabled)><i class="bi bi-search me-1"></i>Podgląd</button>
+            </form>
+            @error('history_from')<div class="alert alert-danger mt-2">{{ $message }}</div>@enderror
+            @if (($historyPreview = session('allegro_history_preview')) && ($historyPreview['identity'] ?? null) === $account->orderImportIdentity())
+                <div class="mt-3">Znalezione zakupy: <strong>{{ count($historyPreview['identifiers']) }}</strong></div>
+                <div class="small text-secondary text-break">{{ implode(', ', array_slice($historyPreview['identifiers'], 0, 10)) }}</div>
+                <form method="POST" action="{{ route('integrations.allegro.orders.history.import') }}" class="mt-2">@csrf
+                    <label class="form-check"><input class="form-check-input" type="checkbox" name="confirm" value="1" required><span class="form-check-label">Potwierdzam pobranie {{ count($historyPreview['identifiers']) }} zakupów od {{ $historyPreview['from'] }}.</span></label>
+                    <button class="btn btn-sm btn-primary"><i class="bi bi-download me-1"></i>Pobierz wskazane zakupy</button>
+                </form>
+            @endif
+        </details>
+    </div>
+</section>
+
+<section class="allegro-panel">
+    <div class="allegro-panel-header"><h2 class="allegro-panel-title">Historia pobierania</h2></div>
+    <div class="allegro-panel-body table-responsive">
+        <table class="table table-sm small" aria-label="Historia pobierania zamówień Allegro"><thead><tr><th>Transakcja</th><th>Ostatnie zdarzenie</th><th>Stan pobierania</th><th>Ostatnia aktualizacja</th><th></th></tr></thead><tbody>
+        @forelse ($importOrders as $importOrder)
+            @php($importEvent = $importOrder['latest_event'])
+            <tr data-allegro-import-order="{{ $importEvent->external_order_id }}"><td class="text-break">{{ $importEvent->external_order_id }}</td><td title="{{ $importEvent->event_type }}">{{ ['BOUGHT' => 'Zakup', 'FILLED_IN' => 'Formularz dostawy', 'READY_FOR_PROCESSING' => 'Kompletne dane', 'BUYER_CANCELLED' => 'Anulowanie kupującego', 'AUTO_CANCELLED' => 'Anulowanie Allegro', 'FULFILLMENT_STATUS_CHANGED' => 'Zmiana realizacji', 'HISTORICAL_INCOMPLETE' => 'Starszy zakup'][$importEvent->event_type] ?? $importEvent->event_type }}</td>
+                <td>{{ ['pending' => 'Oczekuje', 'processed' => 'Przetworzono', 'failed' => 'Błąd'][$importOrder['state']] ?? $importOrder['state'] }}
+                    @if ($importOrder['last_error'])<div class="text-danger text-break">{{ $importOrder['last_error'] }}</div>@endif</td>
+                <td class="text-nowrap">{{ $importOrder['updated_at']->format('d.m.Y H:i:s') }}</td>
+                <td>@if ($importOrder['retry_event'])<form method="POST" action="{{ route('integrations.allegro.orders.retry', $importOrder['retry_event']) }}">@csrf<button class="btn btn-sm btn-outline-primary" title="Ponów pobranie" aria-label="Ponów pobranie"><i class="bi bi-arrow-clockwise"></i></button></form>@endif</td></tr>
+        @empty<tr><td colspan="5" class="text-secondary">Brak pobranych zamówień.</td></tr>@endforelse
+        </tbody></table>
+    </div>
+</section>
+
+<section class="allegro-panel">
     <div class="allegro-panel-header"><h2 class="allegro-panel-title">Produkty w importowanych zamówieniach</h2></div>
     <div class="allegro-panel-body">
         <form method="POST" action="{{ route('integrations.allegro.orders.settings') }}">

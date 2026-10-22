@@ -76,7 +76,7 @@
         [
             'shipping_method' => ['Sposób wysyłki:', $order->shipping_method],
             'cash_on_delivery' => ['Pobranie:', $order->cash_on_delivery ? 'Tak' : 'Nie'],
-            'delivery_cost_gross' => ['Koszt wysyłki:', $moneyValue($order->delivery_cost_gross).' '.$order->currency],
+            'delivery_cost_gross' => ['Koszt wysyłki:', $order->allegroOrderLink && ! $order->allegroOrderLink->delivery_cost_known ? 'Nieustalony' : $moneyValue($order->delivery_cost_gross).' '.$order->currency],
             'payment_method' => ['Sposób płatności:', $order->payment_method],
         ],
         ['notes' => ['Uwagi:', $order->notes]],

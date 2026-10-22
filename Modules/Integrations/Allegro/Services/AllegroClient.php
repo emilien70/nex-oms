@@ -5,6 +5,7 @@ namespace Modules\Integrations\Allegro\Services;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Modules\Integrations\Allegro\Enums\AllegroFulfillmentStatus;
 use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Shipments\Models\IntegrationApiLog;
@@ -54,18 +55,79 @@ class AllegroClient
         ], '', '&', PHP_QUERY_RFC3986));
     }
 
+    public function eventStats(AllegroAccount $account): array
+    {
+        return $this->get($account, 'order_event_stats', '/order/event-stats');
+    }
+
+    public function orderEvents(AllegroAccount $account, ?string $cursor): array
+    {
+        return $this->get($account, 'order_events', '/order/events?'.http_build_query(array_filter([
+            'from' => $cursor, 'limit' => 100,
+        ], fn ($value) => $value !== null && $value !== ''), '', '&', PHP_QUERY_RFC3986));
+    }
+
+    public function incompleteOrders(AllegroAccount $account, int $offset, string $from): array
+    {
+        return $this->get($account, 'incomplete_orders', '/order/checkout-forms?status=BOUGHT&status=FILLED_IN&limit=100&offset='.$offset
+            .'&lineItems.boughtAt.gte='.rawurlencode($from));
+    }
+
+    public function updateFulfillment(AllegroAccount $account, string $identifier, AllegroFulfillmentStatus $status, string $revision): void
+    {
+        if (! $account->isOperational() || blank($revision)) {
+            throw new AllegroApiException('Brak aktywnego połączenia lub aktualnej wersji zamówienia Allegro.', 422);
+        }
+        $this->request($account, 'set_fulfillment', '/order/checkout-forms/'.rawurlencode($identifier)
+            .'/fulfillment?checkoutForm.revision='.rawurlencode($revision), 'PUT', ['status' => $status->value]);
+    }
+
     private function get(AllegroAccount $account, string $operation, string $path): array
+    {
+        return $this->request($account, $operation, $path);
+    }
+
+    public function orderShipments(AllegroAccount $account, string $identifier): array
+    {
+        return $this->get($account, 'get_order_shipments', '/order/checkout-forms/'.rawurlencode($identifier).'/shipments');
+    }
+
+    public function carriers(AllegroAccount $account): array
+    {
+        return $this->get($account, 'get_order_carriers', '/order/carriers');
+    }
+
+    public function addOrderShipment(AllegroAccount $account, string $identifier, string $carrierId, string $waybill, array $lineItemIds): array
+    {
+        return $this->request($account, 'add_order_shipment', '/order/checkout-forms/'.rawurlencode($identifier).'/shipments', 'POST', [
+            'carrierId' => $carrierId, 'waybill' => $waybill,
+            'lineItems' => array_map(fn (string $id): array => ['id' => $id], $lineItemIds),
+        ]);
+    }
+
+    public function orderInvoices(AllegroAccount $account, string $identifier): array
+    {
+        return $this->get($account, 'get_order_invoices', '/order/checkout-forms/'.rawurlencode($identifier).'/invoices');
+    }
+
+    public function uploadOrderInvoice(AllegroAccount $account, string $identifier, string $number, string $filename, string $contents): array
+    {
+        return $this->request($account, 'upload_order_invoice', '/order/'.rawurlencode($identifier).'/billing-documents/files', 'POST',
+            ['invoiceNumber' => $number], ['name' => $filename, 'contents' => $contents]);
+    }
+
+    private function request(AllegroAccount $account, string $operation, string $path, string $method = 'GET', array $data = [], array $file = []): array
     {
         $requestId = (string) Str::uuid();
         $url = $account->apiBaseUrl().$path;
         $startedAt = hrtime(true);
 
         try {
-            $response = $this->perform($account, $url);
+            $response = $this->perform($account, $url, $method, $data, $file);
 
             if ($response->status() === 401) {
                 $this->oauth->refresh($account);
-                $response = $this->perform($account->fresh(), $url);
+                $response = $this->perform($account->fresh(), $url, $method, $data, $file);
             }
 
             $payload = is_array($response->json()) ? $response->json() : [];
@@ -73,6 +135,9 @@ class AllegroClient
             $error = $successful ? null : match ($operation) {
                 'get_order' => $this->orderErrorMessage($response->status()),
                 'get_order_fees' => $this->feesErrorMessage($response->status()),
+                'set_fulfillment' => $this->fulfillmentErrorMessage($response->status()),
+                'get_order_shipments', 'get_order_carriers', 'add_order_shipment' => $this->shipmentErrorMessage($response->status()),
+                'get_order_invoices', 'upload_order_invoice' => $this->invoiceErrorMessage($response->status()),
                 default => $this->errorMessage($payload, $response->status()),
             };
             $this->log(
@@ -84,6 +149,7 @@ class AllegroClient
                 $startedAt,
                 $successful,
                 $error,
+                $method,
             );
 
             if (! $successful) {
@@ -94,19 +160,70 @@ class AllegroClient
         } catch (AllegroApiException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
-            $this->log($operation, $requestId, $url, null, null, $startedAt, false, $exception->getMessage());
+            $invoiceOperation = in_array($operation, ['get_order_invoices', 'upload_order_invoice'], true);
+            $this->log($operation, $requestId, $url, null, null, $startedAt, false,
+                $invoiceOperation ? 'Błąd połączenia podczas obsługi faktury Allegro.' : $exception->getMessage(), $method);
 
-            throw new AllegroApiException('Nie udało się połączyć z API Allegro: '.$exception->getMessage());
+            if ($invoiceOperation) {
+                throw new AllegroApiException('Nie udało się potwierdzić wyniku obsługi faktury w Allegro.');
+            }
+
+            throw new AllegroApiException(in_array($operation, ['get_order_shipments', 'get_order_carriers', 'add_order_shipment'], true)
+                ? 'Nie udało się połączyć z Allegro podczas przekazywania numeru przesyłki.'
+                : 'Nie udało się połączyć z API Allegro: '.$exception->getMessage());
         }
     }
 
-    private function perform(AllegroAccount $account, string $url): Response
+    private function perform(AllegroAccount $account, string $url, string $method = 'GET', array $data = [], array $file = []): Response
     {
-        return Http::withToken($this->oauth->accessToken($account))
+        $request = Http::withToken($this->oauth->accessToken($account))
             ->withUserAgent((string) config('services.allegro.user_agent'))
-            ->withHeaders(['Accept' => self::MEDIA_TYPE, 'Content-Type' => self::MEDIA_TYPE, 'Accept-Language' => 'pl-PL'])
-            ->timeout((int) config('services.allegro.timeout', 25))
-            ->get($url);
+            ->withHeaders(['Accept' => self::MEDIA_TYPE, 'Accept-Language' => $file === [] ? 'pl-PL' : 'en-US'])
+            ->timeout((int) config('services.allegro.timeout', 25));
+        if ($file !== []) {
+            return $request->attach('file', $file['contents'], $file['name'], ['Content-Type' => 'application/pdf'])->post($url, $data);
+        }
+
+        return $request->withHeaders(['Content-Type' => self::MEDIA_TYPE])->send($method, $url, $data === [] ? [] : ['json' => $data]);
+    }
+
+    private function invoiceErrorMessage(int $status): string
+    {
+        return match ($status) {
+            401 => 'Sesja Allegro wygasła. Połącz konto ponownie.',
+            403 => 'Brak uprawnień do obsługi faktur tego zamówienia Allegro.',
+            404 => 'Nie znaleziono zamówienia Allegro.',
+            409 => 'W Allegro istnieje już dokument lub plik o tej nazwie. Wymagane jest sprawdzenie.',
+            413 => 'PDF przekracza limit 3 MB Allegro.',
+            400, 422 => 'Allegro odrzuciło fakturę, jej numer lub plik. Sprawdź dokument oraz zamówienie.',
+            429 => 'Przekroczono limit zapytań Allegro. Spróbuj ponownie później.',
+            default => 'Nie udało się potwierdzić obsługi faktury w Allegro (HTTP '.$status.').',
+        };
+    }
+
+    private function fulfillmentErrorMessage(int $status): string
+    {
+        return match ($status) {
+            401 => 'Sesja Allegro wygasła. Połącz konto ponownie.',
+            403 => 'Brak uprawnień do zmiany statusu zamówienia Allegro.',
+            404 => 'Nie znaleziono zamówienia na połączonym koncie Allegro.',
+            409 => 'Zamówienie Allegro zmieniło się podczas przekazywania statusu. Sprawdź jego aktualny stan.',
+            422 => 'Allegro nie zezwala na ustawienie wybranego statusu realizacji.',
+            429 => 'Przekroczono limit zapytań Allegro. Zmiana zostanie ponowiona.',
+            default => 'Nie udało się przekazać statusu do Allegro (HTTP '.$status.').',
+        };
+    }
+
+    private function shipmentErrorMessage(int $status): string
+    {
+        return match ($status) {
+            401 => 'Sesja Allegro wygasła. Połącz konto ponownie.',
+            403 => 'Brak uprawnień do obsługi numerów przesyłek tego zamówienia Allegro.',
+            404 => 'Nie znaleziono zamówienia lub zasobu przesyłek Allegro.',
+            400, 422 => 'Allegro odrzuciło dane przewoźnika, numer przesyłki lub powiązanie z pozycjami zamówienia.',
+            429 => 'Przekroczono limit zapytań Allegro. Przekazanie numeru zostanie ponowione.',
+            default => 'Nie udało się obsłużyć numeru przesyłki w Allegro (HTTP '.$status.').',
+        };
     }
 
     private function errorMessage(array $payload, int $status): string
@@ -145,6 +262,18 @@ class AllegroClient
 
     private function sanitizedResponse(string $operation, array $payload): array
     {
+        if (in_array($operation, ['get_order_invoices', 'upload_order_invoice'], true)) {
+            return ['count' => is_array($payload['invoices'] ?? null) ? count($payload['invoices']) : null];
+        }
+        if (in_array($operation, ['get_order_shipments', 'get_order_carriers', 'add_order_shipment'], true)) {
+            return ['count' => count($payload[$operation === 'get_order_carriers' ? 'carriers' : 'shipments'] ?? [])];
+        }
+        if ($operation === 'set_fulfillment') {
+            return [];
+        }
+        if (in_array($operation, ['order_events', 'incomplete_orders'], true)) {
+            return ['count' => count($payload[$operation === 'order_events' ? 'events' : 'checkoutForms'] ?? [])];
+        }
         if ($operation === 'get_order_fees') {
             return ['count' => is_array($payload['billingEntries'] ?? null) ? count($payload['billingEntries']) : null];
         }
@@ -173,12 +302,13 @@ class AllegroClient
         int $startedAt,
         bool $successful,
         ?string $error,
+        string $method = 'GET',
     ): void {
         IntegrationApiLog::query()->create([
             'integration' => 'allegro',
             'operation' => $operation,
             'request_id' => $requestId,
-            'method' => 'GET',
+            'method' => $method,
             'url' => $url,
             'response_status' => $status,
             'response_payload' => $response,

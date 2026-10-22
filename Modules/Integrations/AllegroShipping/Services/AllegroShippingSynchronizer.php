@@ -4,6 +4,7 @@ namespace Modules\Integrations\AllegroShipping\Services;
 
 use DomainException;
 use Illuminate\Support\Carbon;
+use Modules\Integrations\Allegro\Support\AllegroShipmentNumbers;
 use Modules\Shipments\Events\ShipmentCreated;
 use Modules\Shipments\Events\ShipmentStatusChanged;
 use Modules\Shipments\Models\Shipment;
@@ -47,8 +48,10 @@ class AllegroShippingSynchronizer
     {
         $shipment->loadMissing(['order', 'parcels']);
         $apiPackages = collect((array) ($details['packages'] ?? []))->values();
-        $tracking = data_get($apiPackages->first(), 'waybill')
-            ?: data_get($apiPackages->first(), 'transportingInfo.0.carrierWaybill');
+        $packageNumbers = $apiPackages->map(fn (array $package): array => AllegroShipmentNumbers::fromAllegroPackage($package, $details['carrier'] ?? null));
+        $firstNumbers = collect($packageNumbers->first() ?? []);
+        $primary = $firstNumbers->firstWhere('carrier_id', 'ALLEGRO') ?: $firstNumbers->first();
+        $tracking = $primary['waybill'] ?? null;
         $cancelled = filled($details['canceledDate'] ?? null);
         $previousStatus = $shipment->status;
         $previousTrackingNumber = $shipment->tracking_number;
@@ -57,7 +60,7 @@ class AllegroShippingSynchronizer
 
         $shipment->update([
             'external_id' => (string) ($details['id'] ?? $shipment->external_id),
-            'carrier_code' => (string) ($details['carrier'] ?? data_get($apiPackages->first(), 'transportingInfo.0.carrierId') ?? ''),
+            'carrier_code' => $primary['carrier_id'] ?? $shipment->carrier_code,
             'tracking_number' => $tracking ?: $shipment->tracking_number,
             'status' => $nextStatus,
             'oms_status' => $nextOmsStatus,
@@ -69,10 +72,10 @@ class AllegroShippingSynchronizer
         ]);
 
         foreach ($shipment->parcels->values() as $index => $parcel) {
-            $waybill = data_get($apiPackages->get($index), 'waybill')
-                ?: data_get($apiPackages->get($index), 'transportingInfo.0.carrierWaybill');
-            if ($waybill) {
-                $parcel->update(['external_id' => (string) $waybill, 'tracking_number' => (string) $waybill]);
+            $numbers = collect($packageNumbers->get($index, []));
+            $parcelPrimary = $numbers->firstWhere('carrier_id', 'ALLEGRO') ?: $numbers->first();
+            if ($parcelPrimary) {
+                $parcel->update(['external_id' => $parcelPrimary['waybill'], 'tracking_number' => $parcelPrimary['waybill'], 'tracking_numbers' => $numbers->values()->all()]);
             }
         }
 

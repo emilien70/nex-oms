@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
+use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Services\AllegroInvoiceDocumentService;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
@@ -21,11 +24,14 @@ use Modules\Invoices\Services\InvoicePdfRenderer;
 use Modules\Invoices\Services\InvoicePdfService;
 use Modules\Ksef\Enums\KsefContextIdentifierType;
 use Modules\Ksef\Enums\KsefEnvironment;
+use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Enums\KsefInvoicingMode;
 use Modules\Ksef\Enums\KsefOfflineBuyerClassification;
 use Modules\Ksef\Enums\KsefOfflineDeliveryDocumentType;
 use Modules\Ksef\Enums\KsefOfflineIssuanceProcedure;
 use Modules\Ksef\Enums\KsefZeroVatClassification;
 use Modules\Ksef\Exceptions\KsefApiException;
+use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefOfflineCertificate;
 use Modules\Ksef\Models\KsefOfflineCertificateSelection;
 use Modules\Ksef\Models\KsefOfflineIssuance;
@@ -44,6 +50,7 @@ use Modules\Ksef\ValueObjects\KsefContextIdentifier;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\KsefCertificateFixtureFactory;
+use Tests\Support\KsefUpoFixture;
 use Tests\TestCase;
 
 class KsefOfflinePresentationTest extends TestCase
@@ -604,6 +611,35 @@ class KsefOfflinePresentationTest extends TestCase
     }
 
     /** @return array{0: Invoice, 1: KsefOfflineIssuance, 2: KsefOfflineCertificate} */
+    public function test_allegro_export_waits_for_offline_acceptance_and_uses_existing_final_pdf(): void
+    {
+        [$invoice, $issuance] = $this->issueOffline();
+        $account = new AllegroAccount(['environment' => 'sandbox']);
+        $documents = app(AllegroInvoiceDocumentService::class);
+        $this->assertNotNull($documents->waitingReason($invoice, $account));
+        try {
+            $documents->contents($invoice, $account);
+            $this->fail('An unaccepted Offline PDF must not be uploaded as a final invoice.');
+        } catch (AllegroApiException $exception) {
+            $this->assertSame(422, $exception->statusCode);
+        }
+        KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $invoice->id, 'offline_issuance_id' => $issuance->id,
+            'environment' => $issuance->environment, 'context_nip' => $issuance->context_identifier_value,
+            'seller_nip' => $issuance->seller_nip, 'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Accepted,
+            'invoicing_mode' => KsefInvoicingMode::Offline,
+            'schema_id' => $issuance->schema_id, 'generated_at' => $issuance->issued_at,
+            'payload_xml' => $issuance->payload_xml, 'invoice_hash' => $issuance->invoice_hash,
+            'invoice_size' => $issuance->invoice_size,
+            'ksef_number' => KsefUpoFixture::ksefNumber($issuance->seller_nip),
+            'acquisition_date' => now(),
+        ]);
+        $this->assertNull($documents->waitingReason($invoice, $account));
+        $this->assertStringStartsWith('%PDF-', $documents->contents($invoice, $account));
+        Http::assertNothingSent();
+    }
+
     private function issueOffline(
         KsefEnvironment $environment = KsefEnvironment::Test,
         array $orderAttributes = [],

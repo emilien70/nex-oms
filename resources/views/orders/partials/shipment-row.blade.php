@@ -47,6 +47,7 @@
         @else
             <span class="shipment-tracking-number">{{ $shipment->tracking_number ?: '...' }}</span>
         @endif
+        @include('orders.partials.allegro-shipment-exports', ['shipment' => $shipment])
     </td>
     <td>
         <div class="shipment-status-line">

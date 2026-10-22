@@ -29,9 +29,11 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Modules\Automation\Services\OrderAutomationHistory;
+use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
+use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
 use Modules\Invoices\Services\InvoiceFinancialLimits;
 use Modules\Invoices\Services\InvoiceFinancialValueValidator;
@@ -504,7 +506,7 @@ class OrdersController extends Controller
             ->when($withItems, fn (Builder $query) => $query
                 ->with('items')
                 ->with(['prestashopOrderLinks.account', 'allegroOrderLink.account'])
-                ->withExists(['visibleShipments as shipments_exists']))
+                ->withExists(['visibleShipments as shipments_exists', 'invoices as issued_invoice_exists' => fn ($query) => $query->where('document_type', 'invoice')->where('status', 'issued')]))
             ->when($showTrash, fn (Builder $query) => $query->onlyTrashed())
             ->when(
                 ! $showTrash && array_key_exists((string) $currentStatus, $statuses),
@@ -562,6 +564,9 @@ class OrdersController extends Controller
             'matching_last_update' => (clone $matchingOrders)->max('updated_at'),
             'matching_shipments_count' => (clone $matchingShipments)->count(),
             'matching_shipments_last_update' => (clone $matchingShipments)->max('updated_at'),
+            'matching_invoices_count' => Invoice::query()->whereIn('order_id', $matchingOrderIds)->count(),
+            'matching_invoices_last_update' => Invoice::query()->whereIn('order_id', $matchingOrderIds)->max('updated_at'),
+            'matching_allegro_update' => AllegroOrderLink::query()->whereIn('order_id', $matchingOrderIds)->max('updated_at'),
             'status_counts' => $statusCounts,
             'trash_count' => $trashCount,
         ], JSON_THROW_ON_ERROR));
@@ -585,6 +590,15 @@ class OrdersController extends Controller
 
     private function applyOrderFilters($query, array $filters): void
     {
+        if (in_array($filters['completeness'] ?? '', ['incomplete', 'complete', 'review'], true)) {
+            if ($filters['completeness'] === 'complete') {
+                $query->whereDoesntHave('allegroOrderLink', fn ($link) => $link->where('import_state', '!=', 'complete'));
+            } else {
+                $query->whereHas('allegroOrderLink', fn ($link) => $filters['completeness'] === 'review'
+                    ? $link->where(fn ($attention) => $attention->where('import_state', 'review')->orWhereNotNull('processing_error'))
+                    : $link->where('import_state', 'incomplete'));
+            }
+        }
         if ($this->filledFilter($filters, 'number')) {
             $number = $filters['number'];
             $query->whereKey(ctype_digit((string) $number) ? (int) $number : 0);
@@ -725,6 +739,8 @@ class OrdersController extends Controller
                 ->orderByDesc('created_at'),
             'shipments.courierAccount',
             'shipments.parcels',
+            'shipments.allegroExports',
+            'shipments.order',
             'events' => fn ($query) => $query->orderByDesc('created_at'),
             'payNowPayments' => fn ($query) => $query
                 ->where('status', PayNowPaymentStatus::Confirmed->value)
@@ -859,6 +875,7 @@ class OrdersController extends Controller
         OrderTotalService $orderTotalService,
     ): RedirectResponse {
         $validated = $this->validateOrder($request, $order);
+        $order->assertPurchaseReady();
 
         try {
             DB::transaction(function () use ($order, $validated, $orderStatusService, $orderCurrencyService, $orderTotalService): void {

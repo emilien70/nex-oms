@@ -13,6 +13,7 @@ class ShipmentParcel extends Model
         'package_type',
         'external_id',
         'tracking_number',
+        'tracking_numbers',
         'weight',
         'length',
         'width',
@@ -21,6 +22,7 @@ class ShipmentParcel extends Model
     ];
 
     protected $casts = [
+        'tracking_numbers' => 'array',
         'weight' => 'decimal:3',
         'length' => 'decimal:2',
         'width' => 'decimal:2',

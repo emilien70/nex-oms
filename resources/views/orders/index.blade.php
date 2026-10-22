@@ -435,12 +435,15 @@
         }
 
         .order-status-badge {
-            border-radius: 4px;
-            display: inline-block;
-            font-size: 12px;
-            font-weight: 500;
-            line-height: 1.05;
-            padding: 3px 7px;
+            border-radius: 3px;
+            display: inline-flex;
+            align-items: center;
+            height: 15px;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 13px;
+            padding: 1px 5px;
+            vertical-align: top;
             white-space: nowrap;
         }
 
@@ -527,6 +530,21 @@
             justify-content: flex-end;
             margin-left: auto;
         }
+
+        .order-indicators { display: grid; grid-template-columns: repeat(3, 22px); grid-auto-rows: 22px; gap: 2px; flex: 0 0 70px; align-self: flex-start; margin-top: 1px; }
+        .order-indicator { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 2px; color: #fff; font-family: Arial, sans-serif; font-size: 18px; line-height: 1; font-weight: 700; }
+        .order-indicator i { font-size: 17px; line-height: 1; }
+        .order-indicator.confirmed { background: #147042; }
+        .order-indicator.inactive { background: #9ba3ad; }
+        .order-indicator-delivery.inactive { background: #ccd0d5; }
+        .order-indicator.cod { background: #eb840f; }
+        .order-indicator.shipping, .order-indicator.invoice { background: #499fd8; }
+        .order-indicator.attention { background: #d54b49; }
+        .order-indicator.cancelled { background: #d54839; border-radius: 3px; font-size: 20px; }
+        .order-indicator.invoice { position: relative; }
+        .order-indicator.invoice i { font-size: 16px; }
+        .order-indicator .invoice-lines { position: absolute; top: 6px; left: 7px; width: 4px; height: 1px; background: #499fd8; box-shadow: 0 2px #499fd8; }
+        .order-indicator .invoice-currency { position: absolute; top: 9px; left: 9px; color: #499fd8; font: bold 9px/1 Arial, sans-serif; }
 
         .orders-icon {
             align-items: center;
@@ -1012,6 +1030,7 @@
                     <div class="orders-filter-field"><label for="filter_status_to">Data w statusie do</label><input id="filter_status_to" class="form-control form-control-sm" type="date" name="status_to" value="{{ $filterValue('status_to') }}"></div>
 
                     <div class="orders-filter-field"><label for="filter_source">&#377;r&oacute;d&#322;o zam.</label><select id="filter_source" class="form-select form-select-sm" name="source"><option value="">Wszystkie</option><option value="allegro" @selected($filterValue('source') === 'allegro')>Allegro</option><option value="prestashop" @selected($filterValue('source') === 'prestashop')>PrestaShop</option></select></div>
+                    <div class="orders-filter-field"><label for="filter_completeness">Kompletność</label><select id="filter_completeness" class="form-select form-select-sm" name="completeness"><option value="">Wszystkie</option><option value="incomplete" @selected($filterValue('completeness') === 'incomplete')>Niepełne</option><option value="complete" @selected($filterValue('completeness') === 'complete')>Pełne</option><option value="review" @selected($filterValue('completeness') === 'review')>Wymagające uwagi</option></select></div>
                     <div class="orders-filter-field"><label for="filter_customer">Imi&#281; / Nazwisko / Firma</label><input id="filter_customer" class="form-control form-control-sm" type="text" name="customer" value="{{ $filterValue('customer') }}"></div>
                     <div class="orders-filter-field"><label for="filter_login">Login</label><input id="filter_login" class="form-control form-control-sm" type="text" name="login" value="{{ $filterValue('login') }}"></div>
                     <div class="orders-filter-field"><label for="filter_email">E-mail</label><input id="filter_email" class="form-control form-control-sm" type="text" name="email" value="{{ $filterValue('email') }}"></div>
@@ -1279,13 +1298,9 @@
                                     <div class="order-extra-content">
                                         <div class="order-extra-text">
                                             <span class="order-status-badge {{ $order->status === 'new' ? 'order-status-badge-new' : '' }}" style="background: {{ $order->statusColor() }}; color: {{ $order->statusTextColor() }};">{{ $order->statusLabel() }}</span>
-                                            <div class="order-subline mt-1">{{ $order->shipping_method ?: '...' }}</div>
+                                            <div class="order-subline">{{ $order->shipping_method ?: '...' }}</div>
                                         </div>
-                                        <div class="orders-icon-row">
-                                            <span class="orders-icon {{ $amountIconClass }}" title="Kwota" aria-label="Kwota">$</span>
-                                            <span class="orders-icon {{ $order->shipments_exists ? 'orders-icon-shipping-active' : 'bg-light text-secondary' }}" title="Wysy&#322;ka" aria-label="Wysy&#322;ka"><i class="bi bi-truck" aria-hidden="true"></i></span>
-                                            <span class="orders-icon bg-light text-secondary" title="Informacje" aria-label="Informacje">i</span>
-                                        </div>
+                                        @include('orders.partials.list-indicators', ['order' => $order])
                                     </div>
                                 </td>
                                 <td>

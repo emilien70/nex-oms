@@ -28,6 +28,7 @@ class OrderCatalogProductService
     {
         return DB::transaction(function () use ($order, $requestedItems, $requestedCurrency): Collection {
             $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
+            $managedOrder->assertPurchaseReady();
             $previousOrderCurrency = $managedOrder->currency;
             $currency = $this->orderCurrencies->currencyForNewItem($managedOrder, $requestedCurrency);
             $orderCurrencyAdopted = $previousOrderCurrency !== $currency;

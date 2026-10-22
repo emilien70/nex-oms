@@ -1,5 +1,5 @@
 @php
-    $hasSnapshot = is_array($link->details_snapshot);
+    $hasSnapshot = is_array($link->details_snapshot) && $link->details_snapshot !== [];
     $details = $link->details_snapshot ?? [];
     $detailDate = static fn ($value) => filled($value)
         ? \Carbon\CarbonImmutable::parse($value)->timezone(config('app.timezone'))->format('d.m.Y H:i:s') : '...';
@@ -46,10 +46,10 @@
     <div>Płatność: {{ $paymentLabel }}, Status płatności: {{ $paymentStatusLabel }}</div>
     <div>Komentarz kupującego: <span class="allegro-buyer-message">{{ $buyerMessage }}</span></div>
     <div>Dostawa: {{ $deliveryAddress ?: '...' }}</div>
-    <div>Faktura: {{ ($details['invoice_required'] ?? $link->invoice_required) ? 'Tak' : 'Nie' }}</div>
+    <div>Faktura: {{ $link->import_state === 'incomplete' ? 'Nieustalone' : (($details['invoice_required'] ?? $link->invoice_required) ? 'Tak' : 'Nie') }}</div>
 
     <div class="allegro-detail-group">
-        Allegro SMART: <span class="allegro-detail-badge is-dispatch">{{ ($details['smart'] ?? $link->smart) ? 'Tak' : 'Nie' }}</span>
+        Allegro SMART: <span class="allegro-detail-badge is-dispatch">{{ $link->import_state === 'incomplete' ? 'Nieustalone' : (($details['smart'] ?? $link->smart) ? 'Tak' : 'Nie') }}</span>
     </div>
     <div>Deklarowana ilość paczek: {{ $declaredPackages ?? '...' }}</div>
 
@@ -57,4 +57,17 @@
     <div>Szczegóły: @if ($transactionUrl)<a href="{{ $transactionUrl }}" target="_blank" rel="noopener noreferrer">Karta transakcji</a>@else ... @endif</div>
     <div>Pobrano: {{ $detailDate($link->imported_at) }}</div>
     <div>Źródło: {{ $marketplace ?: '...' }}</div>
+    @if ($link->status_sync_state)
+        <div class="allegro-detail-group">
+            Status realizacji Allegro: {{ \Modules\Integrations\Allegro\Enums\AllegroFulfillmentStatus::tryFrom($link->fulfillment_status ?? '')?->label() ?? ($link->fulfillment_status ?: '...') }}
+        </div>
+        <div>Przekazywanie statusu: {{ ['pending' => 'Oczekuje', 'synced' => 'Potwierdzone', 'failed' => 'Błąd', 'skipped' => 'Pominięto'][$link->status_sync_state] ?? $link->status_sync_state }}</div>
+        @if ($link->status_sync_error)<div class="text-danger text-break" role="alert">{{ $link->status_sync_error }}</div>@endif
+        @if ($link->status_sync_state === 'failed')
+            <form method="POST" action="{{ route('orders.allegro.status.retry', $order) }}" class="mt-2">@csrf
+                <button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Ponów przekazanie statusu</button>
+            </form>
+        @endif
+    @endif
+    @error('allegro_status_sync')<div class="text-danger text-break" role="alert">{{ $message }}</div>@enderror
 </div>

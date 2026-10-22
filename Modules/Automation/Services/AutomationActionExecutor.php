@@ -26,6 +26,8 @@ class AutomationActionExecutor
         string $type,
         array $configuration,
     ): array {
+        $run->order->assertPurchaseReady();
+
         return match ($type) {
             AutomationCatalog::ACTION_CHANGE_STATUS => $this->changeStatus($run, $configuration),
             AutomationCatalog::ACTION_CREATE_SHIPMENT => $this->shipmentActionService->execute($run, $configuration),

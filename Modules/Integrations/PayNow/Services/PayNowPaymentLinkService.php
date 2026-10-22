@@ -55,6 +55,7 @@ class PayNowPaymentLinkService
         return DB::transaction(function () use ($order, $account): PayNowPayment {
             $managedAccount = PayNowAccount::query()->lockForUpdate()->findOrFail($account->getKey());
             $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
+            $managedOrder->assertPurchaseReady();
 
             $this->assertAccountIsReady($managedAccount);
 

@@ -26,11 +26,18 @@ use Modules\Analytics\Http\Controllers\BasicStatisticsController;
 use Modules\Analytics\Http\Controllers\BasicStatisticsCsvController;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroAutomaticOrdersController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroInvoiceExportController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroInvoiceSettingsController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroOrderImportController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroOrderImportSettingsController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroOrderInformationController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroProductLinkController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroSettingsController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroShipmentExportController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroShipmentSettingsController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroStatusMappingController;
+use Modules\Integrations\Allegro\Http\Controllers\AllegroStatusSyncController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterClientController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterInvoiceController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterSettingsController;
@@ -121,6 +128,19 @@ Route::post('/integrations/allegro/test-connection', [AllegroSettingsController:
 Route::delete('/integrations/allegro/disconnect', [AllegroSettingsController::class, 'disconnect'])->name('integrations.allegro.disconnect');
 Route::post('/integrations/allegro/orders/import', AllegroOrderImportController::class)->name('integrations.allegro.orders.import');
 Route::put('/integrations/allegro/orders/settings', AllegroOrderImportSettingsController::class)->name('integrations.allegro.orders.settings');
+Route::put('/integrations/allegro/statuses', [AllegroStatusMappingController::class, 'update'])->name('integrations.allegro.statuses.update');
+Route::put('/integrations/allegro/shipments/settings', [AllegroShipmentSettingsController::class, 'update'])->name('integrations.allegro.shipments.settings');
+Route::post('/orders/{order}/allegro/shipments/{export}/retry', [AllegroShipmentExportController::class, 'retry'])->name('orders.allegro.shipments.retry');
+Route::put('/integrations/allegro/invoices/settings', [AllegroInvoiceSettingsController::class, 'update'])->name('integrations.allegro.invoices.settings');
+Route::put('/integrations/allegro/corrections/settings', [AllegroInvoiceSettingsController::class, 'updateCorrections'])->name('integrations.allegro.corrections.settings');
+Route::post('/orders/{order}/allegro/invoices/{invoice}', [AllegroInvoiceExportController::class, 'store'])->name('orders.allegro.invoices.store');
+Route::post('/orders/{order}/allegro/invoice-exports/{export}/retry', [AllegroInvoiceExportController::class, 'retry'])->name('orders.allegro.invoices.retry');
+Route::post('/orders/{order}/allegro/status/retry', [AllegroStatusSyncController::class, 'retry'])->name('orders.allegro.status.retry');
+Route::put('/integrations/allegro/orders/automatic', [AllegroAutomaticOrdersController::class, 'settings'])->name('integrations.allegro.orders.automatic');
+Route::post('/integrations/allegro/orders/scan', [AllegroAutomaticOrdersController::class, 'scan'])->name('integrations.allegro.orders.scan');
+Route::post('/integrations/allegro/orders/events/{allegroOrderImportEvent}/retry', [AllegroAutomaticOrdersController::class, 'retry'])->name('integrations.allegro.orders.retry');
+Route::post('/integrations/allegro/orders/history/preview', [AllegroAutomaticOrdersController::class, 'historyPreview'])->name('integrations.allegro.orders.history.preview');
+Route::post('/integrations/allegro/orders/history/import', [AllegroAutomaticOrdersController::class, 'historyImport'])->name('integrations.allegro.orders.history.import');
 Route::post('/orders/{order}/allegro-information', AllegroOrderInformationController::class)
     ->middleware('throttle:20,1')->name('orders.allegro-information.refresh');
 Route::post('/orders/{order}/allegro-fees', [AllegroOrderInformationController::class, 'fees'])

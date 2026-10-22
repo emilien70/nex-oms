@@ -5,6 +5,7 @@ namespace Modules\Integrations\Allegro\Services;
 use App\Models\Order;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Modules\Integrations\Allegro\Exceptions\AllegroImportException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
@@ -37,8 +38,20 @@ class AllegroOrderImportService
             throw new AllegroImportException(implode(' ', $preview['blockers']));
         }
 
+        return $this->persist($account, $preview, false);
+    }
+
+    public function synchronize(AllegroAccount $account, array $preview): Order
+    {
+        return $this->persist($account, $preview, true);
+    }
+
+    private function persist(AllegroAccount $account, array $preview, bool $automatic): Order
+    {
+        $identifier = $preview['external_order_id'];
+        $complete = $preview['importable'];
         try {
-            return DB::transaction(function () use ($account, $identifier, $preview): Order {
+            return DB::transaction(function () use ($account, $identifier, $preview, $automatic, $complete): Order {
                 $locked = AllegroAccount::query()->lockForUpdate()->findOrFail($account->id);
                 if (! $locked->isOperational() || $locked->environment !== $preview['environment']
                     || $locked->allegro_user_id !== $preview['seller_user_id']) {
@@ -46,20 +59,37 @@ class AllegroOrderImportService
                 }
                 $existing = $this->link($locked, $identifier);
                 if ($existing !== null) {
-                    return $this->existingOrder($existing);
+                    $order = $this->existingOrder($existing);
+                    if (! $automatic || $existing->completed_at !== null
+                        || in_array($existing->import_state, ['cancelled', 'superseded'], true)) {
+                        return $order;
+                    }
+                    $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+                    if ($order->status === Order::STATUS_CANCELLED || $order->invoices()->exists()
+                        || $order->shipments()->exists() || $order->shipmentCreationAttempts()->exists()) {
+                        throw new AllegroImportException('Zakup byl juz obslugiwany w OMS. Aktualizacja wymaga sprawdzenia.');
+                    }
+                    if ($existing->source_hash === $preview['source_hash']) {
+                        return $order;
+                    }
                 }
                 if (Order::withTrashed()->where('source', 'allegro')->doesntHave('allegroOrderLink')
                     ->whereRaw('LOWER(external_id) = ?', [$identifier])->exists()) {
                     throw new AllegroImportException('W OMS istnieje już zamówienie Allegro z tym identyfikatorem bez bezpiecznego powiązania importu.');
                 }
 
-                $lockedPreview = $this->catalog->apply($locked, $preview, true);
+                $catalogAccount = $locked;
+                if (! $complete && ($preview['catalog_unavailable'] ?? false)) {
+                    $catalogAccount = clone $locked;
+                    $catalogAccount->use_linked_products = false;
+                }
+                $lockedPreview = $this->catalog->apply($catalogAccount, $preview, true);
                 if (! hash_equals($preview['catalog_hash'], $lockedPreview['catalog_hash'])) {
                     throw new AllegroImportException('Powiązania, dane produktów lub ustawienia importu zmieniły się. Pobierz nowy podgląd i ponownie potwierdź import.');
                 }
                 $preview = $lockedPreview;
 
-                $order = Order::query()->create(array_merge(
+                $attributes = array_merge(
                     [
                         'source' => 'allegro',
                         'external_id' => $identifier,
@@ -83,13 +113,20 @@ class AllegroOrderImportService
                         'payment_method' => $preview['payment_method'],
                         'purchased_at' => $preview['purchased_at'],
                         'paid_at' => $preview['paid_at'],
-                        'notes' => null,
                     ],
                     $this->address('shipping', $preview['shipping_address']),
                     $this->address('billing', $preview['billing_address']),
-                ));
+                );
+                if ($existing) {
+                    unset($attributes['status'], $attributes['status_changed_at']);
+                    $order->fill($attributes)->save();
+                    $order->items()->delete();
+                } else {
+                    $order = Order::query()->create($attributes);
+                }
 
-                $link = AllegroOrderLink::query()->create([
+                $link = $existing ?? new AllegroOrderLink;
+                $link->fill([
                     'allegro_account_id' => $locked->id,
                     'order_id' => $order->id,
                     'environment' => $locked->environment,
@@ -107,10 +144,16 @@ class AllegroOrderImportService
                     'declared_packages' => $preview['declared_packages'],
                     'buyer_message' => $preview['buyer_message'],
                     'external_updated_at' => $preview['external_updated_at'],
-                    'imported_at' => now(),
+                    'imported_at' => $existing?->imported_at ?? now(),
                     'details_snapshot' => $preview['details_snapshot'],
                     'details_refreshed_at' => now(),
-                ]);
+                    'import_state' => $complete ? 'complete' : (filled($preview['processing_error'] ?? null) ? 'review' : 'incomplete'),
+                    'completed_at' => $complete ? now() : null,
+                    'processing_error' => $preview['processing_error'] ?? null,
+                    'delivery_cost_known' => $preview['delivery_cost_known'] ?? true,
+                    'line_item_ids' => array_values(array_filter(array_column($preview['items'], 'external_id'), fn ($id) => Str::isUuid($id))),
+                    'buyer_name' => $preview['buyer_name'] ?? $existing?->buyer_name,
+                ])->save();
                 foreach ($preview['items'] as $item) {
                     $orderItem = $order->items()->create(collect($item)->only([
                         'external_id', 'product_name', 'offer_id', 'quantity', 'unit_price_gross',
@@ -121,14 +164,14 @@ class AllegroOrderImportService
                     }
                 }
                 foreach ($preview['payments'] as $payment) {
-                    $link->payments()->create($payment + [
+                    $link->payments()->updateOrCreate(['external_payment_id' => $payment['external_payment_id']], $payment + [
                         'accounted_at' => $payment['amount'] !== null && $payment['paid_at'] !== null ? now() : null,
                     ]);
                 }
                 $order->events()->create([
-                    'event_type' => 'allegro_order_imported',
-                    'title' => 'Zaimportowano zamówienie z Allegro',
-                    'description' => 'Ręczny import zamówienia '.$identifier.'. Status OMS: Nowe.',
+                    'event_type' => $existing ? ($complete ? 'allegro_order_completed' : 'allegro_order_updated') : 'allegro_order_imported',
+                    'title' => $existing ? ($complete ? 'Pobrano kompletne dane Allegro' : 'Zaktualizowano zakup Allegro') : 'Zaimportowano zamówienie z Allegro',
+                    'description' => ($automatic ? 'Automatyczne pobranie ' : 'Ręczny import zamówienia ').$identifier.'. '.($complete ? 'Kompletne dane.' : 'Zakup wymaga dokonczenia lub sprawdzenia.'),
                     'payload' => [
                         'allegro_account_id' => $locked->id,
                         'external_order_id' => $identifier,

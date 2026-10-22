@@ -38,6 +38,13 @@ class OrderSectionController extends Controller
 
     public function updateOrderInfo(Request $request, Order $order, OrderTotalService $orderTotalService): JsonResponse|RedirectResponse
     {
+        if (! $order->purchaseIsComplete()) {
+            $validated = $request->validate(['notes' => ['nullable', 'string']]);
+            $order->update(['notes' => $validated['notes'] ?? null]);
+            $this->addEvent($order, 'order_info_updated', 'Zaktualizowano uwagi sprzedawcy', 'Zapisano uwagi do niepelnego zakupu Allegro.');
+
+            return $this->orderMutationResponse($request, ['order-info', 'history'], back());
+        }
         $this->normalizeDecimalFields($request, ['delivery_cost_gross']);
 
         $validated = $request->validate([
@@ -94,6 +101,7 @@ class OrderSectionController extends Controller
 
     public function updateShippingAddress(Request $request, Order $order): JsonResponse|RedirectResponse
     {
+        $order->assertPurchaseReady();
         $validated = $this->validateAddress($request, 'shipping');
 
         DB::transaction(function () use ($order, $validated): void {
@@ -112,6 +120,7 @@ class OrderSectionController extends Controller
 
     public function updateBillingAddress(Request $request, Order $order): JsonResponse|RedirectResponse
     {
+        $order->assertPurchaseReady();
         $validated = $this->validateAddress($request, 'billing', [
             'billing_tax_id' => ['nullable', 'string', 'max:32'],
         ]);
@@ -136,6 +145,7 @@ class OrderSectionController extends Controller
         OrderCurrencyService $orderCurrencyService,
         OrderPaymentStateService $paymentStates,
     ): RedirectResponse {
+        $order->assertPurchaseReady();
         $this->normalizeDecimalFields($request, ['total_gross', 'delivery_cost_gross']);
         $request->merge([
             'currency' => $this->currencies->normalize(
@@ -208,6 +218,7 @@ class OrderSectionController extends Controller
 
     public function updateProducts(Request $request, Order $order, OrderTotalService $orderTotalService): RedirectResponse
     {
+        $order->assertPurchaseReady();
         $this->normalizeNestedDecimalFields($request, 'items', ['unit_price_gross']);
 
         $validated = $request->validate([

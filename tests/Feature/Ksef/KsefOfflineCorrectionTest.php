@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Mockery;
+use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
+use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Services\AllegroInvoiceDocumentService;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\CorrectionTotalsCalculator;
@@ -1365,6 +1368,37 @@ class KsefOfflineCorrectionTest extends TestCase
         $fake->upoContentHash = base64_encode(hash('sha256', $fake->upoResponse, true));
         $upo = app(KsefInvoiceUpoService::class)->fetch($correction, $accepted);
         $this->assertTrue($accepted->upo()->firstOrFail()->is($upo));
+    }
+
+    public function test_allegro_correction_uses_only_accepted_frozen_offline_pdf(): void
+    {
+        [, $correction] = $this->scenario();
+        $issuance = $this->issue($correction);
+        $account = new AllegroAccount(['environment' => 'sandbox']);
+        $documents = app(AllegroInvoiceDocumentService::class);
+        $this->assertNotNull($documents->waitingReason($correction->fresh(), $account));
+        try {
+            $documents->contents($correction->fresh(), $account);
+            $this->fail('Unaccepted Offline correction PDF accepted.');
+        } catch (AllegroApiException $exception) {
+            $this->assertSame(422, $exception->statusCode);
+        }
+        $submission = KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $correction->id, 'offline_issuance_id' => $issuance->id,
+            'environment' => $issuance->environment, 'context_nip' => $issuance->context_identifier_value,
+            'seller_nip' => $issuance->seller_nip, 'attempt_number' => 1,
+            'status' => KsefInvoiceSubmissionStatus::Accepted, 'invoicing_mode' => KsefInvoicingMode::Offline,
+            'schema_id' => $issuance->schema_id, 'generated_at' => $issuance->issued_at,
+            'payload_xml' => $issuance->payload_xml, 'invoice_hash' => $issuance->invoice_hash,
+            'invoice_size' => $issuance->invoice_size, 'ksef_number' => KsefUpoFixture::ksefNumber($issuance->seller_nip),
+            'acquisition_date' => now(),
+        ]);
+        $this->assertNull($documents->waitingReason($correction->fresh(), $account));
+        $pdf = $documents->contents($correction->fresh(), $account);
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        $this->assertNotEmpty(app(KsefAcceptedOfflineInvoicePdfService::class)->document($correction->fresh(), $issuance, $submission)['contents']);
+        $this->assertNotNull($documents->waitingReason($correction->fresh(), new AllegroAccount(['environment' => 'production'])));
+        Http::assertNothingSent();
     }
 
     public static function transportCases(): array

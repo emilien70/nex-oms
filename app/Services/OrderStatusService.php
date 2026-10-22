@@ -10,6 +10,9 @@ class OrderStatusService
 {
     public function change(Order $order, string $newStatus, string $source = 'manual'): bool
     {
+        if ($newStatus === Order::STATUS_SHIPPED) {
+            $order->assertPurchaseReady();
+        }
         if ($order->status === $newStatus) {
             return false;
         }

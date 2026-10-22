@@ -16,12 +16,17 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Modules\Automation\Listeners\DispatchAutomationEvent;
+use Modules\Integrations\Allegro\Listeners\DispatchAllegroInvoiceExports;
+use Modules\Integrations\Allegro\Listeners\DispatchAllegroShipmentExports;
+use Modules\Integrations\Allegro\Listeners\DispatchAllegroStatusSync;
+use Modules\Integrations\Allegro\Observers\AllegroShipmentTrackingObserver;
 use Modules\Integrations\AllegroShipping\Drivers\AllegroShippingDriver;
 use Modules\Integrations\DPD\Drivers\DpdDriver;
 use Modules\Integrations\InPost\Drivers\InPostCourierDriver;
 use Modules\Integrations\InPost\Drivers\InPostLockerDriver;
 use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
 use Modules\Integrations\Prestashop\Listeners\DispatchPrestashopStatusSync;
+use Modules\Invoices\Events\CorrectionFinalized;
 use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Shipments\Events\ShipmentCreated;
@@ -29,6 +34,7 @@ use Modules\Shipments\Events\ShipmentCreationFailed;
 use Modules\Shipments\Events\ShipmentStatusChanged;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentParcel;
 use Modules\Shipments\Observers\ShipmentObserver;
 use Modules\Shipments\Services\CourierDriverRegistry;
 
@@ -90,14 +96,22 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Shipment::observe(ShipmentObserver::class);
+        Shipment::observe(AllegroShipmentTrackingObserver::class);
+        ShipmentParcel::observe(AllegroShipmentTrackingObserver::class);
         Event::listen(OrderPaymentRegistered::class, DispatchAutomationEvent::class);
         Event::listen(OrderStatusChanged::class, DispatchAutomationEvent::class);
         Event::listen(OrderStatusChanged::class, DispatchPrestashopStatusSync::class);
+        Event::listen(OrderStatusChanged::class, DispatchAllegroStatusSync::class);
+        Event::listen(OrderStatusChanged::class, DispatchAllegroShipmentExports::class);
+        Event::listen(OrderStatusChanged::class, DispatchAllegroInvoiceExports::class);
         Event::listen(InvoiceIssued::class, DispatchAutomationEvent::class);
+        Event::listen(InvoiceIssued::class, DispatchAllegroInvoiceExports::class);
+        Event::listen(CorrectionFinalized::class, DispatchAllegroInvoiceExports::class);
         Event::listen(ShipmentCreated::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentStatusChanged::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentCreationFailed::class, DispatchAutomationEvent::class);
         Event::listen(KsefInvoiceAccepted::class, DispatchAutomationEvent::class);
+        Event::listen(KsefInvoiceAccepted::class, DispatchAllegroInvoiceExports::class);
 
         View::composer('layouts.app', function ($view): void {
             $statusSettings = OrderStatusSetting::orderedSettings();

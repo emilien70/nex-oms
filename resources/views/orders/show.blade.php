@@ -2518,6 +2518,14 @@
             min-width: 0;
         }
 
+        .order-buyer-comment { background: #ccebf6; border-top: 3px solid #3190c9; color: #2d353d; margin: 6px 0 20px; font-size: 13px; }
+        .order-buyer-comment-header { display: grid; grid-template-columns: 170px 210px minmax(0, 1fr); align-items: center; gap: 10px; padding: 24px 6px 16px; border-bottom: 1px solid #c1dce6; }
+        .order-buyer-comment-header time { font-style: italic; }
+        .order-buyer-comment-header > * { min-width: 0; overflow-wrap: anywhere; }
+        .order-buyer-comment-label { justify-self: start; background: #3190c9; color: #fff; border-radius: 2px; padding: 3px 5px; font-size: 11px; font-weight: 600; }
+        .order-buyer-comment-body { white-space: pre-wrap; overflow-wrap: anywhere; padding: 15px; line-height: 22px; }
+        @media (max-width: 650px) { .order-buyer-comment-header { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 14px 8px; } .order-buyer-comment-label { grid-column: 1 / -1; } }
+
         .order-email-card-body {
             padding: 16px;
         }
@@ -2676,6 +2684,10 @@
         .order-email-messages:empty {
             display: none;
         }
+
+        .purchase-readonly [data-edit-field]:not([data-edit-field="notes"]) { pointer-events: none; }
+        .purchase-readonly [data-edit-field]:not([data-edit-field="notes"]) .inline-pencil { display: none; }
+        .purchase-readonly .inline-edit-trigger:not([data-edit-section="order-info"]) { cursor: default; }
 
         .order-email-message {
             border-bottom: 1px solid #dfe4ea;
@@ -3133,7 +3145,7 @@
         }
     </style>
 
-    <div class="order-page" data-order-id="{{ $order->id }}" data-order-state-url="{{ route('orders.state', $order) }}">
+    <div class="order-page{{ $order->purchaseIsComplete() ? '' : ' purchase-readonly' }}" data-order-id="{{ $order->id }}" data-order-state-url="{{ route('orders.state', $order) }}">
     <div class="order-topbar">
         <div class="order-heading">
             <div class="dropdown">
@@ -3174,6 +3186,21 @@
             <a class="order-list-back" href="{{ $ordersListUrl }}" data-page-navigation-loading><i class="bi bi-arrow-return-left" aria-hidden="true"></i><span>Powr&oacute;t do listy zam&oacute;wie&#324;</span></a>
         </nav>
     </div>
+
+    @if ($allegroOrderLink && ! $allegroOrderLink->isReady())
+        <div class="alert {{ in_array($allegroOrderLink->import_state, ['cancelled', 'superseded', 'review'], true) ? 'alert-warning' : 'alert-info' }}" role="status" data-purchase-readiness>
+            @if ($allegroOrderLink->import_state === 'superseded')
+                Zakup został połączony w Allegro.
+                @if ($allegroOrderLink->replacement?->order_id)<a href="{{ route('orders.show', $allegroOrderLink->replacement->order_id) }}">Otwórz zamówienie #{{ $allegroOrderLink->replacement->order_id }}</a>@endif
+            @elseif ($allegroOrderLink->import_state === 'cancelled')
+                Zamówienie zostało anulowane w Allegro. {{ $allegroOrderLink->processing_error }}
+            @elseif ($allegroOrderLink->processing_error)
+                Zamówienie wymaga sprawdzenia: {{ $allegroOrderLink->processing_error }}
+            @else
+                Zakup niepełny. Oczekujemy na zakończenie wyboru dostawy i płatności w Allegro. Dane dostawy i kwoty nie są jeszcze ostateczne.
+            @endif
+        </div>
+    @endif
 
     <div class="nex-card products-card">
         <div class="nex-card-body">
@@ -3572,11 +3599,6 @@
                                     @endif
                                 </div>
                                 </div>
-                                @if ($allegroOrderLink)
-                                    @if ($allegroOrderLink->buyer_message)
-                                        <div class="management-meta-label">Wiadomość kupującego:</div><div class="management-meta-value" style="white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0">{{ $allegroOrderLink->buyer_message }}</div>
-                                    @endif
-                                @endif
                             @endif
                             <div class="management-meta-label">Data z&#322;o&#380;enia:</div>
                             <div class="management-meta-value">
@@ -3957,6 +3979,12 @@
                 });
             });
             const catalogProductModal = document.querySelector('[data-catalog-product-modal]');
+            if (document.querySelector('[data-purchase-readiness]')) {
+                document.querySelectorAll('.products-toolbar button, [data-products-table-body] button, [data-courier-form-url], button[data-paid-edit-open], button[data-payment-link-action], .paid-amount-action-button, button[data-edit-section="shipping"], button[data-edit-section="billing"], button[data-edit-section="pickup"]').forEach(button => {
+                    button.disabled = true;
+                    button.title = 'Zakup Allegro nie jest gotowy do realizacji.';
+                });
+            }
             const catalogProductForm = catalogProductModal?.querySelector('[data-catalog-products-form]');
             const catalogResults = catalogProductModal?.querySelector('[data-catalog-results]');
             const catalogResultsList = catalogProductModal?.querySelector('[data-catalog-results-list]');
@@ -4545,14 +4573,18 @@
             };
 
             const openSection = (sectionName, fieldName = null) => {
+                if (document.querySelector('[data-purchase-readiness]') && (sectionName !== 'order-info' || (fieldName && fieldName !== 'notes'))) return;
                 const section = document.querySelector(`[data-inline-section="${sectionName}"]`);
                 if (!section) {
                     return;
                 }
                 section.classList.add('is-editing');
                 const form = section.querySelector('form.inline-section-edit');
+                if (document.querySelector('[data-purchase-readiness]') && form) {
+                    form.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach(field => { field.disabled = field.name !== 'notes'; });
+                }
                 const requestedField = fieldName && form ? form.elements.namedItem(fieldName) : null;
-                const firstField = form?.querySelector('input:not([type="hidden"]), select, textarea');
+                const firstField = form?.querySelector('input:not([type="hidden"]):not(:disabled), select:not(:disabled), textarea:not(:disabled)');
                 const focusTarget = requestedField instanceof HTMLElement ? requestedField : firstField;
                 if (focusTarget) {
                     window.requestAnimationFrame(() => {
@@ -4773,6 +4805,7 @@
             }
 
             const openPaidEdit = () => {
+                if (document.querySelector('[data-purchase-readiness]')) return;
                 const paidView = document.querySelector('[data-paid-view]');
                 const paidEdit = document.querySelector('[data-paid-edit]');
                 const paidInput = document.querySelector('[data-paid-input]');

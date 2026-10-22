@@ -124,6 +124,7 @@ class AnalyticsFilterService
     /** @param array<string, mixed> $filters */
     public function applyOrderConstraints(Builder $query, array $filters): Builder
     {
+        $query->whereDoesntHave('allegroOrderLink', fn ($link) => $link->where('import_state', '!=', 'complete'));
         $from = $filters['period']['from']->startOfDay();
         $to = $filters['period']['to']->endOfDay();
 

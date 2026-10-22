@@ -2504,3 +2504,109 @@ Automatyczne kopiowanie VAT wymaga jawnego rynku `allegro-pl` oraz obu krajów a
 Zestaw pozostaje jedną pozycją z jego ID, nazwą i zdjęciem oraz ceną Allegro. Import utrwala skład zestawu i ilości na jeden zestaw. Nie zmniejsza stanów. Podgląd pokazuje dopasowanie i uwzględnia jego dane w potwierdzeniu; zmiana powiązania, nazwy, VAT, zdjęcia, składu lub ustawień wymaga nowego potwierdzenia. Zmiana ceny lub stanu katalogowego nie zmienia ceny Allegro.
 
 Powiązania dotyczą nowych importów. Ponowienie wcześniej pobranego zamówienia nie uzupełnia ani nie nadpisuje jego pozycji lub dokumentów. Nie dodano podpowiedzi, operacji masowych, synchronizacji stanów i cen ani tworzenia lub modyfikacji ofert Allegro.
+
+---
+
+# ALLEGRO.2C - automatyczne zakupy niepelne i kompletne
+
+Ustawienia Allegro -> Zamowienia pozwalaja wlaczyc odczyt dziennika co minute oraz zlecic sprawdzenie teraz. Pierwsze wlaczenie zapisuje aktualny kursor bez hurtowego importu historii. Ponowne wlaczenie dla tej samej tozsamosci nie resetuje kursora. Opcjonalny import starszych zakupow BOUGHT/FILLED_IN wymaga zakresu do 60 dni, podgladu i potwierdzenia; limit podgladu wynosi 1000 zakupow. Harmonogram i kolejka integrations musza dzialac takze lokalnie.
+
+BOUGHT i FILLED_IN tworza normalne, widoczne zamowienie OMS w statusie new, z niezalezna informacja o niekompletnosci. Profil kupujacego nie jest adresem dostawy. Nieznany koszt dostawy nie jest przedstawiany jako darmowa wysylka. READY_FOR_PROCESSING uzupelnia ten sam numer OMS o kompletne dane i potwierdzone wplaty. Pobranie nie jest wplata. Nietypowe rozliczenia pozostaja widoczne jako wymagajace sprawdzenia zamiast stawac sie gotowymi do realizacji.
+
+Uwagi sprzedawcy i gwiazdka pozostaja edytowalne. Przed potwierdzeniem kompletnego zakupu dane zrodla sa tylko do odczytu; blokady serwerowe obejmuja dokumenty, przesylki, edycje pozycji, platnosci i automatyzacje. Pozniejsze ponowienia nie nadpisuja kompletnego zamowienia ani dokumentow. Niepelne, anulowane i zastapione powiazania Allegro nie uczestnicza w podstawowych statystykach sprzedazy.
+
+Polaczenie zakupow rozpoznawane jest po lineItem.id. Dawne zakupy pozostaja anulowane w historii z odsylaczem do nowej transakcji. Sam HTTP 404 nie jest dowodem anulowania. Anulowanie zakupu juz obslugiwanego wymaga sprawdzenia i nie usuwa Faktur, wplat ani przesylek. OMS nie wykonuje zwrotow pienieznych.
+
+Na liscie stale widoczne sa T, $ oraz samochod: T jest zielone dla kompletnego Allegro i PrestaShop, szare dla niepelnego zakupu. Po anulowaniu w Allegro (import_state=cancelled lub external_status=CANCELLED) T jest zastepowane bialym !! na czerwonym tle #d54839, w tym samym rozmiarze 22 x 22 px. Ostrzezenie nie zalezy od zachowanego statusu OMS; samo lokalne anulowanie nie oznacza anulowania w Allegro. $ jest szare bez wplaty, zielone dla oplaconego zamowienia, pomaranczowe dla pobrania i czerwone dla czesciowej wplaty. Samochod jest niebieski po zapisaniu numeru przesylki. Dodatkowo pokazywane sa ikony wystawionej Faktury VAT, komentarza kupujacego Allegro oraz niepustych orders.notes. Komentarz jest prezentowany na gorze Wymiany wiadomosci i nigdy nie jest kopiowany do uwag sprzedawcy.
+
+Etap nie wysyla statusow, numerow przesylek ani Faktur do Allegro, nie zmniejsza stanow i nie uruchamia akcji automatycznych wskutek samego importu. Przerwa przekraczajaca bezpieczny okres dziennika jest sygnalizowana bez samoczynnego resetu. Wymagany User-Agent pozostaje wspolny dla kazdego zadania i ponowienia.
+
+Historia pobierania pokazuje maksymalnie 10 unikalnych zamowien aktualnego konta, sprzedawcy i srodowiska, posortowanych wedlug ostatniej aktualizacji. Nie ma paginacji ani rozwijanych logow. Jeden wiersz pokazuje ostatnie zdarzenie wedlug czasu jego wystapienia oraz zbiorczy stan pobierania: nierozwiazany blad ma pierwszenstwo przed oczekujacym zdarzeniem i poprawnym przetworzeniem. Przycisk ponowienia dotyczy nieudanego zdarzenia, nawet jezeli ostatnie zdarzenie tej transakcji zostalo przetworzone poprawnie. Grupowanie dotyczy tylko prezentacji; techniczny dziennik, starsze zamowienia i ich zdarzenia pozostaja w bazie.
+
+---
+
+# ALLEGRO.3A - przekazywanie statusow realizacji
+
+Zakladka Integracje -> Allegro -> Statusy zamowien prezentuje aktualne, nieusuniete statusy z konfiguracji OMS, w ich kolejnosci i z ich nazwami. Nie posiada osobnej, sztywnej listy OMS. Wszystkie wiersze sa edytowalne, w tym status poczatkowy importu. Domyslna wartosc kazdego powiazania to "Nie przekazuj"; nowo dodany status OMS rowniez nie ma mapowania. Globalne przekazywanie jest poczatkowo wylaczone.
+
+Zapis lub wlaczenie konfiguracji nie aktualizuje historycznych zamowien. Dopiero przyszla zmiana statusu OMS przez centralny mechanizm (reczna, zbiorcza lub automatyczna akcja) moze zlecic przekazanie do Allegro. Kilka statusow OMS moze wskazywac ten sam status Allegro. Brak mapowania nie blokuje lokalnej zmiany. Zmiana konta, sprzedawcy albo srodowiska nie przenosi ustawien na nowa tozsamosc; rozlaczenie wylacza przekazywanie.
+
+Do wyboru sa: Nowe, W realizacji, Do wyslania, Do odbioru osobistego, Wyslane, Odebrane osobiscie, Anulowane i Wstrzymane. "Zwrocone" nie jest zapisywalnym statusem sprzedawcy w API. Odbior osobisty nie oznacza dostarczenia paczki przez przewoznika. Przekazanie Anulowane dotyczy statusu realizacji sprzedawcy (fulfillment), nie wykonuje zwrotu pieniedzy ani nie jest osobna operacja anulowania zakupu klienta. Ustawienie W realizacji moze wplywac na mozliwosc samodzielnego anulowania zakupu przez kupujacego, dlatego nie jest automatycznie wysylane podczas importu.
+
+Wysylka w tle sprawdza biezacy status i tozsamosc OMS, wersje konfiguracji oraz aktualny stan zamowienia Allegro. Zakupy niepelne, wymagajace sprawdzenia, anulowane i zastapione nie sa eksportowane. Gotowy zakup musi nadal miec READY_FOR_PROCESSING i byc realizowany przez SELLER. Nieaktualne zadania sa pomijane. Przed zapisem uzywana jest aktualna revision Allegro, a konflikt wymaga nowego odczytu przed ponowieniem.
+
+W Szczegolach zamowienia widoczne sa stan przekazywania i ewentualny blad z mozliwoscia ponowienia. Ponowienie dotyczy aktualnego statusu OMS wedlug biezacej konfiguracji, nie odtwarza starej mapy. Sukces i blad trafiaja do istniejacej historii zmian. Nie dodano osobnego ekranu logow, przekazywania numerow przesylek, faktur ani synchronizacji statusow roboczych OMS w druga strone. Wczesniejszy import anulowania zakupu z Allegro pozostaje aktywny i niezalezny.
+
+---
+
+# ALLEGRO.3B - przekazywanie numerow przesylek
+
+Zakladka Integracje -> Allegro -> Przesylki ma trzy tryby: Nie przekazuj (domyslny), Po uzyskaniu numeru nadania oraz Po przejsciu do wybranego statusu OMS. Lista statusow pochodzi z aktualnych, nieusunietych ustawien OMS; mozna wybrac takze Nowe i statusy wlasne. Sam zapis ustawien, wlaczenie lub zmiana trybu nie zleca wysylki historycznych numerow. Zmiana konta, sprzedawcy lub srodowiska oraz rozlaczenie wylaczaja funkcje.
+
+Obserwowane sa nowe numery zwrocone przez istniejace integracje InPost Paczkomaty, InPost Kurier i DPD oraz numery poszczegolnych paczek, takze uzyskane pozniej. Nie powstaje drugi formularz nadania ani workflow pakowania. Tryb statusowy obsluguje obie kolejnosci: numer przed statusem i numer po statusie. Wyjscie z wybranego statusu wstrzymuje nieprzekazane zadanie do ponownego wejscia. Zapis nowej konfiguracji uniewaznia oczekujace zadania; stare numery nie sa samoczynnie przenoszone do nowej konfiguracji.
+
+OMS sprawdza aktualne konto, sprzedawce, srodowisko, zakup, przesylke i numer. Niepelne, wymagajace sprawdzenia, anulowane, zastapione lub usuniete zamowienia oraz anulowane/usuniete przesylki nie sa przekazywane. Pobranie nie blokuje funkcji. Przed zapisem OMS odczytuje aktualny checkout-form i istniejace numery w Allegro. Przekazuje przewoznika oraz numer tylko gdy brakuje takiego przypisania. Nie zgaduje przewoznika po nazwie metody dostawy; uzywa integracji kurierskiej i aktualnej listy przewoznikow Allegro.
+
+Kazdy numer dotyczy calego zrodlowego zamowienia Allegro. Numery sa przypisywane do aktualnych zrodlowych lineItem.id, nie do lokalnego product_id ani zmienionej listy produktow OMS. Rozdzielenie produktow pomiedzy paczki i wysylki czesciowe pozostaja poza etapem. Istniejacego przypisania tylko do czesci pozycji OMS nie rozszerza automatycznie, lecz pokazuje blad wymagajacy sprawdzenia.
+
+Wysylam z Allegro automatycznie przypisuje paczki po swojej stronie. OMS wykonuje w tym przypadku tylko weryfikacje, nigdy POST z ponownym dodaniem numeru. Tryb zaleznosci od statusu nie opoznia automatycznej operacji Allegro; po wlaczeniu funkcji weryfikacja Wysylam z Allegro jest niezalezna od bramki statusowej. Odczyt uwzglednia cala liste packages.transportingInfo i pomija puste numery. Jedna paczka moze miec numer Allegro i numer przewoznika: potwierdzenie przez jeden z jej rownowaznych numerow oznacza potwierdzenie paczki, a historia wskazuje faktycznie odnaleziony numer. Nie oznacza osobnego dopisania kazdego aliasu.
+
+Przy numerze w istniejacej tabeli Przesylki widoczne sa: brak potwierdzenia, oczekiwanie/bramka statusowa, zielone potwierdzenie, blad z opisem i przyciskiem ponowienia albo pominiecie. Potwierdzenie przekazania nie jest statusem transportu. OMS nie ustawia automatycznie Wyslane po samym utworzeniu etykiety. Ustawienia i ewentualne automatyzacje Allegro moga niezaleznie reagowac na otrzymanie numeru.
+
+Ponowienia po timeoutach, limitach i bledach przejsciowych zaczynaja sie od odczytu Allegro. Nie wykonuja slepego ponownego POST. Sukces i blad sa zapisywane w istniejacej historii zamowienia, oddzielnie od bledu nadania u kuriera. Historie eksportu zachowuje sie po usunieciu lokalnej przesylki lub konta. Odzyskiwanie kolejki dotyczy wylacznie zapisanych zgloszen, bez wyszukiwania starych numerow w przesylkach. Kazde zadanie i odnowienie OAuth zachowuje obowiazkowy User-Agent.
+
+Etap nie dodaje faktur, recznego formularza numerow spoza OMS, automatycznego kasowania numerow w Allegro, nowego ekranu logow ani wstecznej synchronizacji numerow nadanych poza OMS. Pierwszy test rzeczywistego zapisu wymaga kontrolowanego zamowienia i jawnego wlaczenia funkcji.
+
+---
+
+# ALLEGRO.3B - przekazywanie numerow przesylek
+
+Zakladka Integracje -> Allegro -> Przesylki ma trzy tryby: Nie przekazuj (domyslny), Po uzyskaniu numeru nadania oraz Po przejsciu do wybranego statusu OMS. Lista statusow pochodzi z aktualnych, nieusunietych ustawien OMS; mozna wybrac takze Nowe i statusy wlasne. Sam zapis ustawien, wlaczenie lub zmiana trybu nie zleca wysylki historycznych numerow. Zmiana konta, sprzedawcy lub srodowiska oraz rozlaczenie wylaczaja funkcje.
+
+Obserwowane sa nowe numery zwrocone przez istniejace integracje InPost Paczkomaty, InPost Kurier i DPD oraz numery poszczegolnych paczek, takze uzyskane pozniej. Nie powstaje drugi formularz nadania ani workflow pakowania. Tryb statusowy obsluguje obie kolejnosci: numer przed statusem i numer po statusie. Wyjscie z wybranego statusu wstrzymuje nieprzekazane zadanie do ponownego wejscia. Zapis nowej konfiguracji uniewaznia oczekujace zadania; stare numery nie sa samoczynnie przenoszone do nowej konfiguracji.
+
+OMS sprawdza aktualne konto, sprzedawce, srodowisko, zakup, przesylke i numer. Niepelne, wymagajace sprawdzenia, anulowane, zastapione lub usuniete zamowienia oraz anulowane/usuniete przesylki nie sa przekazywane. Pobranie nie blokuje funkcji. Przed zapisem OMS odczytuje aktualny checkout-form i istniejace numery w Allegro. Przekazuje przewoznika oraz numer tylko gdy brakuje takiego przypisania. Nie zgaduje przewoznika po nazwie metody dostawy; uzywa integracji kurierskiej i aktualnej listy przewoznikow Allegro.
+
+Kazdy numer dotyczy calego zrodlowego zamowienia Allegro. Numery sa przypisywane do aktualnych zrodlowych lineItem.id, nie do lokalnego product_id ani zmienionej listy produktow OMS. Rozdzielenie produktow pomiedzy paczki i wysylki czesciowe pozostaja poza etapem. Istniejacego przypisania tylko do czesci pozycji OMS nie rozszerza automatycznie, lecz pokazuje blad wymagajacy sprawdzenia.
+
+Wysylam z Allegro automatycznie przypisuje paczki po swojej stronie. OMS wykonuje w tym przypadku tylko weryfikacje, nigdy POST z ponownym dodaniem numeru. Tryb zaleznosci od statusu nie opoznia automatycznej operacji Allegro; po wlaczeniu funkcji weryfikacja Wysylam z Allegro jest niezalezna od bramki statusowej. Odczyt uwzglednia cala liste packages.transportingInfo i pomija puste numery. Jedna paczka moze miec numer Allegro i numer przewoznika: potwierdzenie przez jeden z jej rownowaznych numerow oznacza potwierdzenie paczki, a historia wskazuje faktycznie odnaleziony numer. Nie oznacza osobnego dopisania kazdego aliasu.
+
+Przy numerze w istniejacej tabeli Przesylki widoczne sa: brak potwierdzenia, oczekiwanie/bramka statusowa, zielone potwierdzenie, blad z opisem i przyciskiem ponowienia albo pominiecie. Potwierdzenie przekazania nie jest statusem transportu. OMS nie ustawia automatycznie Wyslane po samym utworzeniu etykiety. Ustawienia i ewentualne automatyzacje Allegro moga niezaleznie reagowac na otrzymanie numeru.
+
+Ponowienia po timeoutach, limitach i bledach przejsciowych zaczynaja sie od odczytu Allegro. Nie wykonuja slepego ponownego POST. Sukces i blad sa zapisywane w istniejacej historii zamowienia, oddzielnie od bledu nadania u kuriera. Historie eksportu zachowuje sie po usunieciu lokalnej przesylki lub konta. Odzyskiwanie kolejki dotyczy wylacznie zapisanych zgloszen, bez wyszukiwania starych numerow w przesylkach. Kazde zadanie i odnowienie OAuth zachowuje obowiazkowy User-Agent.
+
+Etap nie dodaje faktur, recznego formularza numerow spoza OMS, automatycznego kasowania numerow w Allegro, nowego ekranu logow ani wstecznej synchronizacji numerow nadanych poza OMS. Pierwszy test rzeczywistego zapisu wymaga kontrolowanego zamowienia i jawnego wlaczenia funkcji.
+
+---
+
+# ALLEGRO.3C - przekazywanie Faktur VAT
+
+Zakladka Integracje -> Allegro -> Faktury ma domyslnie wylaczony automat: Nie przekazuj, Po wystawieniu faktury albo Po wybranym statusie OMS. Statusy pochodza z aktualnych ustawien OMS, bez blokady statusu poczatkowego. Domyslnie przekazywane sa wszystkie wystawione Faktury VAT; opcjonalny filtr ogranicza automat do zakupow z zadaniem faktury.
+
+Zapis i wlaczenie konfiguracji nie wysylaja historycznych dokumentow. Przyszla zmiana statusu moze zakwalifikowac istniejaca Fakture; obslugiwane sa Faktura przed statusem i Faktura wystawiona juz w danym statusie. Reczne przekazanie wymaga potwierdzenia i aktualnej wersji Faktury. Jest mozliwe przy wylaczonym automacie, omija jego filtr i status, ale nie omija ochrony dokumentow, konta ani KSeF.
+
+OMS przesyla numer i prywatny PDF istniejacej Faktury VAT, bez wystawiania drugiego dokumentu i bez publicznego linku. Przed pierwszym zapisem sprawdza aktualne zamowienie i dokumenty Allegro. Zakupy niepelne, wymagajace sprawdzenia, anulowane, obce lub usuniete nie sa przekazywane. Wczesniej dodany dokument wymaga sprawdzenia zamiast automatycznej podmiany.
+
+Przekazywany PDF jest zamrozona kopia z suma SHA-256 i unikatowa nazwa pliku. Rozpoczeta, niejednoznaczna wysylka jest wylacznie sprawdzana w Allegro, bez slepego ponownego uploadu. Sam numer Faktury nie potwierdza tozsamosci pliku. Po jednoznacznym odrzuceniu mozna ponowic te sama kopie. Kazda sciezka API i OAuth, rowniez multipart po 401, zachowuje wymagany User-Agent.
+
+Przy Fakturze widac brak przekazania, oczekiwanie na status/KSeF/wysylke, przeslanie z trwajaca weryfikacja, pozytywne potwierdzenie bezpieczenstwa albo blad/wynik wymagajacy sprawdzenia. Po maksymalnie 10 automatycznych kontrolach mozna jawnie zlecic kolejne sprawdzenie. Historia zamowienia pokazuje fakty przeslania i weryfikacji; ikona wystawionej Faktury na liscie nadal oznacza wystawienie, a nie eksport.
+
+Faktury KSeF sa wysylane dopiero po akceptacji i przygotowaniu finalnego PDF. Podglady, dokumenty odrzucone i nierozstrzygniete nie sa przekazywane. Dla Offline uzywany jest istniejacy serwis zaakceptowanej wizualizacji, bez omijania ochrony przedwczesnego doreczenia. Dokumenty KSeF TEST/DEMO nie trafiaja do produkcyjnego Allegro.
+
+Pozniejsza dozwolona edycja Faktury nie zmienia kopii Allegro; OMS pokazuje ostrzezenie o rozbieznosci. Usuniecie lokalnej Faktury nie usuwa dokumentu Allegro ani historii eksportu i prywatnej kopii. Korekty, Pro formy, dokumenty zewnetrzne, podmiana/kasowanie plikow Allegro, masowy eksport historii i wczesne doreczenia Offline pozostaja poza tym etapem.
+
+---
+
+# ALLEGRO.3D - przekazywanie zamknietych Korekt
+
+Zakladka Faktury zawiera niezalezna sekcje Korekty: Nie przekazuj (domyslnie), Po zamknieciu korekty albo Po wybranym statusie OMS. Lista statusow jest aktualna, bez blokowania statusu poczatkowego. Filtr zadania Faktury VAT nie dotyczy Korekt. Zapis ustawien nie wysyla dokumentow historycznych; przyszle zamkniecie Korekty albo zmiana na wybrany status moze zakwalifikowac dokument.
+
+Numerowana, lecz nadal edytowalna Korekta nie jest przekazywana. Wymagane sa status issued, numer, finalized_at, prawidlowa Faktura zrodlowa i spojny liniowy lancuch Korekt tego samego zamowienia. Obslugiwane sa obie kolejnosci: zamkniecie przed statusem oraz zamkniecie juz w docelowym statusie. Zamkniecie pozostaje idempotentne; nie zmienia numeracji, kwot ani snapshotow.
+
+Kazda zamknieta Korekta ma w karcie zamowienia wlasny stan eksportu i jawna operacje reczna z potwierdzeniem. Reczne przekazanie jest mozliwe przy wylaczonym automacie. Istniejaca Faktura i poprzednie Korekty w Allegro nie blokuja dodania kolejnej Korekty; nie sa adoptowane, podmieniane ani usuwane. Jesli OMS nie potwierdzil Faktury zrodlowej w tym samym Allegro, automat oczekuje, a operator moze sprawdzic dokument i jawnie przekazac Korekte. Nie powoduje to automatycznej wysylki Faktury zrodlowej.
+
+Anulowanie zamowienia w OMS lub Allegro nie blokuje Korekty. Powiazanie Allegro musi jednak pochodzic z zakonczonego importu, nalezec do aktualnego sprzedawcy i srodowiska i nie moze byc zastapione, niepelne ani usuniete. Odmowa API, np. limit dokumentow, jest widoczna przy Korekcie; nie zmienia statusu zamowienia ani finansow.
+
+Korekty wspoldziela bezpieczna kolejke, prywatne kopie PDF, sumy SHA-256, blokade zamowienia i odczyt wyniku po niejednoznacznej wysylce z ALLEGRO.3C. Kazdy dokument ma odrebny numer, plik i rekord eksportu. Ochrona KSeF uwzglednia Korekte oraz jej Fakture zrodlowa: wymagany jest wlasny zaakceptowany dokument i finalny PDF, a TEST/DEMO nie trafia do produkcyjnego Allegro. Offline korzysta z istniejacej zaakceptowanej, zamrozonej wizualizacji. Wszystkie zadania API/OAuth zachowuja obowiazkowy User-Agent.
+
+Etap nie tworzy Korekt, zwrotow platnosci ani zwrotow prowizji. Nie dodaje wysylki Pro form, zewnetrznych PDF, masowego eksportu historii ani podmiany plikow w Allegro.

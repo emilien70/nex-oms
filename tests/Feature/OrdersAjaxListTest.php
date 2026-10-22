@@ -47,6 +47,17 @@ class OrdersAjaxListTest extends TestCase
         $this->assertSame(1, $newState->json('status_counts.'.Order::STATUS_PENDING));
     }
 
+    public function test_shipping_method_has_no_extra_margin_below_status(): void
+    {
+        $order = $this->order();
+        $order->update(['shipping_method' => 'Allegro Paczkomaty InPost']);
+
+        $this->get(route('orders.index'))
+            ->assertOk()
+            ->assertSee('class="order-subline">Allegro Paczkomaty InPost</div>', false)
+            ->assertDontSee('class="order-subline mt-1"', false);
+    }
+
     public function test_bulk_list_mutations_return_ajax_refresh_instructions(): void
     {
         $order = $this->order();
@@ -95,7 +106,7 @@ class OrdersAjaxListTest extends TestCase
 
         $this->get(route('orders.index'))
             ->assertOk()
-            ->assertSee('orders-icon orders-icon-shipping-active', false);
+            ->assertSee('order-indicator shipping', false);
 
         $this->assertNotSame(
             $oldSignature,

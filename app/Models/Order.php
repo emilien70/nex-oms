@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\Allegro\Support\AllegroPaymentProvider;
@@ -240,6 +241,21 @@ class Order extends Model
     public function allegroOrderLink(): HasOne
     {
         return $this->hasOne(AllegroOrderLink::class);
+    }
+
+    public function purchaseIsComplete(): bool
+    {
+        return $this->allegroOrderLink === null || $this->allegroOrderLink->isReady();
+    }
+
+    public function assertPurchaseReady(): void
+    {
+        $link = $this->allegroOrderLink()->first();
+        if ($link && ! $link->isReady()) {
+            throw ValidationException::withMessages([
+                'order' => 'Zakup Allegro nie jest gotowy do realizacji. Poczekaj na kompletne dane lub wyjasnij ostrzezenie integracji.',
+            ]);
+        }
     }
 
     public function invoices(): HasMany

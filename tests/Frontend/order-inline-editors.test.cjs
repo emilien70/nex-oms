@@ -13,7 +13,7 @@ function block(start, end) {
     return source.slice(from, to);
 }
 
-function fixture() {
+function fixture({ incomplete = false } = {}) {
     const sections = new Map();
     const forms = [];
     let document;
@@ -52,6 +52,7 @@ function fixture() {
                 return selector === '[data-paid-edit].is-editing' && this.paid && this.classList.contains('is-editing');
             },
             querySelector() { return Object.values(this.fields)[0] || null; },
+            querySelectorAll() { return Object.values(this.fields); },
             reset() {
                 Object.values(this.fields).forEach(field => {
                     field.value = field.options
@@ -73,6 +74,7 @@ function fixture() {
         sections.set(name, section);
     }
     const billing = sections.get('billing').form;
+    sections.get('order-info').form.fields.notes = new Field(sections.get('order-info').form, 'notes', 'Notatka');
     billing.fields.billing_country_code = new Field(billing, 'billing_country_code', 'PL', ['PL', 'DE']);
     const paid = form(null, { paid_amount: '10.00' }, true);
     const paidView = { style: {} };
@@ -85,6 +87,7 @@ function fixture() {
     document = {
         activeElement: null,
         querySelector(selector) {
+            if (selector === '[data-purchase-readiness]') return incomplete ? {} : null;
             const section = selector.match(/^\[data-inline-section="([^"]+)"\]$/);
             if (section) return sections.get(section[1]) || null;
             return {
@@ -131,6 +134,23 @@ test('multiple sections open together and retain focus selection', () => {
     for (const section of sections.values()) assert.ok(section.classList.contains('is-editing'));
     assert.equal(document.activeElement, sections.get('order-info').form.fields.customer_login);
     assert.equal(document.activeElement.selectionEnd, document.activeElement.value.length);
+});
+
+test('incomplete Allegro purchase allows only notes and blocks address and payment editors', () => {
+    const { api, sections, paid, document } = fixture({ incomplete: true });
+    api.openSection('shipping');
+    api.openSection('billing');
+    api.openSection('pickup');
+    for (const name of ['shipping', 'billing', 'pickup']) assert.equal(sections.get(name).classList.contains('is-editing'), false);
+    api.openSection('order-info', 'customer_login');
+    assert.equal(sections.get('order-info').classList.contains('is-editing'), false);
+    api.openSection('order-info', 'notes');
+    assert.equal(sections.get('order-info').classList.contains('is-editing'), true);
+    assert.equal(sections.get('order-info').form.fields.customer_login.disabled, true);
+    assert.equal(sections.get('order-info').form.fields.notes.disabled, false);
+    assert.equal(document.activeElement, sections.get('order-info').form.fields.notes);
+    api.openPaidEdit();
+    assert.equal(paid.classList.contains('is-editing'), false);
 });
 
 test('cancelling one section does not close or reset another draft', () => {

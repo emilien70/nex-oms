@@ -54,6 +54,7 @@ class InvoiceDocumentPreparationService
         InvoiceOperationContext $context,
         array $dates,
     ): PreparedInvoiceDocument {
+        $order->assertPurchaseReady();
         $items = $this->itemBuilder->build($order, $series);
         $totals = $this->totalsCalculator->calculateDocument($items, $order);
         $information = $this->informationRenderer->render($series, $order);

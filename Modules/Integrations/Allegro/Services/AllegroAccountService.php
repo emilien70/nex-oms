@@ -72,6 +72,7 @@ class AllegroAccountService
     {
         return DB::transaction(function () use ($account, $profile): AllegroAccount {
             $account = AllegroAccount::query()->lockForUpdate()->findOrFail($account->id);
+            $previousIdentity = $account->orderImportIdentity();
             $account->forceFill([
                 'allegro_user_id' => (string) ($profile['id'] ?? ''),
                 'allegro_login' => (string) ($profile['login'] ?? ''),
@@ -80,7 +81,20 @@ class AllegroAccountService
                 'last_tested_at' => now(),
                 'last_test_status' => AllegroAccount::STATUS_SUCCESS,
                 'last_error' => null,
-            ])->save();
+            ]);
+            if ($previousIdentity !== $account->orderImportIdentity()) {
+                $account->forceFill([
+                    'status_sync_enabled' => false, 'status_sync_identity' => null,
+                    'status_sync_revision' => (int) $account->status_sync_revision + 1,
+                    'shipment_sync_mode' => 'disabled', 'shipment_sync_identity' => null,
+                    'shipment_sync_revision' => (int) $account->shipment_sync_revision + 1,
+                    'invoice_sync_mode' => 'disabled', 'invoice_sync_identity' => null,
+                    'invoice_sync_revision' => (int) $account->invoice_sync_revision + 1,
+                    'correction_sync_mode' => 'disabled', 'correction_sync_identity' => null,
+                    'correction_sync_revision' => (int) $account->correction_sync_revision + 1,
+                ]);
+            }
+            $account->save();
 
             $shipping = CourierAccount::query()
                 ->where('provider', CourierAccount::PROVIDER_ALLEGRO_SHIPPING)
@@ -133,6 +147,15 @@ class AllegroAccountService
             'last_tested_at' => null,
             'last_test_status' => null,
             'last_error' => null,
+            'status_sync_enabled' => false,
+            'status_sync_identity' => null,
+            'status_sync_revision' => (int) $account->status_sync_revision + 1,
+            'shipment_sync_mode' => 'disabled', 'shipment_sync_identity' => null,
+            'shipment_sync_revision' => (int) $account->shipment_sync_revision + 1,
+            'invoice_sync_mode' => 'disabled', 'invoice_sync_identity' => null,
+            'invoice_sync_revision' => (int) $account->invoice_sync_revision + 1,
+            'correction_sync_mode' => 'disabled', 'correction_sync_identity' => null,
+            'correction_sync_revision' => (int) $account->correction_sync_revision + 1,
         ]);
     }
 

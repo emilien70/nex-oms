@@ -4,6 +4,10 @@ use App\Services\OrderEmailQueuedRecoveryService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use Modules\Integrations\Allegro\Jobs\DiscoverAllegroOrdersJob;
+use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Services\AllegroInvoiceExportService;
+use Modules\Integrations\Allegro\Services\AllegroShipmentExportService;
 use Modules\Integrations\AllegroShipping\Jobs\RefreshAllegroShipmentJob;
 use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
@@ -104,3 +108,14 @@ Schedule::call(fn () => app(PrestashopPaymentSyncDispatcher::class)->dispatchDue
     ->name('prestashop-sync-payments')
     ->everyMinute()
     ->withoutOverlapping();
+
+Schedule::call(function (): void {
+    AllegroAccount::query()->where('order_import_enabled', true)
+        ->eachById(fn ($account) => DiscoverAllegroOrdersJob::dispatch($account->id));
+})->name('allegro-import-orders')->everyMinute()->withoutOverlapping();
+
+Schedule::call(fn () => app(AllegroShipmentExportService::class)->recover())
+    ->name('allegro-recover-shipment-exports')->everyMinute()->withoutOverlapping();
+
+Schedule::call(fn () => app(AllegroInvoiceExportService::class)->recover())
+    ->name('allegro-recover-invoice-exports')->everyMinute()->withoutOverlapping();

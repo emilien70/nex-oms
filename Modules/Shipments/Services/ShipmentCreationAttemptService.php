@@ -14,6 +14,8 @@ class ShipmentCreationAttemptService
 {
     public function begin(Order $order, CourierAccount $account, array $requestData): ShipmentCreationAttempt
     {
+        $order->assertPurchaseReady();
+
         return $order->shipmentCreationAttempts()->create([
             'courier_account_id' => $account->id,
             'provider' => $account->provider,

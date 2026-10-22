@@ -7,6 +7,10 @@
     $proformaLocked = $salesDocumentActions['proformaLocked'];
     $invoiceSeries = $salesDocumentActions['invoiceSeries'];
     $proformaSeries = $salesDocumentActions['proformaSeries'];
+    if (! $order->purchaseIsComplete()) {
+        $invoiceSeries = collect();
+        $proformaSeries = collect();
+    }
     $ksefSeriesEnabled = $salesDocumentActions['ksefSeriesEnabled'];
     $ksefHasSubmission = $salesDocumentActions['ksefHasSubmission'];
     $ksefCanSend = $salesDocumentActions['ksefCanSend'];
@@ -182,6 +186,8 @@
         @endif
     @endif
 
+    @include('orders.partials.allegro-invoice-export', ['allegroDocument' => $issuedInvoice, 'allegroState' => $salesDocumentActions['allegroInvoice'] ?? null])
+
     @if ($issuedCorrection || $finalizedCorrections->isNotEmpty())
         <div class="management-invoice-label management-correction-label">Korekta:</div>
     @endif
@@ -204,6 +210,7 @@
                 </a>
             </div>
         </div>
+        @include('orders.partials.allegro-invoice-export', ['allegroDocument' => $finalizedCorrection, 'allegroState' => $salesDocumentActions['allegroCorrections'][$finalizedCorrection->id] ?? null])
     @endforeach
 
     @if ($issuedCorrection)

@@ -31,6 +31,7 @@ final class OrderListFilterState
         'delivery_cost_to',
         'product',
         'notes',
+        'completeness',
     ];
 
     public const SAVED_KEYS = [
