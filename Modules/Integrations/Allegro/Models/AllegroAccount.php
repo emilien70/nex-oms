@@ -39,6 +39,9 @@ class AllegroAccount extends Model
         'invoice_sync_revision' => 0,
         'correction_sync_mode' => 'disabled',
         'correction_sync_revision' => 0,
+        'returns_enabled' => false,
+        'returns_revision' => 0,
+        'returns_scan_offset' => 0,
     ];
 
     protected $fillable = [
@@ -83,6 +86,8 @@ class AllegroAccount extends Model
         'correction_sync_status_setting_id',
         'correction_sync_identity',
         'correction_sync_revision',
+        'returns_enabled', 'returns_from_at', 'returns_identity', 'returns_revision',
+        'returns_scan_offset', 'returns_scan_until', 'returns_last_scan_at', 'returns_error',
     ];
 
     protected $hidden = [
@@ -117,6 +122,9 @@ class AllegroAccount extends Model
         'correction_sync_mode' => AllegroInvoiceSyncMode::class,
         'correction_sync_status_setting_id' => 'integer',
         'correction_sync_revision' => 'integer',
+        'returns_enabled' => 'boolean', 'returns_revision' => 'integer', 'returns_scan_offset' => 'integer',
+        'returns_from_at' => 'immutable_datetime', 'returns_scan_until' => 'immutable_datetime',
+        'returns_last_scan_at' => 'immutable_datetime',
     ];
 
     public function courierAccounts(): HasMany

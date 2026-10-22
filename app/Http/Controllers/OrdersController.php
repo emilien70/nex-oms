@@ -727,6 +727,7 @@ class OrdersController extends Controller
 
         $order->load([
             'items.product',
+            'returns.localStatus',
             'items.prestashopItemLink.orderLink.account',
             'prestashopOrderLinks.account',
             'allegroOrderLink.account',

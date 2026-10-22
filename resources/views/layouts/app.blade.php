@@ -301,6 +301,7 @@
         }
 
         .app-shell.has-orders-context .content > .orders-page,
+        .app-shell.has-orders-context .content > .returns-page,
         .app-shell.has-orders-context .content > .status-settings-page,
         .app-shell.has-orders-context .content > .automatic-actions-page,
         .app-shell.has-orders-context .content > .email-settings-page {
@@ -713,40 +714,63 @@
         }
 
         .orders-context-add-form {
-            padding: 0 8px 10px;
+            padding: 0 4px 10px;
         }
 
         .orders-context-add {
+            --context-add-color: #0077da;
             align-items: center;
-            background: #0788e8;
-            border: 0;
-            border-radius: 16px;
+            background: var(--context-add-color);
+            border: 1px solid var(--context-add-color);
+            border-radius: 20px;
             color: #ffffff;
             display: flex;
+            flex: 0 0 auto;
+            font-family: Arial, sans-serif;
             font-size: 13px;
             font-weight: 700;
-            gap: 8px;
+            height: 40px;
             justify-content: center;
-            min-height: 38px;
-            width: 100%;
+            line-height: 18px;
+            max-width: 100%;
+            padding: 0 10px 0 30px;
+            position: relative;
+            text-decoration: none;
+            white-space: nowrap;
+            width: 184px;
+        }
+
+        .orders-context-add--return {
+            --context-add-color: #6e4fdf;
+            background-image: linear-gradient(90deg, #9963e6, #6c4fdf);
         }
 
         .orders-context-add:hover {
-            background: #0777ce;
             color: #ffffff;
+            filter: brightness(.96);
+        }
+
+        .orders-context-add:focus-visible {
+            outline: 2px solid var(--context-add-color);
+            outline-offset: 2px;
         }
 
         .orders-context-plus {
             align-items: center;
-            border: 2px solid rgba(255, 255, 255, .95);
-            border-radius: 50%;
             display: inline-flex;
-            flex: 0 0 auto;
-            font-size: 20px;
-            height: 28px;
+            font-size: 30px;
+            height: 30px;
             justify-content: center;
+            left: 3px;
             line-height: 1;
-            width: 28px;
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 30px;
+        }
+
+        .orders-context-plus::before {
+            display: block;
         }
 
         .orders-context-list {
@@ -1239,13 +1263,14 @@
             || request()->routeIs('invoices.*')
             || request()->routeIs('settings.order-statuses.index')
             || request()->routeIs('settings.variables.index');
-        $hasOrdersContext = request()->is('orders*')
+        $hasReturnsContext = request()->routeIs('returns.*', 'settings.return-statuses.*');
+        $hasOrdersContext = $hasReturnsContext || request()->is('orders*')
             || request()->routeIs('settings.order-statuses.index')
             || request()->routeIs('settings.variables.index');
         $currentLayoutStatus = request()->query('status');
         $currentLayoutStatus = is_string($currentLayoutStatus) ? $currentLayoutStatus : null;
         $layoutShowsTrash = request()->boolean('trash');
-        $globalOrderSearchQuery = request()->routeIs('orders.index')
+        $globalOrderSearchQuery = request()->routeIs('orders.index', 'returns.index')
             ? trim((string) request()->query('q', ''))
             : '';
     @endphp
@@ -1273,7 +1298,7 @@
                         <div class="nav-flyout-title">Zam&oacute;wienia</div>
                         <a class="nav-flyout-link {{ request()->routeIs('orders.index') && ! request()->boolean('trash') ? 'active' : '' }}" href="{{ route('orders.index') }}">Lista zam&oacute;wie&#324;</a>
                         <a class="nav-flyout-link {{ request()->routeIs('invoices.*') ? 'active' : '' }}" href="{{ route('invoices.index') }}">Faktury</a>
-                        <a class="nav-flyout-link" href="#">Zwroty</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('returns.*') ? 'active' : '' }}" href="{{ route('returns.index') }}">Zwroty</a>
                         <a class="nav-flyout-link {{ request()->routeIs('settings.order-statuses.index') ? 'active' : '' }}" href="{{ route('settings.order-statuses.index') }}">Statusy zam&oacute;wie&#324;</a>
                         <a class="nav-flyout-link {{ request()->routeIs('orders.automatic-actions.index') ? 'active' : '' }}" href="{{ route('orders.automatic-actions.index') }}">Automatyczne akcje</a>
                         <a class="nav-flyout-link {{ request()->routeIs('orders.email-templates.*', 'orders.email-accounts.*') ? 'active' : '' }}" href="{{ route('orders.email-templates.index') }}">Szablony E-Mail</a>
@@ -1333,7 +1358,7 @@
                         <i class="bi bi-chevron-down app-menu-toggle-chevron" aria-hidden="true"></i>
                     </button>
                 </div>
-                <form class="orders-search-form" method="GET" action="{{ route('orders.index') }}" data-global-order-search-form>
+                <form class="orders-search-form" method="GET" action="{{ route($hasReturnsContext ? 'returns.index' : 'orders.index') }}" data-global-order-search-form>
                     <div class="orders-search-control">
                         <i class="bi bi-search orders-search-icon" aria-hidden="true"></i>
                         <input
@@ -1342,11 +1367,11 @@
                             name="q"
                             value="{{ $globalOrderSearchQuery }}"
                             placeholder="Szukaj..."
-                            aria-label="Szukaj zam&oacute;wienia"
+                            aria-label="{{ $hasReturnsContext ? 'Szukaj zwrotu' : 'Szukaj zamówienia' }}"
                             autocomplete="off"
                             data-global-order-search-input
                         >
-                        <button class="orders-search-submit" type="submit" aria-label="Wyszukaj zam&oacute;wienie" title="Wyszukaj zam&oacute;wienie">
+                        <button class="orders-search-submit" type="submit" aria-label="{{ $hasReturnsContext ? 'Wyszukaj zwrot' : 'Wyszukaj zamówienie' }}" title="{{ $hasReturnsContext ? 'Wyszukaj zwrot' : 'Wyszukaj zamówienie' }}">
                             <i class="bi bi-arrow-right" aria-hidden="true"></i>
                         </button>
                     </div>
@@ -1355,13 +1380,15 @@
             </header>
 
             <div class="app-workspace-body">
-        @if ($hasOrdersContext)
+        @if ($hasReturnsContext)
+            @include('returns._sidebar')
+        @elseif ($hasOrdersContext)
             <aside class="orders-context-sidebar" aria-label="Menu zamowien">
                 <div class="orders-context-inner">
                     <form class="orders-context-add-form" method="POST" action="{{ route('orders.empty-store') }}">
                         @csrf
                         <button class="orders-context-add" type="submit">
-                            <span class="orders-context-plus">+</span>
+                            <i class="bi bi-plus-circle orders-context-plus" aria-hidden="true"></i>
                             Dodaj zam&oacute;wienie
                         </button>
                     </form>

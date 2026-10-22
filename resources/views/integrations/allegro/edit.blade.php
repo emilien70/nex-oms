@@ -64,9 +64,9 @@
         @media (max-width: 800px) { .allegro-details { grid-template-columns: 1fr; } .allegro-page { margin: -1rem; padding: 16px; } }
     </style>
 
-    <div class="allegro-page {{ in_array($tab, ['statuses', 'shipments', 'invoices'], true) ? 'is-statuses' : '' }}">
+    <div class="allegro-page {{ in_array($tab, ['statuses', 'shipments', 'invoices', 'returns'], true) ? 'is-statuses' : '' }}">
         <header class="allegro-header">
-            <h1 class="allegro-title">@if (in_array($tab, ['statuses', 'shipments', 'invoices'], true))Konto Allegro &raquo; {{ $account->name }}@else Allegro @endif</h1>
+            <h1 class="allegro-title">@if (in_array($tab, ['statuses', 'shipments', 'invoices', 'returns'], true))Konto Allegro &raquo; {{ $account->name }}@else Allegro @endif</h1>
             <a class="btn btn-sm btn-outline-secondary" href="{{ route('integrations.index') }}">Lista integracji</a>
         </header>
 
@@ -76,6 +76,7 @@
             <a class="allegro-tab {{ $tab === 'statuses' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'statuses']) }}">Statusy zamówień</a>
             <a class="allegro-tab {{ $tab === 'shipments' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'shipments']) }}">Przesyłki</a>
             <a class="allegro-tab {{ $tab === 'invoices' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'invoices']) }}">Faktury</a>
+            <a class="allegro-tab {{ $tab === 'returns' ? 'active' : '' }}" href="{{ route('integrations.allegro.edit', ['tab' => 'returns']) }}">Zwroty</a>
         </nav>
 
         @if (session('success'))
@@ -99,6 +100,8 @@
             @include('integrations.allegro._shipments')
         @elseif ($tab === 'invoices')
             @include('integrations.allegro._invoices')
+        @elseif ($tab === 'returns')
+            @include('integrations.allegro._returns')
         @else
         <section class="allegro-panel">
             <div class="allegro-panel-header">

@@ -208,6 +208,11 @@ class Order extends Model
         return $this->hasMany(Shipment::class);
     }
 
+    public function returns(): HasMany
+    {
+        return $this->hasMany(OrderReturn::class)->orderByDesc('submitted_at');
+    }
+
     public function visibleShipments(): HasMany
     {
         return $this->hasMany(Shipment::class)->whereNotNull('tracking_number');

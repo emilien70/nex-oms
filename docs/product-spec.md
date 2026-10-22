@@ -2610,3 +2610,33 @@ Anulowanie zamowienia w OMS lub Allegro nie blokuje Korekty. Powiazanie Allegro 
 Korekty wspoldziela bezpieczna kolejke, prywatne kopie PDF, sumy SHA-256, blokade zamowienia i odczyt wyniku po niejednoznacznej wysylce z ALLEGRO.3C. Kazdy dokument ma odrebny numer, plik i rekord eksportu. Ochrona KSeF uwzglednia Korekte oraz jej Fakture zrodlowa: wymagany jest wlasny zaakceptowany dokument i finalny PDF, a TEST/DEMO nie trafia do produkcyjnego Allegro. Offline korzysta z istniejacej zaakceptowanej, zamrozonej wizualizacji. Wszystkie zadania API/OAuth zachowuja obowiazkowy User-Agent.
 
 Etap nie tworzy Korekt, zwrotow platnosci ani zwrotow prowizji. Nie dodaje wysylki Pro form, zewnetrznych PDF, masowego eksportu historii ani podmiany plikow w Allegro.
+
+---
+
+# ALLEGRO.4A - odczyt zwrotow klienckich
+
+Zamowienia -> Zwroty otwiera Wszystkie zwroty. Lista i karta korzystaja ze stylistyki zamowien OMS. Lista ma domyslnie 20 pozycji na strone, wybor rozmiaru, paginacje oraz filtry statusu, integracji i daty zgloszenia. Wyszukiwanie obejmuje identyfikatory, klienta, nazwe produktu, numery paczek zwrotnych i glowne numery przesylek zamowienia.
+
+Integracje -> Allegro -> Zwroty zawiera domyslnie wylaczone pobieranie i date poczatkowa (domyslnie dzisiaj). Zapis ustawien nie wywoluje API. Po wlaczeniu harmonogram kolejkuje odczyt nowych zgloszen i odswiezanie znanych zwrotow co okolo 5 minut, z uwzglednieniem czasu pracy kolejki. Odswiezane sa rowniez zakonczone zgloszenia, poniewaz dane paczki lub rozliczenia prowizji moga zostac uzupelnione pozniej.
+
+Jedno zgloszenie Allegro jest jednym zwrotem OMS; deduplikacja obejmuje srodowisko, sprzedawce i ID zwrotu. Kilka zgloszen do jednego zakupu pozostaje oddzielnych. Brak zamowienia w OMS nie blokuje importu. Powiazanie jest uzupelniane podczas kolejnego odczytu, wylacznie przez pelna tozsamosc zamowienia Allegro. Nazwa produktu, SKU ani EAN nie sluza do zgadywania relacji.
+
+Karta pokazuje zwracane produkty, ilosci, ceny i wartosc produktow, powody i komentarze, dane klienta, status Allegro, adres pierwotnej dostawy i dokumenty zamowienia. Osobno widoczne sa Przesylki (zamowienie), ze wszystkimi znanymi numerami paczek wyslanych klientowi, oraz Przesylki zwrotne z Allegro. Historia wiadomosci pochodzi z istniejacego zamowienia (ostatnie 20, pozostale w zamowieniu). Historia zwrotu zapisuje tylko zmiany zaobserwowane przez OMS i ma osobna paginacje po 20 wpisow.
+
+Status zwrotu nie zmienia statusu zamowienia. Wartosc produktow nie oznacza kwoty wykonanej refundacji; karta pokazuje Brak danych dla zwroconych srodkow. Ten etap nie pobiera historii refundacji ani danych rachunku bankowego. Nie uruchamia zwrotu pieniedzy, korekty, zwrotu prowizji, zmian magazynowych, akceptacji/odrzucenia zwrotu, nadawania paczki ani wysylania wiadomosci. Nie ma atrap przyciskow takich operacji.
+
+Rozlaczenie lub zmiana tozsamosci konta wylacza odczyt bez kasowania historii. Bledna odpowiedz API nie nadpisuje zapisanych danych. Nieznany przyszly status pozostaje widoczny. Usuniecie powiazanego zamowienia, konta albo produktu nie usuwa zwrotu ani jego historycznej nazwy, ceny i adresu z momentu pierwszego powiazania.
+
+---
+
+# Zwroty OMS - wszystkie zrodla i tworzenie reczne
+
+Lista Wszystkie zwroty wspoldzieli wyglad z aktualna lista zamowien OMS: kolumny, typografie, odstepy, zaznaczanie, gwiazdki, filtry i paginacje. W panelu bocznym znajduje sie Stworz zwrot oraz niezalezne statusy zwrotow z licznikami. Na malym ekranie przycisk tworzenia jest dostepny takze nad tabela. Domyslnie widac 20 pozycji; mozna wybrac 20/30/50/75/100/150/200. Zaznaczanie zbiorcze dotyczy aktualnej strony, a zmiana statusu zaznaczonych pozycji jest atomowa.
+
+Stworz zwrot pozwala wyszukac dowolne istniejace zamowienie lub utworzyc samodzielny zwrot bez zamowienia. Kazda karta zamowienia ma Akcje -> Stworz zwrot, niezaleznie od zrodla: reczne, PrestaShop, Allegro lub inne. Powiazany zwrot pobiera dane klienta, walute, ceny i nazwy produktow z zamowienia po stronie serwera. Operator wybiera ilosci, powod i komentarz. Mozna tworzyc kilka czesciowych zwrotow; formularz pokazuje poprzednie zgloszenia i pozostale ilosci. Nie dopasowujemy samodzielnych pozycji do katalogu po nazwie, SKU ani EAN; ID produktu jest opcjonalne i jawne.
+
+Statusy obslugi zwrotu sa konfigurowane w OMS, nie w integracji. Poczatkowo sa to Nowe, Odebrane, W trakcie, Zakonczone i Odrzucone. Mozna zmieniac ich nazwy, kolory i kolejnosc oraz dodawac wlasne statusy. Nie wolno usuwac statusu poczatkowego ani aktualnie uzywanego. Nazwy zapisane w historii pozostaja historyczne po zmianie nazwy statusu. Status Odrzucone zwalnia zarezerwowane ilosci; ponowne otwarcie recznego zwrotu ponownie sprawdza dostepne ilosci.
+
+Lokalny status i jego data sa oddzielone od statusu Allegro i daty jego odczytu. Import nie nadpisuje decyzji operatora, gwiazdki ani uwag OMS. Zrodlo zamowienia i sposob utworzenia zwrotu sa osobnymi informacjami. Reczny zwrot do zamowienia Allegro nie posiada zewnetrznego ID zwrotu i nie jest automatycznie laczony z pozniej pobranym zgloszeniem Allegro.
+
+Utworzenie jest chronione przed podwojnym wyslaniem formularza, zmiana zamowienia w innym oknie i przekroczeniem znanych pozostalych ilosci. Ceny i sumy sa liczone dokladnie, bez float. Pozycje i adres maja wlasne snapshoty; usuniecie zamowienia lub produktu nie kasuje historii zwrotu. Oryginalne przesylki wyslane klientowi sa nadal pokazywane oddzielnie od przesylek zwrotnych. Ten etap nie wykonuje refundacji, korekt, operacji magazynowych ani zapisu do API Allegro. Szczegoly wdrozenia: docs/returns-general-report.md.

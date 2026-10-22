@@ -58,6 +58,16 @@ class OrdersAjaxListTest extends TestCase
             ->assertDontSee('class="order-subline mt-1"', false);
     }
 
+    public function test_sidebar_add_order_button_keeps_its_action_and_reference_icon(): void
+    {
+        $this->get(route('orders.index'))
+            ->assertOk()
+            ->assertSee('action="'.route('orders.empty-store').'"', false)
+            ->assertSee('class="orders-context-add" type="submit"', false)
+            ->assertSee('class="bi bi-plus-circle orders-context-plus" aria-hidden="true"', false)
+            ->assertSee('Dodaj zam&oacute;wienie', false);
+    }
+
     public function test_bulk_list_mutations_return_ajax_refresh_instructions(): void
     {
         $order = $this->order();

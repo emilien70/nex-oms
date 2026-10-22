@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Schedule;
 use Modules\Integrations\Allegro\Jobs\DiscoverAllegroOrdersJob;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Services\AllegroInvoiceExportService;
+use Modules\Integrations\Allegro\Services\AllegroReturnSyncService;
 use Modules\Integrations\Allegro\Services\AllegroShipmentExportService;
 use Modules\Integrations\AllegroShipping\Jobs\RefreshAllegroShipmentJob;
 use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
@@ -119,3 +120,6 @@ Schedule::call(fn () => app(AllegroShipmentExportService::class)->recover())
 
 Schedule::call(fn () => app(AllegroInvoiceExportService::class)->recover())
     ->name('allegro-recover-invoice-exports')->everyMinute()->withoutOverlapping();
+
+Schedule::call(fn () => app(AllegroReturnSyncService::class)->dispatchDue())
+    ->name('allegro-import-customer-returns')->everyMinute()->withoutOverlapping();

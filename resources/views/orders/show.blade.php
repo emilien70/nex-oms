@@ -3472,6 +3472,7 @@
                                     Akcje
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{{ route('returns.create', ['order_id' => $order->id]) }}">Stwórz zwrot</a></li>
                                     <li>
                                         <form method="POST" action="{{ route('orders.destroy', $order) }}" onsubmit="return confirm('Przeniesc zamowienie do kosza?')">
                                             @csrf
@@ -3803,6 +3804,16 @@
         $shipmentFormHasErrors = $errors->hasAny(['shipment', 'parcel_template', 'target_point_id', 'sending_method', 'content_description', 'cod_amount', 'insurance_amount', 'additional_services', 'service', 'parcels']);
         $initialShipmentProvider = $shipmentFormHasErrors ? $selectedShipmentProvider : null;
     @endphp
+    @if ($order->returns->isNotEmpty())
+        <div class="nex-card mb-3">
+            <div class="nex-card-header"><h2 class="nex-card-title">Zwroty</h2></div>
+            <div class="nex-card-body d-flex flex-wrap gap-3">
+                @foreach ($order->returns as $orderReturn)
+                    <a href="{{ route('returns.show', $orderReturn) }}">Zwrot {{ $orderReturn->id }}@if($orderReturn->reference_number) ({{ $orderReturn->reference_number }})@endif &middot; {{ $orderReturn->localStatusLabel() }}</a>
+                @endforeach
+            </div>
+        </div>
+    @endif
     <div class="nex-card shipments-card">
         <div class="nex-card-header">
             <h2 class="nex-card-title shipments-card-title">Przesy&#322;ki</h2>

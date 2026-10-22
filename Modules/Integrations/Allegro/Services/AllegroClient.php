@@ -87,6 +87,16 @@ class AllegroClient
         return $this->request($account, $operation, $path);
     }
 
+    public function customerReturns(AllegroAccount $account, array $query): array
+    {
+        return $this->get($account, 'get_customer_returns', '/order/customer-returns?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986));
+    }
+
+    public function customerReturn(AllegroAccount $account, string $id): array
+    {
+        return $this->get($account, 'get_customer_return', '/order/customer-returns/'.rawurlencode($id));
+    }
+
     public function orderShipments(AllegroAccount $account, string $identifier): array
     {
         return $this->get($account, 'get_order_shipments', '/order/checkout-forms/'.rawurlencode($identifier).'/shipments');
@@ -138,6 +148,7 @@ class AllegroClient
                 'set_fulfillment' => $this->fulfillmentErrorMessage($response->status()),
                 'get_order_shipments', 'get_order_carriers', 'add_order_shipment' => $this->shipmentErrorMessage($response->status()),
                 'get_order_invoices', 'upload_order_invoice' => $this->invoiceErrorMessage($response->status()),
+                'get_customer_returns', 'get_customer_return' => 'Nie udało się pobrać zwrotów Allegro (HTTP '.$response->status().').',
                 default => $this->errorMessage($payload, $response->status()),
             };
             $this->log(
@@ -160,6 +171,10 @@ class AllegroClient
         } catch (AllegroApiException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
+            if (in_array($operation, ['get_customer_returns', 'get_customer_return'], true)) {
+                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Błąd połączenia podczas pobierania zwrotów.', $method);
+                throw new AllegroApiException('Nie udało się połączyć z Allegro podczas pobierania zwrotów.');
+            }
             $invoiceOperation = in_array($operation, ['get_order_invoices', 'upload_order_invoice'], true);
             $this->log($operation, $requestId, $url, null, null, $startedAt, false,
                 $invoiceOperation ? 'Błąd połączenia podczas obsługi faktury Allegro.' : $exception->getMessage(), $method);
@@ -178,7 +193,8 @@ class AllegroClient
     {
         $request = Http::withToken($this->oauth->accessToken($account))
             ->withUserAgent((string) config('services.allegro.user_agent'))
-            ->withHeaders(['Accept' => self::MEDIA_TYPE, 'Accept-Language' => $file === [] ? 'pl-PL' : 'en-US'])
+            ->withHeaders(['Accept' => str_starts_with((string) parse_url($url, PHP_URL_PATH), '/order/customer-returns')
+                ? 'application/vnd.allegro.beta.v1+json' : self::MEDIA_TYPE, 'Accept-Language' => $file === [] ? 'pl-PL' : 'en-US'])
             ->timeout((int) config('services.allegro.timeout', 25));
         if ($file !== []) {
             return $request->attach('file', $file['contents'], $file['name'], ['Content-Type' => 'application/pdf'])->post($url, $data);
@@ -262,6 +278,9 @@ class AllegroClient
 
     private function sanitizedResponse(string $operation, array $payload): array
     {
+        if (in_array($operation, ['get_customer_returns', 'get_customer_return'], true)) {
+            return ['count' => is_array($payload['customerReturns'] ?? null) ? count($payload['customerReturns']) : null];
+        }
         if (in_array($operation, ['get_order_invoices', 'upload_order_invoice'], true)) {
             return ['count' => is_array($payload['invoices'] ?? null) ? count($payload['invoices']) : null];
         }

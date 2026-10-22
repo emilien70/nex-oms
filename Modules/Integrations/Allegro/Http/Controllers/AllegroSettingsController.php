@@ -29,7 +29,7 @@ class AllegroSettingsController extends Controller
     public function edit(Request $request, AllegroAccountService $accounts, AllegroOrderPreviewService $previews): View
     {
         $account = $accounts->get();
-        $tab = in_array($request->query('tab'), ['orders', 'statuses', 'shipments', 'invoices'], true) ? $request->query('tab') : 'connection';
+        $tab = in_array($request->query('tab'), ['orders', 'statuses', 'shipments', 'invoices', 'returns'], true) ? $request->query('tab') : 'connection';
         $preview = null;
         $previewError = null;
         $identifier = is_string($request->query('order_identifier')) ? strtolower(trim($request->query('order_identifier'))) : '';
