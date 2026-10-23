@@ -286,7 +286,8 @@ final class KsefFa3CorrectionEligibilityValidator
         }
 
         $resolved = $this->buyerIdentity->withSemantics($buyer);
-        if ($identity !== $resolved['tax_identity'] || $flags !== $resolved['subject_flags']) {
+        if (! $this->buyerSnapshotMapMatches($identity, $resolved['tax_identity'])
+            || ! $this->buyerSnapshotMapMatches($flags, $resolved['subject_flags'])) {
             throw $this->buyerSnapshotInvalid('buyer_after_semantics_mismatch');
         }
 
@@ -322,8 +323,8 @@ final class KsefFa3CorrectionEligibilityValidator
         }
 
         $resolved = $this->buyerIdentity->withSemantics($mapped->buyerBefore);
-        if (($stored['tax_identity'] ?? null) !== $resolved['tax_identity']
-            || ($stored['subject_flags'] ?? null) !== $resolved['subject_flags']) {
+        if (! $this->buyerSnapshotMapMatches($stored['tax_identity'] ?? null, $resolved['tax_identity'])
+            || ! $this->buyerSnapshotMapMatches($stored['subject_flags'] ?? null, $resolved['subject_flags'])) {
             throw $this->buyerSnapshotInvalid('buyer_before_semantics_mismatch');
         }
 
@@ -347,6 +348,20 @@ final class KsefFa3CorrectionEligibilityValidator
         }
 
         return $identity;
+    }
+
+    /** @param array<string, mixed> $expected */
+    private function buyerSnapshotMapMatches(mixed $stored, array $expected): bool
+    {
+        if (! is_array($stored)) {
+            return false;
+        }
+
+        // JSON object key order is not semantic; keys, value types and values remain strict.
+        ksort($stored, SORT_STRING);
+        ksort($expected, SORT_STRING);
+
+        return $stored === $expected;
     }
 
     /** @param array<string, mixed> $buyer */

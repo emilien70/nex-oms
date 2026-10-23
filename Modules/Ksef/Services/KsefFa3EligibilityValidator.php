@@ -148,7 +148,13 @@ class KsefFa3EligibilityValidator
             );
         }
 
-        if ($this->buyerIdentity->resolve($buyer) !== $identity) {
+        // JSON object key order is not semantic; keys, value types and values remain strict.
+        $expectedIdentity = $this->buyerIdentity->resolve($buyer);
+        $persistedIdentity = $identity;
+        ksort($expectedIdentity, SORT_STRING);
+        ksort($persistedIdentity, SORT_STRING);
+
+        if ($expectedIdentity !== $persistedIdentity) {
             throw $this->error(
                 'ksef_fa3_buyer_snapshot_invalid',
                 'Snapshot identyfikatora podatkowego nabywcy jest niespójny z danymi Faktury.',

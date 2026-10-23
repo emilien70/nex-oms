@@ -457,6 +457,190 @@ class KsefFa3CorrectionEligibilityValidatorTest extends TestCase
         $this->assertEligible($correction, $settings->refresh());
     }
 
+    #[DataProvider('reorderedBuyerSemanticCases')]
+    public function test_persisted_correction_buyer_semantic_key_order_is_not_significant(
+        string $side,
+        string $map,
+        string $order,
+        ?string $taxId,
+        string $country,
+        bool $allowWithoutNip,
+    ): void {
+        [$root, $correction, $settings] = $this->buyerSemanticsScenario($taxId, $country);
+        $storedSettings = $settings->getAttributes();
+        $settings->send_without_buyer_nip = $allowWithoutNip;
+
+        foreach ($side === 'both' ? ['after', 'before'] : [$side] as $currentSide) {
+            $semantics = $this->buyerSemantics($correction, $currentSide);
+            foreach ($map === 'both' ? ['tax_identity', 'subject_flags'] : [$map] as $key) {
+                $canonicalKeys = array_keys($semantics[$key]);
+                $semantics[$key] = array_reverse($semantics[$key], true);
+                if ($order === 'sorted') {
+                    ksort($semantics[$key], SORT_STRING);
+                }
+                $this->assertNotSame($canonicalKeys, array_keys($semantics[$key]));
+            }
+            $correction = $this->persistBuyerSemantics($correction, $currentSide, $semantics);
+        }
+        $before = $correction->getAttributes();
+        $rootBefore = $root->getAttributes();
+
+        if ($taxId === null && ! $allowWithoutNip) {
+            $this->expectDomainError(
+                'ksef_fa3_correction_buyer_tax_id_required',
+                fn () => $this->assertEligible($correction, $settings),
+            );
+        } else {
+            $this->assertEligible($correction, $settings);
+        }
+
+        $this->assertSame($before, $correction->fresh()->getAttributes());
+        $this->assertSame($rootBefore, $root->fresh()->getAttributes());
+        $this->assertSame($storedSettings, $settings->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public static function reorderedBuyerSemanticCases(): array
+    {
+        $cases = [];
+        foreach (['reversed', 'sorted'] as $order) {
+            foreach (['before', 'after'] as $side) {
+                foreach (['tax_identity', 'subject_flags', 'both'] as $map) {
+                    $cases[$side.' '.$map.' '.$order] = [$side, $map, $order, '5260250995', 'PL', false];
+                }
+            }
+            $cases['both EU VAT '.$order] = ['both', 'both', $order, 'DE123456789', 'DE', false];
+            foreach (['before', 'after', 'both'] as $side) {
+                foreach ([true, false] as $allowed) {
+                    $cases[$side.' without NIP '.$order.' '.($allowed ? 'allowed' : 'required')] = [
+                        $side, 'both', $order, null, 'PL', $allowed,
+                    ];
+                }
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('tamperedBuyerSemanticCases')]
+    public function test_persisted_correction_buyer_semantics_reject_tampering_strictly(
+        string $side,
+        string $map,
+        ?string $taxId,
+        array $changes,
+        array $removedKeys,
+        bool $replaceMap,
+        string $expectedCode,
+        string $expectedReason,
+    ): void {
+        [$root, $correction, $settings] = $this->buyerSemanticsScenario($taxId);
+        $storedSettings = $settings->getAttributes();
+        $settings->send_without_buyer_nip = true;
+        $this->assertEligible($correction, $settings);
+        $semantics = $this->buyerSemantics($correction, $side);
+        $semantics[$map] = array_replace($semantics[$map], $changes);
+        foreach ($removedKeys as $key) {
+            unset($semantics[$map][$key]);
+        }
+        $semantics[$map] = $replaceMap ? 'invalid' : array_reverse($semantics[$map], true);
+        $correction = $this->persistBuyerSemantics($correction, $side, $semantics);
+        $before = $correction->getAttributes();
+        $rootBefore = $root->getAttributes();
+
+        $error = $this->expectDomainError(
+            $expectedCode,
+            fn () => $this->assertEligible($correction, $settings),
+        );
+        if ($expectedReason !== '') {
+            $this->assertSame($expectedReason, $error->metadata()['reason']);
+        }
+        $this->assertSame($before, $correction->fresh()->getAttributes());
+        $this->assertSame($rootBefore, $root->fresh()->getAttributes());
+        $this->assertSame($storedSettings, $settings->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public static function tamperedBuyerSemanticCases(): array
+    {
+        $mutations = [
+            'different NIP' => ['tax_identity', '5260250995', ['identifier' => '5210080410'], [], false, 'mismatch'],
+            'integer NIP' => ['tax_identity', '5260250995', ['identifier' => 5260250995], [], false, 'mismatch'],
+            'nested identifier' => ['tax_identity', '5260250995', ['identifier' => ['value' => '5260250995']], [], false, 'mismatch'],
+            'false instead of null' => ['tax_identity', null, ['identifier' => false], [], false, 'mismatch'],
+            'zero instead of null' => ['tax_identity', null, ['identifier' => 0], [], false, 'mismatch'],
+            'empty string instead of null' => ['tax_identity', null, ['identifier' => ''], [], false, 'mismatch'],
+            'changed type' => ['tax_identity', '5260250995', ['type' => 'none'], [], false, 'mismatch'],
+            'integer type' => ['tax_identity', '5260250995', ['type' => 1], [], false, 'unsupported'],
+            'changed country' => ['tax_identity', '5260250995', ['country_code' => 'DE'], [], false, 'mismatch'],
+            'null country' => ['tax_identity', null, ['country_code' => null], [], false, 'mismatch'],
+            'changed status' => ['tax_identity', null, ['status' => 'unresolved'], [], false, 'mismatch'],
+            'string identity version' => ['tax_identity', null, ['version' => '1'], [], false, 'missing'],
+            'extra identity key' => ['tax_identity', null, ['reason' => null], [], false, 'mismatch'],
+            'non-array identity' => ['tax_identity', null, [], [], true, 'missing'],
+            'enabled JST' => ['subject_flags', null, ['jst' => true], [], false, 'unsupported'],
+            'zero instead of false' => ['subject_flags', null, ['jst' => 0], [], false, 'unsupported'],
+            'string instead of false' => ['subject_flags', null, ['vat_group' => 'false'], [], false, 'unsupported'],
+            'boolean flags version' => ['subject_flags', null, ['version' => true], [], false, 'missing'],
+            'extra flags key' => ['subject_flags', null, ['extra' => null], [], false, 'mismatch'],
+            'non-array flags' => ['subject_flags', null, [], [], true, 'missing'],
+        ];
+        foreach (['version', 'status', 'type', 'country_code', 'identifier'] as $key) {
+            $mutations['missing identity '.$key] = ['tax_identity', null, [], [$key], false,
+                $key === 'version' ? 'missing' : ($key === 'type' ? 'unsupported' : 'mismatch')];
+        }
+        foreach (['version', 'jst', 'vat_group'] as $key) {
+            $mutations['missing flags '.$key] = ['subject_flags', null, [], [$key], false,
+                $key === 'version' ? 'missing' : 'unsupported'];
+        }
+
+        $cases = [];
+        foreach (['before', 'after'] as $side) {
+            foreach ($mutations as $name => [$map, $taxId, $changes, $removed, $replaceMap, $reason]) {
+                $unsupported = $side === 'after' && $reason === 'unsupported';
+                $cases[$side.' '.$name] = [
+                    $side, $map, $taxId, $changes, $removed, $replaceMap,
+                    $unsupported ? 'ksef_fa3_correction_buyer_snapshot_unsupported' : 'ksef_fa3_correction_buyer_snapshot_invalid',
+                    $unsupported ? '' : 'buyer_'.$side.'_semantics_'.($side === 'after' && $reason === 'missing' ? 'missing' : 'mismatch'),
+                ];
+            }
+        }
+
+        return $cases;
+    }
+
+    /** @return array{0: Invoice, 1: Invoice, 2: KsefSetting} */
+    private function buyerSemanticsScenario(?string $taxId, string $country = 'PL'): array
+    {
+        $settings = $this->settings();
+        $root = $this->issueRoot(orderAttributes: ['billing_tax_id' => $taxId, 'billing_country_code' => $country]);
+        $this->acceptedSubmission($root);
+        $correction = $this->issueBuyerCorrection($root, array_replace($root->buyer_snapshot, ['street' => 'Nowa ulica']));
+
+        return [$root, $correction, $settings];
+    }
+
+    private function buyerSemantics(Invoice $correction, string $side): array
+    {
+        return $side === 'before'
+            ? $correction->tax_metadata_snapshot['ksef_correction']['buyer_before_semantics']
+            : array_intersect_key($correction->buyer_snapshot, array_flip(['tax_identity', 'subject_flags']));
+    }
+
+    private function persistBuyerSemantics(Invoice $correction, string $side, array $semantics): Invoice
+    {
+        if ($side === 'before') {
+            $metadata = $correction->tax_metadata_snapshot;
+            $metadata['ksef_correction']['buyer_before_semantics'] = $semantics;
+            $correction->forceFill(['tax_metadata_snapshot' => $metadata])->saveQuietly();
+        } else {
+            $correction->forceFill(['buyer_snapshot' => array_replace($correction->buyer_snapshot, $semantics)])->saveQuietly();
+        }
+        $persisted = $correction->fresh();
+        $this->assertSame($semantics, $this->buyerSemantics($persisted, $side));
+
+        return $persisted;
+    }
+
     public function test_buyer_only_and_financial_only_corrections_are_eligible(): void
     {
         $settings = $this->settings();

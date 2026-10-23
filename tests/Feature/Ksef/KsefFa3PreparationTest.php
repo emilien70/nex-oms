@@ -803,6 +803,122 @@ class KsefFa3PreparationTest extends TestCase
         $this->assertArrayNotHasKey('subject_flags', $invoice->buyer_snapshot);
     }
 
+    #[DataProvider('reorderedBuyerIdentities')]
+    public function test_persisted_buyer_identity_key_order_does_not_change_eligibility(
+        string $order,
+        ?string $taxId,
+        string $country,
+        bool $allowWithoutNip,
+        ?string $expectedError,
+    ): void {
+        Http::preventStrayRequests();
+        $invoice = $this->issueInvoice(['billing_tax_id' => $taxId, 'billing_country_code' => $country]);
+        $canonical = $invoice->buyer_snapshot['tax_identity'];
+        $identity = array_reverse($canonical, true);
+        if ($order === 'sorted') {
+            ksort($identity, SORT_STRING);
+        }
+        $this->assertNotSame(array_keys($canonical), array_keys($identity));
+        $invoice = $this->persistBuyerIdentity($invoice, $identity);
+        $settings = $this->settings();
+        $storedSettings = $settings->getAttributes();
+        $settings->send_without_buyer_nip = $allowWithoutNip;
+        $before = $invoice->getAttributes();
+        $validate = fn () => app(KsefFa3EligibilityValidator::class)->assertEligible($invoice, $settings, KsefFa3EligibilityMode::Preflight);
+
+        if ($expectedError !== null) {
+            $this->expectDomainError($expectedError, $validate);
+        } else {
+            $validate();
+        }
+
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
+        $this->assertSame($storedSettings, $settings->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public static function reorderedBuyerIdentities(): array
+    {
+        $cases = [];
+        foreach (['reversed', 'sorted'] as $order) {
+            foreach ([true, false] as $allowWithoutNip) {
+                $policy = $allowWithoutNip ? 'allowed' : 'required';
+                $cases[$order.' without NIP '.$policy] = [$order, null, 'PL', $allowWithoutNip,
+                    $allowWithoutNip ? null : 'ksef_fa3_buyer_tax_id_required'];
+                $cases[$order.' Polish NIP '.$policy] = [$order, '5260250995', 'PL', $allowWithoutNip, null];
+                $cases[$order.' EU VAT '.$policy] = [$order, 'DE123456789', 'DE', $allowWithoutNip, null];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('tamperedBuyerIdentities')]
+    public function test_persisted_buyer_identity_tampering_is_rejected_strictly(
+        ?string $taxId,
+        array $changes,
+        array $removedKeys,
+        string $expectedError,
+    ): void {
+        Http::preventStrayRequests();
+        $invoice = $this->issueInvoice(['billing_tax_id' => $taxId]);
+        $identity = array_replace($invoice->buyer_snapshot['tax_identity'], $changes);
+        foreach ($removedKeys as $key) {
+            unset($identity[$key]);
+        }
+        $invoice = $this->persistBuyerIdentity($invoice, array_reverse($identity, true));
+        $before = $invoice->getAttributes();
+
+        foreach ([true, false] as $allowWithoutNip) {
+            $settings = $this->settings();
+            $settings->send_without_buyer_nip = $allowWithoutNip;
+            $this->expectDomainError($expectedError, fn () => app(KsefFa3EligibilityValidator::class)->assertEligible(
+                $invoice, $settings, KsefFa3EligibilityMode::Preflight,
+            ));
+        }
+
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public static function tamperedBuyerIdentities(): array
+    {
+        $invalid = 'ksef_fa3_buyer_snapshot_invalid';
+
+        return [
+            'different NIP' => ['5260250995', ['identifier' => '1234567890'], [], $invalid],
+            'integer instead of NIP string' => ['5260250995', ['identifier' => 5260250995], [], $invalid],
+            'different identity type' => ['5260250995', ['type' => 'none'], [], $invalid],
+            'different country' => ['5260250995', ['country_code' => 'DE'], [], $invalid],
+            'null instead of country string' => [null, ['country_code' => null], [], $invalid],
+            'false instead of null identifier' => [null, ['identifier' => false], [], $invalid],
+            'zero instead of null identifier' => [null, ['identifier' => 0], [], $invalid],
+            'empty string instead of null identifier' => [null, ['identifier' => ''], [], $invalid],
+            'nested identifier instead of scalar' => ['5260250995', ['identifier' => ['value' => '5260250995']], [], $invalid],
+            'missing null identifier' => [null, [], ['identifier'], $invalid],
+            'missing country' => [null, [], ['country_code'], $invalid],
+            'missing type' => [null, [], ['type'], $invalid],
+            'unexpected null reason' => [null, ['reason' => null], [], $invalid],
+            'unexpected field' => [null, ['extra' => true], [], $invalid],
+            'string instead of integer version' => [null, ['version' => '1'], [], 'ksef_fa3_snapshot_version_unsupported'],
+            'boolean instead of integer version' => [null, ['version' => true], [], 'ksef_fa3_snapshot_version_unsupported'],
+            'missing version' => [null, [], ['version'], 'ksef_fa3_snapshot_version_unsupported'],
+            'changed status' => [null, ['status' => 'unresolved'], [], 'ksef_fa3_buyer_identity_unresolved'],
+            'missing status' => [null, [], ['status'], 'ksef_fa3_buyer_identity_unresolved'],
+        ];
+    }
+
+    private function persistBuyerIdentity(Invoice $invoice, array $identity): Invoice
+    {
+        $buyer = $invoice->buyer_snapshot;
+        $buyer['tax_identity'] = $identity;
+        $invoice->forceFill(['buyer_snapshot' => $buyer])->saveQuietly();
+        $persisted = $invoice->fresh();
+        $this->assertSame($identity, $persisted->buyer_snapshot['tax_identity']);
+
+        return $persisted;
+    }
+
     private function issueInvoice(array $order = [], array $item = [], array $series = []): Invoice
     {
         $orderModel = $this->createDocumentOrder(array_merge([
