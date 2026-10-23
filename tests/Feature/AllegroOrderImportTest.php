@@ -130,13 +130,62 @@ class AllegroOrderImportTest extends TestCase
         $this->assertSame($linkAttributes, $order->allegroOrderLink()->sole()->getAttributes());
     }
 
+    public function test_order_source_groups_allegro_with_current_integration_name_and_snapshot_fallback(): void
+    {
+        $account = $this->account();
+        $account->update(['name' => 'multi-click']);
+        $this->fakeOrder();
+        $order = $this->import($account);
+        $before = $order->getAttributes();
+
+        $response = $this->get(route('orders.show', $order))->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/<optgroup label="Allegro" data-allegro-source-group>\s*<option value="allegro"\s+selected>multi-click<\/option>\s*<\/optgroup>/',
+            $response->getContent(),
+        );
+
+        $account->update(['name' => 'Sklep <Nowa nazwa>']);
+        $response = $this->get(route('orders.show', $order))->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/<optgroup label="Allegro" data-allegro-source-group>\s*<option value="allegro"\s+selected>Sklep &lt;Nowa nazwa&gt;<\/option>\s*<\/optgroup>/',
+            $response->getContent(),
+        );
+
+        $account->delete();
+        $response = $this->get(route('orders.show', $order))->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/<optgroup label="Allegro" data-allegro-source-group>\s*<option value="allegro"\s+selected>multi-click<\/option>\s*<\/optgroup>/',
+            $response->getContent(),
+        );
+        $this->assertSame($before, $order->fresh()->getAttributes());
+        Http::assertSentCount(2);
+    }
+
+    public function test_manual_order_source_lists_configured_allegro_integration_without_changing_selection(): void
+    {
+        $account = $this->account();
+        $account->update(['name' => 'multi-click']);
+        $order = $this->createDocumentOrder();
+
+        $response = $this->get(route('orders.show', $order))->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/<optgroup label="Allegro" data-allegro-source-group>\s*<option value="allegro"\s*>multi-click<\/option>\s*<\/optgroup>/',
+            $response->getContent(),
+        );
+        $this->assertMatchesRegularExpression('/<option value="manual"\s+selected>/', $response->getContent());
+        $this->assertSame('manual', $order->fresh()->source);
+        Http::assertNothingSent();
+    }
+
     public function test_legacy_allegro_order_with_invalid_identifier_does_not_create_an_external_link(): void
     {
         $order = $this->createDocumentOrder(['source' => 'allegro', 'external_id' => '<script>alert(1)</script>']);
 
         $this->get(route('orders.show', $order))->assertOk()
             ->assertSee('<script>alert(1)</script>')->assertDontSee('<script>alert(1)</script>', false)
-            ->assertDontSee('data-allegro-transaction="', false);
+            ->assertDontSee('data-allegro-transaction="', false)
+            ->assertDontSee('data-allegro-source-group', false)
+            ->assertSee('<option value="allegro" selected>Allegro</option>', false);
     }
 
     #[DataProvider('invoiceRequests')]

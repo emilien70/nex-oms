@@ -41,7 +41,7 @@ class KsefInvoiceSubmissionController extends Controller
             $request,
             $this->defaultReturnContext($invoice),
         );
-        $redirectUrl = $returnContext->url((int) ($invoice->order_id ?? 0));
+        $redirectUrl = $this->submissionRedirectUrl($request, $invoice, $returnContext);
         $operation = $this->submitOperation($invoice);
 
         try {
@@ -91,7 +91,7 @@ class KsefInvoiceSubmissionController extends Controller
             $request,
             $this->defaultReturnContext($invoice),
         );
-        $redirectUrl = $returnContext->url((int) ($invoice->order_id ?? 0));
+        $redirectUrl = $this->submissionRedirectUrl($request, $invoice, $returnContext);
         $operation = $this->submitOperation($invoice);
         $response = $invoice->isCorrection() ? redirect($redirectUrl) : back();
 
@@ -300,6 +300,21 @@ class KsefInvoiceSubmissionController extends Controller
         } catch (Throwable $exception) {
             $this->logUnexpected($invoice, 'post_send_status', $exception, $submission);
         }
+    }
+
+    private function submissionRedirectUrl(
+        Request $request,
+        Invoice $document,
+        InvoiceReturnContext $returnContext,
+    ): string {
+        if ($document->isCorrection() && $request->boolean('return_to_document')) {
+            return route('invoices.corrections.edit', [
+                'correction' => $document,
+                ...$returnContext->parameters(),
+            ]).'#correction-ksef';
+        }
+
+        return $returnContext->url((int) ($document->order_id ?? 0));
     }
 
     private function defaultReturnContext(Invoice $document): string

@@ -4,6 +4,7 @@ namespace Tests\Feature\Ksef;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -57,6 +58,192 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         config()->set('ksef.invoice_submission_enabled', true);
         Http::preventStrayRequests();
         $this->travelTo(CarbonImmutable::parse('2026-08-21 10:00:00 Europe/Warsaw'));
+    }
+
+    #[DataProvider('operationalEnvironments')]
+    public function test_correction_card_first_send_returns_to_document_and_blocks_duplicate_submission(KsefEnvironment $environment): void
+    {
+        Queue::fake();
+        $this->configure($environment);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, $environment);
+        $correction = $this->issueKsefFinancialCorrection($root);
+        $before = $correction->getAttributes();
+        $rootBefore = $root->fresh()->getAttributes();
+        $itemsBefore = $correction->items()->orderBy('id')->get()->map->getAttributes()->all();
+        $context = ['return_to' => 'corrections', 'return_query' => 'page=2&sort=buyer'];
+        $cardUrl = route('invoices.corrections.edit', ['correction' => $correction, ...$context]);
+        $environmentCode = strtoupper($environment->value);
+
+        $response = $this->get($cardUrl)->assertOk()
+            ->assertSee('action="'.route('invoices.ksef.submissions.first-attempt', $correction).'"', false)
+            ->assertSee('Wyślij do KSeF '.$environmentCode)
+            ->assertSee('Wysłać tę Korektę do KSeF '.$environmentCode.'?')
+            ->assertSee('Korekta zostanie zamknięta i nie będzie można jej edytować.')
+            ->assertSee('name="return_to_document" value="1"', false)
+            ->assertSee('name="return_to" value="corrections"', false)
+            ->assertDontSee('action="'.route('invoices.ksef.submissions.store', $correction).'"', false);
+        $this->assertStringContainsString("form.dataset.submitting === 'true'", $response->getContent());
+        $this->assertStringContainsString('window.confirm(form.dataset.ksefConfirmation)', $response->getContent());
+        $this->assertStringContainsString('button.disabled = true', $response->getContent());
+        $this->assertSame($before, $correction->fresh()->getAttributes());
+        Http::assertNothingSent();
+
+        $this->validAccessToken($environment);
+        $fake = new KsefOnlineSessionApiFake;
+        $base = config('ksef.base_urls.'.$environment->value);
+        Http::fake([$base.'/*' => fn (Request $request) => $fake($request)]);
+        $payload = ['return_to_document' => '1', ...$context];
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $correction), $payload)
+            ->assertRedirect($cardUrl.'#correction-ksef')
+            ->assertSessionHasNoErrors();
+
+        $submission = $correction->ksefSubmissions()->sole();
+        $this->assertSame($environment, $submission->environment);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
+        $this->assertTrue($correction->fresh()->isFinalized());
+        $this->assertDatabaseMissing('order_document_slots', ['invoice_id' => $correction->getKey()]);
+        $this->assertSame(Arr::except($before, ['finalized_at', 'updated_at']),
+            Arr::except($correction->fresh()->getAttributes(), ['finalized_at', 'updated_at']));
+        $this->assertSame($rootBefore, $root->fresh()->getAttributes());
+        $this->assertSame($itemsBefore, $correction->items()->orderBy('id')->get()->map->getAttributes()->all());
+
+        $this->get($cardUrl)->assertOk()->assertSee('Przetwarzanie')
+            ->assertSee('data-ksef-refresh-form', false)->assertDontSee('data-ksef-send-form', false);
+        $this->post(route('invoices.ksef.submissions.first-attempt', $correction), $payload)
+            ->assertRedirect($cardUrl.'#correction-ksef')
+            ->assertSessionHas('ksef_error', fn (array $error): bool => $error['code'] === 'ksef_submission_first_attempt_already_exists');
+        $this->post(route('invoices.ksef.submissions.store', $correction), $payload)
+            ->assertRedirect($cardUrl.'#correction-ksef')
+            ->assertSessionHas('ksef_error', fn (array $error): bool => $error['code'] === 'ksef_submission_already_exists');
+        $this->assertSame(1, $correction->ksefSubmissions()->count());
+        $this->assertSame(1, $fake->sendCalls);
+        foreach (Http::recorded() as [$request]) {
+            $this->assertStringStartsWith($base.'/', $request->url());
+        }
+    }
+
+    #[DataProvider('retryableCardStatuses')]
+    public function test_correction_card_retry_preserves_history_and_returns_to_document(KsefInvoiceSubmissionStatus $status): void
+    {
+        Queue::fake();
+        $this->configure(KsefEnvironment::Test);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, KsefEnvironment::Test);
+        $correction = $this->finalizeKsefCorrection($this->issueKsefFinancialCorrection($root));
+        $previous = $this->createSubmission($correction, KsefEnvironment::Test, $status);
+        $before = $previous->fresh()->getAttributes();
+        $cardUrl = route('invoices.corrections.edit', $correction);
+
+        $this->get($cardUrl)->assertOk()
+            ->assertSee('action="'.route('invoices.ksef.submissions.store', $correction).'"', false)
+            ->assertSee('Utwórz nową próbę KSeF TEST')
+            ->assertSee('Utworzyć nową próbę KSeF TEST?')
+            ->assertDontSee('action="'.route('invoices.ksef.submissions.first-attempt', $correction).'"', false);
+        Http::assertNothingSent();
+        $this->validAccessToken(KsefEnvironment::Test);
+        $fake = $this->fakeOnlineApi();
+
+        $this->post(route('invoices.ksef.submissions.store', $correction), ['return_to_document' => '1'])
+            ->assertRedirect($cardUrl.'#correction-ksef')
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame($before, $previous->fresh()->getAttributes());
+        $this->assertSame(2, $correction->ksefSubmissions()->count());
+        $this->assertSame(1, $fake->sendCalls);
+        $this->get($cardUrl)->assertOk()->assertSee('Przetwarzanie')
+            ->assertDontSee('data-ksef-send-form', false);
+    }
+
+    public static function retryableCardStatuses(): array
+    {
+        return [
+            'rejected' => [KsefInvoiceSubmissionStatus::Rejected],
+            'technical failure' => [KsefInvoiceSubmissionStatus::TechnicalFailed],
+        ];
+    }
+
+    #[DataProvider('blockedCardStatuses')]
+    public function test_correction_card_and_endpoint_block_resend_for_non_retryable_status(KsefInvoiceSubmissionStatus $status): void
+    {
+        $this->configure(KsefEnvironment::Test);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, KsefEnvironment::Test);
+        $correction = $this->finalizeKsefCorrection($this->issueKsefFinancialCorrection($root));
+        $submission = $this->createSubmission($correction, KsefEnvironment::Test, $status);
+        $before = $submission->fresh()->getAttributes();
+        $cardUrl = route('invoices.corrections.edit', $correction);
+
+        $response = $this->get($cardUrl)->assertOk()->assertDontSee('data-ksef-send-form', false);
+        if ($status === KsefInvoiceSubmissionStatus::Accepted) {
+            $response->assertSee($submission->ksef_number)->assertSee('data-ksef-upo-fetch-form', false);
+        } elseif ($status === KsefInvoiceSubmissionStatus::Uncertain) {
+            $response->assertSee('data-ksef-reconcile-form', false);
+        }
+        $this->post(route('invoices.ksef.submissions.store', $correction), ['return_to_document' => '1'])
+            ->assertRedirect($cardUrl.'#correction-ksef')
+            ->assertSessionHas('ksef_error', fn (array $error): bool => $error['code'] === ($status === KsefInvoiceSubmissionStatus::Uncertain
+                ? 'ksef_submission_reconciliation_required' : 'ksef_submission_already_exists'));
+
+        $this->assertSame(1, $correction->ksefSubmissions()->count());
+        $this->assertSame($before, $submission->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public static function blockedCardStatuses(): array
+    {
+        return array_map(fn (KsefInvoiceSubmissionStatus $status): array => [$status], [
+            KsefInvoiceSubmissionStatus::Preparing,
+            KsefInvoiceSubmissionStatus::SessionOpened,
+            KsefInvoiceSubmissionStatus::Submitted,
+            KsefInvoiceSubmissionStatus::Processing,
+            KsefInvoiceSubmissionStatus::Accepted,
+            KsefInvoiceSubmissionStatus::Uncertain,
+        ]);
+    }
+
+    #[DataProvider('disabledCardGates')]
+    public function test_correction_card_respects_submission_configuration(string $gate): void
+    {
+        $settings = $this->configure(KsefEnvironment::Test);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, KsefEnvironment::Test);
+        $correction = $this->issueKsefFinancialCorrection($root);
+        if ($gate === 'deployment') {
+            config()->set('ksef.invoice_submission_enabled', false);
+        } elseif ($gate === 'integration') {
+            $settings->forceFill(['is_active' => false])->save();
+        } else {
+            KsefSeriesSetting::query()->where('invoice_series_id', $correction->invoice_series_id)
+                ->update(['is_enabled' => false]);
+        }
+
+        $this->get(route('invoices.corrections.edit', $correction))->assertOk()
+            ->assertDontSee('data-ksef-send-form', false);
+        $this->assertFalse($correction->fresh()->isFinalized());
+        Http::assertNothingSent();
+    }
+
+    public static function disabledCardGates(): array
+    {
+        return [['deployment'], ['integration'], ['series']];
+    }
+
+    public function test_correction_card_first_attempt_error_returns_to_document_without_finalizing(): void
+    {
+        $this->configure(KsefEnvironment::Demo);
+        $root = $this->issueKsefRoot();
+        $correction = $this->issueKsefFinancialCorrection($root);
+
+        $this->post(route('invoices.ksef.submissions.first-attempt', $correction), ['return_to_document' => '1'])
+            ->assertRedirect(route('invoices.corrections.edit', $correction).'#correction-ksef')
+            ->assertSessionHas('ksef_error', fn (array $error): bool => $error['code'] === 'ksef_fa3_correction_source_ksef_unresolved');
+
+        $this->assertFalse($correction->fresh()->isFinalized());
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $correction->getKey()]);
+        $this->assertSame(0, $correction->ksefSubmissions()->count());
+        Http::assertNothingSent();
     }
 
     public function test_correction_list_first_attempt_uses_existing_route_and_preserves_return_context(): void
@@ -205,6 +392,14 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         $this->assertDatabaseHas('ksef_invoice_upos', [
             'ksef_invoice_submission_id' => $submission->getKey(),
         ]);
+        $this->get(route('invoices.corrections.edit', $correction))->assertOk()
+            ->assertSee($submission->ksef_number)
+            ->assertSee('data-ksef-upo-download', false)
+            ->assertSee(route('invoices.ksef.submissions.upo.download', [
+                'invoice' => $correction, 'submission' => $submission,
+            ]), false)
+            ->assertDontSee('data-ksef-send-form', false);
+        Http::assertSentCount(1);
         $this->post(route('invoices.ksef.submissions.upo.fetch', [
             'invoice' => $otherCorrection,
             'submission' => $submission,

@@ -3516,6 +3516,10 @@
                                             <optgroup label="Pozostałe" data-other-source-group>
                                                 <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $label }}</option>
                                             </optgroup>
+                                        @elseif ($source === 'allegro' && $allegroDisplayName !== '')
+                                            <optgroup label="{{ $label }}" data-allegro-source-group>
+                                                <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $allegroDisplayName }}</option>
+                                            </optgroup>
                                         @elseif ($source === 'prestashop' && $prestashopDisplayName !== '')
                                             <optgroup label="{{ $label }}" data-prestashop-source-group>
                                                 <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $prestashopDisplayName }}</option>

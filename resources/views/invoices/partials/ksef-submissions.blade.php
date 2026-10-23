@@ -10,8 +10,10 @@
     $offline24Confirmation = $invoice->isCorrection()
         ? 'Korekta zostanie zamknięta i wystawiona w trybie Offline24 przed przesłaniem do KSeF.'
         : 'Wystawienie w trybie Offline24 tworzy Fakturę przed przesłaniem do KSeF.';
-    $canSend = $invoice->isInvoice()
-        && $invoice->isFinalized()
+    $isCorrectionFirstAttempt = $invoice->isCorrection() && $currentKsefSubmission === null;
+    $canSend = (($invoice->isInvoice() && $invoice->isFinalized())
+            || ($invoice->isCorrection() && $invoice->isIssued()
+                && ($isCorrectionFirstAttempt || $invoice->isFinalized())))
         && $currentKsefOfflineIssuance === null
         && $ksefSubmissionGateEnabled
         && $ksefSettings?->is_active
@@ -459,13 +461,31 @@
             @php
                 $sendConfirmation = $isRetry
                     ? "Utworzyć nową próbę KSeF {$environmentCode}? Poprzednia próba pozostanie w historii."
-                    : "Wysłać tę Fakturę do KSeF {$environmentCode}?";
+                    : ($invoice->isCorrection()
+                        ? "Wysłać tę Korektę do KSeF {$environmentCode}?"
+                        : "Wysłać tę Fakturę do KSeF {$environmentCode}?");
+                if ($invoice->isCorrection() && ! $invoice->isFinalized()) {
+                    $sendConfirmation .= ' Korekta zostanie zamknięta i nie będzie można jej edytować.';
+                }
                 if ($isDemoEnvironment) {
                     $sendConfirmation .= ' Upewnij się, że dokument zawiera wyłącznie dane testowe lub fikcyjne.';
                 }
             @endphp
-            <form method="POST" action="{{ route('invoices.ksef.submissions.store', $invoice) }}" data-ksef-send-form onsubmit="return window.confirm('{{ $sendConfirmation }}')">
+            <form method="POST" action="{{ route($isCorrectionFirstAttempt ? 'invoices.ksef.submissions.first-attempt' : 'invoices.ksef.submissions.store', $invoice) }}" data-ksef-send-form
+                @if ($invoice->isCorrection())
+                    data-ksef-correction-send-form data-ksef-confirmation="{{ $sendConfirmation }}"
+                @else
+                    onsubmit="return window.confirm('{{ $sendConfirmation }}')"
+                @endif
+            >
                 @csrf
+                @if ($invoice->isCorrection())
+                    <input type="hidden" name="return_to_document" value="1">
+                    @if (isset($returnContext) && $returnContext->parameters() !== [])
+                        <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
+                        <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
+                    @endif
+                @endif
                 <button class="btn btn-primary" type="submit">{{ $isRetry ? "Utwórz nową próbę KSeF {$environmentCode}" : "Wyślij do KSeF {$environmentCode}" }}</button>
             </form>
         @elseif ($canRefresh)
@@ -573,3 +593,21 @@
         @endif
     </div>
 </section>
+
+@if ($invoice->isCorrection())
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('[data-ksef-correction-send-form]').forEach((form) => {
+                form.addEventListener('submit', (event) => {
+                    if (form.dataset.submitting === 'true' || !window.confirm(form.dataset.ksefConfirmation)) {
+                        event.preventDefault();
+                        return;
+                    }
+
+                    form.dataset.submitting = 'true';
+                    form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = true; });
+                });
+            });
+        });
+    </script>
+@endif

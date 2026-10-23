@@ -29,6 +29,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Modules\Automation\Services\OrderAutomationHistory;
+use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
@@ -781,6 +782,11 @@ class OrdersController extends Controller
                 ],
             ],
             'sourceOptions' => $this->sourceOptions(),
+            'allegroDisplayName' => trim((string) ($order->allegroOrderLink?->account?->name
+                ?: $order->allegroOrderLink?->account_name
+                ?: AllegroAccount::query()
+                    ->where('account_key', AllegroAccount::DEFAULT_ACCOUNT_KEY)
+                    ->value('name'))),
             'prestashopDisplayName' => trim((string) PrestashopAccount::query()
                 ->where('account_key', PrestashopAccount::DEFAULT_ACCOUNT_KEY)
                 ->value('name')),
