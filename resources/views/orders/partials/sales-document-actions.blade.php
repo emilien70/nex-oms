@@ -193,7 +193,7 @@
     @endif
 
     @foreach ($finalizedCorrections as $finalizedCorrection)
-        <div class="management-issued-invoice-actions management-issued-correction-actions">
+        <div class="management-issued-invoice-actions management-issued-correction-actions" data-correction-id="{{ $finalizedCorrection->id }}">
             <div class="btn-group management-issued-invoice-group" role="group" aria-label="Akcje zamkniętej Korekty {{ $finalizedCorrection->number }}">
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-number" href="{{ route('invoices.pdf', $finalizedCorrection) }}" target="_blank" rel="noopener" title="Otwórz zamkniętą Korektę" data-sales-document-number>
                     <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
@@ -209,12 +209,13 @@
                     <i class="bi bi-eye" aria-hidden="true"></i>
                 </a>
             </div>
+            @include('orders.partials.correction-ksef-action', ['ksefCorrection' => $finalizedCorrection, 'correctionKsefState' => $salesDocumentActions['correctionKsefStates'][$finalizedCorrection->id]])
         </div>
         @include('orders.partials.allegro-invoice-export', ['allegroDocument' => $finalizedCorrection, 'allegroState' => $salesDocumentActions['allegroCorrections'][$finalizedCorrection->id] ?? null])
     @endforeach
 
     @if ($issuedCorrection)
-        <div class="management-issued-invoice-actions management-issued-correction-actions">
+        <div class="management-issued-invoice-actions management-issued-correction-actions" data-correction-id="{{ $issuedCorrection->id }}">
             <div class="btn-group management-issued-invoice-group" role="group" aria-label="Akcje Korekty {{ $issuedCorrection->number }}">
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-number" href="{{ route('invoices.pdf', $issuedCorrection) }}" target="_blank" rel="noopener" title="Otw&oacute;rz Korekt&#281;" data-sales-document-number>
                     <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
@@ -229,27 +230,27 @@
                 <a class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-edit" href="{{ route('invoices.corrections.edit', ['correction' => $issuedCorrection, 'return_to' => 'order']) }}" title="Edytuj Korekt&#281;" aria-label="Edytuj Korekt&#281;">
                     <i class="bi bi-pencil" aria-hidden="true"></i>
                 </a>
-                <button
-                    class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete"
-                    type="button"
-                    data-bs-toggle="modal"
-                    data-bs-target="#deleteSalesDocumentModal"
-                    data-sales-document-delete-trigger
-                    data-document-id="{{ $issuedCorrection->getKey() }}"
-                    data-document-type="{{ $issuedCorrection->document_type->value }}"
-                    data-document-number="{{ $issuedCorrection->number }}"
-                    data-delete-url="{{ route('invoices.destroy', $issuedCorrection) }}"
-                    data-expected-lock-version="{{ $issuedCorrection->lock_version }}"
-                    data-return-to="order"
-                    title="Usu&#324; Korekt&#281;"
-                    aria-label="Usu&#324; Korekt&#281;"
-                >
-                    <i class="bi bi-x-lg" aria-hidden="true"></i>
-                </button>
+                @unless ($salesDocumentActions['correctionKsefStates'][$issuedCorrection->id]['hasHistory'])
+                    <button
+                        class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-delete"
+                        type="button"
+                        data-bs-toggle="modal"
+                        data-bs-target="#deleteSalesDocumentModal"
+                        data-sales-document-delete-trigger
+                        data-document-id="{{ $issuedCorrection->getKey() }}"
+                        data-document-type="{{ $issuedCorrection->document_type->value }}"
+                        data-document-number="{{ $issuedCorrection->number }}"
+                        data-delete-url="{{ route('invoices.destroy', $issuedCorrection) }}"
+                        data-expected-lock-version="{{ $issuedCorrection->lock_version }}"
+                        data-return-to="order"
+                        title="Usu&#324; Korekt&#281;"
+                        aria-label="Usu&#324; Korekt&#281;"
+                    >
+                        <i class="bi bi-x-lg" aria-hidden="true"></i>
+                    </button>
+                @endunless
             </div>
-            <button class="btn btn-sm btn-outline-secondary management-issued-invoice-icon management-issued-invoice-attachment" type="button" title="Wgrywanie dokumentu nie jest jeszcze dost&#281;pne" aria-label="Wgrywanie dokumentu nie jest jeszcze dost&#281;pne" disabled>
-                <i class="bi bi-paperclip" aria-hidden="true"></i>
-            </button>
+            @include('orders.partials.correction-ksef-action', ['ksefCorrection' => $issuedCorrection, 'correctionKsefState' => $salesDocumentActions['correctionKsefStates'][$issuedCorrection->id]])
         </div>
     @endif
 </div>

@@ -11,6 +11,7 @@ use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
+use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
 use Modules\Ksef\Services\KsefAutomaticInvoiceSubmissionPolicy;
@@ -31,6 +32,7 @@ class OrderSalesDocumentActionsView
      *     issuedProforma: ?Invoice,
      *     issuedCorrection: ?Invoice,
      *     finalizedCorrections: Collection<int, Invoice>,
+     *     correctionKsefStates: Collection<int, array<string, mixed>>,
      *     proformaLocked: bool,
      *     invoiceSeries: Collection<int, InvoiceSeries>,
      *     proformaSeries: Collection<int, InvoiceSeries>,
@@ -62,7 +64,36 @@ class OrderSalesDocumentActionsView
         $corrections = $documents->get(InvoiceDocumentType::Correction->value, collect());
         $issuedInvoice = $documents->get(InvoiceDocumentType::Invoice->value, collect())->first();
         $issuedProforma = $documents->get(InvoiceDocumentType::Proforma->value, collect())->first();
-        $ksefState = $this->ksefState($issuedInvoice);
+        $ksefDocuments = collect([$issuedInvoice])->filter()->merge($corrections);
+        $settings = $ksefDocuments->isEmpty() ? null : KsefSetting::query()
+            ->where('singleton_key', KsefSetting::SINGLETON_KEY)
+            ->first();
+        $enabledSeriesIds = $ksefDocuments->isEmpty() ? collect() : KsefSeriesSetting::query()
+            ->whereIn('invoice_series_id', $ksefDocuments->pluck('invoice_series_id'))
+            ->where('is_enabled', true)
+            ->pluck('invoice_series_id');
+        $submissions = $ksefDocuments->isEmpty() ? collect() : KsefInvoiceSubmission::query()
+            ->whereIn('invoice_id', $ksefDocuments->pluck('id'))
+            ->orderByDesc('attempt_number')
+            ->orderByDesc('id')
+            ->get(['id', 'invoice_id', 'environment', 'attempt_number', 'status',
+                'ksef_number', 'acquisition_date', 'seller_nip', 'invoice_hash'])
+            ->groupBy('invoice_id');
+        $offlineCorrectionIds = $settings === null || $corrections->isEmpty() ? collect() : KsefOfflineIssuance::query()
+            ->whereIn('invoice_id', $corrections->modelKeys())
+            ->where('environment', $settings->environment->value)
+            ->pluck('invoice_id');
+        $ksefState = $this->ksefState(
+            $issuedInvoice, $settings, $enabledSeriesIds,
+            $submissions->get($issuedInvoice?->id, collect()),
+        );
+        $correctionKsefStates = $corrections->mapWithKeys(fn (Invoice $correction): array => [
+            $correction->id => $this->ksefState(
+                $correction, $settings, $enabledSeriesIds,
+                $submissions->get($correction->id, collect()),
+                $offlineCorrectionIds->contains($correction->id),
+            ),
+        ]);
 
         $series = InvoiceSeries::query()
             ->where('is_active', true)
@@ -87,6 +118,7 @@ class OrderSalesDocumentActionsView
             'issuedCorrection' => $corrections->first(
                 static fn (Invoice $correction): bool => ! $correction->isFinalized(),
             ),
+            'correctionKsefStates' => $correctionKsefStates,
             'finalizedCorrections' => $corrections
                 ->filter(static fn (Invoice $correction): bool => $correction->isFinalized())
                 ->sortByDesc(fn (Invoice $correction): string => sprintf(
@@ -101,10 +133,12 @@ class OrderSalesDocumentActionsView
             'ksefSeriesEnabled' => $ksefState['seriesEnabled'],
             'ksefHasSubmission' => $ksefState['hasSubmission'],
             'ksefCanSend' => $ksefState['canSend'],
-            'ksefAutomaticRefreshPending' => $issuedInvoice !== null
+            'ksefAutomaticRefreshPending' => ($issuedInvoice !== null
                 && ($this->automaticSubmissions->snapshotFor($issuedInvoice) !== null
                     || ($ksefState['submission'] !== null
-                        && ! $ksefState['submission']->status->isTerminal())),
+                        && ! $ksefState['submission']->status->isTerminal())))
+                || $correctionKsefStates->contains(fn (array $state): bool => $state['submission'] !== null
+                    && ! $state['submission']->status->isTerminal()),
             'ksefSubmission' => $ksefState['submission'],
             'ksefPdfDownloadAvailable' => $ksefState['pdfDownloadAvailable'],
             'ksefVerificationUrl' => $ksefState['verificationUrl'],
@@ -120,9 +154,14 @@ class OrderSalesDocumentActionsView
         ])->render();
     }
 
-    /** @return array{seriesEnabled: bool, hasSubmission: bool, canSend: bool, submission: ?KsefInvoiceSubmission, pdfDownloadAvailable: bool, verificationUrl: ?string, pdfFilename: ?string} */
-    private function ksefState(?Invoice $invoice): array
-    {
+    /** @return array<string, mixed> */
+    private function ksefState(
+        ?Invoice $invoice,
+        ?KsefSetting $settings,
+        Collection $enabledSeriesIds,
+        Collection $submissions,
+        bool $hasOfflineIssuance = false,
+    ): array {
         $state = [
             'seriesEnabled' => false,
             'hasSubmission' => false,
@@ -131,35 +170,29 @@ class OrderSalesDocumentActionsView
             'pdfDownloadAvailable' => false,
             'verificationUrl' => null,
             'pdfFilename' => null,
+            'environment' => $settings?->environment,
+            'hasHistory' => $submissions->isNotEmpty(),
+            'hasOfflineIssuance' => $hasOfflineIssuance,
         ];
 
         if ($invoice === null || $invoice->series === null) {
             return $state;
         }
 
-        $settings = KsefSetting::query()
-            ->where('singleton_key', KsefSetting::SINGLETON_KEY)
-            ->first();
-
         if ($settings !== null) {
-            $state['submission'] = KsefInvoiceSubmission::query()
-                ->where('invoice_id', $invoice->getKey())
-                ->where('environment', $settings->environment->value)
-                ->orderByDesc('attempt_number')
-                ->orderByDesc('id')
-                ->first();
+            $state['submission'] = $submissions->first(
+                fn (KsefInvoiceSubmission $submission): bool => $submission->environment === $settings->environment,
+            );
             $state['hasSubmission'] = $state['submission'] !== null;
         }
 
-        $state['seriesEnabled'] = KsefSeriesSetting::query()
-            ->where('invoice_series_id', $invoice->invoice_series_id)
-            ->where('is_enabled', true)
-            ->exists();
+        $state['seriesEnabled'] = $enabledSeriesIds->contains($invoice->invoice_series_id);
 
         $state['canSend'] = $settings !== null
             && $state['seriesEnabled']
             && ! $state['hasSubmission']
-            && $invoice->isInvoice()
+            && ($invoice->isInvoice() || $invoice->isCorrection())
+            && ! $hasOfflineIssuance
             && $invoice->isIssued()
             && is_string($invoice->number)
             && trim($invoice->number) !== ''

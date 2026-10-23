@@ -246,6 +246,59 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
+    #[DataProvider('operationalEnvironments')]
+    public function test_order_card_sends_correction_once_returns_to_order_and_shows_accepted_pdf(KsefEnvironment $environment): void
+    {
+        Queue::fake();
+        $this->configure($environment);
+        $root = $this->issueKsefRoot();
+        $this->acceptKsefDocument($root, $environment);
+        $correction = $this->issueKsefFinancialCorrection($root);
+        $orderUrl = route('orders.show', $correction->order_id);
+        $firstAttemptUrl = route('invoices.ksef.submissions.first-attempt', $correction);
+
+        $this->get($orderUrl)->assertOk()
+            ->assertSee('action="'.$firstAttemptUrl.'"', false)
+            ->assertSee('Czy przekazać Korektę '.$correction->number.' do KSeF '.strtoupper($environment->value).'?')
+            ->assertSee('data-delete-url="'.route('invoices.destroy', $correction).'"', false);
+        Http::assertNothingSent();
+        $this->validAccessToken($environment);
+        $fake = $this->fakeOnlineApi();
+
+        $this->post($firstAttemptUrl, ['return_to' => 'order'])
+            ->assertRedirect($orderUrl)->assertSessionHasNoErrors();
+
+        $submission = $correction->ksefSubmissions()->sole();
+        $this->assertTrue($correction->fresh()->isFinalized());
+        $this->assertSame($environment, $submission->environment);
+        $this->assertSame(KsefInvoiceSubmissionStatus::Processing, $submission->status);
+        $this->get($orderUrl)->assertOk()
+            ->assertSee('data-order-ksef-pending', false)
+            ->assertSee('data-ksef-automatic-refresh="1"', false)
+            ->assertDontSee('action="'.$firstAttemptUrl.'"', false)
+            ->assertDontSee('data-delete-url="'.route('invoices.destroy', $correction).'"', false);
+        $this->post($firstAttemptUrl, ['return_to' => 'order'])
+            ->assertRedirect($orderUrl)
+            ->assertSessionHas('ksef_error', fn (array $error): bool => $error['code'] === 'ksef_submission_first_attempt_already_exists');
+
+        $fake->statusResponse = $this->acceptedStatus($submission);
+        $this->from($orderUrl)->post(route('invoices.ksef.submissions.refresh', [
+            'invoice' => $correction, 'submission' => $submission,
+        ]))->assertRedirect($orderUrl);
+
+        $this->assertSame(KsefInvoiceSubmissionStatus::Accepted, $submission->fresh()->status);
+        $this->get($orderUrl)->assertOk()
+            ->assertSee('KSeF: '.$correction->number)
+            ->assertSee('data-ksef-pdf-open="1"', false)
+            ->assertSee('data-ksef-invoice-source-url="'.route('invoices.ksef.submissions.invoice.download', [
+                'invoice' => $correction, 'submission' => $submission,
+            ]).'"', false)
+            ->assertDontSee('action="'.$firstAttemptUrl.'"', false)
+            ->assertDontSee('data-delete-url="'.route('invoices.destroy', $correction).'"', false);
+        $this->assertSame(1, $correction->ksefSubmissions()->count());
+        $this->assertSame(1, $fake->sendCalls);
+    }
+
     public function test_correction_list_first_attempt_uses_existing_route_and_preserves_return_context(): void
     {
         Event::fake([KsefInvoiceAccepted::class]);

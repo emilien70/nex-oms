@@ -1471,6 +1471,9 @@ class KsefOfflineCorrectionTest extends TestCase
         $this->assertError('ksef_offline24_already_issued', fn () => $this->issue($correction));
         $this->assertError('ksef_submission_blocked_by_offline_issuance', fn () => app(KsefInvoiceSubmissionService::class)->prepareCorrection($correction->fresh(), KsefEnvironment::Test));
         $this->get($url)->assertOk()->assertDontSee('data-ksef-offline24-form', false)->assertSee('Offline24')->assertSee('P_1:')->assertDontSee($issuance->invoice_hash)->assertDontSee('correction_financial')->assertDontSee('tax_buckets');
+        $this->get(route('orders.show', $correction->order_id))->assertOk()
+            ->assertDontSee('action="'.route('invoices.ksef.submissions.first-attempt', $correction).'"', false)
+            ->assertDontSee('data-delete-url="'.route('invoices.destroy', $correction).'"', false);
         $this->get(route('invoices.corrections.index'))->assertOk()->assertSee('data-offline24-obligation', false);
         $submission = app(KsefOfflineInvoiceSubmissionService::class)->prepare($correction, $issuance);
         $submission->forceFill(['status' => KsefInvoiceSubmissionStatus::Rejected])->save();

@@ -3931,7 +3931,7 @@
             <div class="modal-content invoice-ksef-confirm-content">
                 <div class="modal-body invoice-ksef-confirm-body">
                     <i class="bi bi-exclamation-triangle invoice-ksef-confirm-icon" aria-hidden="true"></i>
-                    <h2 class="invoice-ksef-confirm-question" id="orderKsefSendConfirmationQuestion">Czy przekaza&#263; faktur&#281; do KSeF 2.0?</h2>
+                    <h2 class="invoice-ksef-confirm-question" id="orderKsefSendConfirmationQuestion" data-order-ksef-send-question>Czy przekaza&#263; faktur&#281; do KSeF 2.0?</h2>
                     <div class="invoice-ksef-confirm-actions">
                         <button class="btn invoice-ksef-confirm-accept" type="button" data-order-ksef-send-confirm>Tak</button>
                         <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Anuluj</button>
@@ -4341,6 +4341,8 @@
 
             const ksefSendModalElement = document.querySelector('[data-order-ksef-send-modal]');
             const ksefSendConfirmButton = document.querySelector('[data-order-ksef-send-confirm]');
+            const ksefSendQuestion = document.querySelector('[data-order-ksef-send-question]');
+            const ksefDefaultSendQuestion = ksefSendQuestion?.textContent || '';
             const salesDocumentDeleteModalElement = document.querySelector('[data-sales-document-delete-modal]');
             const salesDocumentDeleteForm = salesDocumentDeleteModalElement?.querySelector('[data-sales-document-delete-form]');
             const salesDocumentDeleteTitle = salesDocumentDeleteModalElement?.querySelector('[data-sales-document-delete-title]');
@@ -4423,7 +4425,16 @@
                 }
 
                 event.preventDefault();
+                if (form.dataset.ksefSubmitting === '1' || ksefSendConfirmButton?.disabled) {
+                    return;
+                }
                 pendingKsefSendForm = form;
+                if (ksefSendQuestion) {
+                    ksefSendQuestion.textContent = form.dataset.ksefConfirmQuestion || ksefDefaultSendQuestion;
+                }
+                if (ksefSendModalElement && typeof bootstrap !== 'undefined') {
+                    bootstrap.Modal.getOrCreateInstance(ksefSendModalElement).show();
+                }
             });
 
             ksefSendModalElement?.addEventListener('show.bs.modal', () => {
@@ -4438,6 +4449,8 @@
                 const form = pendingKsefSendForm;
                 pendingKsefSendForm = null;
                 ksefSendConfirmButton.disabled = true;
+                form.dataset.ksefSubmitting = '1';
+                form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = true; });
                 HTMLFormElement.prototype.submit.call(form);
             });
 
@@ -4494,7 +4507,7 @@
                 return ksefPdfGeneratorPromise;
             };
 
-            const ksefInvoiceDownloadError = async (response) => {
+            const ksefInvoiceDownloadError = async (response, fallbackMessage) => {
                 try {
                     const data = await response.json();
 
@@ -4505,7 +4518,7 @@
                     // The controlled endpoint may fail before producing a JSON response.
                 }
 
-                return 'Nie udało się pobrać Faktury z KSeF.';
+                return fallbackMessage;
             };
 
             document.addEventListener('click', async (event) => {
@@ -4522,8 +4535,18 @@
                 }
 
                 trigger.setAttribute('aria-busy', 'true');
+                const openPdf = trigger.dataset.ksefPdfOpen === '1';
+                const pdfErrorMessage = openPdf ? 'Nie udało się otworzyć PDF Korekty z KSeF.' : 'Nie udało się pobrać Faktury z KSeF.';
+                let previewWindow = null;
 
                 try {
+                    if (openPdf) {
+                        previewWindow = window.open('about:blank', '_blank');
+                        if (!previewWindow) {
+                            throw new Error('Zezwól przeglądarce na otwieranie nowej karty, aby zobaczyć PDF Korekty.');
+                        }
+                        previewWindow.opener = null;
+                    }
                     const [generator, response] = await Promise.all([
                         loadKsefPdfGenerator(trigger.dataset.ksefPdfGeneratorSrc),
                         fetch(trigger.dataset.ksefInvoiceSourceUrl, {
@@ -4534,7 +4557,7 @@
                     ]);
 
                     if (!response.ok) {
-                        throw new Error(await ksefInvoiceDownloadError(response));
+                        throw new Error(await ksefInvoiceDownloadError(response, pdfErrorMessage));
                     }
 
                     const xml = await response.text();
@@ -4556,17 +4579,30 @@
 
                     const pdf = await generator.generateInvoice(invoiceFile, additionalData, 'blob');
                     const url = URL.createObjectURL(pdf);
-                    const download = document.createElement('a');
-                    download.href = url;
-                    download.download = trigger.dataset.ksefPdfFilename || 'Faktura_KSeF.pdf';
-                    document.body.append(download);
-                    download.click();
-                    download.remove();
-                    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    if (previewWindow) {
+                        previewWindow.location.replace(url);
+                        const releasePreviewUrl = () => {
+                            if (previewWindow.closed) {
+                                URL.revokeObjectURL(url);
+                            } else {
+                                window.setTimeout(releasePreviewUrl, 1000);
+                            }
+                        };
+                        releasePreviewUrl();
+                    } else {
+                        const download = document.createElement('a');
+                        download.href = url;
+                        download.download = trigger.dataset.ksefPdfFilename || 'Faktura_KSeF.pdf';
+                        document.body.append(download);
+                        download.click();
+                        download.remove();
+                        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    }
                 } catch (error) {
+                    previewWindow?.close();
                     alert(error instanceof Error && error.message
                         ? error.message
-                        : 'Nie udało się pobrać Faktury z KSeF.');
+                        : pdfErrorMessage);
                 } finally {
                     trigger.removeAttribute('aria-busy');
                 }

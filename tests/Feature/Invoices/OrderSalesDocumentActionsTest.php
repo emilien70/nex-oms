@@ -2,7 +2,12 @@
 
 namespace Tests\Feature\Invoices;
 
+use App\Models\Order;
+use DOMDocument;
+use DOMXPath;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
@@ -19,6 +24,7 @@ use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Services\KsefSettingsService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
@@ -410,6 +416,208 @@ class OrderSalesDocumentActionsTest extends TestCase
         $this->assertStringContainsString('Edytuj Korekt', $html);
         $this->assertSame(1, substr_count($html, 'data-bs-target="#deleteSalesDocumentModal"'));
         $this->assertStringNotContainsString('data-document-id="'.$first->getKey().'"', $html);
+    }
+
+    #[DataProvider('correctionSeriesCases')]
+    public function test_correction_ksef_send_visibility_depends_on_its_own_series(bool $invoiceEnabled, bool $correctionEnabled): void
+    {
+        [$order, $invoice, $series, $correction] = $this->correctionFixture();
+        $this->enableKsefForSeries($series);
+        KsefSeriesSetting::query()->where('invoice_series_id', $series->id)->update(['is_enabled' => $correctionEnabled]);
+        if ($invoiceEnabled) {
+            $this->enableKsefForSeries($invoice->series);
+        }
+        $before = $correction->fresh()->getAttributes();
+
+        $html = $this->correctionActionsHtml(app(OrderSalesDocumentActionsView::class)->render($order), $correction);
+
+        $this->assertSame($correctionEnabled, str_contains($html, 'data-order-ksef-send-form'));
+        $this->assertSame($correctionEnabled, str_contains($html, 'management-issued-invoice-ksef'));
+        $this->assertStringNotContainsString('bi-paperclip', $html);
+        $this->assertStringContainsString('data-sales-document-delete-trigger', $html);
+        if ($correctionEnabled) {
+            $this->assertStringContainsString(route('invoices.ksef.submissions.first-attempt', $correction), $html);
+            $this->assertStringContainsString('Czy przekazać Korektę '.$correction->number.' do KSeF TEST?', $html);
+            $this->assertStringContainsString('nie będzie można jej edytować ani usunąć', $html);
+            $this->assertStringContainsString('name="return_to" value="order"', $html);
+        }
+        $this->assertSame($before, $correction->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public static function correctionSeriesCases(): array
+    {
+        return [[false, false], [true, false], [false, true], [true, true]];
+    }
+
+    #[DataProvider('correctionSendGates')]
+    public function test_correction_ksef_send_is_disabled_when_integration_or_deployment_gate_is_off(string $gate): void
+    {
+        [$order, , $series, $correction] = $this->correctionFixture();
+        $this->enableKsefForSeries($series);
+        if ($gate === 'integration') {
+            app(KsefSettingsService::class)->get()->forceFill(['is_active' => false])->save();
+        } else {
+            config()->set('ksef.invoice_submission_enabled', false);
+        }
+
+        $html = $this->correctionActionsHtml(app(OrderSalesDocumentActionsView::class)->render($order), $correction);
+
+        $this->assertStringContainsString('management-issued-invoice-ksef', $html);
+        $this->assertStringContainsString('disabled', $html);
+        $this->assertStringNotContainsString('data-order-ksef-send-form', $html);
+        Http::assertNothingSent();
+    }
+
+    public static function correctionSendGates(): array
+    {
+        return [['integration'], ['deployment']];
+    }
+
+    #[DataProvider('correctionSubmissionStatuses')]
+    public function test_correction_ksef_history_controls_pdf_status_refresh_and_delete_visibility(KsefInvoiceSubmissionStatus $status): void
+    {
+        [$order, , $series, $correction] = $this->correctionFixture();
+        app(InvoiceFinalizationService::class)->finalize($correction);
+        $this->enableKsefForSeries($series);
+        $submission = $this->documentSubmission($correction, $status);
+        $before = $correction->fresh()->getAttributes();
+
+        $fragment = app(OrderSalesDocumentActionsView::class)->render($order);
+        $html = $this->correctionActionsHtml($fragment, $correction);
+
+        $this->assertStringNotContainsString('data-order-ksef-send-form', $html);
+        $this->assertStringNotContainsString('data-sales-document-delete-trigger', $html);
+        $this->assertStringContainsString('data-ksef-automatic-refresh="'.($status->isTerminal() ? '0' : '1').'"', $fragment);
+        if ($status === KsefInvoiceSubmissionStatus::Accepted) {
+            $this->assertStringContainsString('KSeF: '.$correction->number, $html);
+            $this->assertStringContainsString('management-issued-invoice-ksef-reference', $html);
+            $this->assertStringContainsString('data-ksef-pdf-open="1"', $html);
+            $this->assertStringContainsString('data-ksef-number="'.$submission->ksef_number.'"', $html);
+            $this->assertStringContainsString(route('invoices.ksef.submissions.invoice.download', [
+                'invoice' => $correction, 'submission' => $submission,
+            ]), $html);
+            KsefSeriesSetting::query()->where('invoice_series_id', $series->id)->update(['is_enabled' => false]);
+            $disabledSeriesHtml = $this->correctionActionsHtml(app(OrderSalesDocumentActionsView::class)->render($order), $correction);
+            $this->assertStringContainsString('KSeF: '.$correction->number, $disabledSeriesHtml);
+            $this->assertStringContainsString('data-ksef-pdf-open="1"', $disabledSeriesHtml);
+        } else {
+            $this->assertStringNotContainsString('data-order-ksef-invoice-pdf', $html);
+            $this->assertStringContainsString($status->label(), $html);
+            if ($status->isTerminal() || $status->requiresReconciliation()) {
+                $this->assertStringContainsString('href="'.route('invoices.corrections.edit', [
+                    'correction' => $correction, 'return_to' => 'order',
+                ]).'#correction-ksef"', $html);
+            } else {
+                $this->assertStringContainsString('aria-disabled="true"', $html);
+            }
+        }
+        $this->assertSame($before, $correction->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    public static function correctionSubmissionStatuses(): array
+    {
+        return array_map(fn (KsefInvoiceSubmissionStatus $status): array => [$status], KsefInvoiceSubmissionStatus::cases());
+    }
+
+    public function test_correction_ksef_history_never_uses_another_environment_as_current_acceptance(): void
+    {
+        [$order, , $series, $correction] = $this->correctionFixture();
+        app(InvoiceFinalizationService::class)->finalize($correction);
+        $this->enableKsefForSeries($series);
+        $this->documentSubmission($correction, KsefInvoiceSubmissionStatus::Accepted, KsefEnvironment::Demo);
+
+        $html = $this->correctionActionsHtml(app(OrderSalesDocumentActionsView::class)->render($order), $correction);
+
+        $this->assertStringContainsString('data-order-ksef-send-form', $html);
+        $this->assertStringContainsString('do KSeF TEST?', $html);
+        $this->assertStringNotContainsString('data-order-ksef-reference', $html);
+        Http::assertNothingSent();
+    }
+
+    public function test_each_correction_has_its_own_ksef_state_without_additional_per_document_ksef_queries(): void
+    {
+        [$order, $invoice, $series, $first] = $this->correctionFixture();
+        app(InvoiceFinalizationService::class)->finalize($first);
+        $queries = [];
+        DB::listen(function ($query) use (&$queries): void {
+            if (preg_match('/from "ksef_(invoice_submissions|series_settings|offline_issuances)"/', $query->sql)) {
+                $queries[] = $query->sql;
+            }
+        });
+        app(OrderSalesDocumentActionsView::class)->render($order);
+        $singleCount = count($queries);
+
+        $second = $this->issueBuyerCorrection($invoice, $series, 'Drugi nabywca KSeF');
+        app(InvoiceFinalizationService::class)->finalize($second);
+        $third = $this->issueBuyerCorrection($invoice, $series, 'Trzeci nabywca KSeF');
+        $this->enableKsefForSeries($series);
+        $this->documentSubmission($first, KsefInvoiceSubmissionStatus::Accepted);
+        $this->documentSubmission($second, KsefInvoiceSubmissionStatus::Processing);
+        $queries = [];
+
+        $fragment = app(OrderSalesDocumentActionsView::class)->render($order);
+
+        $this->assertSame($singleCount, count($queries));
+        $this->assertStringNotContainsString('payload_xml', implode(' ', $queries));
+        $firstHtml = $this->correctionActionsHtml($fragment, $first);
+        $secondHtml = $this->correctionActionsHtml($fragment, $second);
+        $thirdHtml = $this->correctionActionsHtml($fragment, $third);
+        $this->assertStringContainsString('KSeF: '.$first->number, $firstHtml);
+        $this->assertStringNotContainsString('data-order-ksef-send-form', $firstHtml);
+        $this->assertStringContainsString('data-order-ksef-pending', $secondHtml);
+        $this->assertStringNotContainsString('data-order-ksef-invoice-pdf', $secondHtml);
+        $this->assertStringContainsString('data-order-ksef-send-form', $thirdHtml);
+        $this->assertStringContainsString('data-sales-document-delete-trigger', $thirdHtml);
+        $this->assertStringContainsString('data-ksef-automatic-refresh="1"', $fragment);
+        Http::assertNothingSent();
+    }
+
+    /** @return array{Order, Invoice, InvoiceSeries, Invoice} */
+    private function correctionFixture(): array
+    {
+        Http::preventStrayRequests();
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $invoice = app(InvoiceIssuingService::class)->issue($order, $this->createDocumentSeries(), $this->documentContext());
+        $series = $this->createDocumentSeries(InvoiceDocumentType::Correction);
+
+        return [$order, $invoice, $series, $this->issueBuyerCorrection($invoice, $series, 'Nabywca korekty KSeF')];
+    }
+
+    private function documentSubmission(
+        Invoice $document,
+        KsefInvoiceSubmissionStatus $status,
+        KsefEnvironment $environment = KsefEnvironment::Test,
+    ): KsefInvoiceSubmission {
+        $payload = '<Faktura>ORDER CORRECTION KSEF '.$document->id.'</Faktura>';
+
+        return KsefInvoiceSubmission::query()->create([
+            'invoice_id' => $document->id, 'environment' => $environment,
+            'context_nip' => '9876543210', 'seller_nip' => '9876543210',
+            'attempt_number' => 1, 'status' => $status, 'schema_id' => 'FA (3) 1-0E',
+            'generated_at' => now(), 'payload_xml' => $payload,
+            'invoice_hash' => base64_encode(hash('sha256', $payload, true)), 'invoice_size' => strlen($payload),
+            'ksef_number' => $status === KsefInvoiceSubmissionStatus::Accepted ? '9876543210-20260825-AAAAAAAAAA-BB' : null,
+            'acquisition_date' => $status === KsefInvoiceSubmissionStatus::Accepted ? now() : null,
+        ]);
+    }
+
+    private function correctionActionsHtml(string $html, Invoice $correction): string
+    {
+        $dom = new DOMDocument;
+        $previous = libxml_use_internal_errors(true);
+        try {
+            $dom->loadHTML('<?xml encoding="UTF-8">'.$html, LIBXML_NONET);
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+        $node = (new DOMXPath($dom))->query('//*[@data-correction-id="'.$correction->id.'"]')->item(0);
+        $this->assertNotNull($node);
+
+        return $dom->saveHTML($node);
     }
 
     private function issueBuyerCorrection(Invoice $invoice, InvoiceSeries $series, string $buyerName): Invoice
