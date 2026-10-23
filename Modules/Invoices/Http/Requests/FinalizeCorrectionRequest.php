@@ -19,6 +19,9 @@ class FinalizeCorrectionRequest extends FormRequest
             'expected_lock_version' => ['required', 'integer', 'min:1'],
             'expected_ksef_environment' => ['required', Rule::enum(KsefEnvironment::class)],
             'confirm_outside_ksef' => ['required', 'accepted'],
+            'expected_source_invoice_id' => ['required', 'integer', 'min:1'],
+            'expected_source_invoice_lock_version' => ['required', 'integer', 'min:1'],
+            'confirm_source_outside_ksef' => ['sometimes', 'accepted'],
         ];
     }
 }

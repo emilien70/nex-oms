@@ -18,6 +18,8 @@ use Modules\Invoices\Models\InvoiceNumberCounter;
 use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\InvoiceDeletionService;
+use Modules\Invoices\Services\InvoiceEditabilityPolicy;
+use Modules\Invoices\Services\InvoiceEditService;
 use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\ManualCorrectionFinalizationPolicy;
 use Modules\Invoices\Services\ManualCorrectionFinalizationService;
@@ -176,8 +178,6 @@ class ManualCorrectionFinalizationTest extends TestCase
     {
         [$root, $correction] = $this->scenario();
         match ($reason) {
-            'root_marker_missing' => $root->ksefProvenances()->delete(),
-            'wrong_environment' => $root->ksefProvenances()->update(['environment' => 'test']),
             'root_not_finalized' => $root->fresh()->forceFill(['finalized_at' => null])->saveQuietly(),
             'root_series' => $this->enableSeries($root),
             'correction_series' => $this->enableSeries($correction),
@@ -198,7 +198,7 @@ class ManualCorrectionFinalizationTest extends TestCase
 
     public static function blockedScenarios(): array
     {
-        return array_map(fn ($reason) => [$reason], ['root_marker_missing', 'wrong_environment', 'root_not_finalized',
+        return array_map(fn ($reason) => [$reason], ['root_not_finalized',
             'root_series', 'correction_series', 'inactive_integration', 'missing_slot', 'wrong_slot', 'cycle', 'draft', 'wrong_type', 'missing_number']);
     }
 
@@ -416,6 +416,242 @@ class ManualCorrectionFinalizationTest extends TestCase
         $this->assertDatabaseMissing('ksef_invoice_submissions', ['invoice_id' => $closed->id]);
     }
 
+    public function test_unclassified_root_shows_two_independent_confirmations_without_changing_documents(): void
+    {
+        [$root, $correction] = $this->unclassifiedScenario();
+        $before = [$root->getAttributes(), $correction->getAttributes()];
+        $response = $this->get(route('invoices.corrections.edit', $correction))->assertOk()
+            ->assertSee('data-correction-finalize-trigger', false)
+            ->assertSee('name="confirm_source_outside_ksef" value="1"', false)
+            ->assertSee('name="confirm_outside_ksef" value="1"', false)
+            ->assertSee('name="expected_source_invoice_id" value="'.$root->id.'"', false)
+            ->assertSee('name="expected_source_invoice_lock_version" value="'.$root->lock_version.'"', false)
+            ->assertSee('Faktura pierwotna '.$root->number.' zostanie również trwale zamknięta.');
+        $this->assertTrue($response->viewData('manualFinalization')['rootConfirmationRequired']);
+        $this->assertSame($before, [$root->fresh()->getAttributes(), $correction->fresh()->getAttributes()]);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 0);
+        $this->get(route('invoices.edit', $root))->assertOk()->assertSee('Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą');
+        $this->expectDomainError('correction_manual_finalization_outside_ksef_unconfirmed', fn () => app(ManualCorrectionFinalizationPolicy::class)->assertAllowed($correction));
+    }
+
+    public function test_root_with_current_outside_evidence_needs_no_repeat_source_confirmation(): void
+    {
+        [$root, $correction] = $this->scenario();
+        $this->get(route('invoices.corrections.edit', $correction))->assertOk()
+            ->assertDontSee('name="confirm_source_outside_ksef"', false)
+            ->assertSee('name="confirm_outside_ksef"', false);
+        $before = $root->fresh()->getAttributes();
+        $this->post(route('invoices.corrections.finalize', $correction), $this->closePayload($correction))->assertSessionHasNoErrors();
+        $this->assertSame($before, $root->fresh()->getAttributes());
+    }
+
+    #[DataProvider('pairScenarios')]
+    public function test_both_documents_close_atomically_only_after_separate_declarations(string $state, KsefEnvironment $environment): void
+    {
+        [$root, $correction] = $this->unclassifiedScenario($environment);
+        if ($state === 'closed') {
+            app(InvoiceFinalizationService::class)->finalize($root);
+        } elseif ($state === 'other_environment') {
+            $this->markKsefOutside($root, $environment === KsefEnvironment::Test ? KsefEnvironment::Demo : KsefEnvironment::Test);
+        }
+        $rootBefore = $root->fresh()->getAttributes();
+        $correctionBefore = $correction->getAttributes();
+        $rootItems = $root->items()->get()->map->getAttributes()->all();
+        $correctionItems = $correction->items()->get()->map->getAttributes()->all();
+        $counters = InvoiceNumberCounter::query()->get()->toArray();
+        $eventCount = $root->order->events()->count();
+        $dispatched = 0;
+        Event::listen(CorrectionFinalized::class, function ($event) use (&$dispatched, $root, $environment): void {
+            $dispatched++;
+            $this->assertTrue($root->fresh()->isFinalized());
+            $this->assertDatabaseHas('ksef_invoice_provenances', ['invoice_id' => $root->id, 'environment' => $environment->value]);
+            $this->assertDatabaseHas('ksef_invoice_provenances', ['invoice_id' => $event->invoice->id, 'environment' => $environment->value]);
+        });
+        $payload = [...$this->closePayload($correction, $environment), 'confirm_source_outside_ksef' => '1', 'return_to' => 'order'];
+        $url = route('invoices.corrections.edit', ['correction' => $correction, 'return_to' => 'order']);
+        $this->post(route('invoices.corrections.finalize', $correction), $payload)->assertRedirect($url)->assertSessionHasNoErrors();
+        $this->assertTrue($root->fresh()->isFinalized());
+        $this->assertTrue($correction->fresh()->isFinalized());
+        $this->assertSame(Arr::except($rootBefore, ['finalized_at', 'updated_at']), Arr::except($root->fresh()->getAttributes(), ['finalized_at', 'updated_at']));
+        $this->assertSame(Arr::except($correctionBefore, ['finalized_at', 'updated_at']), Arr::except($correction->fresh()->getAttributes(), ['finalized_at', 'updated_at']));
+        if ($rootBefore['finalized_at'] !== null) {
+            $this->assertSame($rootBefore['finalized_at'], $root->fresh()->getAttributes()['finalized_at']);
+        }
+        $this->assertSame($rootItems, $root->items()->get()->map->getAttributes()->all());
+        $this->assertSame($correctionItems, $correction->items()->get()->map->getAttributes()->all());
+        $this->assertSame($counters, InvoiceNumberCounter::query()->get()->toArray());
+        $this->assertSame($eventCount, $root->order->events()->count());
+        $this->assertDatabaseHas('order_document_slots', ['document_type' => 'invoice', 'invoice_id' => $root->id]);
+        $this->assertDatabaseMissing('order_document_slots', ['document_type' => 'correction', 'invoice_id' => $correction->id]);
+        foreach ([$root, $correction] as $document) {
+            $this->assertDatabaseHas('ksef_invoice_provenances', ['invoice_id' => $document->id, 'environment' => $environment->value, 'provenance' => 'outside_ksef']);
+        }
+        $receipt = [$root->fresh()->getAttributes(), $correction->fresh()->getAttributes(), KsefInvoiceProvenance::query()->get()->toArray()];
+        $this->post(route('invoices.corrections.finalize', $correction), $payload)->assertRedirect($url)->assertSessionHasNoErrors();
+        $this->assertSame($receipt, [$root->fresh()->getAttributes(), $correction->fresh()->getAttributes(), KsefInvoiceProvenance::query()->get()->toArray()]);
+        $this->assertSame(1, $dispatched);
+    }
+
+    public static function pairScenarios(): array
+    {
+        $cases = [];
+        foreach (KsefEnvironment::cases() as $environment) {
+            foreach (['open', 'closed', 'other_environment'] as $state) {
+                $cases[] = [$state, $environment];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('missingPairFields')]
+    public function test_missing_declarations_and_root_context_never_change_either_document(string $field): void
+    {
+        [$root, $correction] = $this->unclassifiedScenario();
+        $payload = [...$this->closePayload($correction), 'confirm_source_outside_ksef' => '1'];
+        unset($payload[$field]);
+        $this->post(route('invoices.corrections.finalize', $correction), $payload)->assertSessionHasErrors();
+        $this->assertNull($root->fresh()->finalized_at);
+        $this->assertNull($correction->fresh()->finalized_at);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 0);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $correction->id]);
+    }
+
+    public static function missingPairFields(): array
+    {
+        return array_map(fn ($field) => [$field], ['confirm_source_outside_ksef', 'confirm_outside_ksef', 'expected_source_invoice_id', 'expected_source_invoice_lock_version']);
+    }
+
+    public function test_source_version_and_identity_are_checked_even_with_both_confirmations(): void
+    {
+        [$root, $correction] = $this->unclassifiedScenario();
+        $service = app(ManualCorrectionFinalizationService::class);
+        $this->expectDomainError('correction_manual_finalization_source_conflict', fn () => $service->finalize($correction, 1, KsefEnvironment::Demo, true, $root->id + 100, 1, true));
+        $this->expectDomainError('correction_manual_finalization_source_conflict', fn () => $service->finalize($correction, 1, KsefEnvironment::Demo, true, $root->id, 2, true));
+        $this->expectDomainError('correction_manual_finalization_source_conflict', fn () => $service->finalize($correction, 1, KsefEnvironment::Demo, true, confirmedSourceOutsideKsef: true));
+        $payload = [...$this->closePayload($correction), 'confirm_source_outside_ksef' => '1'];
+        $root->increment('lock_version');
+        $this->post(route('invoices.corrections.finalize', $correction), $payload)->assertSessionHasErrors('correction');
+        $this->assertNull($root->fresh()->finalized_at);
+        $this->assertNull($correction->fresh()->finalized_at);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 0);
+    }
+
+    public function test_closing_pair_removes_delete_hint_and_next_correction_uses_previous_after(): void
+    {
+        [$root, $first] = $this->unclassifiedScenario();
+        $payload = [...$this->closePayload($first), 'confirm_source_outside_ksef' => '1'];
+        $this->post(route('invoices.corrections.finalize', $first), $payload)->assertSessionHasNoErrors();
+        $this->get(route('invoices.edit', $root))->assertOk()->assertSee('Dokument został zamknięty i nie może być edytowany.')
+            ->assertDontSee('Jeśli chcesz edytować tę fakturę, usuń fakturę korygującą')->assertSee('Wystaw kolejną Korektę');
+        $this->expectDomainError('invoice_finalized', fn () => app(InvoiceEditService::class)->updateBuyer($root->fresh(), ['expected_lock_version' => 1]));
+        $this->expectDomainError('invoice_delete_blocked_by_ksef_provenance', fn () => app(InvoiceDeletionService::class)->delete($root, 1, $this->documentContext()));
+        $second = $this->issueKsefFinancialCorrection($root, 3);
+        $this->assertSame($first->id, $second->previous_correction_id);
+        $this->assertSame('2.0000', $second->items()->where('line_type', 'product')->sole()->correction_before_snapshot['quantity']);
+        $this->post(route('invoices.corrections.finalize', $first), $payload)->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $second->id]);
+    }
+
+    public function test_deleting_an_open_correction_still_unlocks_unfinalized_root_without_outside_marker(): void
+    {
+        [$root, $correction] = $this->unclassifiedScenario();
+        app(InvoiceDeletionService::class)->delete($correction, 1, $this->documentContext());
+        app(InvoiceEditabilityPolicy::class)->assertEditable($root->fresh());
+        $this->assertNull($root->fresh()->finalized_at);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 0);
+        $this->assertDatabaseMissing('invoices', ['id' => $correction->id]);
+    }
+
+    #[DataProvider('pairStorageFailures')]
+    public function test_pair_storage_failure_rolls_back_both_finalizations_and_both_provenances(string $failure): void
+    {
+        [$root, $correction] = $this->unclassifiedScenario();
+        $before = [$root->getAttributes(), $correction->getAttributes()];
+        $dispatched = 0;
+        Event::listen(CorrectionFinalized::class, function () use (&$dispatched): void {
+            $dispatched++;
+        });
+        KsefInvoiceProvenance::creating(function ($provenance) use ($root, $correction, $failure): void {
+            if ($provenance->invoice_id === ($failure === 'root' ? $root->id : $correction->id)) {
+                throw new RuntimeException('Simulated pair provenance failure');
+            }
+        });
+        try {
+            app(ManualCorrectionFinalizationService::class)->finalize($correction, 1, KsefEnvironment::Demo, true, $root->id, 1, true);
+            $this->fail('Both documents must roll back.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Simulated pair provenance failure', $exception->getMessage());
+        }
+        $this->assertSame($before, [$root->fresh()->getAttributes(), $correction->fresh()->getAttributes()]);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 0);
+        $this->assertDatabaseHas('order_document_slots', ['invoice_id' => $correction->id]);
+        $this->assertSame(0, $dispatched);
+    }
+
+    public static function pairStorageFailures(): array
+    {
+        return [['root'], ['correction']];
+    }
+
+    #[DataProvider('latePairBlocks')]
+    public function test_pair_rechecks_configuration_and_histories_before_touching_root(string $case): void
+    {
+        [$root, $correction] = $this->unclassifiedScenario();
+        $payload = [...$this->closePayload($correction), 'confirm_source_outside_ksef' => '1'];
+        match ($case) {
+            'root_series' => $this->enableSeries($root),
+            'correction_series' => $this->enableSeries($correction),
+            'environment' => $this->ksefSettings(KsefEnvironment::Test),
+            'root_online' => $this->acceptKsefDocument($root, KsefEnvironment::Production),
+            'correction_online' => $this->acceptKsefDocument($correction, KsefEnvironment::Production),
+            'root_offline' => $this->offline($root),
+            'correction_offline' => $this->offline($correction),
+        };
+        $this->post(route('invoices.corrections.finalize', $correction), $payload)->assertSessionHasErrors('correction');
+        $this->assertNull($root->fresh()->finalized_at);
+        $this->assertNull($correction->fresh()->finalized_at);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 0);
+    }
+
+    public static function latePairBlocks(): array
+    {
+        return array_map(fn ($case) => [$case], ['root_series', 'correction_series', 'environment', 'root_online', 'correction_online', 'root_offline', 'correction_offline']);
+    }
+
+    public function test_interleaved_pair_requests_close_root_and_correction_only_once(): void
+    {
+        [$root, $correction] = $this->unclassifiedScenario();
+        $service = app(ManualCorrectionFinalizationService::class);
+        $close = fn () => $service->finalize($correction, 1, KsefEnvironment::Demo, true, $root->id, 1, true);
+        $dispatched = 0;
+        Event::listen(CorrectionFinalized::class, function () use (&$dispatched): void {
+            $dispatched++;
+        });
+        $armed = true;
+        $winner = null;
+        DB::listen(function ($query) use (&$armed, &$winner, $close): void {
+            if ($armed && str_starts_with($query->sql, 'select') && str_contains($query->sql, 'from "orders"')) {
+                $armed = false;
+                $winner = $close();
+            }
+        });
+        $result = $close();
+        $this->assertNotNull($winner);
+        $this->assertSame($winner->finalized_at->toISOString(), $result->finalized_at->toISOString());
+        $this->assertTrue($root->fresh()->isFinalized());
+        $this->assertSame(1, $dispatched);
+        $this->assertDatabaseCount('ksef_invoice_provenances', 2);
+    }
+
+    private function unclassifiedScenario(KsefEnvironment $environment = KsefEnvironment::Demo): array
+    {
+        $this->ksefSettings($environment)->forceFill(['is_active' => true, 'context_nip' => '9876543210'])->save();
+        $root = $this->issueKsefRoot();
+
+        return [$root, $this->issueKsefFinancialCorrection($root)];
+    }
+
     private function scenario(KsefEnvironment $environment = KsefEnvironment::Demo): array
     {
         $this->ksefSettings($environment)->forceFill(['is_active' => true, 'context_nip' => '9876543210'])->save();
@@ -432,7 +668,10 @@ class ManualCorrectionFinalizationTest extends TestCase
 
     private function closePayload(Invoice $correction, KsefEnvironment $environment = KsefEnvironment::Demo): array
     {
-        return ['expected_lock_version' => $correction->lock_version, 'expected_ksef_environment' => $environment->value, 'confirm_outside_ksef' => '1'];
+        $root = $correction->correctedInvoice()->firstOrFail();
+
+        return ['expected_lock_version' => $correction->lock_version, 'expected_ksef_environment' => $environment->value, 'confirm_outside_ksef' => '1',
+            'expected_source_invoice_id' => $root->id, 'expected_source_invoice_lock_version' => $root->lock_version];
     }
 
     private function enableSeries(Invoice $document): void

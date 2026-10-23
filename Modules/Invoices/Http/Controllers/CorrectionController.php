@@ -112,6 +112,7 @@ class CorrectionController extends Controller
     public function edit(Request $request, Invoice $correction, CorrectionViewModelFactory $viewModels, KsefDocumentViewData $ksefViews, OrderReturnCorrectionService $returnCorrections, ManualCorrectionFinalizationPolicy $manualFinalization): View
     {
         $returnContext = InvoiceReturnContext::fromRequest($request);
+        $manualFinalizationReview = $manualFinalization->review($correction);
 
         try {
             return view('invoices.corrections.create', [
@@ -122,7 +123,8 @@ class CorrectionController extends Controller
                     && $correction->order_return_id !== $request->integer('return_correction_conflict')
                     && OrderReturn::query()->whereKey($request->integer('return_correction_conflict'))->where('order_id', $correction->order_id)->exists(),
                 'returnContext' => $returnContext,
-                'manualFinalizationEnvironment' => $manualFinalization->availableEnvironment($correction),
+                'manualFinalizationEnvironment' => $manualFinalizationReview['environment'],
+                'manualFinalization' => $manualFinalizationReview,
             ]);
         } catch (InvoiceDomainException $exception) {
             abort(422, $exception->getMessage());
@@ -142,6 +144,9 @@ class CorrectionController extends Controller
                 $request->integer('expected_lock_version'),
                 KsefEnvironment::from($request->validated('expected_ksef_environment')),
                 $request->boolean('confirm_outside_ksef'),
+                $request->integer('expected_source_invoice_id'),
+                $request->integer('expected_source_invoice_lock_version'),
+                $request->boolean('confirm_source_outside_ksef'),
             );
 
             return redirect($url)->with('success', 'Korekta została zamknięta. Można teraz wystawić kolejną korektę do tej samej faktury.');

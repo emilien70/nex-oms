@@ -20,14 +20,36 @@ final class ManualCorrectionFinalizationPolicy
 
     public function availableEnvironment(Invoice $correction): ?KsefEnvironment
     {
+        return $this->review($correction)['environment'];
+    }
+
+    /** @return array{environment: ?KsefEnvironment, rootInvoice: ?Invoice, rootConfirmationRequired: bool, blockReason: ?string} */
+    public function review(Invoice $correction): array
+    {
         try {
-            return $this->assertAllowed($correction);
-        } catch (InvoiceDomainException) {
-            return null;
+            return [...$this->inspect($correction), 'blockReason' => null];
+        } catch (InvoiceDomainException $exception) {
+            return ['environment' => null, 'rootInvoice' => null, 'rootConfirmationRequired' => false,
+                'blockReason' => $exception->getMessage()];
         }
     }
 
     public function assertAllowed(Invoice $correction, bool $lock = false): KsefEnvironment
+    {
+        $context = $this->inspect($correction, $lock);
+        if ($context['rootConfirmationRequired']) {
+            throw $this->blocked('outside_ksef_unconfirmed', 'Faktura pierwotna wymaga zamknięcia i jawnego oznaczenia OutsideKsef w aktywnym środowisku.');
+        }
+
+        return $context['environment'];
+    }
+
+    /**
+     * Admission only; an unclassified root still requires separate operator confirmation.
+     *
+     * @return array{environment: KsefEnvironment, rootInvoice: Invoice, rootConfirmationRequired: bool}
+     */
+    public function inspect(Invoice $correction, bool $lock = false): array
     {
         if (! $correction->isCorrection() || ! $correction->isIssued() || $correction->isFinalized()) {
             throw $this->blocked('document_invalid', 'Ręcznie zamknąć można wyłącznie wystawioną, niezamkniętą Korektę.');
@@ -82,17 +104,25 @@ final class ManualCorrectionFinalizationPolicy
 
         $provenances = KsefInvoiceProvenance::query()->whereIn('invoice_id', $ids)
             ->orderBy('id')->when($lock, fn ($query) => $query->lockForUpdate())->get();
-        $outsideSources = $documents->reject(fn (Invoice $document): bool => $document->is($correction))
+        $outsideSources = $chain->finalizedCorrections
             ->every(fn (Invoice $document): bool => $document->isFinalized()
                 && $provenances->contains(fn (KsefInvoiceProvenance $provenance): bool => $provenance->invoice_id === $document->getKey()
                     && $provenance->environment === $settings->environment
                     && $provenance->provenance === KsefInvoiceProvenanceType::OutsideKsef));
         if (! $outsideSources
             || $provenances->contains(fn (KsefInvoiceProvenance $provenance): bool => $provenance->provenance !== KsefInvoiceProvenanceType::OutsideKsef)) {
-            throw $this->blocked('outside_ksef_unconfirmed', 'Faktura pierwotna i wcześniejsze Korekty wymagają jawnego oznaczenia OutsideKsef w aktywnym środowisku. Samo wyłączenie serii nie wystarcza.');
+            throw $this->blocked('outside_ksef_unconfirmed', 'Wcześniejsze Korekty wymagają własnego jawnego oznaczenia OutsideKsef w aktywnym środowisku.');
         }
 
-        return $settings->environment;
+        $rootOutside = $provenances->contains(fn (KsefInvoiceProvenance $provenance): bool => $provenance->invoice_id === $root->getKey()
+            && $provenance->environment === $settings->environment
+            && $provenance->provenance === KsefInvoiceProvenanceType::OutsideKsef);
+        if ($rootOutside && ! $root->isFinalized()) {
+            throw $this->blocked('document_invalid', 'Oznaczenie OutsideKsef Faktury pierwotnej jest niespójne z jej stanem zamknięcia.');
+        }
+
+        return ['environment' => $settings->environment, 'rootInvoice' => $root,
+            'rootConfirmationRequired' => ! $rootOutside];
     }
 
     private function blocked(string $reason, string $message): InvoiceDomainException

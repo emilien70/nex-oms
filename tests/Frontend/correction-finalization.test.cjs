@@ -53,7 +53,21 @@ test('confirmation is unchecked, required and posted separately from editing', (
     assert.match(source, /@csrf/);
     assert.match(source, /name="expected_lock_version"/);
     assert.match(source, /name="expected_ksef_environment"/);
+    assert.match(source, /name="expected_source_invoice_id"/);
+    assert.match(source, /name="expected_source_invoice_lock_version"/);
     assert.match(source, /Operacji nie można cofnąć\./);
+});
+
+test('source has a separate unchecked confirmation only when its provenance is missing', () => {
+    assert.match(source, /@if \(\$manualFinalization\['rootConfirmationRequired'\]\)/);
+    assert.match(source, /<input[^>]+type="checkbox"[^>]+name="confirm_source_outside_ksef"[^>]+required>/);
+    assert.doesNotMatch(source, /<input[^>]+name="confirm_source_outside_ksef"[^>]+checked/);
+    assert.match(source, /Faktura pierwotna[\s\S]*zostanie również trwale zamknięta/);
+    for (const [sourceConfirmed, correctionConfirmed] of [[false, false], [true, false], [false, true]]) {
+        const state = fixture(sourceConfirmed && correctionConfirmed);
+        assert.equal(state.submit(), true);
+        assert.equal(state.button.disabled, false);
+    }
 });
 
 test('absent finalization form has no side effects', () => {

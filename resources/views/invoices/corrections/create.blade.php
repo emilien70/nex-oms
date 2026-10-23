@@ -5,6 +5,9 @@
 @section('content')
     @php
         $isEditing = $correction !== null;
+        $showKsefPanel = $isEditing && ($ksefSeriesEnabled
+            || $ksefSubmissions->isNotEmpty()
+            || $ksefOfflineIssuanceRows->isNotEmpty());
         $returnCorrection = $returnCorrection ?? null;
         $seriesReloadUrl = route('invoices.corrections.create', ['invoice' => $sourceInvoice,
             'order_return_id' => $returnCorrection['snapshot']['return_id'] ?? null, ...$returnContext->parameters()]);
@@ -109,7 +112,9 @@
                         </ul>
                     </div>
                     <button class="btn" type="button" disabled title="Wgrywanie dokumentów nie jest jeszcze dostępne." aria-label="Wgrywanie dokumentów nie jest jeszcze dostępne"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
-                    <a class="btn" href="#correction-ksef"><i class="bi bi-send me-1"></i>Przekaż do KSeF</a>
+                    @if ($showKsefPanel)
+                        <a class="btn" href="#correction-ksef"><i class="bi bi-send me-1"></i>Przekaż do KSeF</a>
+                    @endif
                     @if (! $isReadOnly)
                         @if ($manualFinalizationEnvironment ?? null)
                             <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#correctionFinalizeModal" data-correction-finalize-trigger><i class="bi bi-lock me-1" aria-hidden="true"></i>Zamknij korektę</button>
@@ -127,6 +132,10 @@
             <div class="alert alert-info" role="alert" data-finalized-correction-notice>
                 Korekta została zamknięta i nie może być edytowana.
             </div>
+        @endif
+
+        @if ($isEditing && ! $isReadOnly && ($manualFinalization['blockReason'] ?? null))
+            <div class="alert alert-secondary" role="status" data-correction-finalize-blocked>Zamknięcie poza KSeF jest niedostępne: {{ $manualFinalization['blockReason'] }}</div>
         @endif
 
         @if ($returnCorrectionConflict ?? false)
@@ -328,7 +337,7 @@
                 <a class="btn btn-outline-secondary rounded-pill px-4" href="{{ $backUrl }}">Anuluj</a>
             </div>
         </form>
-        @if ($isEditing)
+        @if ($showKsefPanel)
             <div id="correction-ksef">
                 @include('invoices.partials.ksef-submissions', ['invoice' => $correction])
             </div>
