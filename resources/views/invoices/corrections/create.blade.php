@@ -111,6 +111,9 @@
                     <button class="btn" type="button" disabled title="Wgrywanie dokumentów nie jest jeszcze dostępne." aria-label="Wgrywanie dokumentów nie jest jeszcze dostępne"><i class="bi bi-paperclip me-1"></i>Wgraj</button>
                     <a class="btn" href="#correction-ksef"><i class="bi bi-send me-1"></i>Przekaż do KSeF</a>
                     @if (! $isReadOnly)
+                        @if ($manualFinalizationEnvironment ?? null)
+                            <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#correctionFinalizeModal" data-correction-finalize-trigger><i class="bi bi-lock me-1" aria-hidden="true"></i>Zamknij korektę</button>
+                        @endif
                         <button class="btn" type="button" data-bs-toggle="modal" data-bs-target="#correctionDeleteModal" title="Usuń Korektę" aria-label="Usuń Korektę"><i class="bi bi-trash me-1"></i>Usuń</button>
                     @endif
                     <a class="btn" data-correction-back-button href="{{ $backUrl }}"><i class="bi bi-reply me-1"></i>Powrót</a>
@@ -149,6 +152,10 @@
                 'ajax' => false,
                 'returnContext' => $returnContext,
             ])
+        @endif
+
+        @if ($isEditing && ! $isReadOnly && ($manualFinalizationEnvironment ?? null))
+            @include('invoices.corrections._finalize-modal')
         @endif
 
         <form method="POST" action="{{ $isEditing ? route('invoices.corrections.update', $correction) : route('invoices.corrections.store', $sourceInvoice) }}" data-correction-form>

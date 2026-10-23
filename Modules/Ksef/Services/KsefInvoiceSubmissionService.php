@@ -163,19 +163,19 @@ class KsefInvoiceSubmissionService
                 );
             }
 
-            if (! $correction) {
-                $outsideProvenance = KsefInvoiceProvenance::query()
-                    ->where('invoice_id', $managed->getKey())
-                    ->where('environment', $environment->value)
-                    ->where('provenance', KsefInvoiceProvenanceType::OutsideKsef->value)
-                    ->lockForUpdate()
-                    ->first(['id']);
-                if ($outsideProvenance !== null) {
-                    throw new KsefApiException(
-                        'Faktura została jawnie oznaczona jako wystawiona poza KSeF w aktywnym środowisku i nie może zostać przekazana do KSeF.',
-                        'ksef_submission_blocked_by_outside_ksef_provenance',
-                    );
-                }
+            $outsideProvenance = KsefInvoiceProvenance::query()
+                ->where('invoice_id', $managed->getKey())
+                ->where('environment', $environment->value)
+                ->where('provenance', KsefInvoiceProvenanceType::OutsideKsef->value)
+                ->lockForUpdate()
+                ->first(['id']);
+            if ($outsideProvenance !== null) {
+                throw new KsefApiException(
+                    $correction
+                        ? 'Korekta została jawnie oznaczona jako wystawiona poza KSeF w aktywnym środowisku i nie może zostać przekazana do KSeF.'
+                        : 'Faktura została jawnie oznaczona jako wystawiona poza KSeF w aktywnym środowisku i nie może zostać przekazana do KSeF.',
+                    'ksef_submission_blocked_by_outside_ksef_provenance',
+                );
             }
 
             $seriesEnabled = KsefSeriesSetting::query()

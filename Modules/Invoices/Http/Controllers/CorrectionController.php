@@ -10,6 +10,7 @@ use Illuminate\View\View;
 use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Http\Requests\CorrectionDraftRequest;
+use Modules\Invoices\Http\Requests\FinalizeCorrectionRequest;
 use Modules\Invoices\Http\Requests\UpdateCorrectionRequest;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
@@ -17,8 +18,11 @@ use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\CorrectionViewModelFactory;
 use Modules\Invoices\Services\InvoiceOperationContextFactory;
+use Modules\Invoices\Services\ManualCorrectionFinalizationPolicy;
+use Modules\Invoices\Services\ManualCorrectionFinalizationService;
 use Modules\Invoices\Services\OrderReturnCorrectionService;
 use Modules\Invoices\Support\InvoiceReturnContext;
+use Modules\Ksef\Enums\KsefEnvironment;
 use Modules\Ksef\Services\KsefDocumentViewData;
 
 class CorrectionController extends Controller
@@ -105,7 +109,7 @@ class CorrectionController extends Controller
         }
     }
 
-    public function edit(Request $request, Invoice $correction, CorrectionViewModelFactory $viewModels, KsefDocumentViewData $ksefViews, OrderReturnCorrectionService $returnCorrections): View
+    public function edit(Request $request, Invoice $correction, CorrectionViewModelFactory $viewModels, KsefDocumentViewData $ksefViews, OrderReturnCorrectionService $returnCorrections, ManualCorrectionFinalizationPolicy $manualFinalization): View
     {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
@@ -118,9 +122,31 @@ class CorrectionController extends Controller
                     && $correction->order_return_id !== $request->integer('return_correction_conflict')
                     && OrderReturn::query()->whereKey($request->integer('return_correction_conflict'))->where('order_id', $correction->order_id)->exists(),
                 'returnContext' => $returnContext,
+                'manualFinalizationEnvironment' => $manualFinalization->availableEnvironment($correction),
             ]);
         } catch (InvoiceDomainException $exception) {
             abort(422, $exception->getMessage());
+        }
+    }
+
+    public function finalize(FinalizeCorrectionRequest $request, Invoice $correction, ManualCorrectionFinalizationService $service): RedirectResponse
+    {
+        $url = route('invoices.corrections.edit', [
+            'correction' => $correction,
+            ...InvoiceReturnContext::fromRequest($request)->parameters(),
+        ]);
+
+        try {
+            $service->finalize(
+                $correction,
+                $request->integer('expected_lock_version'),
+                KsefEnvironment::from($request->validated('expected_ksef_environment')),
+                $request->boolean('confirm_outside_ksef'),
+            );
+
+            return redirect($url)->with('success', 'Korekta została zamknięta. Można teraz wystawić kolejną korektę do tej samej faktury.');
+        } catch (InvoiceDomainException $exception) {
+            return redirect($url)->withErrors(['correction' => $exception->getMessage()]);
         }
     }
 

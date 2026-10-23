@@ -9,7 +9,9 @@ use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceSeries;
+use Modules\Ksef\Enums\KsefInvoiceProvenanceType;
 use Modules\Ksef\Enums\KsefInvoiceSubmissionStatus;
+use Modules\Ksef\Models\KsefInvoiceProvenance;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefOfflineIssuance;
 use Modules\Ksef\Models\KsefSeriesSetting;
@@ -87,11 +89,17 @@ class OrderSalesDocumentActionsView
             $issuedInvoice, $settings, $enabledSeriesIds,
             $submissions->get($issuedInvoice?->id, collect()),
         );
+        $outsideCorrectionIds = $settings === null || $corrections->isEmpty() ? collect() : KsefInvoiceProvenance::query()
+            ->whereIn('invoice_id', $corrections->modelKeys())
+            ->where('environment', $settings->environment->value)
+            ->where('provenance', KsefInvoiceProvenanceType::OutsideKsef->value)
+            ->pluck('invoice_id');
         $correctionKsefStates = $corrections->mapWithKeys(fn (Invoice $correction): array => [
             $correction->id => $this->ksefState(
                 $correction, $settings, $enabledSeriesIds,
                 $submissions->get($correction->id, collect()),
                 $offlineCorrectionIds->contains($correction->id),
+                $outsideCorrectionIds->contains($correction->id),
             ),
         ]);
 
@@ -161,6 +169,7 @@ class OrderSalesDocumentActionsView
         Collection $enabledSeriesIds,
         Collection $submissions,
         bool $hasOfflineIssuance = false,
+        bool $outsideKsef = false,
     ): array {
         $state = [
             'seriesEnabled' => false,
@@ -173,6 +182,7 @@ class OrderSalesDocumentActionsView
             'environment' => $settings?->environment,
             'hasHistory' => $submissions->isNotEmpty(),
             'hasOfflineIssuance' => $hasOfflineIssuance,
+            'outsideKsef' => $outsideKsef,
         ];
 
         if ($invoice === null || $invoice->series === null) {
@@ -193,6 +203,7 @@ class OrderSalesDocumentActionsView
             && ! $state['hasSubmission']
             && ($invoice->isInvoice() || $invoice->isCorrection())
             && ! $hasOfflineIssuance
+            && ! $outsideKsef
             && $invoice->isIssued()
             && is_string($invoice->number)
             && trim($invoice->number) !== ''

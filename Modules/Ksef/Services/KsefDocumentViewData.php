@@ -222,6 +222,7 @@ final class KsefDocumentViewData
             'ksefOfflineDeliveryError' => $offlineDeliveryError,
             'ksefCanCreateAttempt' => $settings !== null
                 && $offlineIssuance === null
+                && (! $invoice->isCorrection() || ! $outsideKsef)
                 && $lifecycle->allowsNewAttempt($currentEnvironmentSubmissions),
             'ksefCanIssueOffline24' => $canIssueOffline,
             'ksefOfflineCorrectionBlockReason' => $correctionBlockReason,

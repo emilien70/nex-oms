@@ -54,7 +54,7 @@
             aria-label="Przekaż Korektę {{ $ksefCorrection->number }} do KSeF"
         >KSeF</button>
     </form>
-@elseif ($correctionKsefState['seriesEnabled'])
+@elseif ($correctionKsefState['seriesEnabled'] && ! $correctionKsefState['outsideKsef'])
     <button class="btn btn-sm management-issued-invoice-ksef" type="button" disabled
         title="{{ $correctionKsefState['hasOfflineIssuance'] ? 'Obsługa KSeF dokumentu Offline jest dostępna na karcie Korekty.' : 'Wysyłka Korekty jest niedostępna przy bieżącej konfiguracji KSeF.' }}"
     >KSeF</button>
