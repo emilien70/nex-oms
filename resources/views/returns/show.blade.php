@@ -90,6 +90,18 @@
                         <div><a href="{{ route('invoices.pdf', $invoice) }}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-text" aria-hidden="true"></i> {{ $invoice->number }}</a></div>
                     @empty <span class="returns-muted">Nie wystawiono</span> @endforelse
                 </dd>
+                <dt>Korekta zwrotu:</dt><dd>
+                    @if ($returnCorrectionCard['linked'])
+                        <a href="{{ route('invoices.pdf', $returnCorrectionCard['linked']) }}" target="_blank" rel="noopener">{{ $returnCorrectionCard['linked']->number }}</a>
+                        <span class="small text-secondary">{{ $returnCorrectionCard['linked']->isFinalized() ? 'Zamknięta' : 'Niezamknięta' }}</span>
+                        <a class="btn btn-sm btn-outline-secondary mt-1" href="{{ route('invoices.corrections.edit', ['correction' => $returnCorrectionCard['linked'], 'return_to' => 'order_return', 'return_query' => http_build_query(['order_return_id' => $orderReturn->id])]) }}"><i class="bi bi-{{ $returnCorrectionCard['linked']->isFinalized() ? 'eye' : 'pencil' }} me-1" aria-hidden="true"></i>{{ $returnCorrectionCard['linked']->isFinalized() ? 'Podgląd korekty' : 'Edytuj korektę' }}</a>
+                    @elseif (! $returnCorrectionCard['blocked'])
+                        <a class="btn btn-sm btn-outline-primary" href="{{ route('invoices.corrections.create', ['invoice' => $returnCorrectionCard['source'], 'order_return_id' => $orderReturn->id, 'return_to' => 'order_return', 'return_query' => http_build_query(['order_return_id' => $orderReturn->id])]) }}"><i class="bi bi-file-earmark-minus me-1" aria-hidden="true"></i>Wystaw korektę</a>
+                    @else
+                        <button class="btn btn-sm btn-outline-secondary" disabled type="button" title="{{ $returnCorrectionCard['blocked'] }}"><i class="bi bi-file-earmark-minus me-1" aria-hidden="true"></i>Wystaw korektę</button>
+                        <div class="small text-secondary">{{ $returnCorrectionCard['blocked'] }}</div>
+                    @endif
+                </dd>
             </dl></div>
         </section>
         <section class="returns-card">
@@ -177,6 +189,12 @@
                                 Pobrano zwrot:
                             @elseif ($event->type === 'manual_created')
                                 Utworzono zwrot ręcznie:
+                            @elseif ($event->type === 'correction_issued')
+                                Wystawiono Korektę:
+                            @elseif ($event->type === 'correction_finalized')
+                                Zamknięto Korektę:
+                            @elseif ($event->type === 'correction_deleted')
+                                Usunięto Korektę:
                             @elseif ($event->type === 'refund_allocation_changed')
                                 Zmieniono przypisanie refundacji:
                             @elseif ($event->type === 'allegro_commission_claim')

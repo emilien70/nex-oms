@@ -15,6 +15,7 @@
                     <tr><td width="60%">Data sprzedaży:</td><td width="40%" align="left">{{ $document['sale_date'] }}</td></tr>
                     <tr><td>Data wystawienia:</td><td align="left">{{ $document['issue_date'] }}</td></tr>
                     <tr><td>Powód wystawienia:</td><td align="left">{{ $document['reason'] }}</td></tr>
+                    @if ($document['return_number'])<tr><td>Numer zwrotu:</td><td align="left">{{ $document['return_number'] }}</td></tr>@endif
                 </table>
             </td>
             <td width="10%"></td>

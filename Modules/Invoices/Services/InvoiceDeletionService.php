@@ -345,6 +345,7 @@ class InvoiceDeletionService
         }
 
         $this->releaseDocumentSlot($invoice, $slot);
+        app(OrderReturnCorrectionService::class)->event($invoice, 'correction_deleted');
         $invoice->delete();
     }
 

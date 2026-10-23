@@ -38,6 +38,7 @@ class CorrectionService
         private readonly InvoiceFinancialValueValidator $financial,
         private readonly InvoiceMutationPolicy $mutationPolicy,
         private readonly KsefFa3CorrectionSemanticSnapshotService $ksefSemanticSnapshot,
+        private readonly OrderReturnCorrectionService $returnCorrections,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -60,6 +61,11 @@ class CorrectionService
             }
 
             $this->assertEditableCorrection($managed, $data, $chain);
+
+            $returnData = $this->returnCorrections->forUpdate($managed, $data);
+            if ($returnData !== null) {
+                $data = array_replace($data, $returnData);
+            }
 
             $buyerBefore = data_get($managed->order_snapshot, 'correction.buyer_before');
             if (! is_array($buyerBefore)) {
@@ -111,6 +117,8 @@ class CorrectionService
             }
 
             $documentAttributes = [
+                'order_snapshot' => $returnData === null ? $managed->order_snapshot
+                    : array_replace($managed->order_snapshot, ['return_correction' => $returnData['snapshot']]),
                 'issue_date' => $issueDate->toDateString(),
                 'sale_date' => $resolvedSources['sale_date'],
                 'correction_reason' => $this->reason($data),
@@ -198,6 +206,10 @@ class CorrectionService
             $managedSeries = InvoiceSeries::query()->lockForUpdate()->findOrFail($series->getKey());
             $this->assertSeries($managedSeries);
             $effectiveItems = $this->sourceState->effectiveItems($source, true, $chain);
+            $returnData = $this->returnCorrections->forIssue($source, $effectiveItems, $data);
+            if ($returnData !== null) {
+                $data = array_replace($data, $returnData);
+            }
             $buyerBefore = $this->sourceState->effectiveBuyer($source, true, $chain);
             $buyerAfter = $data['change_buyer']
                 ? $this->buyerAfter($buyerBefore, (array) ($data['buyer'] ?? []))
@@ -230,6 +242,9 @@ class CorrectionService
                 $issueDate->toDateString(),
             );
             $orderSnapshot = $this->orderSnapshot($source, $chain->finalizedTail, $buyerBefore);
+            if ($returnData !== null) {
+                $orderSnapshot['return_correction'] = $returnData['snapshot'];
+            }
             $settings = $this->seriesSettingsSnapshot($source, $managedSeries);
             $buyerName = $this->partyName($buyerAfter);
             $slot = $this->lockCorrectionSlot($managedOrder, $source);
@@ -268,6 +283,7 @@ class CorrectionService
                 'recipient_snapshot' => $source->recipient_snapshot,
                 'issuer_snapshot' => $resolvedSources['issuer_snapshot'],
                 'order_snapshot' => $orderSnapshot,
+                'order_return_id' => $returnData['snapshot']['return_id'] ?? null,
                 'payment_snapshot' => $resolvedSources['payment_snapshot'],
                 'shipping_snapshot' => $effective->shipping_snapshot,
                 'series_settings_snapshot' => $settings,
@@ -323,6 +339,8 @@ class CorrectionService
             $event->created_at = $context->occurredAt;
             $event->updated_at = $context->occurredAt;
             $event->save();
+
+            $this->returnCorrections->event($correction, 'correction_issued');
 
             return $correction->refresh()->load(['items', 'correctedInvoice', 'previousCorrection']);
         }, 3);

@@ -3,6 +3,7 @@
 namespace Modules\Invoices\Models;
 
 use App\Models\Order;
+use App\Models\OrderReturn;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -19,6 +20,7 @@ class Invoice extends Model
 {
     protected $fillable = [
         'order_id',
+        'order_return_id',
         'invoice_series_id',
         'document_type',
         'status',
@@ -66,6 +68,7 @@ class Invoice extends Model
     ];
 
     protected $casts = [
+        'order_return_id' => 'integer',
         'document_type' => InvoiceDocumentType::class,
         'status' => InvoiceDocumentStatus::class,
         'issue_date' => 'date',
@@ -103,6 +106,11 @@ class Invoice extends Model
     public function series(): BelongsTo
     {
         return $this->belongsTo(InvoiceSeries::class, 'invoice_series_id');
+    }
+
+    public function orderReturn(): BelongsTo
+    {
+        return $this->belongsTo(OrderReturn::class);
     }
 
     public function items(): HasMany

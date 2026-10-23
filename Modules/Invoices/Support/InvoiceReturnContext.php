@@ -3,6 +3,7 @@
 namespace Modules\Invoices\Support;
 
 use App\Models\Order;
+use App\Models\OrderReturn;
 use DateTimeImmutable;
 use Illuminate\Http\Request;
 
@@ -15,6 +16,8 @@ final class InvoiceReturnContext
     public const CORRECTIONS = 'corrections';
 
     public const ORDER = 'order';
+
+    public const ORDER_RETURN = 'order_return';
 
     private const LIST_ROUTES = [
         self::INVOICES => 'invoices.index',
@@ -47,7 +50,7 @@ final class InvoiceReturnContext
     {
         $returnTo = $request->input('return_to');
         $explicit = is_string($returnTo)
-            && in_array($returnTo, [...array_keys(self::LIST_ROUTES), self::ORDER], true);
+            && in_array($returnTo, [...array_keys(self::LIST_ROUTES), self::ORDER, self::ORDER_RETURN], true);
 
         if (! $explicit) {
             $returnTo = $default;
@@ -98,6 +101,13 @@ final class InvoiceReturnContext
 
     public function url(Order|int $order): string
     {
+        if ($this->returnTo === self::ORDER_RETURN) {
+            $id = $this->query['order_return_id'] ?? null;
+            $orderId = $order instanceof Order ? $order->getKey() : $order;
+
+            return $id && OrderReturn::query()->whereKey($id)->where('order_id', $orderId)->exists()
+                ? route('returns.show', $id) : route('orders.show', $order);
+        }
         if ($this->returnTo === self::ORDER) {
             return route('orders.show', $order);
         }
@@ -126,7 +136,7 @@ final class InvoiceReturnContext
     {
         $clean = [];
 
-        foreach (['series_id', 'number', 'order_id', 'page'] as $key) {
+        foreach (['series_id', 'number', 'order_id', 'page', 'order_return_id'] as $key) {
             $value = self::positiveInteger($parameters[$key] ?? null);
             if ($value !== null) {
                 $clean[$key] = $value;

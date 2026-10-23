@@ -23,6 +23,7 @@ use Modules\Integrations\Allegro\Models\AllegroPaymentRefundEvent;
 use Modules\Integrations\Allegro\Models\AllegroRefundCommand;
 use Modules\Integrations\Allegro\Support\AllegroShipmentNumbers;
 use Modules\Invoices\Services\InvoiceMoneyFormatter;
+use Modules\Invoices\Services\OrderReturnCorrectionService;
 
 class OrderReturnController extends Controller
 {
@@ -121,10 +122,11 @@ class OrderReturnController extends Controller
             ->where('allegro_user_id', $refundService->identity($orderReturn)['seller_user_id'])->first() : null;
 
         $commissionIdentity = $refundService->identity($orderReturn);
+        $returnCorrectionCard = app(OrderReturnCorrectionService::class)->card($orderReturn);
         $commissionClaims = AllegroCommissionRefundClaim::query()->when($commissionIdentity, fn ($q) => $q->where($commissionIdentity), fn ($q) => $q->whereRaw('1 = 0'))
             ->orWhere('return_number', $orderReturn->id)->latest('id')->paginate(20, ['*'], 'commission_page')->withQueryString();
 
-        return view('returns.show', compact('orderReturn', 'order', 'address', 'money', 'countries', 'previous', 'next', 'events', 'messages', 'orderShipments', 'returnStatuses', 'refunds', 'refundEvents', 'refundSummary', 'refundService', 'refundCommands', 'refundWriteAccount', 'commissionClaims'));
+        return view('returns.show', compact('orderReturn', 'order', 'address', 'money', 'countries', 'previous', 'next', 'events', 'messages', 'orderShipments', 'returnStatuses', 'refunds', 'refundEvents', 'refundSummary', 'refundService', 'refundCommands', 'refundWriteAccount', 'commissionClaims', 'returnCorrectionCard'));
     }
 
     public function create(Request $request, OrderReturnService $service, CurrencyCatalog $currencies, CountryCatalog $countries)

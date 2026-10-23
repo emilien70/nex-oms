@@ -51,6 +51,12 @@ class CorrectionDraftRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'order_return_id' => ['nullable', 'integer', 'min:1'],
+            'return_context_hash' => ['nullable', 'string', 'size:64'],
+            'return_quantities' => ['nullable', 'array', 'max:100'],
+            'return_quantities.*' => ['required', 'integer', 'min:0', 'max:1000000'],
+            'return_shipping' => ['sometimes', 'boolean'],
+            'return_shipping_amount' => ['nullable', 'regex:/^\d+(?:[\.,]\d{1,2})?$/'],
             'expected_source_document_id' => ['required', 'integer', 'min:1'],
             'expected_source_lock_version' => ['required', 'integer', 'min:1'],
             'correction_series_id' => ['required', 'integer', 'exists:invoice_series,id'],

@@ -17,6 +17,7 @@ class InvoiceFinalizationService
         private readonly CorrectionSourceStateService $sourceState,
         private readonly KsefFa3FinalizationGate $ksefGate,
         private readonly KsefFa3CorrectionFinalizationGate $ksefCorrectionGate,
+        private readonly OrderReturnCorrectionService $returnCorrections,
     ) {}
 
     public function finalize(Invoice $document): Invoice
@@ -79,6 +80,8 @@ class InvoiceFinalizationService
         $managed->finalized_at = now(config('app.timezone'));
         $managed->save();
         $chain->slot->delete();
+
+        $this->returnCorrections->event($managed, 'correction_finalized');
 
         CorrectionFinalized::dispatch($managed);
 

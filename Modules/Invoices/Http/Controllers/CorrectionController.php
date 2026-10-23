@@ -3,9 +3,11 @@
 namespace Modules\Invoices\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\OrderReturn;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Modules\Invoices\Enums\CorrectionReason;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Http\Requests\CorrectionDraftRequest;
 use Modules\Invoices\Http\Requests\UpdateCorrectionRequest;
@@ -15,6 +17,7 @@ use Modules\Invoices\Services\CorrectionService;
 use Modules\Invoices\Services\CorrectionSourceStateService;
 use Modules\Invoices\Services\CorrectionViewModelFactory;
 use Modules\Invoices\Services\InvoiceOperationContextFactory;
+use Modules\Invoices\Services\OrderReturnCorrectionService;
 use Modules\Invoices\Support\InvoiceReturnContext;
 use Modules\Ksef\Services\KsefDocumentViewData;
 
@@ -25,24 +28,40 @@ class CorrectionController extends Controller
         Invoice $invoice,
         CorrectionSourceStateService $sourceState,
         CorrectionViewModelFactory $viewModels,
+        OrderReturnCorrectionService $returnCorrections,
     ): View|RedirectResponse {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
         try {
+            $request->validate(['order_return_id' => ['nullable', 'integer', 'min:1']]);
+            if ($request->filled('order_return_id')) {
+                $existing = $returnCorrections->existing($invoice, $request->integer('order_return_id'));
+                if ($existing !== null) {
+                    return redirect()->route('invoices.corrections.edit', ['correction' => $existing, ...$returnContext->parameters()]);
+                }
+            }
             $currentCorrection = $sourceState->currentCorrection($invoice);
 
             if ($currentCorrection !== null) {
                 return redirect()->route('invoices.corrections.edit', [
                     'correction' => $currentCorrection,
+                    'return_correction_conflict' => $request->filled('order_return_id') ? $request->integer('order_return_id') : null,
                     ...$returnContext->parameters(),
-                ]);
+                ])->with('warning', $request->filled('order_return_id')
+                    ? 'Dla tego zamówienia trwa edycja innej Korekty. Dokończ ją przed utworzeniem dokumentu do zwrotu.' : null);
+            }
+
+            $view = $viewModels->make($invoice, $request->filled('series_id') ? $request->integer('series_id') : null);
+            $returnCorrection = $request->filled('order_return_id')
+                ? $returnCorrections->prepare($invoice, $request->integer('order_return_id'), $sourceState->effectiveItems($invoice)) : null;
+            if ($returnCorrection !== null) {
+                $view['defaults']['reason'] = CorrectionReason::GoodsReturn->value;
+                $view['defaultChangeItems'] = true;
             }
 
             return view('invoices.corrections.create', [
-                ...$viewModels->make(
-                    $invoice,
-                    $request->filled('series_id') ? $request->integer('series_id') : null,
-                ),
+                ...$view,
+                'returnCorrection' => $returnCorrection,
                 'returnContext' => $returnContext,
             ]);
         } catch (InvoiceDomainException $exception) {
@@ -74,7 +93,7 @@ class CorrectionController extends Controller
                 ...$returnContext->parameters(),
             ]);
         } catch (InvoiceDomainException $exception) {
-            if ($exception->errorCode() === 'correction_already_exists'
+            if (in_array($exception->errorCode(), ['correction_already_exists', 'return_correction_exists'], true)
                 && isset($exception->metadata()['correction_id'])) {
                 return redirect()->route('invoices.corrections.edit', [
                     'correction' => $exception->metadata()['correction_id'],
@@ -86,7 +105,7 @@ class CorrectionController extends Controller
         }
     }
 
-    public function edit(Request $request, Invoice $correction, CorrectionViewModelFactory $viewModels, KsefDocumentViewData $ksefViews): View
+    public function edit(Request $request, Invoice $correction, CorrectionViewModelFactory $viewModels, KsefDocumentViewData $ksefViews, OrderReturnCorrectionService $returnCorrections): View
     {
         $returnContext = InvoiceReturnContext::fromRequest($request);
 
@@ -94,6 +113,10 @@ class CorrectionController extends Controller
             return view('invoices.corrections.create', [
                 ...$viewModels->makeForEdit($correction),
                 ...$ksefViews->make($correction),
+                'returnCorrection' => $returnCorrections->forEdit($correction),
+                'returnCorrectionConflict' => $request->integer('return_correction_conflict') > 0
+                    && $correction->order_return_id !== $request->integer('return_correction_conflict')
+                    && OrderReturn::query()->whereKey($request->integer('return_correction_conflict'))->where('order_id', $correction->order_id)->exists(),
                 'returnContext' => $returnContext,
             ]);
         } catch (InvoiceDomainException $exception) {

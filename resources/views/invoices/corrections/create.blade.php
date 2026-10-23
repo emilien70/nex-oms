@@ -5,6 +5,9 @@
 @section('content')
     @php
         $isEditing = $correction !== null;
+        $returnCorrection = $returnCorrection ?? null;
+        $seriesReloadUrl = route('invoices.corrections.create', ['invoice' => $sourceInvoice,
+            'order_return_id' => $returnCorrection['snapshot']['return_id'] ?? null, ...$returnContext->parameters()]);
         $formItems = old('items', $items->all());
         $formBuyer = old('buyer', $buyer);
         $changeItems = (bool) old('change_items', $defaultChangeItems);
@@ -14,7 +17,7 @@
         $saleDateValue = $sourceModes['sale_date']['mode'] === 'issue_date'
             ? $issueDateValue
             : $defaults['sale_date'];
-        $backUrl = $isEditing
+        $backUrl = $isEditing || $returnContext->returnTo() === \Modules\Invoices\Support\InvoiceReturnContext::ORDER_RETURN
             ? $returnContext->url($order)
             : route('invoices.edit', ['invoice' => $sourceInvoice, ...$returnContext->parameters()]);
     @endphp
@@ -123,6 +126,13 @@
             </div>
         @endif
 
+        @if ($returnCorrectionConflict ?? false)
+            <div class="alert alert-warning">Dla tego zamówienia trwa edycja innej Korekty. Dokończ ją przed utworzeniem dokumentu do zwrotu.</div>
+        @elseif (session('warning'))<div class="alert alert-warning">{{ session('warning') }}</div>@endif
+        @if ($returnCorrection)
+            <div class="mb-3">@if ($returnCorrection['returnUrl'])<a href="{{ $returnCorrection['returnUrl'] }}">Zwrot {{ $returnCorrection['snapshot']['return_id'] }}</a>@else Zwrot {{ $returnCorrection['snapshot']['return_id'] }} @endif @if ($returnCorrection['snapshot']['reference_number']) · {{ $returnCorrection['snapshot']['reference_number'] }}@endif</div>
+        @endif
+
         @if ($errors->any())
             <div class="alert alert-danger">
                 <strong>{{ $isEditing ? 'Nie udało się zapisać Korekty.' : 'Nie udało się utworzyć Korekty.' }}</strong>
@@ -143,6 +153,11 @@
 
         <form method="POST" action="{{ $isEditing ? route('invoices.corrections.update', $correction) : route('invoices.corrections.store', $sourceInvoice) }}" data-correction-form>
             @csrf
+            @if ($returnCorrection)
+                <input type="hidden" name="order_return_id" value="{{ $returnCorrection['snapshot']['return_id'] }}">
+                @if (! $isEditing)<input type="hidden" name="return_context_hash" value="{{ $returnCorrection['hash'] }}">@endif
+                <input type="hidden" name="change_items" value="1">
+            @endif
             @if ($returnContext->parameters() !== [])
                 <input type="hidden" name="return_to" value="{{ $returnContext->returnTo() }}">
                 <input type="hidden" name="return_query" value="{{ $returnContext->query() }}">
@@ -219,6 +234,7 @@
                             <div class="correction-help">Dodatkowy tekst wyświetlany na dole Korekty.</div>
                         </div>
                     </div>
+                    @if (! $returnCorrection)
                     <div class="correction-option">
                         <div class="correction-option-label">Zmiana pozycji</div>
                         <div>
@@ -226,6 +242,7 @@
                             <div class="correction-help">Po zaznaczeniu tej opcji możliwa będzie aktualizacja pozycji Faktury korygującej.</div>
                         </div>
                     </div>
+                    @endif
                     <div class="correction-option">
                         <div class="correction-option-label">Zmiana danych</div>
                         <div>
@@ -236,6 +253,9 @@
                 </div>
             </section>
 
+            @if ($returnCorrection)
+                @include('invoices.corrections._return-items')
+            @else
             <section data-items-section @if (! $changeItems) hidden @endif>
                 <h2 class="correction-items-title">Wszystkie pozycje po korekcie</h2>
                 <div class="correction-items-card">
@@ -254,6 +274,7 @@
                     <button class="correction-pill-button correction-copy-button" type="button" data-return-selected><i class="bi bi-arrow-counterclockwise me-2"></i>Zwrot zaznaczonych</button>
                 </div>
             </section>
+            @endif
 
             <section class="correction-card" data-buyer-section @if (! $changeBuyer) hidden @endif>
                 <h2 class="correction-card-title">Dane nabywcy</h2>
@@ -387,7 +408,17 @@
                 return item;
             });
 
-            replaceItems(initialItems);
+            if (itemsBody) replaceItems(initialItems);
+            document.querySelectorAll('[data-return-quantity]').forEach((input) => {
+                const update = () => { input.closest('tr').querySelector('[data-return-remaining]').textContent = Number(input.dataset.before) - Number(input.value); };
+                input.addEventListener('input', update);
+                update();
+            });
+            const returnShipping = document.querySelector('[data-return-shipping]');
+            returnShipping?.addEventListener('change', () => {
+                const amount = document.querySelector('[data-return-shipping-amount]');
+                if (amount) amount.disabled = !returnShipping.checked;
+            });
             document.querySelector('[data-change-items]')?.addEventListener('change', (event) => { document.querySelector('[data-items-section]').hidden = !event.target.checked; });
             document.querySelector('[data-change-buyer]')?.addEventListener('change', (event) => { document.querySelector('[data-buyer-section]').hidden = !event.target.checked; });
             document.querySelector('[data-correction-reason]')?.addEventListener('change', (event) => { document.querySelector('[data-other-reason]').hidden = event.target.value !== 'other'; });
@@ -413,7 +444,7 @@
             });
             @if (! $isEditing)
                 document.querySelector('[data-correction-series]')?.addEventListener('change', (event) => {
-                    const url = new URL(@json(route('invoices.corrections.create', ['invoice' => $sourceInvoice, ...$returnContext->parameters()])), window.location.origin);
+                    const url = new URL(@json($seriesReloadUrl), window.location.origin);
                     url.searchParams.set('series_id', event.target.value);
                     window.location.assign(url.toString());
                 });

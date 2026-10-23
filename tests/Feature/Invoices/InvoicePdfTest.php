@@ -244,7 +244,7 @@ class InvoicePdfTest extends TestCase
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
         $this->assertStringEndsWith('/proforma-v36.pdf', $filenames->storagePath($proforma));
-        $this->assertStringEndsWith('/correction-v46-ksef-test.pdf', $filenames->storagePath($correction));
+        $this->assertStringEndsWith('/correction-v47-ksef-test.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
 
@@ -436,7 +436,7 @@ class InvoicePdfTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_invoice_v47_and_correction_v46_cache_render_warsaw_timestamp_and_preserve_attachments(): void
+    public function test_invoice_v47_and_correction_v47_cache_render_warsaw_timestamp_and_preserve_attachments(): void
     {
         $invoice = $this->issueInvoice();
         $correction = $this->createCorrection($invoice);
@@ -470,7 +470,7 @@ class InvoicePdfTest extends TestCase
             $html = $renderer->html($document);
             $newPath = $filenames->storagePath($document);
 
-            $version = $kind === 'invoice' ? 'v47' : 'v46';
+            $version = 'v47';
             $this->assertSame(
                 'invoices/'.$document->id.'/'.$kind.'-'.$version.'-ksef-production.pdf',
                 $newPath,

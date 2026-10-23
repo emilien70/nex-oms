@@ -126,6 +126,8 @@ class InvoicePdfViewModelFactory
             'sale_date' => $invoice->sale_date->format('d.m.Y'),
             'issue_date' => $invoice->issue_date->format('d.m.Y'),
             'reason' => $invoice->correction_reason,
+            'return_number' => ($settings['show_return_id_in_header'] ?? false)
+                ? data_get($invoice->order_snapshot, 'return_correction.return_id') : null,
             'place_of_issue' => $this->text($invoice->issuer_snapshot['place_of_issue'] ?? null),
             'payment_method' => $this->paymentMethod($invoice),
             'ksef' => $this->ksef->present($invoice),

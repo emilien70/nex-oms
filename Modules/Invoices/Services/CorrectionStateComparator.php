@@ -11,6 +11,7 @@ use Modules\Invoices\Models\InvoiceItem;
 class CorrectionStateComparator
 {
     private const DOCUMENT_FIELDS = [
+        'order_snapshot',
         'issue_date',
         'sale_date',
         'correction_reason',
