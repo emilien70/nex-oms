@@ -2,6 +2,7 @@
 
 namespace Modules\Integrations\InPost\Services;
 
+use App\Support\AddressLineFormatter;
 use DomainException;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Support\OrderReferenceFormatter;
@@ -138,6 +139,21 @@ class InPostCourierShipmentPayloadFactory
 
     private function address(array $data, string $owner): array
     {
+        if (blank($data['building_number'] ?? null) && filled($data['street'] ?? null)) {
+            $parsed = AddressLineFormatter::parseAddressLine((string) $data['street']);
+            $parsedBuildingNumber = (string) ($parsed['building_number'] ?? '');
+
+            if (filled($parsed['street'] ?? null)
+                && preg_match('/\d/u', $parsedBuildingNumber) === 1) {
+                $data['street'] = $parsed['street'];
+                $data['building_number'] = $parsedBuildingNumber;
+
+                if (blank($data['apartment_number'] ?? null)) {
+                    $data['apartment_number'] = $parsed['apartment_number'];
+                }
+            }
+        }
+
         foreach (['street', 'building_number', 'city', 'post_code'] as $field) {
             if (blank($data[$field] ?? null)) {
                 throw new DomainException('Uzupelnij pelny adres '.$owner.' przed nadaniem przesylki.');

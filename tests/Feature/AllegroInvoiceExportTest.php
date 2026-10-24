@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\OrderStatusSetting;
 use App\Services\OrderStatusService;
+use DOMDocument;
+use DOMXPath;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -469,6 +471,60 @@ class AllegroInvoiceExportTest extends TestCase
         $html = app(OrderSalesDocumentActionsView::class)->render($invoice->order->fresh());
         $this->assertStringContainsString('Faktura zmieniła się', $html);
         $this->assertStringContainsString('Sprawdź w Allegro', $html);
+    }
+
+    public function test_unsent_invoice_has_a_text_send_action_above_the_transaction_number(): void
+    {
+        [$invoice] = $this->invoice('disabled');
+        $before = $invoice->getAttributes();
+        $response = $this->get(route('orders.show', $invoice->order))->assertOk();
+        $response->assertSeeInOrder(['Faktura Allegro:', 'Nie przekazano', 'wy&#347;lij', 'Numer transakcji:'], false);
+        $document = new DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new DOMXPath($document);
+        $row = '//*[@data-allegro-invoice-export and @data-allegro-document-id="'.$invoice->id.'"]';
+        $button = $xpath->query($row.'//button[contains(@class, "management-allegro-invoice-send")]')->item(0);
+
+        $this->assertNotNull($button);
+        $this->assertSame('wyślij', trim($button->textContent));
+        $this->assertSame(0, $xpath->query($row.'//i')->length);
+        $form = $button->parentNode;
+        $this->assertSame('POST', $form->getAttribute('method'));
+        $this->assertSame(route('orders.allegro.invoices.store', ['order' => $invoice->order, 'invoice' => $invoice]), $form->getAttribute('action'));
+        $this->assertSame('Przekazać fakturę do Allegro?', $form->getAttribute('data-confirm-message'));
+        $this->assertSame(1, $xpath->query($row.'//input[@name="_token"]')->length);
+        $this->assertSame('1', $xpath->query($row.'//input[@name="confirmed"]')->item(0)->getAttribute('value'));
+        $this->assertSame((string) $invoice->lock_version, $xpath->query($row.'//input[@name="expected_lock_version"]')->item(0)->getAttribute('value'));
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
+        $this->assertDatabaseCount('allegro_invoice_exports', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_unsent_invoice_does_not_offer_sending_for_a_disconnected_account(): void
+    {
+        [$invoice, $account] = $this->invoice('disabled');
+        $account->update(['is_active' => false]);
+        $html = app(OrderSalesDocumentActionsView::class)->render($invoice->order);
+
+        $this->assertStringContainsString('Faktura Allegro:', $html);
+        $this->assertStringContainsString('Nie przekazano', $html);
+        $this->assertStringNotContainsString('management-allegro-invoice-send', $html);
+        $this->assertDatabaseCount('allegro_invoice_exports', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_never_uploaded_skipped_invoice_uses_the_existing_retry_endpoint(): void
+    {
+        [$invoice] = $this->invoice('disabled');
+        $export = app(AllegroInvoiceExportService::class)->enqueue($invoice->id, true);
+        $export->update(['state' => 'skipped']);
+        $html = app(OrderSalesDocumentActionsView::class)->render($invoice->order);
+
+        $this->assertStringContainsString('Faktura Allegro:', $html);
+        $this->assertStringContainsString('management-allegro-invoice-send', $html);
+        $this->assertStringContainsString(route('orders.allegro.invoices.retry', ['order' => $invoice->order, 'export' => $export]), $html);
+        $this->assertNull($export->fresh()->upload_started_at);
+        Http::assertNothingSent();
     }
 
     public function test_manual_request_from_before_reconnection_cannot_upload_automatically_later(): void

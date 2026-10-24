@@ -106,7 +106,7 @@ class AllegroOrderImportTest extends TestCase
         $this->get(route('orders.index'))->assertOk()->assertSee('Konto testowe Allegro');
     }
 
-    public function test_order_transaction_links_to_allegro_and_shows_integration_below_without_smart_or_invoice_request(): void
+    public function test_order_transaction_keeps_bold_neutral_link_without_integration_caption(): void
     {
         $account = $this->account();
         $account->update(['name' => 'multi-click']);
@@ -118,14 +118,14 @@ class AllegroOrderImportTest extends TestCase
             ->assertSee('href="https://salescenter.allegro.com/orders/'.Fixture::ORDER_ID.'"', false)
             ->assertSee('class="allegro-transaction-link"', false)
             ->assertSee('data-allegro-transaction="'.Fixture::ORDER_ID.'"', false)
-            ->assertSee('<span class="allegro-transaction-source">(multi-click)</span>', false)
+            ->assertDontSee('class="allegro-transaction-source"', false)
             ->assertDontSee('Allegro Smart!:')->assertDontSee('Żądanie faktury:');
-        $this->assertMatchesRegularExpression('/\.allegro-transaction-link\s*\{[^}]*color:\s*#0864b1;[^}]*font-weight:\s*700;/s', $response->getContent());
-        $this->assertMatchesRegularExpression('/\.allegro-transaction-source\s*\{[^}]*color:\s*#0864b1;[^}]*font-weight:\s*400;/s', $response->getContent());
+        $this->assertMatchesRegularExpression('/\.allegro-transaction-link\s*\{[^}]*color:\s*#7a838f;[^}]*font-weight:\s*700;/s', $response->getContent());
+        $this->assertMatchesRegularExpression('/\.management-status-label,\s*\.management-invoice-label,\s*\.management-meta-label\s*\{[^}]*color:\s*#7a838f;/s', $response->getContent());
 
         $account->delete();
         $this->get(route('orders.show', $order))->assertOk()
-            ->assertSee('<span class="allegro-transaction-source">(multi-click)</span>', false);
+            ->assertDontSee('class="allegro-transaction-source"', false);
         $linkAttributes['allegro_account_id'] = null;
         $this->assertSame($linkAttributes, $order->allegroOrderLink()->sole()->getAttributes());
     }

@@ -293,13 +293,18 @@ class AllegroCorrectionExportTest extends TestCase
 
     public function test_view_has_distinct_states_and_no_upload_for_editable_correction(): void
     {
-        [$root] = $this->source('disabled');
+        [$root] = $this->source('disabled', confirmed: false);
         $closed = $this->finalizeKsefCorrection($this->issueKsefFinancialCorrection($root));
         $open = $this->issueKsefFinancialCorrection($root, 3);
         $html = app(OrderSalesDocumentActionsView::class)->render($root->order);
         $this->assertStringContainsString('data-allegro-document-id="'.$closed->id.'"', $html);
         $this->assertStringNotContainsString('data-allegro-document-id="'.$open->id.'"', $html);
         $this->assertStringContainsString(route('orders.allegro.invoices.store', ['order' => $root->order, 'invoice' => $closed]), $html);
+        $this->assertStringContainsString('Faktura Allegro:', $html);
+        $this->assertGreaterThan(
+            strpos($html, 'data-correction-id="'.$open->id.'"'),
+            strpos($html, 'data-allegro-document-id="'.$root->id.'"'),
+        );
     }
 
     public function test_original_confirmation_wakes_waiting_correction_without_resending_original(): void

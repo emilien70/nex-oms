@@ -36,6 +36,7 @@ class AutomationConditionEvaluator
         return match ($field) {
             'order_status' => $order->status,
             'source' => $order->source,
+            'billing_tax_id' => trim((string) $order->billing_tax_id) === '' ? 'empty' : 'not_empty',
             'cash_on_delivery' => $order->cash_on_delivery ? '1' : '0',
             'payment_state' => $eventPayload['payment_state'] ?? $this->paymentState($order),
             'payment_source' => $eventPayload['payment_source'] ?? null,

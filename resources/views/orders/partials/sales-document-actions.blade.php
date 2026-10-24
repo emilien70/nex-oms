@@ -186,8 +186,6 @@
         @endif
     @endif
 
-    @include('orders.partials.allegro-invoice-export', ['allegroDocument' => $issuedInvoice, 'allegroState' => $salesDocumentActions['allegroInvoice'] ?? null])
-
     @if ($issuedCorrection || $finalizedCorrections->isNotEmpty())
         <div class="management-invoice-label management-correction-label">Korekta:</div>
     @endif
@@ -253,4 +251,7 @@
             @include('orders.partials.correction-ksef-action', ['ksefCorrection' => $issuedCorrection, 'correctionKsefState' => $salesDocumentActions['correctionKsefStates'][$issuedCorrection->id]])
         </div>
     @endif
+
+    <div class="management-document-section-gap" aria-hidden="true"></div>
+    @include('orders.partials.allegro-invoice-export', ['allegroDocument' => $issuedInvoice, 'allegroState' => $salesDocumentActions['allegroInvoice'] ?? null])
 </div>

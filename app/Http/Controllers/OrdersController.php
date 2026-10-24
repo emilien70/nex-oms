@@ -18,6 +18,7 @@ use App\Services\OrderTrackingLookupService;
 use App\Services\OrderTrashService;
 use App\Support\CountryCatalog;
 use App\Support\CurrencyCatalog;
+use App\Support\LiteralLike;
 use App\Support\OrderListFilterState;
 use App\Support\PhoneNumberFormatter;
 use Illuminate\Database\Eloquent\Builder;
@@ -521,17 +522,13 @@ class OrdersController extends Controller
                         $query->orWhere('id', (int) $searchQuery);
                     }
 
-                    $query
-                        ->orWhere('external_id', 'like', $like)
-                        ->orWhere('notes', 'like', $like)
-                        ->orWhere('customer_login', 'like', $like)
-                        ->orWhere('customer_email', 'like', $like)
-                        ->orWhere('customer_phone', 'like', $like)
-                        ->orWhere('shipping_name', 'like', $like)
-                        ->orWhere('shipping_company_name', 'like', $like)
-                        ->orWhereHas('shipments', function (Builder $shipmentQuery) use ($like): void {
-                            $this->trackingLookup->constrainShipmentQuery($shipmentQuery, $like);
-                        });
+                    foreach (['external_id', 'notes', 'customer_login', 'customer_email', 'customer_phone', 'shipping_name', 'shipping_company_name'] as $column) {
+                        LiteralLike::where($query, $column, $like, 'or');
+                    }
+
+                    $query->orWhereHas('shipments', function (Builder $shipmentQuery) use ($like): void {
+                        $this->trackingLookup->constrainShipmentQuery($shipmentQuery, $like);
+                    });
 
                     $parts = preg_split('/\s+/', $searchQuery, -1, PREG_SPLIT_NO_EMPTY);
 
@@ -540,9 +537,8 @@ class OrdersController extends Controller
                         $last = $this->likeFilter($parts[count($parts) - 1]);
 
                         $query->orWhere(function (Builder $nameQuery) use ($first, $last): void {
-                            $nameQuery
-                                ->where('shipping_name', 'like', $first)
-                                ->where('shipping_name', 'like', $last);
+                            LiteralLike::where($nameQuery, 'shipping_name', $first);
+                            LiteralLike::where($nameQuery, 'shipping_name', $last);
                         });
                     }
                 });
@@ -606,7 +602,7 @@ class OrdersController extends Controller
         }
 
         if ($this->filledFilter($filters, 'store_number')) {
-            $query->where('external_id', 'like', $this->likeFilter($filters['store_number']));
+            LiteralLike::where($query, 'external_id', $this->likeFilter($filters['store_number']));
         }
 
         if ($this->filledFilter($filters, 'ordered_from')) {
@@ -638,7 +634,7 @@ class OrdersController extends Controller
         $this->applyOrderFilter($query, $filters, 'postal_code', ['shipping_postal_code']);
 
         if ($this->filledFilter($filters, 'shipping_method')) {
-            $query->where('shipping_method', 'like', $this->likeFilter($filters['shipping_method']));
+            LiteralLike::where($query, 'shipping_method', $this->likeFilter($filters['shipping_method']));
         }
 
         if ($this->filledFilter($filters, 'tracking_number')) {
@@ -663,7 +659,7 @@ class OrdersController extends Controller
         }
 
         if ($this->filledFilter($filters, 'payment_method')) {
-            $query->where('payment_method', 'like', $this->likeFilter($filters['payment_method']));
+            LiteralLike::where($query, 'payment_method', $this->likeFilter($filters['payment_method']));
         }
 
         if ($this->filledFilter($filters, 'total_from')) {
@@ -684,12 +680,12 @@ class OrdersController extends Controller
 
         if ($this->filledFilter($filters, 'product')) {
             $query->whereHas('items', function ($itemQuery) use ($filters): void {
-                $itemQuery->where('product_name', 'like', $this->likeFilter($filters['product']));
+                LiteralLike::where($itemQuery, 'product_name', $this->likeFilter($filters['product']));
             });
         }
 
         if ($this->filledFilter($filters, 'notes')) {
-            $query->where('notes', 'like', $this->likeFilter($filters['notes']));
+            LiteralLike::where($query, 'notes', $this->likeFilter($filters['notes']));
         }
     }
 
@@ -701,7 +697,7 @@ class OrdersController extends Controller
 
         $query->where(function ($query) use ($filters, $key, $columns): void {
             foreach ($columns as $column) {
-                $query->orWhere($column, 'like', $this->likeFilter($filters[$key]));
+                LiteralLike::where($query, $column, $this->likeFilter($filters[$key]), 'or');
             }
         });
     }
@@ -713,7 +709,7 @@ class OrdersController extends Controller
 
     private function likeFilter(string $value): string
     {
-        return '%'.str_replace(['%', '_'], ['\%', '\_'], $value).'%';
+        return LiteralLike::contains($value);
     }
 
     public function show(Request $request, Order $order, OrderAutomationHistory $automationHistory): View

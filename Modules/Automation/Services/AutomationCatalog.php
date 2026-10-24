@@ -81,6 +81,15 @@ class AutomationCatalog
                     'prestashop' => 'PrestaShop',
                 ],
             ],
+            'billing_tax_id' => [
+                'label' => 'NIP',
+                'type' => 'select',
+                'operators' => ['equals'],
+                'options' => [
+                    'empty' => $this->decode('Warto&#347;&#263; pusta'),
+                    'not_empty' => $this->decode('Warto&#347;&#263; niepusta'),
+                ],
+            ],
             'cash_on_delivery' => [
                 'label' => 'Pobranie',
                 'type' => 'select',

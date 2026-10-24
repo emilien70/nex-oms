@@ -309,7 +309,7 @@
         }
 
         .sidebar {
-            background: #222c36;
+            background: #222c36 !important;
             flex: 0 0 52px;
             min-height: 100vh;
             overflow: visible;
@@ -661,6 +661,10 @@
 
         .orders-context-inner {
             padding: 0 0 12px;
+        }
+
+        .orders-context-mobile-heading {
+            display: none;
         }
 
         .orders-context-toggle-icon {
@@ -1180,18 +1184,43 @@
 
             .sidebar {
                 flex: 0 0 auto;
-                min-height: auto;
-                position: static;
-                width: 100%;
+                height: 100dvh;
+                min-height: 100dvh;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                padding: 12px 8px;
+                position: fixed;
+                width: min(300px, 85vw);
+                z-index: 1045;
             }
 
             .sidebar nav {
-                flex-direction: row !important;
-                justify-content: center;
+                flex-direction: column !important;
+                justify-content: flex-start;
             }
 
             .sidebar-brand {
-                display: none;
+                display: flex;
+            }
+
+            .sidebar-mobile-close {
+                align-items: center;
+                background: transparent;
+                border: 0;
+                color: #ffffff;
+                display: inline-flex;
+                height: 40px;
+                justify-content: center;
+                position: absolute;
+                right: 8px;
+                top: 12px;
+                width: 40px;
+                z-index: 1;
+            }
+
+            .sidebar-mobile-close:focus-visible {
+                outline: 2px solid #ffffff;
+                outline-offset: -4px;
             }
 
             .app-workspace {
@@ -1230,12 +1259,13 @@
 
             .app-shell.sidebar-expanded .sidebar {
                 flex-basis: auto;
-                padding: 10px 0;
-                width: 100%;
+                padding: 12px 8px;
+                width: min(300px, 85vw);
             }
 
             .app-shell.sidebar-expanded .nav-text {
-                display: none;
+                display: inline;
+                white-space: normal;
             }
 
             .nav-flyout {
@@ -1246,8 +1276,136 @@
                 display: none;
             }
 
+            .orders-context-sidebar[data-mobile-orders-context] {
+                background: #f5f7fb;
+                border: 0;
+                display: block;
+                min-height: 0;
+                padding: 16px 12px 12px;
+                position: static;
+                width: 100%;
+            }
+
+            [data-mobile-orders-context] .orders-context-inner {
+                padding: 0;
+            }
+
+            [data-mobile-orders-context] .orders-context-add-form {
+                padding: 0 0 18px;
+            }
+
+            [data-mobile-orders-context] .orders-context-add {
+                border-radius: 24px;
+                font-size: 14px;
+                height: 44px;
+                width: 100%;
+            }
+
+            .orders-context-mobile-heading {
+                align-items: center;
+                display: flex;
+                gap: 8px;
+                justify-content: space-between;
+                margin-bottom: 8px;
+            }
+
+            .orders-context-mobile-title {
+                color: #4e565f;
+                font-size: 14px;
+                font-weight: 600;
+                margin: 0;
+            }
+
+            .orders-context-status-toggle {
+                align-items: center;
+                background: transparent;
+                border: 0;
+                color: #4e565f;
+                display: inline-flex;
+                font-size: 12px;
+                gap: 8px;
+                min-height: 40px;
+                padding: 0 4px;
+            }
+
+            .orders-context-status-toggle[aria-expanded="true"] .bi {
+                transform: rotate(180deg);
+            }
+
+            [data-mobile-orders-context] .orders-context-list {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px 6px;
+            }
+
+            [data-mobile-orders-context][data-statuses-collapsed="true"] .orders-context-list {
+                display: none;
+            }
+
+            [data-mobile-orders-context] .orders-context-link {
+                border-radius: 3px;
+                font-size: 13px;
+                max-width: 100%;
+                min-height: 40px;
+                padding: 6px;
+            }
+
+            [data-mobile-orders-context] .orders-context-link-label {
+                overflow: visible;
+                overflow-wrap: anywhere;
+                white-space: normal;
+            }
+
+            [data-mobile-orders-context] .orders-context-count {
+                font-size: 12px;
+                min-width: 20px;
+                padding: 3px 4px;
+            }
+
+            [data-mobile-orders-context] .orders-context-section {
+                border: 0;
+                display: flex;
+                flex: 0 0 auto;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin: 0;
+                max-width: 100%;
+                padding: 0;
+            }
+
+            [data-mobile-orders-context] .orders-context-section .orders-context-link {
+                flex: 0 0 auto;
+            }
+
+            [data-mobile-orders-context] .orders-context-section .orders-context-link-label {
+                overflow-wrap: normal;
+                white-space: nowrap;
+            }
+
+            [data-mobile-orders-context] .orders-context-footer {
+                flex: 0 0 100%;
+                justify-content: flex-start;
+                gap: 14px;
+                padding: 4px 6px 0;
+            }
+
+            [data-mobile-orders-context] .orders-context-add-status,
+            [data-mobile-orders-context] .orders-context-refresh {
+                align-items: center;
+                display: inline-flex;
+                min-height: 40px;
+            }
+
+            [data-mobile-orders-context] .orders-context-refresh {
+                width: 40px;
+            }
+
             .app-shell.has-orders-context .content {
                 padding-left: 1.5rem !important;
+            }
+
+            .app-shell.has-orders-context .content > .orders-page[data-orders-page] {
+                margin-left: -1.5rem !important;
             }
 
             .automation-activity-center {
@@ -1277,10 +1435,11 @@
     @endphp
 
     <div class="app-shell d-flex {{ $hasOrdersContext ? 'has-orders-context' : '' }}">
-        <aside class="sidebar text-white">
+        <aside class="sidebar text-white offcanvas-md offcanvas-start" id="appSidebar" tabindex="-1" aria-labelledby="appSidebarLabel">
+            <button class="sidebar-mobile-close d-md-none" type="button" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar" aria-label="Zamknij menu" title="Zamknij menu"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
             <div class="sidebar-brand" aria-label="NEX-OMS">
                 <span class="sidebar-brand-short">N</span>
-                <span class="sidebar-brand-full">NEX-OMS</span>
+                <span class="sidebar-brand-full" id="appSidebarLabel">NEX-OMS</span>
             </div>
             <nav class="nav flex-column">
                 <div class="sidebar-nav-item">
@@ -1353,7 +1512,7 @@
         <div class="app-workspace">
             <header class="app-topbar">
                 <div class="app-topbar-leading">
-                    <button class="app-menu-toggle" type="button" data-sidebar-toggle aria-expanded="false" aria-label="Poka&#380; menu" title="Poka&#380; menu">
+                    <button class="app-menu-toggle" type="button" data-sidebar-toggle aria-controls="appSidebar" aria-expanded="false" aria-label="Poka&#380; menu" title="Poka&#380; menu">
                         <span class="orders-context-toggle-icon" aria-hidden="true"></span>
                         <span class="app-menu-toggle-label">Szybki dost&#281;p</span>
                         <i class="bi bi-chevron-down app-menu-toggle-chevron" aria-hidden="true"></i>
@@ -1384,7 +1543,7 @@
         @if ($hasReturnsContext)
             @include('returns._sidebar')
         @elseif ($hasOrdersContext)
-            <aside class="orders-context-sidebar" aria-label="Menu zamowien">
+            <aside class="orders-context-sidebar" aria-label="Menu zamowien" data-mobile-orders-context>
                 <div class="orders-context-inner">
                     <form class="orders-context-add-form" method="POST" action="{{ route('orders.empty-store') }}">
                         @csrf
@@ -1394,7 +1553,14 @@
                         </button>
                     </form>
 
-                    <nav class="orders-context-list">
+                    <div class="orders-context-mobile-heading">
+                        <h2 class="orders-context-mobile-title">Statusy</h2>
+                        <button class="orders-context-status-toggle" type="button" data-mobile-status-toggle aria-expanded="true" aria-controls="orderStatusNavigation">
+                            <span data-mobile-status-label>Zwi&#324; statusy</span>
+                            <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                    <nav class="orders-context-list" id="orderStatusNavigation" aria-label="Statusy zam&#243;wie&#324;">
                         <a class="orders-context-link orders-context-link-all {{ ! $layoutShowsTrash && $currentLayoutStatus === null && request()->routeIs('orders.index') ? 'active' : '' }}" href="{{ route('orders.index') }}">
                             <span class="orders-context-all-icon" aria-hidden="true"></span>
                             <span class="orders-context-link-label">Wszystkie</span>
@@ -1682,12 +1848,16 @@
         document.addEventListener('DOMContentLoaded', () => {
             const shell = document.querySelector('.app-shell');
             const toggle = document.querySelector('[data-sidebar-toggle]');
+            const sidebar = document.getElementById('appSidebar');
             const navItems = [...document.querySelectorAll('.sidebar-nav-item.has-nav-flyout')];
             const storageKey = 'nexOmsSidebarExpanded';
+            const mobileViewport = window.matchMedia('(max-width: 767.98px)');
 
-            if (!shell) {
+            if (!shell || !sidebar) {
                 return;
             }
+
+            const mobileMenu = bootstrap.Offcanvas.getOrCreateInstance(sidebar);
 
             const syncNavItems = (sidebarExpanded) => {
                 navItems.forEach((item) => {
@@ -1709,9 +1879,38 @@
                 syncNavItems(expanded);
             };
 
-            applyState(localStorage.getItem(storageKey) === '1');
+            const applyViewportState = () => {
+                if (mobileViewport.matches) {
+                    applyState(sidebar.classList.contains('show'));
+                    return;
+                }
+
+                mobileMenu.hide();
+                applyState(localStorage.getItem(storageKey) === '1');
+            };
+
+            sidebar.addEventListener('show.bs.offcanvas', () => {
+                if (mobileViewport.matches) {
+                    applyState(true);
+                }
+            });
+
+            sidebar.addEventListener('hidden.bs.offcanvas', () => {
+                if (mobileViewport.matches) {
+                    applyState(false);
+                    toggle?.focus({ preventScroll: true });
+                }
+            });
+
+            applyViewportState();
+            mobileViewport.addEventListener('change', applyViewportState);
 
             toggle?.addEventListener('click', () => {
+                if (mobileViewport.matches) {
+                    mobileMenu.toggle();
+                    return;
+                }
+
                 const expanded = !shell.classList.contains('sidebar-expanded');
 
                 applyState(expanded);
@@ -1736,6 +1935,27 @@
 
                     syncNavItems(true);
                 });
+            });
+
+            sidebar.addEventListener('click', (event) => {
+                const link = event.target.closest('a[href]');
+
+                if (mobileViewport.matches && link && !event.defaultPrevented && link.getAttribute('href') !== '#') {
+                    mobileMenu.hide();
+                }
+            });
+
+            const statusContext = document.querySelector('[data-mobile-orders-context]');
+            const statusToggle = statusContext?.querySelector('[data-mobile-status-toggle]');
+
+            statusToggle?.addEventListener('click', () => {
+                const collapsed = statusContext.dataset.statusesCollapsed !== 'true';
+
+                statusContext.dataset.statusesCollapsed = collapsed ? 'true' : 'false';
+                statusToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                statusToggle.querySelector('[data-mobile-status-label]').textContent = collapsed
+                    ? 'Rozwi\u0144 statusy'
+                    : 'Zwi\u0144 statusy';
             });
         });
     </script>

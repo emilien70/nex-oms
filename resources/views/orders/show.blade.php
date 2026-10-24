@@ -25,7 +25,6 @@
     $allegroTransactionUrl = $order->source === 'allegro'
         ? \Modules\Integrations\Allegro\Support\AllegroOrderUrl::make($allegroOrderLink?->environment ?? 'production', $allegroTransactionId)
         : null;
-    $allegroIntegrationName = $allegroOrderLink?->account?->name ?: $allegroOrderLink?->account_name;
     $selectedShipmentProvider = old('shipment_provider');
     $starColors = [
         '' => ['label' => 'Usu&#324; kolor gwiazdki', 'class' => 'star-empty', 'icon' => '&#9734;'],
@@ -398,10 +397,20 @@
             display: contents;
         }
 
+        .management-document-section-gap {
+            grid-column: 1 / -1;
+            height: 8px;
+        }
+
+        .management-status-section-gap {
+            grid-column: 1 / -1;
+            height: calc(8px - 4px);
+        }
+
         .management-status-label,
         .management-invoice-label,
         .management-meta-label {
-            color: #374151;
+            color: #7a838f;
             font-size: 13px;
             white-space: nowrap;
         }
@@ -426,7 +435,7 @@
         }
 
         .allegro-transaction-link {
-            color: #0864b1;
+            color: #7a838f;
             cursor: pointer;
             font-weight: 700;
             text-decoration: none;
@@ -462,14 +471,58 @@
 
         .allegro-transaction-link:hover,
         .allegro-transaction-link:focus-visible {
-            color: #0864b1;
+            color: #7a838f;
         }
 
-        .allegro-transaction-source {
-            color: #0864b1;
-            display: block;
-            font-weight: 400;
-            margin-top: 2px;
+        .management-allegro-invoice-row {
+            display: grid;
+            gap: 0 8px;
+            grid-column: 1 / -1;
+            grid-template-columns: minmax(110px, 25%) minmax(0, 1fr);
+            min-width: 0;
+            width: 100cqw;
+        }
+
+        .management-allegro-invoice-row .management-meta-value {
+            grid-column: 2;
+        }
+
+        @container (max-width: 260px) {
+            .management-allegro-invoice-row {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .management-allegro-invoice-row .management-meta-value {
+                grid-column: 1;
+            }
+        }
+
+        .management-allegro-invoice-row > .text-danger,
+        .management-allegro-invoice-row > .text-warning-emphasis {
+            grid-column: 1 / -1;
+        }
+
+        .management-allegro-invoice-value {
+            align-items: baseline;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0 4px;
+        }
+
+        .management-allegro-invoice-form {
+            align-items: baseline;
+            display: inline-flex;
+            margin: 0;
+        }
+
+        .management-allegro-invoice-send {
+            background: transparent;
+            border: 0;
+            color: #7a838f;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+            padding: 0;
         }
 
         .management-meta-time {
@@ -819,6 +872,7 @@
             font-size: 13px;
             justify-self: start;
             min-height: 30px;
+            opacity: 0.6;
             padding: 4px 12px;
             width: auto;
         }
@@ -3579,6 +3633,7 @@
                             </div>
                             <button class="btn btn-sm btn-primary management-status-submit" type="submit" data-management-status-submit>Zapisz</button>
                         </form>
+                            <div class="management-status-section-gap" aria-hidden="true"></div>
                             @include('orders.partials.sales-document-actions', [
                                 'order' => $order,
                                 'salesDocumentActions' => $salesDocumentActions,
@@ -3599,9 +3654,6 @@
                                         <a href="{{ $allegroTransactionUrl }}" class="allegro-transaction-link" data-allegro-transaction="{{ $allegroTransactionId }}" target="_blank" rel="noopener noreferrer" title="Kopiuj numer transakcji">{{ $allegroTransactionId }}</a>
                                     @else
                                         {{ $allegroTransactionId ?: '...' }}
-                                    @endif
-                                    @if ($allegroIntegrationName)
-                                        <span class="allegro-transaction-source">({{ $allegroIntegrationName }})</span>
                                     @endif
                                 </div>
                                 </div>

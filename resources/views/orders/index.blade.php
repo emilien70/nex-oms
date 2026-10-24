@@ -56,7 +56,7 @@
                 </h1>
             </div>
             <div class="orders-top-actions">
-                <button class="orders-filters-toggle {{ $hasActiveFilters ? 'is-active' : '' }}" type="button" data-bs-toggle="collapse" data-bs-target="#ordersFiltersPanel" aria-expanded="{{ $hasActiveFilters ? 'true' : 'false' }}" aria-controls="ordersFiltersPanel">
+                <button class="orders-filters-toggle {{ $hasActiveFilters ? 'is-active' : '' }}" type="button" data-bs-toggle="collapse" data-bs-target="#ordersFiltersPanel" aria-expanded="{{ $hasActiveFilters ? 'true' : 'false' }}" aria-controls="ordersFiltersPanel" aria-label="Filtrowanie zam&#243;wie&#324;" title="Filtrowanie zam&#243;wie&#324;">
                     <span class="orders-filters-toggle-icon"><i class="bi bi-filter-left" aria-hidden="true"></i></span>
                     <span>Filtrowanie zam&oacute;wie&#324;</span>
                     <i class="bi bi-chevron-down orders-filters-toggle-chevron" aria-hidden="true"></i>
@@ -239,12 +239,12 @@
                         <tr>
                             <th class="order-select-column"></th>
                             <th class="order-star-column"></th>
-                            <th>Numer<br><span class="fw-normal text-secondary orders-th-subtitle">(w sklepie)</span></th>
-                            <th class="order-customer-column">Imi&#281; i nazwisko<br><span class="fw-normal text-secondary orders-th-subtitle">(&#378;r&oacute;d&#322;o)</span></th>
-                            <th>Przedmioty</th>
-                            <th>Kwota</th>
+                            <th class="order-number-column">Numer<br><span class="fw-normal text-secondary orders-th-subtitle">(w sklepie)</span></th>
+                            <th class="order-customer-column order-buyer-column">Imi&#281; i nazwisko<br><span class="fw-normal text-secondary orders-th-subtitle">(&#378;r&oacute;d&#322;o)</span></th>
+                            <th class="order-items-column">Przedmioty</th>
+                            <th class="order-amount-column">Kwota</th>
                             <th class="order-extra-column">Informacje dodatkowe</th>
-                            <th>Data z&#322;o&#380;enia</th>
+                            <th class="order-date-column">Data z&#322;o&#380;enia</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -314,7 +314,7 @@
                                         </div>
                                     @endif
                                 </td>
-                                <td class="order-customer-column">
+                                <td class="order-customer-column order-number-column">
                                     @if ($showTrash)
                                         <span class="fw-bold text-secondary">{{ $order->id }}</span>
                                     @else
@@ -324,7 +324,7 @@
                                         <div class="order-subline">({{ $storeOrderNumber }})</div>
                                     @endif
                                 </td>
-                                <td>
+                                <td class="order-buyer-column">
                                     <div class="order-customer-name">{{ $order->shipping_name ?: ($order->customer_login ?: '...') }}</div>
                                     <div class="order-subline order-source-line">
                                         <span class="order-source-icon {{ $sourceIconClass }}" aria-hidden="true">{!! $sourceIcon !!}</span>
@@ -335,7 +335,7 @@
                                         @endif
                                     </div>
                                 </td>
-                                <td>
+                                <td class="order-items-column">
                                     <div class="order-items-list">
                                         @forelse ($visibleItems as $item)
                                             <div>{{ $item->quantity }}x {{ $item->product_name }}</div>
@@ -347,7 +347,7 @@
                                         @endif
                                     </div>
                                 </td>
-                                <td>
+                                <td class="order-amount-column">
                                     <span class="order-amount">{{ $money($order->total_gross) }} {{ $order->currency }}</span>
                                 </td>
                                 <td class="order-extra-column">
@@ -359,7 +359,7 @@
                                         @include('orders.partials.list-indicators', ['order' => $order])
                                     </div>
                                 </td>
-                                <td>
+                                <td class="order-date-column">
                                     <div>{{ $compactDate($order->purchased_at ?? $order->created_at) }}</div>
                                     <div class="order-subline text-primary">{{ $compactDate($order->updated_at) }}</div>
                                 </td>

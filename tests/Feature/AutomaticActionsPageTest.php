@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Modules\Automation\Models\AutomationRule;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Automation\Services\AutomationCatalog;
+use Modules\Automation\Services\AutomationConditionEvaluator;
 use Modules\Automation\Services\AutomationEngine;
 use Modules\Integrations\DPD\Jobs\CreateDpdShipmentJob;
 use Modules\Integrations\InPost\Jobs\CreateInPostShipmentJob;
@@ -39,6 +40,98 @@ class AutomaticActionsPageTest extends TestCase
         $this->get(route('orders.automatic-actions.index'))
             ->assertOk()
             ->assertDontSee('value="refunded"', false);
+    }
+
+    public function test_billing_tax_id_condition_offers_only_empty_and_not_empty_values(): void
+    {
+        $catalog = app(AutomationCatalog::class);
+        $definition = $catalog->conditionDefinitions()['billing_tax_id'];
+
+        $this->assertSame('NIP', $definition['label']);
+        $this->assertSame('select', $definition['type']);
+        $this->assertSame(['equals'], $definition['operators']);
+        $this->assertSame([
+            'empty' => 'Wartość pusta',
+            'not_empty' => 'Wartość niepusta',
+        ], $definition['options']);
+        $this->assertSame(
+            'NIP Równe Wartość niepusta',
+            $catalog->conditionSummary([
+                'field' => 'billing_tax_id',
+                'operator' => 'equals',
+                'value' => 'not_empty',
+            ]),
+        );
+
+        $this->post(route('orders.automatic-actions.store'), [
+            'name' => 'Zamowienie z NIP',
+            'description' => '',
+            'trigger' => 'order.status_changed',
+            'is_active' => '1',
+            'conditions' => [[
+                'field' => 'billing_tax_id',
+                'operator' => 'equals',
+                'value' => 'not_empty',
+            ]],
+            'actions' => [[
+                'type' => AutomationCatalog::ACTION_CHANGE_STATUS,
+                'configuration' => ['status' => Order::STATUS_PENDING],
+                'stop_on_error' => '1',
+            ]],
+        ])->assertRedirect();
+
+        $this->assertSame([
+            'field' => 'billing_tax_id',
+            'operator' => 'equals',
+            'value' => 'not_empty',
+        ], AutomationRule::query()->firstOrFail()->conditions[0]);
+
+        $this->from(route('orders.automatic-actions.index'))
+            ->post(route('orders.automatic-actions.store'), [
+                'name' => 'Nieprawidlowa wartosc NIP',
+                'description' => '',
+                'trigger' => 'order.status_changed',
+                'is_active' => '1',
+                'conditions' => [[
+                    'field' => 'billing_tax_id',
+                    'operator' => 'equals',
+                    'value' => 'present',
+                ]],
+                'actions' => [[
+                    'type' => AutomationCatalog::ACTION_CHANGE_STATUS,
+                    'configuration' => ['status' => Order::STATUS_PENDING],
+                    'stop_on_error' => '1',
+                ]],
+            ])
+            ->assertRedirect(route('orders.automatic-actions.index'))
+            ->assertSessionHasErrors('conditions.0.value');
+    }
+
+    public function test_billing_tax_id_condition_matches_the_invoice_data_field(): void
+    {
+        $evaluator = app(AutomationConditionEvaluator::class);
+        $emptyCondition = [[
+            'field' => 'billing_tax_id',
+            'operator' => 'equals',
+            'value' => 'empty',
+        ]];
+        $notEmptyCondition = [[
+            'field' => 'billing_tax_id',
+            'operator' => 'equals',
+            'value' => 'not_empty',
+        ]];
+
+        foreach ([null, '', '   '] as $value) {
+            $order = $this->order(['billing_tax_id' => $value]);
+
+            $this->assertTrue($evaluator->matches($order, [], $emptyCondition));
+            $this->assertFalse($evaluator->matches($order, [], $notEmptyCondition));
+        }
+
+        $order = $this->order(['billing_tax_id' => '5250001009']);
+
+        $this->assertFalse($evaluator->matches($order, [], $emptyCondition));
+        $this->assertTrue($evaluator->matches($order, [], $notEmptyCondition));
     }
 
     public function test_rule_can_be_created_with_conditions_and_ordered_actions(): void

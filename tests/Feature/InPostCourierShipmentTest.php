@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use DomainException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -11,6 +12,7 @@ use Modules\Integrations\InPost\Drivers\InPostCourierDriver;
 use Modules\Integrations\InPost\Drivers\InPostLockerDriver;
 use Modules\Integrations\InPost\Jobs\CreateInPostShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
+use Modules\Integrations\InPost\Services\InPostCourierShipmentPayloadFactory;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\CourierDriverRegistry;
@@ -236,6 +238,63 @@ class InPostCourierShipmentTest extends TestCase
             'shipment_id' => $shipment->id,
             'successful' => true,
         ]);
+    }
+
+    public function test_courier_payload_splits_a_legacy_combined_receiver_address(): void
+    {
+        Queue::fake();
+        $this->account();
+        $order = $this->order();
+        $order->update([
+            'source' => 'prestashop',
+            'shipping_street' => 'Kamienna 6',
+            'shipping_building_number' => null,
+            'shipping_apartment_number' => null,
+        ]);
+
+        $this->post(route('orders.shipments.inpost-courier.store', $order), [
+            'shipment_provider' => CourierAccount::PROVIDER_INPOST_COURIER,
+            'service' => Shipment::SERVICE_INPOST_COURIER_STANDARD,
+            'parcels' => [$this->parcel()],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $shipment = Shipment::query()->firstOrFail();
+
+        Http::fake([
+            '*/v1/organizations/12345/shipments' => Http::response([
+                'id' => 7002,
+                'status' => 'confirmed',
+                'tracking_number' => '620000000000000000000003',
+                'parcels' => [],
+            ], 201),
+        ]);
+
+        app(CourierDriverRegistry::class)->forShipment($shipment)->create($shipment);
+
+        Http::assertSent(fn ($request): bool => data_get($request->data(), 'receiver.address.street') === 'Kamienna'
+            && data_get($request->data(), 'receiver.address.building_number') === '6');
+    }
+
+    public function test_courier_payload_does_not_guess_a_missing_building_number_without_digits(): void
+    {
+        Queue::fake();
+        $this->account();
+        $order = $this->order();
+        $order->update([
+            'shipping_street' => 'Aleja Róż',
+            'shipping_building_number' => null,
+        ]);
+
+        $this->post(route('orders.shipments.inpost-courier.store', $order), [
+            'shipment_provider' => CourierAccount::PROVIDER_INPOST_COURIER,
+            'service' => Shipment::SERVICE_INPOST_COURIER_STANDARD,
+            'parcels' => [$this->parcel()],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->expectException(DomainException::class);
+        $this->expectExceptionMessage('Uzupelnij pelny adres odbiorcy przed nadaniem przesylki.');
+
+        app(InPostCourierShipmentPayloadFactory::class)->make(Shipment::query()->firstOrFail());
     }
 
     public function test_order_view_shows_active_courier_account_and_parcel_form(): void

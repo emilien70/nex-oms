@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\LiteralLike;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -31,6 +32,15 @@ class OrderTrackingLookupService
         string $trackingNumber,
         string $operator = 'like'
     ): void {
+        if ($operator === 'like') {
+            LiteralLike::where($query, 'tracking_number', $trackingNumber);
+            $query->orWhereHas('parcels', function (Builder $parcelQuery) use ($trackingNumber): void {
+                LiteralLike::where($parcelQuery, 'tracking_number', $trackingNumber);
+            });
+
+            return;
+        }
+
         $query
             ->where('tracking_number', $operator, $trackingNumber)
             ->orWhereHas('parcels', function (Builder $parcelQuery) use ($trackingNumber, $operator): void {
