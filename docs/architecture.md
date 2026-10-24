@@ -18,6 +18,10 @@ C:\projekty\nex-oms
 
 Dokument powstał na podstawie audytu Etapu 0 oraz zatwierdzonych wymagań produktowych.
 
+Aktualizacja operacyjna 2026-10-24: staging OVHcloud/Ubuntu ma jeden cron Laravel i siedem workerów Supervisor. [Kolejki, harmonogram i Supervisor na VPS](007-Queues-Scheduler-VPS.md) zawiera pełny audyt 31 jobów, 18 zadań harmonogramu, aktywne limity oraz rozdzielenie danych operatora od analizy kodu. Historyczne wpisy o niewybranym hostingu lub nieuruchomionych workerach opisują stan swoich etapów, nie obecną migawkę stagingu. Nie oznacza to zamknięcia rollout'u KSeF Production ani włączenia automatycznej wysyłki.
+
+Późniejsza lokalna [poprawka odporności Automation](008-Automation-Execution-Recovery.md) dodaje transakcyjny claim z tokenem i dzierżawą, terminalny stan interrupted oraz dziewiętnasty callback harmonogramu, oznaczający porzucone wykonania bez ponawiania ich akcji. Wymaga addytywnej migracji; nie została wdrożona na VPS. Osobny odczyt SSH potwierdził stopwaitsecs wszystkich siedmiu programów i ich stan RUNNING, bez zmian lub restartów.
+
 W przypadku sprzeczności:
 
 1. lokalny kod określa aktualny stan techniczny,

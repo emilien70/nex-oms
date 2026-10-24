@@ -2,63 +2,50 @@
 
 namespace Modules\Automation\Services;
 
+use Illuminate\Support\Str;
 use Modules\Automation\Jobs\ExecuteAutomationRunJob;
 use Modules\Automation\Models\AutomationRun;
-use Modules\Automation\Models\AutomationRunStep;
 use Throwable;
 
 class AutomationRunner
 {
-    public function __construct(private readonly AutomationActionExecutor $actionExecutor) {}
+    public function __construct(
+        private readonly AutomationActionExecutor $actionExecutor,
+        private readonly AutomationExecutionState $execution,
+    ) {}
 
-    public function execute(AutomationRun $run, int $position): void
+    public function execute(AutomationRun $run, int $position, ?string $token = null): void
     {
-        $run = $run->fresh(['order', 'steps']);
-
-        if (! $run || ! $run->order || $run->isFinished()) {
+        $token ??= (string) Str::uuid();
+        $run = $this->execution->claim($run, $position, $token);
+        if (! $run) {
             return;
         }
 
         $actions = $run->rule_snapshot['actions'] ?? [];
         $hadErrors = $run->steps->contains('status', 'failed');
 
-        $run->update([
-            'status' => AutomationRun::STATUS_RUNNING,
-            'started_at' => $run->started_at ?: now(),
-        ]);
-
         for ($index = $position; $index < count($actions); $index++) {
             $action = $actions[$index];
-            $step = AutomationRunStep::query()->firstOrCreate(
-                ['automation_run_id' => $run->id, 'position' => $index],
-                [
-                    'action_type' => $action['type'],
-                    'status' => 'queued',
-                    'configuration' => $action['configuration'] ?? [],
-                ],
-            );
+            $step = $this->execution->startStep($run, $token, $index, $action);
+            if (! $step) {
+                $this->execution->interrupt($run->id, $token);
 
-            if ($step->status === 'completed') {
+                return;
+            }
+            if (in_array($step->status, ['completed', 'failed'], true)) {
                 continue;
             }
 
             if ($action['type'] === AutomationCatalog::ACTION_DELAY) {
                 $minutes = max(1, min(86400, (int) data_get($action, 'configuration.minutes', 1)));
-
-                $step->update([
-                    'status' => 'completed',
-                    'started_at' => now(),
-                    'finished_at' => now(),
-                    'output' => ['resume_at' => now()->addMinutes($minutes)->toIso8601String()],
-                ]);
-
-                $run->update(['status' => AutomationRun::STATUS_WAITING]);
-                ExecuteAutomationRunJob::dispatch($run, $index + 1)->delay(now()->addMinutes($minutes));
+                $resumeAt = now()->addMinutes($minutes);
+                if ($this->execution->wait($run, $token, $step, $resumeAt)) {
+                    ExecuteAutomationRunJob::dispatch($run, $index + 1)->delay($resumeAt)->afterCommit();
+                }
 
                 return;
             }
-
-            $step->update(['status' => 'running', 'started_at' => now()]);
 
             try {
                 $output = $this->actionExecutor->execute(
@@ -67,70 +54,30 @@ class AutomationRunner
                     $action['type'],
                     $action['configuration'] ?? [],
                 );
-
-                $step->update([
-                    'status' => 'completed',
-                    'output' => $output,
-                    'finished_at' => now(),
-                ]);
             } catch (Throwable $exception) {
-                $hadErrors = true;
-                $step->update([
-                    'status' => 'failed',
-                    'error_message' => $exception->getMessage(),
-                    'finished_at' => now(),
-                ]);
-
-                if ((bool) ($action['stop_on_error'] ?? true)) {
-                    $this->finishFailed($run, $exception->getMessage());
+                if (! $this->execution->recordStep($run, $token, $step, null, $exception->getMessage())) {
+                    $this->execution->interrupt($run->id, $token);
 
                     return;
                 }
+                $hadErrors = true;
+                if ((bool) ($action['stop_on_error'] ?? true)) {
+                    $this->execution->finish($run, $token, true, $exception->getMessage());
+
+                    return;
+                }
+
+                continue;
+            }
+
+            // Persist the result separately: a failed write must never repeat the external action.
+            if (! $this->execution->recordStep($run, $token, $step, $output, null)) {
+                $this->execution->interrupt($run->id, $token);
+
+                return;
             }
         }
 
-        $this->finishCompleted($run, $hadErrors);
-    }
-
-    private function finishCompleted(AutomationRun $run, bool $withErrors): void
-    {
-        $run->update([
-            'status' => $withErrors
-                ? AutomationRun::STATUS_COMPLETED_WITH_ERRORS
-                : AutomationRun::STATUS_COMPLETED,
-            'finished_at' => now(),
-        ]);
-
-        $run->order->events()->create([
-            'event_type' => 'automation_completed',
-            'title' => html_entity_decode('Automatyczna akcja wykonana', ENT_QUOTES, 'UTF-8'),
-            'description' => (string) data_get($run->rule_snapshot, 'name', 'Automatyczna akcja'),
-            'payload' => [
-                'automation_run_id' => $run->id,
-                'automation_rule_id' => $run->automation_rule_id,
-                'event_name' => $run->event_name,
-                'status' => $run->status,
-            ],
-        ]);
-    }
-
-    private function finishFailed(AutomationRun $run, string $message): void
-    {
-        $run->update([
-            'status' => AutomationRun::STATUS_FAILED,
-            'error_message' => $message,
-            'finished_at' => now(),
-        ]);
-
-        $run->order->events()->create([
-            'event_type' => 'automation_failed',
-            'title' => html_entity_decode('B&#322;&#261;d automatycznej akcji', ENT_QUOTES, 'UTF-8'),
-            'description' => (string) data_get($run->rule_snapshot, 'name', 'Automatyczna akcja').': '.$message,
-            'payload' => [
-                'automation_run_id' => $run->id,
-                'automation_rule_id' => $run->automation_rule_id,
-                'event_name' => $run->event_name,
-            ],
-        ]);
+        $this->execution->finish($run, $token, $hadErrors);
     }
 }

@@ -14,6 +14,7 @@
                             $icon = match ($step['status']) {
                                 'completed' => 'check-lg',
                                 'failed' => 'x-lg',
+                                'uncertain' => 'exclamation-triangle',
                                 'running' => 'arrow-repeat',
                                 'waiting' => 'clock',
                                 'skipped' => 'dash',

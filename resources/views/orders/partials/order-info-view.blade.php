@@ -12,11 +12,13 @@
     $prestashopSourceName = $order->source === 'prestashop'
         ? trim((string) $order->prestashopOrderLinks->first()?->account?->name)
         : '';
+    $sourceTypeLabel = $sourceOptions[$order->source] ?? $order->source;
     $sourceLabel = $prestashopSourceName !== ''
-        ? $prestashopSourceName
-        : ($sourceOptions[$order->source] ?? $order->source);
+        ? $prestashopSourceName.' ('.$sourceTypeLabel.')'
+        : $sourceTypeLabel;
     if ($order->source === 'allegro' && $order->allegroOrderLink) {
-        $sourceLabel = $order->allegroOrderLink->account?->name ?: $order->allegroOrderLink->account_name;
+        $allegroSourceName = $order->allegroOrderLink->account?->name ?: $order->allegroOrderLink->account_name;
+        $sourceLabel = filled($allegroSourceName) ? $allegroSourceName.' ('.$sourceTypeLabel.')' : $sourceTypeLabel;
     }
 @endphp
 

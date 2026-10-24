@@ -27,6 +27,12 @@ Panel powinien byc dostepny pod adresem:
 http://127.0.0.1:8000
 ```
 
+## Kolejki lokalne a VPS
+
+Aktualny `composer dev` uruchamia `queue:listen --queue=shipments-actions,shipments-sync,integrations,automation,default --tries=1 --timeout=0`. Nie uruchamia schedulera ani kolejek KSeF. Listener Windows/XAMPP nie odtwarza limitow daemonow Linux `queue:work` i Supervisora; sukces lokalny nie dowodzi zmieszczenia joba w limicie VPS.
+
+Szczegoly pierwszenstwa parametrow jobow, ograniczen `--timeout=0`, odrebnego polaczenia `ksef_submit` oraz aktualnej konfiguracji stagingu: [Kolejki, harmonogram i Supervisor](007-Queues-Scheduler-VPS.md). Uruchamianie dodatkowych procesow lokalnych moze wykonac prawdziwe operacje integracji i wymaga swiadomej konfiguracji; nie jest czescia audytu dokumentacyjnego.
+
 ## Frontend
 
 Na etapie fundamentu Bootstrap 5 jest podlaczony przez CDN w layoucie Blade. Vite zostaje w projekcie Laravel, ale nie jest wymagany do wyswietlenia podstawowego panelu.

@@ -1108,7 +1108,8 @@
             color: #718096;
         }
 
-        .automation-activity-step-status.is-waiting {
+        .automation-activity-step-status.is-waiting,
+        .automation-activity-step-status.is-uncertain {
             color: #a86e00;
         }
 
@@ -2054,6 +2055,7 @@
                             const presentationStatus = [
                                 'completed',
                                 'failed',
+                                'uncertain',
                                 'skipped',
                                 'running',
                                 'queued',

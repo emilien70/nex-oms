@@ -2893,7 +2893,8 @@
             color: #ffffff;
         }
 
-        .order-automation-steps td.order-automation-step-status.is-waiting {
+        .order-automation-steps td.order-automation-step-status.is-waiting,
+        .order-automation-steps td.order-automation-step-status.is-uncertain {
             background: #f58a00;
             border-color: #f58a00;
             color: #ffffff;

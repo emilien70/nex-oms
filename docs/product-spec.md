@@ -20,6 +20,8 @@ Dokument odpowiada na pytania:
 
 Szczegóły techniczne, klasy, namespace, migracje i struktura katalogów powinny być opisane w `docs/architecture.md`.
 
+Uzupełnienie operacyjne 2026-10-24: bieżący staging OVHcloud/Ubuntu, jeden cron i siedem workerów opisuje [dokument kolejek i harmonogramu](007-Queues-Scheduler-VPS.md). Wcześniejsze wpisy o braku docelowego hostingu lub nieuruchomionych workerach pozostają historycznym zapisem danego etapu. Według aktualnej migawki operatora KSeF działa w DEMO z `automatic_submission=false`; start workerów nie włącza tej opcji ani nie stanowi zatwierdzenia pełnego rollout'u Production.
+
 ---
 
 # 1. Cel produktu

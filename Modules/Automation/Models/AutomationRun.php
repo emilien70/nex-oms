@@ -21,6 +21,8 @@ class AutomationRun extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    public const STATUS_INTERRUPTED = 'interrupted';
+
     protected $fillable = [
         'automation_rule_id',
         'order_id',
@@ -34,6 +36,8 @@ class AutomationRun extends Model
         'error_message',
         'started_at',
         'finished_at',
+        'execution_token',
+        'execution_expires_at',
     ];
 
     protected $casts = [
@@ -42,6 +46,7 @@ class AutomationRun extends Model
         'rule_snapshot' => 'array',
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
+        'execution_expires_at' => 'datetime',
     ];
 
     public function rule(): BelongsTo
@@ -65,6 +70,7 @@ class AutomationRun extends Model
             self::STATUS_COMPLETED,
             self::STATUS_COMPLETED_WITH_ERRORS,
             self::STATUS_FAILED,
+            self::STATUS_INTERRUPTED,
         ], true);
     }
 }

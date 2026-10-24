@@ -32,6 +32,7 @@ class AutomationActivityFeed
                             AutomationRun::STATUS_COMPLETED,
                             AutomationRun::STATUS_COMPLETED_WITH_ERRORS,
                             AutomationRun::STATUS_FAILED,
+                            AutomationRun::STATUS_INTERRUPTED,
                         ])
                         ->where('updated_at', '>=', $recentSince);
                 });
@@ -57,6 +58,7 @@ class AutomationActivityFeed
         $isError = in_array($run->status, [
             AutomationRun::STATUS_COMPLETED_WITH_ERRORS,
             AutomationRun::STATUS_FAILED,
+            AutomationRun::STATUS_INTERRUPTED,
         ], true);
         $steps = $this->steps($run, $actions);
         $details = $isError ? ($run->error_message ?: $failedStep?->error_message) : null;
@@ -131,7 +133,7 @@ class AutomationActivityFeed
                     'status' => $status,
                     'status_label' => $this->stepStatusLabel($status, $configuration, $actionType),
                     'tone' => $this->stepTone($status),
-                    'details' => $status === 'failed' && filled($step?->error_message)
+                    'details' => in_array($status, ['failed', 'uncertain'], true) && filled($step?->error_message)
                         ? $step->error_message
                         : null,
                 ];
@@ -166,10 +168,18 @@ class AutomationActivityFeed
         }
 
         if ($step) {
+            if ($run->status === AutomationRun::STATUS_INTERRUPTED && $step->status === 'queued') {
+                return 'skipped';
+            }
+
             return match ($step->status) {
-                'completed', 'failed', 'running', 'queued' => $step->status,
+                'completed', 'failed', 'running', 'queued', 'uncertain' => $step->status,
                 default => 'queued',
             };
+        }
+
+        if ($run->status === AutomationRun::STATUS_INTERRUPTED) {
+            return 'skipped';
         }
 
         if (
@@ -192,6 +202,7 @@ class AutomationActivityFeed
         return match ($status) {
             'completed' => $this->decode('&#10003; Wykonano'),
             'failed' => $this->decode('&#10005; B&#322;&#261;d'),
+            'uncertain' => $this->decode('Wynik niepewny - sprawd&#378; rezultat'),
             'skipped' => $this->decode('&#8212; Pomini&#281;to'),
             'running' => $this->decode('&#10227; Wykonywanie'),
             'waiting' => $this->decode('&#9719; Oczekiwanie').' '
@@ -204,7 +215,7 @@ class AutomationActivityFeed
     {
         return match ($status) {
             'completed' => 'success',
-            'failed' => 'error',
+            'failed', 'uncertain' => 'error',
             'skipped' => 'skipped',
             'running' => 'progress',
             'waiting' => 'waiting',
@@ -214,6 +225,10 @@ class AutomationActivityFeed
 
     private function currentStep(AutomationRun $run): ?AutomationRunStep
     {
+        if ($run->status === AutomationRun::STATUS_INTERRUPTED) {
+            return $run->steps->firstWhere('status', 'uncertain') ?? $run->steps->last();
+        }
+
         if ($run->status === AutomationRun::STATUS_RUNNING) {
             return $run->steps->firstWhere('status', 'running')
                 ?? $run->steps->firstWhere('status', 'queued')
@@ -236,6 +251,7 @@ class AutomationActivityFeed
             AutomationRun::STATUS_COMPLETED => $this->decode('Automatyczna akcja zosta&#322;a wykonana.'),
             AutomationRun::STATUS_COMPLETED_WITH_ERRORS => $this->decode('Automatyczna akcja zosta&#322;a wykonana z b&#322;&#281;dami.'),
             AutomationRun::STATUS_FAILED => $this->decode('Automatyczna akcja nie zosta&#322;a wykonana.'),
+            AutomationRun::STATUS_INTERRUPTED => $this->decode('Przerwano wykonanie. Sprawd&#378; wynik rozpocz&#281;tego kroku przed ponowieniem.'),
             default => 'Aktualizowanie automatycznej akcji',
         };
     }
@@ -282,6 +298,7 @@ class AutomationActivityFeed
             AutomationRun::STATUS_COMPLETED => 'Gotowe',
             AutomationRun::STATUS_COMPLETED_WITH_ERRORS => $this->decode('Zako&#324;czono z b&#322;&#281;dami'),
             AutomationRun::STATUS_FAILED => $this->decode('B&#322;&#261;d'),
+            AutomationRun::STATUS_INTERRUPTED => $this->decode('Przerwano - sprawd&#378; wynik'),
             default => $status,
         };
     }
@@ -290,7 +307,7 @@ class AutomationActivityFeed
     {
         return match ($status) {
             AutomationRun::STATUS_COMPLETED => 'success',
-            AutomationRun::STATUS_COMPLETED_WITH_ERRORS, AutomationRun::STATUS_FAILED => 'error',
+            AutomationRun::STATUS_COMPLETED_WITH_ERRORS, AutomationRun::STATUS_FAILED, AutomationRun::STATUS_INTERRUPTED => 'error',
             AutomationRun::STATUS_WAITING => 'waiting',
             default => 'progress',
         };

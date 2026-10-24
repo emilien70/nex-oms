@@ -128,9 +128,11 @@ Allegro realizuje utworzenie i anulowanie asynchronicznie. NEX-OMS zapisuje iden
 - Operacje wywolane przez uzytkownika, takie jak tworzenie i anulowanie przesylek, korzystaja z kolejki `shipments-actions`.
 - Okresowe i reczne odswiezanie statusow korzysta z osobnej kolejki `shipments-sync`, aby synchronizacja nie blokowala nadawania przesylek.
 - Dla obu kolejek powinny dzialac osobne workery: `php artisan queue:work --queue=shipments-actions` oraz `php artisan queue:work --queue=shipments-sync`.
-- Kolejka `integrations` jest zachowana dla przyszlego pobierania zamowien z Allegro i PrestaShop; obecnie nie obsluguje operacji kurierskich.
+- Kolejka `integrations` obsluguje juz importy zamowien Allegro i PrestaShop, synchronizacje oraz eksporty marketplace; operacje kurierskie pozostaja na osobnych kolejkach przesylek.
 - Laravel Scheduler powinien byc uruchamiany co minute przez cron albo `php artisan schedule:work` w srodowisku lokalnym.
 - Przed pierwszym nadaniem nalezy zapisac konfiguracje i wykonac test polaczenia w panelu odpowiedniej integracji: `InPost Paczkomaty`, `InPost Kurier`, `DPD` albo `Wysylam z Allegro`.
+
+Aktualny staging korzysta z jednego systemowego crona i siedmiu workerow Supervisor. Nie uruchamiac dodatkowego schedulera ani starych cronow importu/odswiezania obok niego. Pelna mapa zadan, aktywne retry_after, limity i ograniczenia idempotencji sa opisane w [dokumencie operacyjnym VPS](007-Queues-Scheduler-VPS.md); PayNow i Latarnia wykonuja czesc HTTP bezposrednio w schedulerze, a nie w jobach.
 
 ## PayNow
 

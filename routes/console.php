@@ -4,6 +4,7 @@ use App\Services\OrderEmailQueuedRecoveryService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use Modules\Automation\Services\AutomationExecutionState;
 use Modules\Integrations\Allegro\Jobs\DiscoverAllegroOrdersJob;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Services\AllegroCommissionRefundService;
@@ -91,6 +92,11 @@ Schedule::call(fn () => app(KsefLatarniaOperationalSyncService::class)->runSched
 Schedule::call(fn () => app(OrderEmailQueuedRecoveryService::class)->recover())
     ->name('order-email-recover-queued')
     ->everyFiveMinutes()
+    ->withoutOverlapping();
+
+Schedule::call(fn () => app(AutomationExecutionState::class)->recoverExpired())
+    ->name('automation-recover-interrupted')
+    ->everyMinute()
     ->withoutOverlapping();
 
 Schedule::call(fn () => app(PayNowReconciliationService::class)->reconcileDue())
