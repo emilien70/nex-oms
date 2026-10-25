@@ -203,7 +203,13 @@ class PrestashopOrderPreviewService
             $detail['total_price_tax_incl'] ?? $this->decimal->multiply($unitGross, $quantity),
             'wartości pozycji',
         );
-        $unitNet = $this->money($detail['unit_price_tax_excl'] ?? '0', 'ceny netto produktu');
+        $rawNet = $detail['unit_price_tax_excl'] ?? null;
+        $unitNet = $rawNet === null || $rawNet === '' ? null : $this->money($rawNet, 'ceny netto produktu');
+        $vatRate = $unitNet === null ? null : $this->vatRate($unitGross, $unitNet);
+        $rawTotalNet = $detail['total_price_tax_excl'] ?? null;
+        if ($vatRate === null && $rawTotalNet !== null && $rawTotalNet !== '') {
+            $vatRate = $this->vatRate($totalGross, $this->money($rawTotalNet, 'wartości netto pozycji'));
+        }
 
         return [
             'external_order_detail_id' => $this->positiveId($detail['id'] ?? null, 'pozycji zamówienia'),
@@ -216,7 +222,7 @@ class PrestashopOrderPreviewService
             'unit_price_gross' => $unitGross,
             'total_price_gross' => $totalGross,
             'currency' => $currency,
-            'vat_rate' => $this->vatRate($unitGross, $unitNet),
+            'vat_rate' => $vatRate,
             'weight' => $this->weight($detail['product_weight'] ?? null),
         ];
     }

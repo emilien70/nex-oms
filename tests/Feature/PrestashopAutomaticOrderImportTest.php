@@ -106,6 +106,34 @@ class PrestashopAutomaticOrderImportTest extends TestCase
         $this->assertSame(PrestashopCatalogVatMode::Catalog, $account->catalog_vat_mode);
     }
 
+    public function test_default_vat_setting_can_be_saved_cleared_and_validated_without_network_calls(): void
+    {
+        Http::fake();
+        $account = $this->account();
+        $credential = $account->getRawOriginal('api_key');
+        $this->assertNull($account->default_vat_rate);
+        $this->put(route('integrations.prestashop.order-import.update'), [
+            'order_import_enabled' => '0', 'default_vat_rate' => '0',
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('0.00', $account->fresh()->default_vat_rate);
+        $this->put(route('integrations.prestashop.order-import.update'), [
+            'order_import_enabled' => '0',
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('0.00', $account->fresh()->default_vat_rate);
+        foreach (['-1', '101', 'zw', '2.5', true, ['23']] as $invalid) {
+            $this->putJson(route('integrations.prestashop.order-import.update'), [
+                'order_import_enabled' => '0', 'default_vat_rate' => $invalid,
+            ])->assertUnprocessable()->assertJsonValidationErrors('default_vat_rate');
+        }
+        $this->put(route('integrations.prestashop.order-import.update'), [
+            'order_import_enabled' => '0', 'default_vat_rate' => '',
+        ])->assertSessionHasNoErrors();
+        $this->assertNull($account->fresh()->default_vat_rate);
+        $this->assertSame($credential, $account->fresh()->getRawOriginal('api_key'));
+        $this->get(route('integrations.prestashop.edit', ['tab' => 'orders']))->assertOk()->assertSee('Domyślna stawka VAT');
+        Http::assertNothingSent();
+    }
+
     public function test_scheduler_dispatches_discovery_only_for_enabled_import(): void
     {
         Queue::fake();

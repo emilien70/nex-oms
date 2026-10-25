@@ -22,6 +22,17 @@ Planowane integracje:
 - Bledy komunikacji powinny byc widoczne w panelu.
 - Dane zrodlowe z integracji powinny byc mapowane do wewnetrznych modeli NEX-OMS.
 
+## VAT pozycji zamowien Allegro i PrestaShop
+
+- Allegro: stawka pochodzi z historycznego `lineItems[].tax.rate` zamowienia, bez odczytu aktualnej oferty. Jawne zwolnienie lub nieprawidlowy VAT wymaga recznej weryfikacji i nie jest zastepowany katalogiem ani wartoscia domyslna.
+- PrestaShop: stawka nadal jest wyliczana z historycznych cen netto/brutto pozycji. Przy braku ceny jednostkowej netto uzywamy sum netto/brutto calej pozycji, jesli sa dostepne. Brak danych netto oznacza brak stawki, a nie 0%. Nieprawidlowa cena nadal blokuje import.
+- Jawne powiazanie produktu pozwala uzyc nazwy i VAT z OMS zgodnie z ustawieniami konta. Allegro z wlaczonym VAT katalogowym oraz tryb PrestaShop `catalog` preferuja poprawna stawke OMS, a przy jej braku zachowuja stawke kanalu. Tryby PrestaShop `store` i `fallback` zachowuja swoje pierwszenstwo kanalu.
+- Kazde konto posiada opcjonalna `default_vat_rate` (0-100%, liczba calkowita), poczatkowo `null`. Puste pole w zakladce Zamowienia oznacza brak automatycznego uzupelniania. Domyslna stawka jest ostatnim fallbackiem po kanale i dozwolonym katalogu; jawne 0% nie jest brakiem.
+- Katalogowy i domyslny VAT stosujemy tylko przy jawnych krajach dostawy i rozliczenia `PL`; Allegro wymaga dodatkowo marketplace `allegro-pl`. Zamowienie zagraniczne zachowuje VAT kanalu, bez krajowego fallbacku. To nie jest implementacja OSS ani automatycznej kwalifikacji podatkowej.
+- Import nie zmienia cen brutto, ilosci ani wplat. Zdarzenie importu zawiera `payload.vat_sources` (stawka kanalu, wynik, pochodzenie i status zrodla); zastosowanie domyslnej stawki ma tez czytelny opis w historii.
+- Brak backfillu: zmiana ustawien nie uzupelnia VAT zakonczonych importow ani wystawionych dokumentow. Dotychczasowe uzupelnianie jawnych powiazan produktow PrestaShop pozostaje, ale nie stosuje nowej stawki domyslnej do starych pozycji. Niepelne zakupy Allegro nadal moga otrzymac kompletne dane podczas ich standardowego dokonczenia.
+- Migracja `2026_10_25_010000_add_default_vat_rate_to_integration_accounts` dodaje tylko dwie kolumny nullable; nie zapisuje VAT w historycznych pozycjach i nie wlacza zadnej wartosci domyslnej.
+
 ## Standard panelu integracji kurierskiej
 
 Widok `InPost Kurier` jest wzorcem UX dla kolejnych integracji kurierskich. W miare mozliwosci nowy panel powinien zachowywac nastepujacy uklad:

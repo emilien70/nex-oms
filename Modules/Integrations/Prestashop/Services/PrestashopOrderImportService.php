@@ -9,6 +9,7 @@ use Modules\Integrations\Prestashop\Exceptions\PrestashopImportException;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderLink;
 use Modules\Integrations\Prestashop\Models\PrestashopProductLink;
+use Modules\Integrations\Services\OrderImportVatResolver;
 use Modules\Products\Models\Product;
 use Modules\Products\Services\OrderItemBundleSnapshotService;
 
@@ -18,6 +19,7 @@ class PrestashopOrderImportService
         private readonly PrestashopAccountService $accountService,
         private readonly PrestashopOrderPreviewService $previewService,
         private readonly OrderItemBundleSnapshotService $bundleSnapshots,
+        private readonly OrderImportVatResolver $vat,
     ) {}
 
     public function import(string $identifier): Order
@@ -125,13 +127,19 @@ class PrestashopOrderImportService
                 array_column($preview['items'], 'external_product_id'),
             );
             $linkedProductCount = 0;
+            $vatSources = [];
+            $domestic = $preview['shipping_address']['country_code'] === 'PL'
+                && $preview['billing_address']['country_code'] === 'PL';
 
             foreach ($preview['items'] as $itemData) {
                 $externalProductId = $itemData['external_product_id'];
                 $linkedProduct = $externalProductId === null
                     ? null
                     : ($linkedProducts[$externalProductId] ?? null);
-                $productValues = $this->productValues($lockedAccount, $itemData, $linkedProduct);
+                $resolved = $this->productValues($lockedAccount, $itemData, $linkedProduct, $domestic);
+                $vatSources[] = ['external_id' => (string) $itemData['external_order_detail_id'],
+                    'channel_rate' => $itemData['vat_rate'], ...$resolved['vat_resolution']];
+                $productValues = $resolved['values'];
 
                 $orderItem = $order->items()->create([
                     'product_id' => $productValues['product_id'],
@@ -174,7 +182,7 @@ class PrestashopOrderImportService
             $order->events()->create([
                 'event_type' => 'prestashop_order_imported',
                 'title' => 'Zaimportowano zamówienie z PrestaShop',
-                'description' => $preview['external_status_id'] === null
+                'description' => ($preview['external_status_id'] === null
                     ? sprintf(
                         'Zamówienie %s nie miało przypisanego statusu w PrestaShop. W OMS ustawiono status Nowe.',
                         $preview['reference'],
@@ -183,7 +191,7 @@ class PrestashopOrderImportService
                         'Zamówienie %s, status PrestaShop: %s.',
                         $preview['reference'],
                         $preview['external_status_name'],
-                    ),
+                    )).(collect($vatSources)->contains(fn (array $vat): bool => $vat['source'] === 'default') ? ' Zastosowano domyślną stawkę VAT integracji.' : ''),
                 'payload' => [
                     'prestashop_account_id' => $lockedAccount->getKey(),
                     'external_order_id' => $preview['external_order_id'],
@@ -191,6 +199,7 @@ class PrestashopOrderImportService
                     'external_order_state_id' => $preview['external_status_id'],
                     'source_hash' => $preview['source_hash'],
                     'linked_product_count' => $linkedProductCount,
+                    'vat_sources' => $vatSources,
                 ],
             ]);
 
@@ -288,9 +297,9 @@ class PrestashopOrderImportService
             $productValues = $this->productValues($account, [
                 'product_name' => $orderItem->product_name,
                 'vat_rate' => $orderItem->vat_rate,
-            ], $linkedProduct);
+            ], $linkedProduct, $order->shipping_country_code === 'PL' && $order->billing_country_code === 'PL', false);
 
-            $orderItem->forceFill($productValues)->save();
+            $orderItem->forceFill($productValues['values'])->save();
             $this->bundleSnapshots->capture($orderItem, $linkedProduct);
             $updatedItemIds[] = $orderItem->getKey();
         }
@@ -355,40 +364,31 @@ class PrestashopOrderImportService
 
     /**
      * @param  array<string, mixed>  $sourceItem
-     * @return array{product_id: ?int, product_name: string, vat_rate: ?string}
+     * @return array{values: array, vat_resolution: array}
      */
     private function productValues(
         PrestashopAccount $account,
         array $sourceItem,
         ?Product $linkedProduct,
+        bool $domestic,
+        bool $allowDefault = true,
     ): array {
-        if ($linkedProduct === null) {
-            return [
-                'product_id' => null,
-                'product_name' => (string) $sourceItem['product_name'],
-                'vat_rate' => $sourceItem['vat_rate'],
-            ];
-        }
-
-        $sourceVatRate = $sourceItem['vat_rate'] === null
-            ? null
-            : (string) $sourceItem['vat_rate'];
-        $catalogVatRate = $linkedProduct->vat_rate === null
-            ? null
-            : (string) $linkedProduct->vat_rate;
         $vatMode = $account->catalog_vat_mode ?? PrestashopCatalogVatMode::Fallback;
-        $vatRate = match ($vatMode) {
-            PrestashopCatalogVatMode::Store => $sourceVatRate,
-            PrestashopCatalogVatMode::Fallback => $sourceVatRate ?? $catalogVatRate,
-            PrestashopCatalogVatMode::Catalog => $catalogVatRate,
-        };
+        $resolution = $this->vat->resolve(
+            $this->vat->source($sourceItem['vat_rate']), $linkedProduct?->vat_rate,
+            $vatMode !== PrestashopCatalogVatMode::Store,
+            $vatMode === PrestashopCatalogVatMode::Catalog,
+            $domestic, $allowDefault ? $account->default_vat_rate : null,
+        );
 
         return [
-            'product_id' => $linkedProduct->getKey(),
-            'product_name' => $account->use_catalog_product_names
-                ? $linkedProduct->name
-                : (string) $sourceItem['product_name'],
-            'vat_rate' => $vatRate,
+            'values' => [
+                'product_id' => $linkedProduct?->getKey(),
+                'product_name' => $linkedProduct !== null && $account->use_catalog_product_names
+                    ? $linkedProduct->name : (string) $sourceItem['product_name'],
+                'vat_rate' => $resolution['rate'],
+            ],
+            'vat_resolution' => $resolution,
         ];
     }
 

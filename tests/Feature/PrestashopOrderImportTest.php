@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Modules\Integrations\Prestashop\Enums\PrestashopCatalogVatMode;
@@ -11,6 +12,7 @@ use Modules\Integrations\Prestashop\Enums\PrestashopConnectionTestStatus;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderPayment;
 use Modules\Products\Models\Product;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class PrestashopOrderImportTest extends TestCase
@@ -469,6 +471,85 @@ class PrestashopOrderImportTest extends TestCase
         $this->assertDatabaseCount('orders', 0);
     }
 
+    #[DataProvider('vatPriorityCases')]
+    public function test_vat_priority_preserves_prices_and_records_the_source(string $mode, ?string $net, ?string $catalogRate, bool $linked, string $country, ?string $defaultRate, ?string $expected, ?string $origin): void
+    {
+        $account = $this->account(['catalog_vat_mode' => $mode, 'default_vat_rate' => $defaultRate]);
+        if ($linked) {
+            $this->product(['vat_rate' => $catalogRate])->prestashopProductLinks()->create([
+                'prestashop_account_id' => $account->id, 'external_product_id' => 96, 'external_product_attribute_id' => 0,
+            ]);
+        }
+        $this->fakePrestashop(detailOverrides: [
+            'unit_price_tax_excl' => $net,
+            'total_price_tax_excl' => $net === null || $net === '' ? null : '367.480000',
+        ], country: $country);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])->assertSessionHasNoErrors();
+        $order = Order::query()->sole();
+        $item = $order->items()->sole();
+        $this->assertSame($expected, $item->vat_rate);
+        $this->assertSame('452.00', $item->unit_price_gross);
+        $this->assertSame('452.00', $item->total_price_gross);
+        $this->assertSame('462.00', $order->total_gross);
+        $this->assertSame('462.00', $order->paid_amount);
+        $event = $order->events()->where('event_type', 'prestashop_order_imported')->sole();
+        $this->assertSame($origin, $event->payload['vat_sources'][0]['source']);
+        if ($origin === 'default') {
+            $this->assertStringContainsString('domyślną stawkę VAT', $event->description);
+        }
+    }
+
+    public static function vatPriorityCases(): array
+    {
+        return [
+            'catalog first' => ['catalog', '367.479675', '8.00', true, 'PL', '5.00', '8.00', 'catalog'],
+            'invalid catalog preserves channel' => ['catalog', '367.479675', '101.00', true, 'PL', '5.00', '23.00', 'channel'],
+            'store mode' => ['store', '367.479675', '8.00', true, 'PL', '5.00', '23.00', 'channel'],
+            'fallback keeps store' => ['fallback', '367.479675', '8.00', true, 'PL', '5.00', '23.00', 'channel'],
+            'fallback missing uses catalog' => ['fallback', null, '8.00', true, 'PL', '5.00', '8.00', 'catalog'],
+            'channel without mapping' => ['catalog', '367.479675', null, false, 'PL', '5.00', '23.00', 'channel'],
+            'default for missing net' => ['catalog', null, null, false, 'PL', '5.00', '5.00', 'default'],
+            'default for empty net' => ['store', '', '8.00', true, 'PL', '5.00', '5.00', 'default'],
+            'default zero' => ['catalog', null, null, false, 'PL', '0.00', '0.00', 'default'],
+            'default disabled' => ['catalog', null, null, false, 'PL', null, null, null],
+            'explicit source zero' => ['fallback', '452.00', '8.00', true, 'PL', '5.00', '0.00', 'channel'],
+            'explicit catalog zero' => ['catalog', '367.479675', '0.00', true, 'PL', '5.00', '0.00', 'catalog'],
+            'foreign preserves channel' => ['catalog', '367.479675', '8.00', true, 'DE', '5.00', '23.00', 'channel'],
+            'foreign missing stays missing' => ['catalog', null, '8.00', true, 'DE', '5.00', null, null],
+        ];
+    }
+
+    public function test_invalid_net_is_not_silently_replaced_by_default_vat(): void
+    {
+        $this->account(['default_vat_rate' => '23.00']);
+        $this->fakePrestashop(detailOverrides: ['unit_price_tax_excl' => 'wrong']);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])->assertSessionHas('error');
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_new_default_does_not_backfill_a_previously_imported_order(): void
+    {
+        $account = $this->account();
+        $this->fakePrestashop(detailOverrides: ['unit_price_tax_excl' => null, 'total_price_tax_excl' => null]);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])->assertSessionHasNoErrors();
+        $order = Order::query()->sole();
+        $before = $order->items()->sole()->getAttributes();
+        $account->update(['default_vat_rate' => '23.00']);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])->assertSessionHasNoErrors();
+        $this->assertSame($before, $order->items()->sole()->getAttributes());
+        $this->assertSame(1, $order->events()->where('event_type', 'prestashop_order_imported')->count());
+    }
+
+    public function test_total_net_can_supply_channel_vat_when_unit_net_is_missing(): void
+    {
+        $this->account(['default_vat_rate' => '5.00']);
+        $this->fakePrestashop(detailOverrides: ['unit_price_tax_excl' => null]);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])->assertSessionHasNoErrors();
+        $order = Order::query()->sole();
+        $this->assertSame('23.00', $order->items()->sole()->vat_rate);
+        $this->assertSame('channel', $order->events()->where('event_type', 'prestashop_order_imported')->sole()->payload['vat_sources'][0]['source']);
+    }
+
     private function account(array $overrides = []): PrestashopAccount
     {
         $account = PrestashopAccount::query()->create(array_merge([
@@ -516,6 +597,7 @@ class PrestashopOrderImportTest extends TestCase
         array $detailOverrides = [],
         array $paymentOverrides = [],
         array $enrichmentOverrides = [],
+        string $country = 'PL',
     ): void {
         $order = array_merge([
             'id' => 13581,
@@ -574,7 +656,8 @@ class PrestashopOrderImportTest extends TestCase
             'bl_delivery_point_postcode' => '',
         ], $enrichmentOverrides);
 
-        Http::fake(function (Request $request) use ($order, $detail, $payment, $enrichment) {
+        Http::swap((new Factory)->preventStrayRequests());
+        Http::fake(function (Request $request) use ($order, $detail, $payment, $enrichment, $country) {
             return match ((string) parse_url($request->url(), PHP_URL_PATH)) {
                 '/api/orders/13581' => Http::response(['orders' => [$order]]),
                 '/api/bl_order/13581' => Http::response(['orders' => [$enrichment]]),
@@ -602,8 +685,8 @@ class PrestashopOrderImportTest extends TestCase
                 ]]),
                 '/api/countries/14' => Http::response(['countries' => [[
                     'id' => 14,
-                    'iso_code' => 'PL',
-                    'name' => 'Polska',
+                    'iso_code' => $country,
+                    'name' => $country === 'PL' ? 'Polska' : 'Niemcy',
                 ]]]),
                 '/api/carriers/281' => Http::response(['carriers' => [[
                     'id' => 281,

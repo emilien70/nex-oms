@@ -595,6 +595,14 @@
                                         <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
                                 </div>
+                                <div class="col-12">
+                                    <label class="form-label" for="prestashop-default-vat-rate">Domyślna stawka VAT</label>
+                                    <div class="input-group" style="max-width: 280px">
+                                        <input id="prestashop-default-vat-rate" class="form-control @error('default_vat_rate') is-invalid @enderror" type="number" min="0" max="100" step="1" name="default_vat_rate" value="{{ old('default_vat_rate', $account->default_vat_rate === null ? '' : (int) $account->default_vat_rate) }}" placeholder="Nie ustawiaj automatycznie">
+                                        <span class="input-group-text">%</span>
+                                        @error('default_vat_rate')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-text mt-3">

@@ -5,15 +5,14 @@ namespace Modules\Integrations\Allegro\Services;
 use DomainException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroProductLink;
-use Modules\Invoices\Exceptions\InvoiceDomainException;
-use Modules\Invoices\Services\InvoiceFinancialValueValidator;
+use Modules\Integrations\Services\OrderImportVatResolver;
 use Modules\Products\Models\Product;
 use Modules\Products\Services\OrderItemBundleSnapshotService;
 
 class AllegroOrderCatalogService
 {
     public function __construct(
-        private readonly InvoiceFinancialValueValidator $financial,
+        private readonly OrderImportVatResolver $vat,
         private readonly OrderItemBundleSnapshotService $bundleSnapshots,
     ) {}
 
@@ -23,6 +22,7 @@ class AllegroOrderCatalogService
             'use_linked_products' => (bool) $account->use_linked_products,
             'use_catalog_product_names' => (bool) $account->use_catalog_product_names,
             'use_catalog_vat' => (bool) $account->use_catalog_vat,
+            'default_vat_rate' => $account->default_vat_rate,
         ];
         $ids = collect($preview['items'])->pluck('offer_id')->filter()->unique()->values();
         $links = $settings['use_linked_products']
@@ -47,6 +47,21 @@ class AllegroOrderCatalogService
             $item['catalog'] = null;
             $link = $item['offer_id'] === null ? null : $links->get($item['offer_id']);
             $product = $link === null ? null : $products->get($link->product_id);
+            $item['source_vat'] = $item['source_vat'] ?? $this->vat->source(null);
+            $item['vat_resolution'] = $this->vat->resolve(
+                $item['source_vat'], $product?->vat_rate, $settings['use_catalog_vat'], true,
+                $domestic, $settings['default_vat_rate'],
+            );
+            $item['vat_rate'] = $item['vat_resolution']['rate'];
+            if ($item['vat_resolution']['catalog_invalid']) {
+                $warnings[] = 'Produkt OMS #'.$product->id.' nie ma poprawnej stawki VAT. Sprawdź ją przed wystawieniem faktury.';
+            }
+            if (in_array($item['source_vat']['status'], ['invalid', 'special'], true)) {
+                $warnings[] = 'Pozycja '.$item['product_name'].': VAT z Allegro wymaga ręcznej weryfikacji; nie zastosowano stawki domyślnej.';
+            }
+            if (! $domestic && $item['vat_rate'] === null) {
+                $warnings[] = 'Brak potwierdzonego krajowego kontekstu zamówienia: VAT pozostawiono do ręcznej weryfikacji.';
+            }
             if ($product === null) {
                 if ($settings['use_linked_products'] && $item['offer_id'] !== null) {
                     $warnings[] = 'Brak powiązania z OMS dla oferty Allegro '.$item['offer_id'].'.';
@@ -76,15 +91,6 @@ class AllegroOrderCatalogService
             if ($settings['use_catalog_product_names']) {
                 $item['product_name'] = $product->name;
             }
-            if ($settings['use_catalog_vat'] && $domestic && $product->vat_rate !== null) {
-                try {
-                    $item['vat_rate'] = $this->financial->assertVatPercentage($product->vat_rate);
-                } catch (InvoiceDomainException) {
-                    $warnings[] = 'Produkt OMS #'.$product->id.' nie ma poprawnej stawki VAT. Sprawdź ją przed wystawieniem faktury.';
-                }
-            } elseif ($settings['use_catalog_vat'] && ! $domestic) {
-                $warnings[] = 'Brak potwierdzonego krajowego kontekstu zamówienia: VAT pozostawiono do ręcznej weryfikacji.';
-            }
         }
         unset($item);
 
@@ -96,6 +102,7 @@ class AllegroOrderCatalogService
             'items' => array_map(fn (array $item): array => [
                 'external_id' => $item['external_id'], 'product_id' => $item['product_id'],
                 'product_name' => $item['product_name'], 'vat_rate' => $item['vat_rate'], 'catalog' => $item['catalog'],
+                'source_vat' => $item['source_vat'], 'vat_resolution' => $item['vat_resolution'],
             ], $preview['items']),
         ], JSON_THROW_ON_ERROR));
 

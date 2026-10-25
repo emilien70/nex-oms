@@ -80,6 +80,14 @@
                     @error($field)<div class="text-danger small">{{ $message }}</div>@enderror
                 </div>
             @endforeach
+            <div class="mb-3">
+                <label class="form-label" for="allegro-default-vat-rate">Domyślna stawka VAT</label>
+                <div class="input-group" style="max-width: 280px">
+                    <input id="allegro-default-vat-rate" class="form-control @error('default_vat_rate') is-invalid @enderror" type="number" min="0" max="100" step="1" name="default_vat_rate" value="{{ old('default_vat_rate', $account->default_vat_rate === null ? '' : (int) $account->default_vat_rate) }}" placeholder="Nie ustawiaj automatycznie">
+                    <span class="input-group-text">%</span>
+                    @error('default_vat_rate')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                </div>
+            </div>
             <div class="d-flex justify-content-end"><button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Zapisz ustawienia</button></div>
         </form>
     </div>

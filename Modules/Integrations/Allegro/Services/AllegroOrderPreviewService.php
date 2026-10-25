@@ -12,6 +12,7 @@ use Modules\Integrations\Allegro\Exceptions\AllegroImportException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\Allegro\Support\AllegroPaymentProvider;
+use Modules\Integrations\Services\OrderImportVatResolver;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Invoices\Services\InvoiceFinancialValueValidator;
@@ -26,6 +27,7 @@ class AllegroOrderPreviewService
         private readonly OrderPaymentStateService $paymentState,
         private readonly AllegroOrderCatalogService $catalog,
         private readonly AllegroOrderInformationService $information,
+        private readonly OrderImportVatResolver $vat,
     ) {}
 
     public function preview(AllegroAccount $account, string $identifier): array
@@ -302,7 +304,7 @@ class AllegroOrderPreviewService
                 throw new AllegroImportException('Brakuje identyfikatora oferty Allegro.');
             }
             $items[] = $this->item($id, $this->text(data_get($line, 'offer.name')),
-                $this->text(data_get($line, 'offer.id')), $quantity, $price, $currency, $line['boughtAt'] ?? null);
+                $this->text(data_get($line, 'offer.id')), $quantity, $price, $currency, $line['boughtAt'] ?? null, $line['tax'] ?? null);
 
             foreach ((array) ($line['selectedAdditionalServices'] ?? []) as $index => $service) {
                 if (! is_array($service)) {
@@ -310,14 +312,14 @@ class AllegroOrderPreviewService
                 }
                 $items[] = $this->item($id.':service:'.$index, $this->text($service['name'] ?? null), null,
                     $this->quantity($service['quantity'] ?? null), $this->money($service['price'] ?? null, $currency),
-                    $currency, $line['boughtAt'] ?? null);
+                    $currency, $line['boughtAt'] ?? null, $service['tax'] ?? null);
             }
         }
 
         return $items;
     }
 
-    private function item(string $id, ?string $name, ?string $offerId, int $quantity, string $price, string $currency, mixed $boughtAt): array
+    private function item(string $id, ?string $name, ?string $offerId, int $quantity, string $price, string $currency, mixed $boughtAt, mixed $tax): array
     {
         if (blank($name) || ($offerId !== null && preg_match('/^[0-9]+$/', $offerId) !== 1)) {
             throw new AllegroImportException('Brakuje nazwy produktu lub numer oferty Allegro jest nieprawidłowy.');
@@ -332,6 +334,9 @@ class AllegroOrderPreviewService
             'total_price_gross' => $this->money(['amount' => $this->decimal->multiply($price, $quantity), 'currency' => $currency], $currency),
             'currency' => $currency,
             'bought_at' => $this->date($boughtAt),
+            'source_vat' => $tax !== null && ! is_array($tax)
+                ? ['status' => 'invalid', 'rate' => null]
+                : $this->vat->source($tax['rate'] ?? null, ! empty($tax['exemption'])),
         ];
     }
 

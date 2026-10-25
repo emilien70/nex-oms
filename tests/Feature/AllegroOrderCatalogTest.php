@@ -288,6 +288,7 @@ class AllegroOrderCatalogTest extends TestCase
         $orderBefore = $order->getAttributes();
         $itemBefore = $order->items()->sole()->getAttributes();
         $product->update(['name' => 'Nowa nazwa', 'vat_rate' => '8.00']);
+        $account->update(['default_vat_rate' => '5.00']);
         $link->update(['product_id' => $this->product(['name' => 'Zastępstwo'])->id]);
         $again = app(AllegroOrderImportService::class)->import($account, Fixture::ORDER_ID, str_repeat('0', 64));
         $this->assertSame($order->id, $again->id);
@@ -316,6 +317,98 @@ class AllegroOrderCatalogTest extends TestCase
         $this->assertSame($beforeToken, $account->fresh()->access_token);
         $this->putJson(route('integrations.allegro.orders.settings'), ['use_linked_products' => 'wrong'])->assertUnprocessable()
             ->assertJsonValidationErrors(['use_linked_products', 'use_catalog_product_names', 'use_catalog_vat']);
+    }
+
+    #[DataProvider('importVatCases')]
+    public function test_channel_catalog_and_default_vat_priority(mixed $tax, ?string $catalogRate, bool $useCatalog, ?string $defaultRate, bool $domestic, ?string $expected, ?string $origin): void
+    {
+        $account = $this->account(['use_catalog_vat' => $useCatalog, 'default_vat_rate' => $defaultRate]);
+        if ($catalogRate !== null) {
+            $this->link($account, $this->product(['vat_rate' => $catalogRate]));
+        }
+        $raw = Fixture::payload();
+        $raw['lineItems'][0]['tax'] = $tax;
+        if (! $domestic) {
+            $raw['delivery']['address']['countryCode'] = 'DE';
+        }
+        $this->fakeOrder($raw);
+        $preview = $this->preview($account);
+        $this->assertSame($expected, $preview['items'][0]['vat_rate']);
+        $order = app(AllegroOrderImportService::class)->import($account, Fixture::ORDER_ID, $preview['source_hash']);
+        $item = $order->items()->sole();
+        $this->assertSame($expected, $item->vat_rate);
+        $this->assertSame('30.01', $item->unit_price_gross);
+        $this->assertSame('90.03', $item->total_price_gross);
+        $this->assertSame('100.03', $order->total_gross);
+        $event = $order->events()->where('event_type', 'allegro_order_imported')->sole();
+        $this->assertSame($origin, $event->payload['vat_sources'][0]['source']);
+        if ($origin === 'default') {
+            $this->assertStringContainsString('domyślną stawkę VAT', $event->description);
+        }
+    }
+
+    public static function importVatCases(): array
+    {
+        return [
+            'channel without mapping' => [['rate' => '8.00'], null, true, '23.00', true, '8.00', 'channel'],
+            'channel zero' => [['rate' => '0'], null, true, '23.00', true, '0.00', 'channel'],
+            'catalog first' => [['rate' => '8.00'], '23.00', true, '5.00', true, '23.00', 'catalog'],
+            'catalog zero' => [['rate' => '8.00'], '0.00', true, '5.00', true, '0.00', 'catalog'],
+            'invalid catalog preserves channel' => [['rate' => '8.00'], '101.00', true, '5.00', true, '8.00', 'channel'],
+            'catalog disabled' => [['rate' => '8.00'], '23.00', false, '5.00', true, '8.00', 'channel'],
+            'missing source uses catalog' => [null, '23.00', true, '5.00', true, '23.00', 'catalog'],
+            'default last' => [null, null, true, '5.00', true, '5.00', 'default'],
+            'default zero' => [null, null, true, '0.00', true, '0.00', 'default'],
+            'disabled default' => [null, null, true, null, true, null, null],
+            'foreign preserves channel' => [['rate' => '19.00'], '23.00', true, '5.00', false, '19.00', 'channel'],
+            'foreign missing stays missing' => [null, '23.00', true, '5.00', false, null, null],
+            'exempt' => [['rate' => null, 'exemption' => 'ART_113'], '23.00', true, '5.00', true, null, null],
+            'invalid rate' => [['rate' => 'wrong'], '23.00', true, '5.00', true, null, null],
+            'invalid tax shape' => ['wrong', '23.00', true, '5.00', true, null, null],
+        ];
+    }
+
+    public function test_default_changes_require_new_preview_even_when_channel_vat_is_present(): void
+    {
+        $account = $this->account();
+        $raw = Fixture::payload();
+        $raw['lineItems'][0]['tax'] = ['rate' => '8.00'];
+        $this->fakeOrder($raw);
+        $preview = $this->preview($account);
+        $this->assertSame('8.00', $preview['items'][0]['vat_rate']);
+        $account->update(['default_vat_rate' => '5.00']);
+        $this->expectException(AllegroImportException::class);
+        app(AllegroOrderImportService::class)->import($account, Fixture::ORDER_ID, $preview['source_hash']);
+    }
+
+    public function test_new_default_does_not_backfill_a_completed_order(): void
+    {
+        $account = $this->account();
+        $order = $this->import($account);
+        $before = $order->items()->sole()->getAttributes();
+        $account->update(['default_vat_rate' => '23.00']);
+        $again = app(AllegroOrderImportService::class)->import($account, Fixture::ORDER_ID, str_repeat('0', 64));
+        $this->assertSame($before, $again->items()->sole()->getAttributes());
+        $this->assertSame(1, $again->events()->where('event_type', 'allegro_order_imported')->count());
+    }
+
+    public function test_default_vat_setting_is_optional_validated_and_preserves_zero(): void
+    {
+        $account = $this->account();
+        $this->assertNull($account->default_vat_rate);
+        $payload = ['use_linked_products' => '1', 'use_catalog_product_names' => '1', 'use_catalog_vat' => '1'];
+        $this->put(route('integrations.allegro.orders.settings'), $payload + ['default_vat_rate' => '0'])->assertSessionHasNoErrors();
+        $this->assertSame('0.00', $account->fresh()->default_vat_rate);
+        $this->put(route('integrations.allegro.orders.settings'), $payload)->assertSessionHasNoErrors();
+        $this->assertSame('0.00', $account->fresh()->default_vat_rate);
+        foreach (['-1', '101', 'zw', '2.5', true, ['23']] as $invalid) {
+            $this->putJson(route('integrations.allegro.orders.settings'), $payload + ['default_vat_rate' => $invalid])
+                ->assertUnprocessable()->assertJsonValidationErrors('default_vat_rate');
+        }
+        $this->put(route('integrations.allegro.orders.settings'), $payload + ['default_vat_rate' => ''])->assertSessionHasNoErrors();
+        $this->assertNull($account->fresh()->default_vat_rate);
+        $this->get(route('integrations.allegro.edit', ['tab' => 'orders']))->assertOk()->assertSee('Domyślna stawka VAT');
+        Http::assertNothingSent();
     }
 
     private function account(array $attributes = []): AllegroAccount

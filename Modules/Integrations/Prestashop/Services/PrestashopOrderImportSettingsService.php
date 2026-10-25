@@ -37,7 +37,7 @@ class PrestashopOrderImportSettingsService
 
             $account->order_import_enabled = $enabled;
 
-            foreach (['use_linked_products', 'use_catalog_product_names', 'catalog_vat_mode'] as $field) {
+            foreach (['use_linked_products', 'use_catalog_product_names', 'catalog_vat_mode', 'default_vat_rate'] as $field) {
                 if (array_key_exists($field, $settings)) {
                     $account->{$field} = $settings[$field];
                 }

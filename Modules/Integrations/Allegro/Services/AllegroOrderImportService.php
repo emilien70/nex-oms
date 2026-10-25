@@ -171,11 +171,17 @@ class AllegroOrderImportService
                 $order->events()->create([
                     'event_type' => $existing ? ($complete ? 'allegro_order_completed' : 'allegro_order_updated') : 'allegro_order_imported',
                     'title' => $existing ? ($complete ? 'Pobrano kompletne dane Allegro' : 'Zaktualizowano zakup Allegro') : 'Zaimportowano zamówienie z Allegro',
-                    'description' => ($automatic ? 'Automatyczne pobranie ' : 'Ręczny import zamówienia ').$identifier.'. '.($complete ? 'Kompletne dane.' : 'Zakup wymaga dokonczenia lub sprawdzenia.'),
+                    'description' => ($automatic ? 'Automatyczne pobranie ' : 'Ręczny import zamówienia ').$identifier.'. '.($complete ? 'Kompletne dane.' : 'Zakup wymaga dokonczenia lub sprawdzenia.')
+                        .(collect($preview['items'])->contains(fn (array $item): bool => $item['vat_resolution']['source'] === 'default') ? ' Zastosowano domyślną stawkę VAT integracji.' : ''),
                     'payload' => [
                         'allegro_account_id' => $locked->id,
                         'external_order_id' => $identifier,
                         'source_hash' => $preview['source_hash'],
+                        'vat_sources' => array_map(fn (array $item): array => [
+                            'external_id' => $item['external_id'],
+                            'channel_rate' => $item['source_vat']['rate'],
+                            ...$item['vat_resolution'],
+                        ], $preview['items']),
                     ],
                 ]);
 

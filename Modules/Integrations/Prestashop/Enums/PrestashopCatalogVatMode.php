@@ -13,7 +13,7 @@ enum PrestashopCatalogVatMode: string
         return match ($this) {
             self::Store => 'Nie - używaj stawki VAT podanej przez sklep',
             self::Fallback => 'Tak - używaj stawki OMS, jeśli sklep nie podał żadnej stawki',
-            self::Catalog => 'Tak - zawsze używaj stawki VAT z katalogu OMS',
+            self::Catalog => 'Tak - używaj stawki OMS, a przy jej braku stawki ze sklepu',
         };
     }
 }

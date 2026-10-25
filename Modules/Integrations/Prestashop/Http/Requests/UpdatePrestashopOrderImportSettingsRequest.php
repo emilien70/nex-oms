@@ -5,6 +5,8 @@ namespace Modules\Integrations\Prestashop\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Modules\Integrations\Prestashop\Enums\PrestashopCatalogVatMode;
+use Modules\Invoices\Rules\InvoiceVatPercentageRule;
+use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 
 class UpdatePrestashopOrderImportSettingsRequest extends FormRequest
 {
@@ -20,6 +22,7 @@ class UpdatePrestashopOrderImportSettingsRequest extends FormRequest
             'use_linked_products' => ['sometimes', 'boolean'],
             'use_catalog_product_names' => ['sometimes', 'boolean'],
             'catalog_vat_mode' => ['sometimes', Rule::enum(PrestashopCatalogVatMode::class)],
+            'default_vat_rate' => ['sometimes', 'nullable', new InvoiceVatPercentageRule(app(InvoiceFinancialValueValidator::class))],
         ];
     }
 
