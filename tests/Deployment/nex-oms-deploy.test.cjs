@@ -25,10 +25,12 @@ function shell(code, input = '', extraEnv = {}) {
 }
 
 function fixture(callback) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nex-oms-deploy-test-'));
+    const root = fs.realpathSync(os.tmpdir());
+    const directory = fs.mkdtempSync(path.join(root, 'nex-oms-deploy-test-'));
     try {
         return callback(slash(directory));
     } finally {
+        assert.equal(path.dirname(fs.realpathSync(directory)), root);
         fs.rmSync(directory, { recursive: true, force: true });
     }
 }
@@ -64,6 +66,44 @@ test('metadata handles quoted strings as data rather than shell code', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).reason, value);
 });
+
+test('backup digest metadata accepts digits after the first character and rejects invalid names', () => {
+    const result = shell('php_tool patch backup_sha256 "$TEST_DIGEST" status backed_up', '{}', { TEST_DIGEST: digest });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { backup_sha256: digest, status: 'backed_up' });
+    for (const name of ['256_backup', 'backup-sha256', 'backup/sha256', 'backup sha256', 'backup_sha256\nnext']) {
+        assert.notEqual(shell('php_tool patch "$TEST_NAME" value', '{}', { TEST_NAME: name }).status, 0, name);
+    }
+});
+
+test('backup completion records the real digest and backed_up state in both journals on stand-ins', () => fixture((directory) => {
+    fs.mkdirSync(`${directory}/history`);
+    fs.writeFileSync(`${directory}/history/operation.json`, JSON.stringify({ status: 'preparing' }));
+    const result = shell(`
+HISTORY="$TEST_DIR/history"; RECORD="$HISTORY/operation.json"; ACTIVE="$HISTORY/active.json"
+BACKUP="$TEST_DIR/backup.sql.gz"
+cp "$RECORD" "$ACTIVE"
+sudo() {
+    if [[ "$1" == sync ]]; then return 0; fi
+    if [[ "$1" == bash ]]; then
+        [[ "$2" == -c && "$4" == _ && "$5" == "$BACKUP" ]] || return 97
+        printf 'stand-in backup\\n' | gzip > "$5"
+        return
+    fi
+    case "$1" in
+        test|gzip|sha256sum|cat|mktemp|tee|chmod|mv) command "$@" ;;
+        *) return 98 ;;
+    esac
+}
+make_backup
+`, '', { TEST_DIR: directory });
+    assert.equal(result.status, 0, result.stderr);
+    const record = JSON.parse(fs.readFileSync(`${directory}/history/operation.json`, 'utf8'));
+    const checksum = require('node:crypto').createHash('sha256').update(fs.readFileSync(`${directory}/backup.sql.gz`)).digest('hex');
+    assert.equal(record.status, 'backed_up');
+    assert.equal(record.backup_sha256, checksum);
+    assert.deepEqual(JSON.parse(fs.readFileSync(`${directory}/history/active.json`, 'utf8')), record);
+}));
 
 test('operator status stays compact and excludes internal record fields', () => {
     const result = shell('php_tool summary record', JSON.stringify({ action: 'update', status: 'completed', backup: '/private/backup', fingerprint: 'internal', ledger_before: 'long list' }));

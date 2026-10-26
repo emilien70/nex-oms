@@ -62,7 +62,7 @@ try {
         $data = $json(stream_get_contents(STDIN));
         if (!is_array($data) || count($args) % 2 !== 0) throw new RuntimeException("Niepoprawna historia.");
         for ($i = 0; $i < count($args); $i += 2) {
-            if (!preg_match("/^[a-z_]+$/D", $args[$i])) throw new RuntimeException("Niepoprawne pole historii.");
+            if (!preg_match("/^[a-z_][a-z0-9_]*$/D", $args[$i])) throw new RuntimeException("Niepoprawne pole historii.");
             $data[$args[$i]] = $args[$i + 1];
         }
         $emit($data);
