@@ -17,7 +17,7 @@
     @if ($order->issued_invoice_exists)
         <span class="order-indicator invoice" title="Wystawiono fakturę VAT" aria-label="Wystawiono fakturę VAT"><i class="bi bi-file-earmark-fill" aria-hidden="true"></i><span class="invoice-lines" aria-hidden="true"></span><span class="invoice-currency" aria-hidden="true">$</span></span>
     @endif
-    @if (filled($link?->buyer_message))
+    @if (filled($link?->buyer_message) || $order->prestashop_buyer_messages_exists)
         <span class="order-indicator inactive" title="Komentarz kupującego do zamówienia" aria-label="Komentarz kupującego"><i class="bi bi-envelope" aria-hidden="true"></i></span>
     @endif
     @if (filled($order->notes))

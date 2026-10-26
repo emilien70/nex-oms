@@ -54,6 +54,7 @@ use Modules\Integrations\PayNow\Http\Controllers\PayNowConnectionTestController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowCustomerReturnController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowPaymentLinkController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowSettingsController;
+use Modules\Integrations\PayNow\Http\Controllers\PayNowShortLinkController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowWebhookController;
 use Modules\Integrations\Prestashop\Http\Controllers\PrestashopConnectionTestController;
 use Modules\Integrations\Prestashop\Http\Controllers\PrestashopOrderDiscoveryController;
@@ -128,6 +129,9 @@ Route::post('/api/paynow/v1/notifications', PayNowWebhookController::class)
 
 Route::get('/paynow/powrot', [PayNowCustomerReturnController::class, 'show'])
     ->middleware('throttle:paynow-customer')->name('paynow.return');
+Route::get('/pay/{token}', PayNowShortLinkController::class)
+    ->where('token', '[A-Za-z0-9_-]{32}')
+    ->middleware('throttle:paynow-customer')->name('paynow.short-link');
 Route::post('/paynow/powrot/status', [PayNowCustomerReturnController::class, 'status'])
     ->middleware('throttle:paynow-customer-status')->name('paynow.return.status');
 Route::post('/paynow/powrot/ponow', [PayNowCustomerReturnController::class, 'retry'])

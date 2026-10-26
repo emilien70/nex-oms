@@ -51,6 +51,7 @@ class OrderStatusController extends Controller
             'items.product',
             'items.prestashopItemLink.orderLink.account',
             'prestashopOrderLinks.account',
+            'prestashopBuyerMessages',
             'prestashopOrderLinks.payments',
             'allegroOrderLink.account',
             'allegroOrderLink.payments',
@@ -72,6 +73,11 @@ class OrderStatusController extends Controller
             ->filter()
             ->unique();
         $paymentIdWarning = app(PrestashopPaymentStatusService::class)->hasMissingTransactionId($order);
+        $buyerCommentsHtml = view('orders.partials.buyer-comments', compact('order'))->render();
+        $buyerCommentsSignature = hash('sha256', $buyerCommentsHtml);
+        if ($request?->query('buyer_comments_signature') !== $buyerCommentsSignature) {
+            $requestedFragments->push('buyer-comments');
+        }
         if ($request?->has('payment_id_warning') && $request->boolean('payment_id_warning') !== $paymentIdWarning) {
             $requestedFragments->push('order-info');
             $requestedFragments->push('payments');
@@ -101,12 +107,14 @@ class OrderStatusController extends Controller
             'updated_at' => $order->updated_at?->toIso8601String(),
             'latest_event_id' => $latestEventId,
             'payment_id_warning' => $paymentIdWarning,
+            'buyer_comments_signature' => $buyerCommentsSignature,
             'shipments_signature' => $shipmentsSignature,
             'shipments_count' => $order->shipments->count(),
             'header_customer' => $order->shipping_name ?: $order->customer_login,
             'star_color' => $order->star_color,
             'fields' => $this->editableFields($order),
-            'fragments' => $this->renderFragments($order, $requestedFragments->unique(), $request?->integer('automation_page', 1) ?? 1),
+            'fragments' => $this->renderFragments($order, $requestedFragments->unique(), $request?->integer('automation_page', 1) ?? 1)
+                + ($requestedFragments->contains('buyer-comments') ? ['buyer-comments' => $buyerCommentsHtml] : []),
         ])->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 

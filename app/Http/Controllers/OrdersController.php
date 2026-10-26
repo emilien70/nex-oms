@@ -34,6 +34,7 @@ use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
+use Modules\Integrations\Prestashop\Models\PrestashopOrderMessage;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Rules\InvoiceFinancialStorageRule;
@@ -508,7 +509,7 @@ class OrdersController extends Controller
             ->when($withItems, fn (Builder $query) => $query
                 ->with('items')
                 ->with(['prestashopOrderLinks.account', 'allegroOrderLink.account'])
-                ->withExists(['visibleShipments as shipments_exists', 'invoices as issued_invoice_exists' => fn ($query) => $query->where('document_type', 'invoice')->where('status', 'issued')]))
+                ->withExists(['prestashopBuyerMessages', 'visibleShipments as shipments_exists', 'invoices as issued_invoice_exists' => fn ($query) => $query->where('document_type', 'invoice')->where('status', 'issued')]))
             ->when($showTrash, fn (Builder $query) => $query->onlyTrashed())
             ->when(
                 ! $showTrash && array_key_exists((string) $currentStatus, $statuses),
@@ -564,6 +565,8 @@ class OrdersController extends Controller
             'matching_invoices_count' => Invoice::query()->whereIn('order_id', $matchingOrderIds)->count(),
             'matching_invoices_last_update' => Invoice::query()->whereIn('order_id', $matchingOrderIds)->max('updated_at'),
             'matching_allegro_update' => AllegroOrderLink::query()->whereIn('order_id', $matchingOrderIds)->max('updated_at'),
+            'matching_prestashop_comments_count' => PrestashopOrderMessage::query()->whereHas('orderLink', fn ($links) => $links->whereIn('order_id', $matchingOrderIds))->count(),
+            'matching_prestashop_comments_update' => PrestashopOrderMessage::query()->whereHas('orderLink', fn ($links) => $links->whereIn('order_id', $matchingOrderIds))->max('updated_at'),
             'status_counts' => $statusCounts,
             'trash_count' => $trashCount,
         ], JSON_THROW_ON_ERROR));
@@ -727,6 +730,7 @@ class OrdersController extends Controller
             'returns.localStatus',
             'items.prestashopItemLink.orderLink.account',
             'prestashopOrderLinks.account',
+            'prestashopBuyerMessages',
             'allegroOrderLink.account',
             'allegroOrderLink.payments',
             'prestashopOrderLinks.payments' => fn ($query) => $query

@@ -2381,6 +2381,16 @@ Strona jest niezalezna od panelu administracyjnego i responsywna. Odczyt statusu
 
 ---
 
+# PayNow - krotkie linki do platnosci
+
+Przycisk generowania linku PayNow kopiuje adres OMS `/pay/<bezpieczny-kod>`, na VPS `https://oms.multi-click.pl/pay/<bezpieczny-kod>`. Kod nie zawiera numeru zamowienia ani danych osobowych. Powtorne kopiowanie tej samej proby zwraca ten sam adres. Pelny URL PayNow nadal jest przechowywany w dotychczasowym szyfrowanym polu; stare dlugie linki nie sa zmieniane.
+
+Otwarcie aktualnego linku przekierowuje do bramki PayNow i nie tworzy nowej platnosci. Proba potwierdzona albo niekwalifikujaca sie juz do zaplaty kieruje do istniejacej strony statusu. Ponowienie korzysta z dotychczasowych zabezpieczen i jawnej akcji klienta. Nieznany, odwolany lub wygasly kod nie ujawnia danych. Link klienta nalezy traktowac jako poufny.
+
+Wymagana jest addytywna migracja `2026_10_26_030000_create_paynow_short_links_table.php` i waski wyjatek Basic Auth dla tej trasy na VPS. Nie ma nowego crona, workerow, masowego backfillu ani zmian ksiegowania, webhooka i konfiguracji konta.
+
+---
+
 # PRESTASHOP.1 — konfiguracja i rozpoznanie sklepu
 
 NEX-OMS udostępnia kafel `PrestaShop` oraz konfigurację jednego sklepu internetowego. Operator zapisuje nazwę, bazowy adres HTTPS i 32-znakowy Klucz API. Klucz jest szyfrowany w bazie, nie wraca do HTML ani sesji po błędzie walidacji, a pozostawienie pola pustego zachowuje bieżącą wartość. Integrację można aktywować dopiero po poprawnym teście aktualnego adresu i klucza. Zmiana danych połączenia automatycznie ją wyłącza i unieważnia poprzedni wynik testu.
@@ -2488,6 +2498,14 @@ Pozniejsze natywne wplaty mieszczace sie w juz uznanej kwocie potwierdzaja istni
 Zakladka Platnosci zawiera `Wyswietlaj ostrzezenie w przypadku braku identyfikatora transakcji: Tak/Nie`, domyslnie Nie. Po wlaczeniu, dla statusu `paid=true`, brak natywnych wplat lub brak `transaction_id` jednej z wplat pokazuje czerwony wykrzyknik po prawej stronie kwoty. Podpowiedz brzmi `Brak ID platnosci`. Ikona nie zmienia salda, statusu ani automatyzacji. Techniczne `external_payment_id` nie zastepuje ID transakcji operatora.
 
 Karta i podpowiedz czytaja tylko zapisane dane. Zmiana ostrzezenia jest uwzgledniana przez istniejace odswiezanie AJAX. Synchronizacja uzupelnia puste ID bez ponownego ksiegowania. Starsze powiazania bez obserwacji nowego mechanizmu sa sprawdzane po maksymalnie 10 na zwykly przebieg, od najnowszych, bez zerowania kursora i bez backfillu w migracji. Wymagana migracja: `2026_10_26_010000_add_prestashop_paid_status_tracking.php`; opis wdrozenia i testow: `docs/prestashop-paid-status-report.md`.
+
+---
+
+## PrestaShop - komentarze kupujacego do zamowienia
+
+Po imporcie OMS pobiera w tle publiczne komentarze klienta z natywnego zasobu `messages`. Prywatne notatki, wpisy pracownikow oraz komentarze obcych klientow/zamowien sa pomijane. Komentarze maja wlasny zapis i nie zmieniaja uwag sprzedawcy, platnosci, pozycji ani wystawionych dokumentow. Powtorzenie pobierania nie tworzy duplikatow.
+
+Karta zamowienia pokazuje komentarze u gory Wymiany wiadomosci w dotychczasowym niebieskim stylu, z autorem i data ze sklepu. Lista pokazuje szara koperte jak dla Allegro. Otwarcie widoku nie pobiera niczego z API. Bledy komentarzy nie blokuja importu zamowienia; do pracy w tle wymagany jest worker `integrations` i uprawnienie GET do `messages`. Stare zamowienia sa uzupelniane tylko na jawne polecenie, nie masowo. To nie jest pelna skrzynka korespondencji PrestaShop.
 
 ---
 

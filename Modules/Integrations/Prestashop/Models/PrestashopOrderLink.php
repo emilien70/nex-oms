@@ -62,4 +62,9 @@ class PrestashopOrderLink extends Model
     {
         return $this->hasMany(PrestashopOrderPayment::class, 'prestashop_order_link_id');
     }
+
+    public function buyerMessages(): HasMany
+    {
+        return $this->hasMany(PrestashopOrderMessage::class, 'prestashop_order_link_id');
+    }
 }

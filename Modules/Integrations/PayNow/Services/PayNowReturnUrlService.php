@@ -2,6 +2,7 @@
 
 namespace Modules\Integrations\PayNow\Services;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\URL;
 use Modules\Integrations\PayNow\Models\PayNowPayment;
@@ -10,9 +11,12 @@ class PayNowReturnUrlService
 {
     public function forPayment(PayNowPayment $payment, string $route = 'paynow.return'): string
     {
-        $expires = ($payment->valid_until ?? $payment->created_at->toImmutable()->addDays(91))->addDay();
+        return URL::temporarySignedRoute($route, $this->expiresAt($payment), ['ref' => $payment->external_id]);
+    }
 
-        return URL::temporarySignedRoute($route, $expires, ['ref' => $payment->external_id]);
+    public function expiresAt(PayNowPayment $payment): CarbonImmutable
+    {
+        return ($payment->valid_until ?? $payment->created_at->toImmutable()->addDays(91))->addDay();
     }
 
     public function resolve(Request $request): ?PayNowPayment

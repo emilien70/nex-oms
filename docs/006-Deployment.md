@@ -223,6 +223,90 @@ Przed dopuszczeniem klientow sprawdzic:
 
 Nowa strona nie wymaga migracji ani osobnego crona/jobow. Odczyt statusu klienta jest synchroniczny, a dotychczasowy scheduler PayNow i ksiegowanie pozostaja aktywne. Odczyt potwierdzenia moze uruchomic istniejace automatyzacje po prawidlowym zaksiegowaniu; nie jest to diagnostyka bez skutkow biznesowych.
 
+## Krotkie linki platnosci PayNow /pay/
+
+Po wdrozeniu tej funkcji przycisk generowania linku kopiuje adres
+`https://oms.multi-click.pl/pay/<bezpieczny-kod>`. Kod to dokladnie 32 znaki
+`A-Z`, `a-z`, `0-9`, `_` albo `-`. Sama domena pochodzi z generatora tras
+aplikacji: na VPS musi byc prawidlowy HTTPS i host OMS, a lokalnie link
+prowadzi do lokalnej instancji. Nie wpisywac domeny VPS na sztywno w kodzie.
+
+Przed wznowieniem aplikacji uruchomic, po kopii bazy i przegladzie wdrozenia,
+tylko odpowiednie oczekujace migracje; nowa migracja tej funkcji to:
+
+```bash
+php artisan migrate --path=database/migrations/2026_10_26_030000_create_paynow_short_links_table.php --force --no-interaction
+```
+
+Migracja dodaje tabele techniczna, bez backfillu i bez zmiany platnosci.
+Bez niej tworzenie/kopiowanie linku zwraca 503 przed wywolaniem PayNow.
+Nie wykonywac rollbacku niepustej tabeli ani odtwarzania starej bazy w celu
+cofniecia samej zmiany interfejsu.
+
+W serwerze HTTPS Nginx dodac **wylacznie scisly wyjatek** ponizej, obok
+dotychczasowych wyjatkow webhooka i trzech tras powrotu klienta. Nie otwierac
+calego `/pay/`, `/paynow/`, `/orders/`, `/api/` ani ogolnego handlera PHP.
+Nie zmieniac wyjatku NEX-Printer.
+
+```nginx
+# Publiczny, losowy alias platnosci; panel OMS nadal ma Basic Auth.
+# Cudzyslowy sa wymagane ze wzgledu na {32} w wyrazeniu regularnym.
+location ~ "^/pay/[A-Za-z0-9_-]{32}$" {
+    auth_basic off;
+    access_log off;
+
+    rewrite ^ /index.php break;
+
+    fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+    include fastcgi_params;
+    fastcgi_hide_header X-Powered-By;
+}
+```
+
+Sprawdzic kolejnosc i brak nadrzednego `location ^~ /pay/`, ktory pomijalby
+ten regex. `rewrite ... break` pozostawia wykonanie w tym samym location,
+bez ponownego wejscia do handlera PHP chronionego Basic Auth.
+GET/HEAD obsluguje Laravel; inne metody nie udostepniaja nowej akcji.
+Nie trzeba otwierac nowych portow UFW.
+
+Token jest uprawnieniem do konkretnej platnosci, wiec nie wolno publikowac
+pelnych linkow ani wysylac ich do zewnetrznych skracaczy, analityki i
+monitoringu URL. `access_log off` ogranicza zapis tokenow w access logu
+tego location. Logi bledow i ewentualny reverse proxy/CDN tez musza byc
+chronione i nie moga ujawniac pelnych URL. Odpowiedzi aplikacji maja
+`no-store`, `no-referrer` i `noindex`; nie konfigurowac cache dla tej trasy.
+
+Po zatwierdzeniu konfiguracji operator wykonuje:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+
+# Celowo nieistniejacy kod: sprawdzamy routing bez tworzenia platnosci.
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  https://oms.multi-click.pl/pay/00000000000000000000000000000000
+
+curl -sS -o /dev/null -w '%{http_code}\n' https://oms.multi-click.pl/
+```
+
+Oczekiwane wyniki: bledny kod 404 bez monitu Basic Auth, panel 401.
+Istniejacy poprawny kod aktywnej proby zwraca 302 do PayNow; potwierdzona
+lub niekwalifikujaca sie proba moze zwrocic 302 do podpisanej strony statusu
+OMS. Nieznany kod i wygasly/odwolany alias daja neutralna strone 404.
+Nie uzywac `curl -L` w kontroli samego przekierowania ani nie testowac
+poprawnosci konfiguracji przez tworzenie rzeczywistej platnosci.
+
+Istniejace wyjatki `/paynow/powrot`, `/paynow/powrot/status` i
+`/paynow/powrot/ponow` sa nadal potrzebne do statusu i ponowienia. GET
+aliasu nie wywoluje API ani ksiegowania; pozniejsze swiadome sprawdzenie
+statusu na stronie powrotu zachowuje dotychczasowe skutki poprawnie
+potwierdzonej wplaty. Krótki link nie uniewaznia dlugiego URL juz wydanego
+przez PayNow i nie anuluje zdalnej transakcji.
+
+W ramach lokalnej implementacji nie zmieniano Nginx, nie laczono sie z VPS
+i nie potwierdzano dzialania tego wyjatku na serwerze.
+
 ## Cron Laravel
 
 Na stagingu jeden plik `/etc/cron.d/nex-oms-scheduler` uruchamia istniejacy harmonogram `routes/console.php`:

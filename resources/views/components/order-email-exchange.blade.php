@@ -3,16 +3,9 @@
         <h2 class="nex-card-title">Wymiana wiadomości</h2>
     </div>
     <div class="nex-card-body order-email-card-body">
-        @if (filled($buyerComment = $order->allegroOrderLink?->buyer_message))
-            <article class="order-buyer-comment" aria-label="Komentarz do zamówienia">
-                <div class="order-buyer-comment-header">
-                    <span>{{ $order->allegroOrderLink->buyer_name ?: ($order->shipping_name ?: $order->customer_login) }}:</span>
-                    <time title="Data zakupu">{{ $order->purchased_at?->format('d.m.Y H:i') }}</time>
-                    <span class="order-buyer-comment-label"><i class="bi bi-chat" aria-hidden="true"></i> Komentarz do zamówienia.</span>
-                </div>
-                <div class="order-buyer-comment-body">{{ $buyerComment }}</div>
-            </article>
-        @endif
+        <div data-order-buyer-comments>
+            @include('orders.partials.buyer-comments', ['order' => $order])
+        </div>
         <div class="alert alert-danger py-2 px-3 mb-3 d-none" role="alert" data-email-form-error></div>
 
         <form class="order-email-compose d-none" method="POST" action="{{ route('orders.email-messages.store', $order) }}" data-order-email-form>

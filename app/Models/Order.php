@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,7 @@ use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\Allegro\Support\AllegroPaymentProvider;
 use Modules\Integrations\PayNow\Models\PayNowPayment;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderLink;
+use Modules\Integrations\Prestashop\Models\PrestashopOrderMessage;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Shipments\Models\Shipment;
@@ -246,6 +248,12 @@ class Order extends Model
     public function allegroOrderLink(): HasOne
     {
         return $this->hasOne(AllegroOrderLink::class);
+    }
+
+    public function prestashopBuyerMessages(): HasManyThrough
+    {
+        return $this->hasManyThrough(PrestashopOrderMessage::class, PrestashopOrderLink::class,
+            'order_id', 'prestashop_order_link_id')->orderBy('source_created_at')->orderBy('external_message_id');
     }
 
     public function purchaseIsComplete(): bool

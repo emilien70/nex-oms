@@ -40,7 +40,7 @@ class PayNowPaymentLinkTest extends TestCase
 
         $this->postJson(route('orders.paynow.payment-link', $order))
             ->assertOk()
-            ->assertJsonPath('url', $paymentUrl)
+            ->assertJsonPath('url', fn (string $url): bool => str_starts_with($url, url('/pay/')) && strlen(basename($url)) === 32)
             ->assertJsonPath('reused', false)
             ->assertJsonPath('amount', '100.00')
             ->assertJsonPath('currency', 'PLN');
@@ -110,13 +110,13 @@ class PayNowPaymentLinkTest extends TestCase
             ], 201),
         ]);
 
-        $this->postJson(route('orders.paynow.payment-link', $order))
+        $first = $this->postJson(route('orders.paynow.payment-link', $order))
             ->assertOk()
             ->assertJsonPath('reused', false);
 
         $this->postJson(route('orders.paynow.payment-link', $order))
             ->assertOk()
-            ->assertJsonPath('url', $paymentUrl)
+            ->assertJsonPath('url', $first->json('url'))
             ->assertJsonPath('reused', true);
 
         Http::assertSentCount(1);

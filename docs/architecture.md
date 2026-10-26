@@ -2852,6 +2852,22 @@ Trzy trasy klienta zachowuja middleware web i CSRF dla POST. Limitery ograniczaj
 
 ---
 
+# PayNow - krotkie linki klienta /pay/
+
+`PayNowShortLinkService` dodaje losowy alias konkretnej proby platnosci, bez zmiany dlugiego `payment_url`, payloadu PayNow, ksiegowania ani `continueUrl`. POST generowania w zamowieniu zwraca teraz lokalny adres `/pay/{token}`. Token ma 24 kryptograficznie losowe bajty, kodowane jako 32 znaki base64url bez paddingu. Domeny nie wpisuje sie na sztywno; adres korzysta z istniejacego generatora tras i prawidlowego kontekstu HTTPS/hosta OMS.
+
+Migracja `2026_10_26_030000_create_paynow_short_links_table.php` dodaje tylko `paynow_short_links`: zaszyfrowany token do ponownego kopiowania, jego indeksowany SHA256 do odczytu, HMAC tozsamosci, hash celu, expires_at i nullable revoked_at. Unikalnosc payment_id i token_hash zabezpiecza duplikaty. Historyczny FK jest nullable z nullOnDelete. Nie ma backfillu; alias do starej aktywnej proby powstaje dopiero przy jawnym ponownym kopiowaniu. Down odmawia usuniecia niepustej tabeli. Bez migracji generowanie zwraca 503 przed wywolaniem PayNow, a odczyt aliasu nie ujawnia szczegolow.
+
+Alias jest wydawany pod blokada proby platnosci. HMAC z APP_KEY wiaze token i cel z proba, zamowieniem, kwota, waluta, historycznym e-mailem i opisem, terminem, kontem, srodowiskiem i credentialami. Zmiana tej tozsamosci nie przenosi uprawnienia na inne konto lub transakcje. Zaszyfrowany token i hashe sa ukryte w serializacji. Stary alias nie jest samoczynnie odnawiany po odwolaniu.
+
+Publiczny GET/HEAD jest tylko odczytem, bez HTTP do PayNow, tworzenia platnosci, zdarzen i ksiegowania. Pod blokadami konto -> zamowienie -> platnosc -> alias sprawdzane sa tozsamosc, waznosc, aktywnosc konta, kompletne zamowienie, saldo, waluta, e-mail oraz inne nierozstrzygniete proby. Zgodna aktywna proba daje 302 do zapisanego HTTPS w domenie PayNow, bez userinfo, nietypowego portu, fragmentu, znakow sterujacych i backslash. Sandbox dopuszcza tylko host sandbox.paynow.pl lub jego subdomeny; produkcja odrzuca ten obszar. Parametry zapytania sa ignorowane i nigdy nie wybieraja celu ani statusu.
+
+Potwierdzona, wygasla, wymagajaca sprawdzenia, starsza lub niezgodna z biezacym saldem proba nie wraca do bramki: alias kieruje do istniejacej podpisanej strony statusu. Ponowienie wymaga dotychczasowego POST, CSRF i swiezej weryfikacji API. Nieznany, odwolany, wygasly alias albo zmieniona tozsamosc daje neutralna strone 404 bez danych. Alias wygasa tak samo jak podpis powrotu: dzien po valid_until, przy historycznym null 92 dni od created_at. GET nie przedluza terminu.
+
+Trasa ma istniejacy limiter klienta 60/min/IP i naglowki no-store, no-referrer, noindex, DENY/nosniff. Nie zmienia to stanu juz wydanych linkow u operatora i nie anuluje ich zdalnie. Dodatkowy wyjatek Basic Auth jest scisle ograniczony do `/pay/` i 32-znakowego kodu; dokumentacja Nginx znajduje sie w `docs/006-Deployment.md`.
+
+---
+
 # 41. Integracja PrestaShop — etap PRESTASHOP.1
 
 Fundament integracji znajduje się w `Modules/Integrations/Prestashop`, przy zachowaniu centralnych tras i migracji projektu. `prestashop_accounts` przechowuje jedno logiczne połączenie ze sklepem, zaszyfrowany Klucz API, wynik ostatniego testu oraz wykryte metadane instalacji. `prestashop_order_states` przechowuje lokalny słownik statusów potrzebny w następnym etapie do jawnego mapowania. Zmiana adresu sklepu albo klucza usuwa wykryte dane i wyłącza integrację do czasu ponownego testu.
@@ -2957,6 +2973,18 @@ Nowy nullable wynik obserwacji pozwala stopniowo sprawdzic stare powiazania poza
 Ustawienie `prestashop_accounts.warn_missing_transaction_id` jest bool, domyslnie false. Warunek ikony czyta flage sklepu i natywne ID transakcji z bazy, nie wykonuje HTTP i nie zmienia stanu platnosci. Endpoint stanu porownuje flage ostrzezenia klienta, aby odswiezyc fragment informacji i platnosci takze przy samym uzupelnieniu ID. Istniejacy initializer i cleanup tooltipow obejmuje nowa ikone, lacznie z obsluga focus/click.
 
 Migracja `2026_10_26_010000_add_prestashop_paid_status_tracking.php` jest addytywna; `down()` odmawia usuniecia zapisanej historii deklaracji. Nie zmienia historii faktur, numeracji, KSeF ani ustawien innych integracji.
+
+---
+
+## PrestaShop - komentarze kupujacego
+
+`PrestashopOrderMessageService` czyta tylko natywne publiczne `messages` dla konkretnego `id_order`. Kazdy wpis musi miec zgodne ID zamowienia i klienta z ponownie odczytanym zamowieniem, `private=0` oraz `id_employee=0`. Nazwa autora pochodzi z klienta PrestaShop, nie z adresata przesylki. API key potrzebuje GET do `messages`; brak uprawnien nie blokuje importu zamowienia.
+
+Migracja `2026_10_26_020000_create_prestashop_order_messages_table.php` dodaje osobna historie, bez backfillu. Klucz `ps_order_messages_link_fk` jest nullable z nullOnDelete, a `ps_order_messages_external_unique` zapewnia unikalnosc ID komentarza w powiazaniu. Zapis blokuje konto, powiazanie i zamowienie oraz ponownie sprawdza tozsamosc konta po HTTP. Powtorzenie aktualizuje ten sam komentarz; pusta odpowiedz i bledy nie kasuja historii. `down()` odmawia usuniecia niepustej tabeli.
+
+Po zatwierdzeniu importu `FetchPrestashopOrderMessagesJob` trafia na istniejaca kolejke `integrations`. Ma cztery proby, timeout 80 s, unikalnosc 900 s i backoff 30/120/300 s. Blad dispatchu ani pobierania nie zmienia wyniku importu, a retry dotyczy tylko komentarzy. Pobieranie obejmuje maksymalnie trzy strony po 100 wpisow; zapelnienie trzeciej strony konczy sie bledem bez czesciowego zapisu. Nie dodano nowego harmonogramu ani skanowania starych zamowien. Reczne uzupelnienie wskazanego zamowienia OMS: `php artisan prestashop:order-comments 253`; nie uruchamia importu ani synchronizacji platnosci/statusow. Diagnostyka zapisuje tylko lokalne ID powiazania i etap bledu, bez tresci komentarzy i credentials.
+
+Wspolny partial komentarzy zachowuje dotychczasowy blok Allegro i dodaje chronologiczne wpisy PrestaShop, escapowane przez Blade. Data jest data zrodlowa sklepu bez dopisywania nieznanej strefy czasowej. Koperta na liscie korzysta z `withExists`, a dotychczasowy polling stanu porownuje sygnature lokalnego fragmentu bez HTTP do sklepu i bez nadpisywania formularza e-mail. Komentarze nie trafiaja do `orders.notes`, dokumentow ani szablonu `[uwagi_sprzedawcy]`. Pelna korespondencja `customer_threads`/`customer_messages` pozostaje poza zakresem.
 
 ---
 

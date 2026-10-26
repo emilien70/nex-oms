@@ -7,8 +7,10 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Modules\Integrations\Prestashop\Enums\PrestashopCatalogVatMode;
 use Modules\Integrations\Prestashop\Enums\PrestashopConnectionTestStatus;
+use Modules\Integrations\Prestashop\Jobs\FetchPrestashopOrderMessagesJob;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderPayment;
 use Modules\Products\Models\Product;
@@ -39,6 +41,7 @@ class PrestashopOrderImportTest extends TestCase
 
     public function test_import_creates_order_items_payment_links_and_event_in_one_operation(): void
     {
+        Queue::fake([FetchPrestashopOrderMessagesJob::class]);
         $this->account();
         $this->fakePrestashop();
 
@@ -47,6 +50,8 @@ class PrestashopOrderImportTest extends TestCase
         ]);
 
         $order = Order::query()->sole();
+
+        Queue::assertPushed(FetchPrestashopOrderMessagesJob::class, fn ($job) => $job->linkId === $order->prestashopOrderLinks()->sole()->id && $job->queue === 'integrations');
 
         $response->assertRedirect(route('orders.show', $order));
         $this->assertSame('prestashop', $order->source);

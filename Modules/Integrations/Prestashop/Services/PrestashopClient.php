@@ -218,6 +218,21 @@ class PrestashopClient
         return $orders[0];
     }
 
+    /** @return array<int, array<string, mixed>> */
+    public function orderMessages(PrestashopAccount $account, int $orderId, int $offset = 0): array
+    {
+        if ($orderId < 1 || $offset < 0 || $offset > 200) {
+            throw new PrestashopApiException('Nieprawidlowy zakres komentarzy PrestaShop.');
+        }
+
+        return $this->xmlRows($this->getXml($account, 'messages', [
+            'filter[id_order]' => '['.$orderId.']',
+            'display' => '[id,id_order,id_customer,id_employee,message,private,date_add]',
+            'sort' => '[id_ASC]',
+            'limit' => $offset.',100',
+        ]), 'messages', 'message');
+    }
+
     public function orderCurrentState(PrestashopAccount $account, int $orderId): int
     {
         if ($orderId < 1) {

@@ -21,6 +21,7 @@ class PrestashopOrderImportService
         private readonly OrderItemBundleSnapshotService $bundleSnapshots,
         private readonly OrderImportVatResolver $vat,
         private readonly PrestashopPaymentStatusService $paymentStatuses,
+        private readonly PrestashopOrderMessageService $buyerMessages,
     ) {}
 
     public function import(string $identifier): Order
@@ -66,6 +67,8 @@ class PrestashopOrderImportService
                 if ($existingOrder->trashed()) {
                     throw new PrestashopImportException('To zamówienie PrestaShop znajduje się już w koszu OMS.');
                 }
+
+                $this->buyerMessages->enqueue($existingLink->id);
 
                 return $this->completeExistingOrder(
                     $existingOrder,
@@ -213,6 +216,8 @@ class PrestashopOrderImportService
                     'vat_sources' => $vatSources,
                 ],
             ]);
+
+            $this->buyerMessages->enqueue($link->id);
 
             return $order->refresh();
         }, 3);

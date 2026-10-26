@@ -5225,6 +5225,7 @@
             let orderStateRequestRunning = false;
             let currentLatestEventId = null;
             let currentShipmentsSignature = null;
+            let currentBuyerCommentsSignature = null;
             let payNowRefreshTimer = null;
 
             const cancelShipmentModal = document.getElementById('cancelShipmentModal');
@@ -5691,6 +5692,7 @@
                 history: '[data-order-history-body]',
                 'automation-history': '[data-order-automation-history-body]',
                 payments: '[data-order-payments-body]',
+                'buyer-comments': '[data-order-buyer-comments]',
             };
 
             const syncEditableFields = (fields, savedForm = null) => {
@@ -5878,6 +5880,7 @@
 
                 currentLatestEventId = Number(state.latest_event_id || 0);
                 currentShipmentsSignature = state.shipments_signature || '';
+                currentBuyerCommentsSignature = state.buyer_comments_signature || '';
             };
 
             const fetchOrderState = async (fragments = [], syncFields = false, savedForm = null, automationPage = null) => {
@@ -5899,6 +5902,9 @@
                 }
                 if (currentShipmentsSignature !== null) {
                     url.searchParams.set('shipments_signature', currentShipmentsSignature);
+                }
+                if (currentBuyerCommentsSignature !== null) {
+                    url.searchParams.set('buyer_comments_signature', currentBuyerCommentsSignature);
                 }
                 const response = await fetch(url.toString(), {
                     headers: {
