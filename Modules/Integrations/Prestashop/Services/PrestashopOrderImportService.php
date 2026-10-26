@@ -20,6 +20,7 @@ class PrestashopOrderImportService
         private readonly PrestashopOrderPreviewService $previewService,
         private readonly OrderItemBundleSnapshotService $bundleSnapshots,
         private readonly OrderImportVatResolver $vat,
+        private readonly PrestashopPaymentStatusService $paymentStatuses,
     ) {}
 
     public function import(string $identifier): Order
@@ -153,7 +154,9 @@ class PrestashopOrderImportService
                     'total_price_gross' => $itemData['total_price_gross'],
                     'currency' => $itemData['currency'],
                     'vat_rate' => $productValues['vat_rate'],
-                    'weight' => $itemData['weight'],
+                    'weight' => $linkedProduct?->isBundle()
+                        ? ($linkedProduct->package_weight_kg ?? $itemData['weight'])
+                        : $itemData['weight'],
                 ]);
 
                 if ($linkedProduct !== null) {
@@ -178,6 +181,14 @@ class PrestashopOrderImportService
                     'accounted_at' => now(),
                 ]);
             }
+
+            $this->paymentStatuses->observe(
+                $link,
+                $preview['external_payment_paid'],
+                $preview['total_gross'],
+                $preview['currency'],
+                $preview['native_paid_amount'],
+            );
 
             $order->events()->create([
                 'event_type' => 'prestashop_order_imported',

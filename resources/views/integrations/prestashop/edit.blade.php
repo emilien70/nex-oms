@@ -1176,6 +1176,16 @@
                                     <div class="form-text">
                                         Sprawdzanie odbywa się co 1 minutę i obejmuje wyłącznie zamówienia wcześniej zaimportowane do OMS. Pierwsze uruchomienie sprawdzi wszystkie powiązane zamówienia.
                                     </div>
+                                    <div class="mt-3">
+                                        <label class="form-label" for="prestashop-warn-missing-transaction-id">Wyświetlaj ostrzeżenie w przypadku braku identyfikatora transakcji:</label>
+                                        <select id="prestashop-warn-missing-transaction-id" name="warn_missing_transaction_id" class="form-select form-select-sm w-auto @error('warn_missing_transaction_id') is-invalid @enderror" @disabled(! $account->is_active)>
+                                            <option value="0" @selected(! old('warn_missing_transaction_id', $account->warn_missing_transaction_id))>Nie</option>
+                                            <option value="1" @selected(old('warn_missing_transaction_id', $account->warn_missing_transaction_id))>Tak</option>
+                                        </select>
+                                        @error('warn_missing_transaction_id')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
                                 </div>
                                 <div class="col-lg-4 d-grid d-lg-flex justify-content-lg-end">
                                     <button class="btn btn-primary" type="submit" @disabled(! $account->is_active)>

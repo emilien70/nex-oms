@@ -51,6 +51,7 @@ use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterSettingsControlle
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterShipmentController;
 use Modules\Integrations\NexPrinter\Http\Middleware\AuthenticateNexPrinterAgent;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowConnectionTestController;
+use Modules\Integrations\PayNow\Http\Controllers\PayNowCustomerReturnController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowPaymentLinkController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowSettingsController;
 use Modules\Integrations\PayNow\Http\Controllers\PayNowWebhookController;
@@ -124,6 +125,13 @@ Route::post('/api/gus/company-by-nip', [GusCompanyController::class, 'show'])->n
 Route::post('/api/paynow/v1/notifications', PayNowWebhookController::class)
     ->middleware('throttle:paynow-webhook')
     ->name('api.paynow.notifications');
+
+Route::get('/paynow/powrot', [PayNowCustomerReturnController::class, 'show'])
+    ->middleware('throttle:paynow-customer')->name('paynow.return');
+Route::post('/paynow/powrot/status', [PayNowCustomerReturnController::class, 'status'])
+    ->middleware('throttle:paynow-customer-status')->name('paynow.return.status');
+Route::post('/paynow/powrot/ponow', [PayNowCustomerReturnController::class, 'retry'])
+    ->middleware('throttle:paynow-customer-retry')->name('paynow.return.retry');
 
 Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
 Route::get('/integrations/allegro', [AllegroSettingsController::class, 'edit'])->name('integrations.allegro.edit');

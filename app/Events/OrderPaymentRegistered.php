@@ -26,10 +26,11 @@ class OrderPaymentRegistered implements ShouldDispatchAfterCommit
         public readonly string $paidAmountAfter,
         public readonly string $paymentState,
         public readonly string $accountedAt,
+        ?string $paymentIdentity = null,
     ) {
         $this->eventId = Uuid::uuid5(
             Uuid::NAMESPACE_URL,
-            "nex-oms:payment-registered:{$this->paymentSource}:{$this->paymentRecordId}",
+            'nex-oms:payment-registered:'.($paymentIdentity ?? "{$this->paymentSource}:{$this->paymentRecordId}"),
         )->toString();
     }
 

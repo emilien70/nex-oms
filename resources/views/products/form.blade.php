@@ -516,9 +516,9 @@
                     </div>
                 </template>
             </section>
-        @else
-            <section class="product-form-section">
-                <h2>Opakowanie</h2>
+        @endif
+        <section class="product-form-section">
+            <h2>Opakowanie</h2>
             <div class="product-form-grid">
                 <div class="product-form-field is-quarter">
                     <label class="product-form-label" for="product-weight">Waga</label>
@@ -558,8 +558,7 @@
                     </div>
                 @endforeach
             </div>
-            </section>
-        @endif
+        </section>
 
         <div class="product-form-actions">
             <a class="btn btn-outline-secondary" href="{{ route('products.index', ['status' => 'all', 'tab' => $isBundle ? 'bundles' : 'products']) }}">Anuluj</a>

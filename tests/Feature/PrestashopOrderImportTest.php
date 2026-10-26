@@ -130,6 +130,34 @@ class PrestashopOrderImportTest extends TestCase
         $this->assertDatabaseCount('order_events', 1);
     }
 
+    public function test_import_uses_paid_state_flag_without_native_payment_and_keeps_audit_basis(): void
+    {
+        $account = $this->account();
+        $account->orderStates()->where('external_id', 4)->update(['paid' => true]);
+        $this->fakePrestashop(['total_paid_real' => '0.000000'], withoutPayments: true);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertSessionHasNoErrors();
+        $order = Order::query()->sole();
+        $this->assertSame('462.00', $order->paid_amount);
+        $this->assertSame('paid', $order->payment_status);
+        $this->assertSame('462.00', $order->prestashopOrderLinks()->sole()->status_paid_amount);
+        $this->assertDatabaseCount('prestashop_order_payments', 0);
+        $this->assertSame(1, $order->events()->where('event_type', 'prestashop_status_payment_registered')->count());
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertSessionHasNoErrors();
+        $this->assertSame(1, $order->events()->where('event_type', 'prestashop_status_payment_registered')->count());
+    }
+
+    public function test_import_with_unpaid_flag_and_no_native_payment_stays_unpaid(): void
+    {
+        $this->account();
+        $this->fakePrestashop(['total_paid_real' => '0.000000'], withoutPayments: true);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertSessionHasNoErrors();
+        $this->assertSame('0.00', Order::query()->sole()->paid_amount);
+        $this->assertDatabaseCount('prestashop_order_payments', 0);
+    }
+
     public function test_import_uses_linked_oms_product_and_keeps_prestashop_price(): void
     {
         $account = $this->account();
@@ -166,7 +194,8 @@ class PrestashopOrderImportTest extends TestCase
             ->assertSee(route('products.image', [$product, 'thumbnail']), false);
     }
 
-    public function test_imported_linked_bundle_keeps_prestashop_price_and_snapshots_components(): void
+    #[DataProvider('bundleWeights')]
+    public function test_imported_linked_bundle_keeps_prestashop_price_and_snapshots_components(?string $catalogWeight, string $expectedWeight): void
     {
         $account = $this->account();
         $decoder = $this->product(['name' => 'Dekoder']);
@@ -174,6 +203,7 @@ class PrestashopOrderImportTest extends TestCase
         $bundle = $this->product([
             'item_type' => Product::TYPE_BUNDLE,
             'name' => 'Zestaw katalogowy OMS',
+            'package_weight_kg' => $catalogWeight,
             'price_gross' => '999.99',
             'stock_quantity' => 0,
         ]);
@@ -197,12 +227,21 @@ class PrestashopOrderImportTest extends TestCase
         $this->assertSame($bundle->getKey(), $item->product_id);
         $this->assertSame('Zestaw katalogowy OMS', $item->product_name);
         $this->assertSame('452.00', $item->unit_price_gross);
+        $this->assertSame($expectedWeight, $item->weight);
         $this->assertSame(2, $item->bundleComponents()->count());
         $this->assertDatabaseHas('order_item_bundle_components', [
             'order_item_id' => $item->getKey(),
             'component_product_id' => $adapter->getKey(),
             'quantity_per_bundle' => 2,
         ]);
+        $bundle->update(['package_weight_kg' => '9.999']);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])->assertSessionHasNoErrors();
+        $this->assertSame($expectedWeight, $item->fresh()->weight);
+    }
+
+    public static function bundleWeights(): array
+    {
+        return [[null, '1.000'], ['2.345', '2.345'], ['0.000', '0.000']];
     }
 
     public function test_import_can_keep_store_name_and_always_use_catalog_vat(): void
@@ -598,6 +637,7 @@ class PrestashopOrderImportTest extends TestCase
         array $paymentOverrides = [],
         array $enrichmentOverrides = [],
         string $country = 'PL',
+        bool $withoutPayments = false,
     ): void {
         $order = array_merge([
             'id' => 13581,
@@ -657,7 +697,7 @@ class PrestashopOrderImportTest extends TestCase
         ], $enrichmentOverrides);
 
         Http::swap((new Factory)->preventStrayRequests());
-        Http::fake(function (Request $request) use ($order, $detail, $payment, $enrichment, $country) {
+        Http::fake(function (Request $request) use ($order, $detail, $payment, $enrichment, $country, $withoutPayments) {
             return match ((string) parse_url($request->url(), PHP_URL_PATH)) {
                 '/api/orders/13581' => Http::response(['orders' => [$order]]),
                 '/api/bl_order/13581' => Http::response(['orders' => [$enrichment]]),
@@ -692,7 +732,7 @@ class PrestashopOrderImportTest extends TestCase
                     'id' => 281,
                     'name' => 'Paczkomaty 24/7',
                 ]]]),
-                '/api/order_payments' => Http::response(['order_payments' => [$payment]]),
+                '/api/order_payments' => Http::response(['order_payments' => $withoutPayments ? [] : [$payment]]),
                 default => Http::response([], 404),
             };
         });

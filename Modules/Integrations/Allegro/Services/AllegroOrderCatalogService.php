@@ -42,6 +42,8 @@ class AllegroOrderCatalogService
         foreach ($preview['items'] as &$item) {
             $item['source_product_name'] = $item['source_product_name'] ?? $item['product_name'];
             $item['product_name'] = $item['source_product_name'];
+            $item['source_weight'] = array_key_exists('source_weight', $item) ? $item['source_weight'] : ($item['weight'] ?? null);
+            $item['weight'] = $item['source_weight'];
             $item['product_id'] = null;
             $item['vat_rate'] = null;
             $item['catalog'] = null;
@@ -79,6 +81,9 @@ class AllegroOrderCatalogService
                 }
             }
             $item['product_id'] = $product->id;
+            if ($product->isBundle() && $product->package_weight_kg !== null) {
+                $item['weight'] = $product->package_weight_kg;
+            }
             $item['catalog'] = [
                 'link_id' => $link->id,
                 'name' => $product->name,
@@ -87,6 +92,7 @@ class AllegroOrderCatalogService
                 'image_checksum' => $product->image_checksum,
                 'vat_rate' => $product->vat_rate,
                 'bundle_components' => $components,
+                'package_weight_kg' => $product->isBundle() ? $product->package_weight_kg : null,
             ];
             if ($settings['use_catalog_product_names']) {
                 $item['product_name'] = $product->name;
@@ -102,6 +108,7 @@ class AllegroOrderCatalogService
             'items' => array_map(fn (array $item): array => [
                 'external_id' => $item['external_id'], 'product_id' => $item['product_id'],
                 'product_name' => $item['product_name'], 'vat_rate' => $item['vat_rate'], 'catalog' => $item['catalog'],
+                'weight' => $item['weight'],
                 'source_vat' => $item['source_vat'], 'vat_resolution' => $item['vat_resolution'],
             ], $preview['items']),
         ], JSON_THROW_ON_ERROR));

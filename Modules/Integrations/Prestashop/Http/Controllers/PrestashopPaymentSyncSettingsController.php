@@ -13,7 +13,10 @@ class PrestashopPaymentSyncSettingsController extends Controller
         UpdatePrestashopPaymentSyncSettingsRequest $request,
         PrestashopPaymentSyncSettingsService $settings,
     ): RedirectResponse {
-        $settings->update($request->boolean('payment_sync_enabled'));
+        $settings->update(
+            $request->boolean('payment_sync_enabled'),
+            $request->has('warn_missing_transaction_id') ? $request->boolean('warn_missing_transaction_id') : null,
+        );
 
         return redirect()
             ->route('integrations.prestashop.edit', ['tab' => 'payments'])

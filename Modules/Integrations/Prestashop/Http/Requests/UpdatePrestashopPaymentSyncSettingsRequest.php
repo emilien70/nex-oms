@@ -15,6 +15,7 @@ class UpdatePrestashopPaymentSyncSettingsRequest extends FormRequest
     {
         return [
             'payment_sync_enabled' => ['required', 'boolean'],
+            'warn_missing_transaction_id' => ['sometimes', 'required', 'boolean'],
         ];
     }
 

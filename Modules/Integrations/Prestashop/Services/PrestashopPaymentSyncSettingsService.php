@@ -8,9 +8,9 @@ use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 
 class PrestashopPaymentSyncSettingsService
 {
-    public function update(bool $enabled): PrestashopAccount
+    public function update(bool $enabled, ?bool $warnMissingTransactionId = null): PrestashopAccount
     {
-        return DB::transaction(function () use ($enabled): PrestashopAccount {
+        return DB::transaction(function () use ($enabled, $warnMissingTransactionId): PrestashopAccount {
             $account = PrestashopAccount::query()
                 ->where('account_key', PrestashopAccount::DEFAULT_ACCOUNT_KEY)
                 ->lockForUpdate()
@@ -31,6 +31,9 @@ class PrestashopPaymentSyncSettingsService
             }
 
             $account->payment_sync_enabled = $enabled;
+            if ($warnMissingTransactionId !== null) {
+                $account->warn_missing_transaction_id = $warnMissingTransactionId;
+            }
             $account->save();
 
             return $account->refresh();

@@ -24,12 +24,23 @@ class PayNowPaymentLinkService
         private readonly PayNowAccountService $accountService,
         private readonly PayNowClient $client,
         private readonly InvoiceDecimalCalculator $decimal,
+        private readonly PayNowReturnUrlService $returnUrls,
     ) {}
 
     public function createOrReuse(Order $order): PayNowPaymentLinkResult
     {
+        return $this->create($order);
+    }
+
+    public function createOrReuseForCustomer(PayNowPayment $verifiedPayment): PayNowPaymentLinkResult
+    {
+        return $this->create($verifiedPayment->order()->firstOrFail(), $verifiedPayment);
+    }
+
+    private function create(Order $order, ?PayNowPayment $verifiedPayment = null): PayNowPaymentLinkResult
+    {
         $account = $this->accountService->get();
-        $payment = $this->prepare($order, $account);
+        $payment = $this->prepare($order, $account, $verifiedPayment);
 
         if ($this->hasUsableLink($payment)) {
             return new PayNowPaymentLinkResult($payment, true);
@@ -50,12 +61,16 @@ class PayNowPaymentLinkService
         return $this->recordSuccess($payment, $response);
     }
 
-    private function prepare(Order $order, PayNowAccount $account): PayNowPayment
+    private function prepare(Order $order, PayNowAccount $account, ?PayNowPayment $verifiedPayment): PayNowPayment
     {
-        return DB::transaction(function () use ($order, $account): PayNowPayment {
+        return DB::transaction(function () use ($order, $account, $verifiedPayment): PayNowPayment {
             $managedAccount = PayNowAccount::query()->lockForUpdate()->findOrFail($account->getKey());
             $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
             $managedOrder->assertPurchaseReady();
+
+            if ($managedOrder->status === Order::STATUS_CANCELLED) {
+                throw ValidationException::withMessages(['payment_link' => 'Nie można opłacić anulowanego zamówienia.']);
+            }
 
             $this->assertAccountIsReady($managedAccount);
 
@@ -112,6 +127,10 @@ class PayNowPaymentLinkService
                 ->lockForUpdate()
                 ->first();
 
+            if ($verifiedPayment !== null) {
+                $this->assertCustomerRetry($managedOrder, $managedAccount, $verifiedPayment, $existing);
+            }
+
             if ($existing) {
                 return $existing;
             }
@@ -157,11 +176,36 @@ class PayNowPaymentLinkService
             'validityTime' => (int) $account->link_validity_seconds,
         ];
 
-        if ($account->continue_url) {
-            $payload['continueUrl'] = $account->continue_url;
-        }
+        $customReturn = $account->continue_url;
+        $payload['continueUrl'] = ! $customReturn || rtrim($customReturn, '/') === route('paynow.return')
+            ? $this->returnUrls->forPayment($payment)
+            : $customReturn;
 
         return $payload;
+    }
+
+    private function assertCustomerRetry(Order $order, PayNowAccount $account, PayNowPayment $verified, ?PayNowPayment $existing): void
+    {
+        $payments = PayNowPayment::query()->where('order_id', $order->getKey())->orderByDesc('id')->lockForUpdate()->get();
+        $latest = $payments->first();
+        $unsafe = $payments->contains(fn (PayNowPayment $payment): bool => $payment->needs_review
+            || ($payment->status === PayNowPaymentStatus::Confirmed && $payment->accounted_at === null)
+            || (! $payment->is($latest) && in_array($payment->status, [
+                PayNowPaymentStatus::Created, PayNowPaymentStatus::Pending, PayNowPaymentStatus::Abandoned,
+            ], true)));
+
+        if (! $latest?->is($verified)
+            || $latest->paynow_account_id !== $account->getKey()
+            || $latest->status !== $verified->status
+            || $latest->provider_payment_id !== $verified->provider_payment_id
+            || $unsafe
+            || (! $existing?->is($latest) && ! in_array($latest->status, [
+                PayNowPaymentStatus::Rejected, PayNowPaymentStatus::Error, PayNowPaymentStatus::Expired,
+            ], true))) {
+            throw ValidationException::withMessages([
+                'payment_link' => 'Nie można teraz ponowić płatności. Sprawdź jej status ponownie lub skontaktuj się ze sprzedawcą.',
+            ]);
+        }
     }
 
     private function minorUnits(string $amount): int
@@ -209,13 +253,21 @@ class PayNowPaymentLinkService
                 return new PayNowPaymentLinkResult($managed, true);
             }
 
+            // A webhook can confirm the payment while the link request is still in flight.
+            $confirmed = $managed->status === PayNowPaymentStatus::Confirmed;
+            $idConflict = $confirmed && $managed->provider_payment_id !== $response['payment_id'];
             $managed->forceFill([
-                'provider_payment_id' => $response['payment_id'],
-                'payment_url' => $response['url'],
-                'status' => $response['status'],
+                'provider_payment_id' => $confirmed ? $managed->provider_payment_id : $response['payment_id'],
+                'payment_url' => $idConflict ? $managed->payment_url : $response['url'],
+                'status' => $confirmed ? PayNowPaymentStatus::Confirmed : $response['status'],
+            ] + ($idConflict ? [
+                'needs_review' => true,
+                'safe_error_code' => 'provider_id_changed_after_confirmation',
+                'safe_error_message' => 'Odpowiedź tworzenia linku wskazuje inną, już potwierdzoną płatność.',
+            ] : ($managed->needs_review ? [] : [
                 'safe_error_code' => null,
                 'safe_error_message' => null,
-            ])->save();
+            ])))->save();
 
             $payloadHash = hash('sha256', $response['raw_body']);
             $managed->events()->firstOrCreate([

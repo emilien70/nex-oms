@@ -14,6 +14,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Modules\Automation\Services\OrderAutomationHistory;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
+use Modules\Integrations\Prestashop\Services\PrestashopPaymentStatusService;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 
 class OrderStatusController extends Controller
@@ -50,6 +51,7 @@ class OrderStatusController extends Controller
             'items.product',
             'items.prestashopItemLink.orderLink.account',
             'prestashopOrderLinks.account',
+            'prestashopOrderLinks.payments',
             'allegroOrderLink.account',
             'allegroOrderLink.payments',
             'shipments' => fn ($query) => $query
@@ -69,6 +71,11 @@ class OrderStatusController extends Controller
         $requestedFragments = collect(explode(',', (string) $request?->query('fragments', '')))
             ->filter()
             ->unique();
+        $paymentIdWarning = app(PrestashopPaymentStatusService::class)->hasMissingTransactionId($order);
+        if ($request?->has('payment_id_warning') && $request->boolean('payment_id_warning') !== $paymentIdWarning) {
+            $requestedFragments->push('order-info');
+            $requestedFragments->push('payments');
+        }
 
         if ($request?->has('latest_event_id') && (int) $request->query('latest_event_id') !== $latestEventId) {
             $requestedFragments->push('history');
@@ -93,6 +100,7 @@ class OrderStatusController extends Controller
             ] : null,
             'updated_at' => $order->updated_at?->toIso8601String(),
             'latest_event_id' => $latestEventId,
+            'payment_id_warning' => $paymentIdWarning,
             'shipments_signature' => $shipmentsSignature,
             'shipments_count' => $order->shipments->count(),
             'header_customer' => $order->shipping_name ?: $order->customer_login,

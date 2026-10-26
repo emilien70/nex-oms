@@ -23,12 +23,15 @@ class PrestashopPaymentSyncService
 
     private const CURSOR_OVERLAP_MINUTES = 2;
 
+    private const INITIAL_STATUS_BATCH_SIZE = 10;
+
     public function __construct(
         private readonly PrestashopClient $client,
         private readonly PrestashopOrderPreviewService $preview,
         private readonly PrestashopPaymentAccountingService $accounting,
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceFinancialValueValidator $financial,
+        private readonly PrestashopPaymentStatusService $paymentStatuses,
     ) {}
 
     /** @return array{checked: int, discovered: int, accounted: int, mirrored: int, review: int, observed: int} */
@@ -44,6 +47,17 @@ class PrestashopPaymentSyncService
         $rows = $fullScan || ! $account->last_payment_sync_at
             ? $this->fullPaymentRows($account)
             : $this->changedPaymentRows($account, $startedAt);
+        if (! $fullScan && $account->last_payment_sync_at && $this->paymentStatuses->available()) {
+            $ids = $account->orderLinks()
+                ->whereNull('external_payment_paid')
+                ->whereNotNull('order_id')
+                ->whereHas('order', fn ($query) => $query->whereNull('deleted_at')->where('source', 'prestashop'))
+                ->whereNotIn('external_order_id', array_column($rows, 'id'))
+                ->orderByDesc('id')
+                ->limit(self::INITIAL_STATUS_BATCH_SIZE)
+                ->pluck('external_order_id')->map(fn ($id): int => (int) $id)->all();
+            array_push($rows, ...$this->client->orderPaymentSummariesByIds($account, $ids));
+        }
         $rows = collect($rows)->keyBy('id')->values()->all();
         $result = [
             'checked' => count($rows),
@@ -182,8 +196,20 @@ class PrestashopPaymentSyncService
             strtoupper((string) $link->order->currency),
         );
         $this->assertPaymentsMatch($payments, $remotePaid, (string) $link->order->currency);
+        $paidStatus = null;
+        $remoteTotal = null;
+        $remoteCurrency = null;
+        if (isset($row['total_paid_tax_incl'], $row['id_currency'])) {
+            $paidStatus = $this->paymentStatuses->isPaidState($account, $row['current_state'] ?? null);
+            $remoteTotal = $this->money($row['total_paid_tax_incl']);
+            $remoteCurrency = collect($account->available_currencies ?? [])
+                ->firstWhere('id', $row['id_currency'])['iso_code'] ?? null;
+            if (! is_string($remoteCurrency) || $remoteCurrency === '') {
+                throw new PrestashopImportException('Nieznana waluta zamowienia PrestaShop.');
+            }
+        }
 
-        $pendingIds = DB::transaction(function () use ($link, $payments): array {
+        return DB::transaction(function () use ($link, $payments, $remotePaid, $paidStatus, $remoteTotal, $remoteCurrency): array {
             $managedLink = PrestashopOrderLink::query()
                 ->whereKey($link->getKey())
                 ->lockForUpdate()
@@ -206,6 +232,9 @@ class PrestashopPaymentSyncService
 
                 if ($existing) {
                     $this->assertPaymentUnchanged($existing, $paymentData);
+                    if (blank($existing->transaction_id) && filled($paymentData['transaction_id'])) {
+                        $existing->forceFill(['transaction_id' => $paymentData['transaction_id']])->save();
+                    }
 
                     if ($existing->accounting_status === PrestashopOrderPayment::STATUS_PENDING) {
                         $pendingIds[] = $existing->getKey();
@@ -220,26 +249,29 @@ class PrestashopPaymentSyncService
                 $pendingIds[] = $payment->getKey();
             }
 
-            return $pendingIds;
-        }, 3);
+            $outcome = $this->emptyOutcome(discovered: count($pendingIds));
+            $useStatusFirst = $paidStatus && $this->decimal->compare($remotePaid, $remoteTotal) < 0;
+            if ($useStatusFirst && $this->paymentStatuses->observe($managedLink, true, $remoteTotal, $remoteCurrency)) {
+                $outcome['accounted']++;
+            }
 
-        $outcome = $this->emptyOutcome(discovered: count($pendingIds));
+            foreach ($pendingIds as $paymentId) {
+                $status = $this->accounting->account($paymentId, $remotePaid);
+                if (array_key_exists($status, $outcome)) {
+                    $outcome[$status]++;
+                }
+            }
 
-        if ($pendingIds === []) {
-            $outcome['observed'] = 1;
+            if ($paidStatus !== null && ! $useStatusFirst
+                && $this->paymentStatuses->observe($managedLink, $paidStatus, $remoteTotal, $remoteCurrency)) {
+                $outcome['accounted']++;
+            }
+            if ($pendingIds === [] && $outcome['accounted'] === 0) {
+                $outcome['observed'] = 1;
+            }
 
             return $outcome;
-        }
-
-        foreach ($pendingIds as $paymentId) {
-            $status = $this->accounting->account($paymentId, $remotePaid);
-
-            if (array_key_exists($status, $outcome)) {
-                $outcome[$status]++;
-            }
-        }
-
-        return $outcome;
+        }, 3);
     }
 
     /** @param array<int, array<string, mixed>> $payments */
@@ -264,7 +296,8 @@ class PrestashopPaymentSyncService
         if (
             $this->decimal->compare((string) $payment->amount, $remote['amount']) !== 0
             || strtoupper((string) $payment->currency) !== strtoupper((string) $remote['currency'])
-            || (string) ($payment->transaction_id ?? '') !== (string) ($remote['transaction_id'] ?? '')
+            || (filled($payment->transaction_id)
+                && (string) $payment->transaction_id !== (string) ($remote['transaction_id'] ?? ''))
         ) {
             throw new PrestashopImportException(
                 'PrestaShop zmienił dane wcześniej zapisanej płatności. Wymagana jest ręczna weryfikacja.',

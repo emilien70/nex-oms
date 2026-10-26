@@ -35,6 +35,18 @@
 @empty
 @endforelse
 
+@foreach ($order->prestashopOrderLinks->filter(fn ($link) => $link->status_paid_at !== null) as $link)
+    <div class="nex-timeline-item">
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+            <div>
+                <div class="small text-secondary">{{ $link->status_paid_at->format('Y-m-d H:i') }}</div>
+                <div class="fw-semibold">Opłacenie na podstawie statusu PrestaShop</div>
+            </div>
+            <div class="fw-semibold">{{ str_replace('.', ',', (string) $link->status_paid_amount) }} {{ $order->currency }}</div>
+        </div>
+    </div>
+@endforeach
+
 @foreach ($prestashopPayments as $payment)
     <div class="nex-timeline-item">
         <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
@@ -63,7 +75,7 @@
         @elseif ($payment->accounting_status === 'mirrored')
             <div class="small text-secondary mt-1">
                 <i class="bi bi-link-45deg me-1" aria-hidden="true"></i>
-                Płatność była już zaksięgowana przez PayNow
+                {{ $payment->matched_payment_source === 'prestashop_status' ? 'Opłacenie zostało już uznane na podstawie statusu PrestaShop' : 'Płatność była już zaksięgowana przez PayNow' }}
             </div>
         @elseif ($payment->accounted_at)
             <div class="small text-success mt-1">
@@ -91,7 +103,7 @@
     </div>
 @endforeach
 
-@if ($order->payNowPayments->isEmpty() && $prestashopPayments->isEmpty() && $allegroPayments->isEmpty())
+@if ($order->payNowPayments->isEmpty() && $prestashopPayments->isEmpty() && $allegroPayments->isEmpty() && ! $order->prestashopOrderLinks->contains(fn ($link) => $link->status_paid_at !== null))
     <div class="text-secondary">Brak zarejestrowanych płatności.</div>
 @endif
 

@@ -6,6 +6,7 @@ use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Products\Models\Product;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ProductBundleTest extends TestCase
@@ -27,9 +28,17 @@ class ProductBundleTest extends TestCase
             ->assertOk()
             ->assertSee('Nowy zestaw')
             ->assertSee('Skład zestawu')
+            ->assertSee('name="package_weight_kg"', false)
+            ->assertSee('name="package_length_cm"', false)
+            ->assertSee('name="package_width_cm"', false)
+            ->assertSee('name="package_height_cm"', false)
             ->assertSee('Dodaj produkt');
 
         $this->post(route('product-bundles.store'), $this->bundlePayload([
+            'package_weight_kg' => '1,234',
+            'package_length_cm' => '30,50',
+            'package_width_cm' => '20',
+            'package_height_cm' => '10,25',
             'components' => [
                 ['product_id' => $decoder->getKey(), 'quantity' => 2],
                 ['product_id' => $adapter->getKey(), 'quantity' => 3],
@@ -42,6 +51,10 @@ class ProductBundleTest extends TestCase
 
         $this->assertSame(3, $bundle->getKey());
         $this->assertSame(0, $bundle->stock_quantity);
+        $this->assertSame('1.234', $bundle->package_weight_kg);
+        $this->assertSame('30.50', $bundle->package_length_cm);
+        $this->assertSame('20.00', $bundle->package_width_cm);
+        $this->assertSame('10.25', $bundle->package_height_cm);
         $this->assertSame(2, $bundle->load('bundleComponents.component')->availableStockQuantity());
         $this->assertDatabaseHas('product_bundle_components', [
             'bundle_id' => $bundle->getKey(),
@@ -115,10 +128,11 @@ class ProductBundleTest extends TestCase
 
     public function test_adding_bundle_to_order_keeps_one_line_and_snapshots_its_components(): void
     {
-        $decoder = $this->product(['name' => 'Dekoder', 'stock_quantity' => 8]);
-        $adapter = $this->product(['name' => 'Adapter', 'stock_quantity' => 20]);
+        $decoder = $this->product(['name' => 'Dekoder', 'stock_quantity' => 8, 'package_weight_kg' => '10.000']);
+        $adapter = $this->product(['name' => 'Adapter', 'stock_quantity' => 20, 'package_weight_kg' => '20.000']);
         $replacement = $this->product(['name' => 'Pilot', 'stock_quantity' => 30]);
         $bundle = $this->bundle($decoder, $adapter);
+        $bundle->update(['package_weight_kg' => '1.234']);
         $order = Order::query()->create([
             'source' => 'manual',
             'status' => Order::STATUS_NEW,
@@ -143,6 +157,8 @@ class ProductBundleTest extends TestCase
         $this->assertSame($bundle->getKey(), $item->product_id);
         $this->assertSame($bundle->name, $item->product_name);
         $this->assertSame('650.00', $item->unit_price_gross);
+        $this->assertSame('1.234', $item->weight);
+        $this->assertSame(2, $item->quantity);
         $this->assertSame(2, $item->bundleComponents()->count());
         $this->assertDatabaseHas('order_item_bundle_components', [
             'order_item_id' => $item->getKey(),
@@ -166,6 +182,20 @@ class ProductBundleTest extends TestCase
             'order_item_id' => $item->getKey(),
             'component_product_id' => $replacement->getKey(),
         ]);
+        $this->patch(route('product-bundles.update', $bundle), $this->bundlePayload([
+            'package_weight_kg' => '2,345',
+            'package_length_cm' => '40',
+            'package_width_cm' => '30',
+            'package_height_cm' => '20',
+            'components' => [
+                ['product_id' => $decoder->id, 'quantity' => 4],
+                ['product_id' => $replacement->id, 'quantity' => 1],
+            ],
+        ]))->assertSessionHasNoErrors();
+        $this->assertSame('2.345', $bundle->fresh()->package_weight_kg);
+        $this->assertSame('1.234', $item->fresh()->weight);
+        $this->assertSame(8, $decoder->fresh()->stock_quantity);
+        $this->assertSame(20, $adapter->fresh()->stock_quantity);
     }
 
     public function test_bundle_stock_cannot_be_edited_directly(): void
@@ -254,6 +284,47 @@ class ProductBundleTest extends TestCase
             'prestashop_account_id' => $account->getKey(),
             'external_product_id' => 96,
         ]);
+    }
+
+    #[DataProvider('invalidPackaging')]
+    public function test_bundle_packaging_uses_product_validation(array $packaging, array $errors): void
+    {
+        $first = $this->product();
+        $second = $this->product();
+        $this->post(route('product-bundles.store'), $this->bundlePayload($packaging + [
+            'components' => [['product_id' => $first->id, 'quantity' => 1], ['product_id' => $second->id, 'quantity' => 1]],
+        ]))->assertSessionHasErrors($errors);
+        $this->assertDatabaseCount('product_bundle_components', 0);
+        $this->assertDatabaseCount('products', 2);
+    }
+
+    public static function invalidPackaging(): array
+    {
+        return [
+            [['package_weight_kg' => '-1'], ['package_weight_kg']],
+            [['package_weight_kg' => '1.2345'], ['package_weight_kg']],
+            [['package_weight_kg' => '10000000'], ['package_weight_kg']],
+            [['package_weight_kg' => ['1']], ['package_weight_kg']],
+            [['package_length_cm' => '30'], ['package_width_cm', 'package_height_cm']],
+            [['package_length_cm' => '0', 'package_width_cm' => '20', 'package_height_cm' => '10'], ['package_length_cm']],
+            [['package_length_cm' => '30.123', 'package_width_cm' => '20', 'package_height_cm' => '10'], ['package_length_cm']],
+        ];
+    }
+
+    public function test_optional_bundle_packaging_can_be_cleared_without_changing_components(): void
+    {
+        $first = $this->product();
+        $second = $this->product();
+        $bundle = $this->bundle($first, $second);
+        $bundle->update(['package_weight_kg' => '1.000', 'package_length_cm' => '30', 'package_width_cm' => '20', 'package_height_cm' => '10']);
+        $this->patch(route('product-bundles.update', $bundle), $this->bundlePayload([
+            'package_weight_kg' => '', 'package_length_cm' => '', 'package_width_cm' => '', 'package_height_cm' => '',
+            'components' => [['product_id' => $first->id, 'quantity' => 1], ['product_id' => $second->id, 'quantity' => 2]],
+        ]))->assertSessionHasNoErrors();
+        foreach (['package_weight_kg', 'package_length_cm', 'package_width_cm', 'package_height_cm'] as $field) {
+            $this->assertNull($bundle->fresh()->{$field});
+        }
+        $this->assertSame(2, $bundle->bundleComponents()->count());
     }
 
     private function bundle(Product $first, Product $second): Product

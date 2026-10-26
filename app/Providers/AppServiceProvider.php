@@ -95,6 +95,16 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(120)->by((string) $request->ip());
         });
 
+        RateLimiter::for('paynow-customer', static fn (Request $request): Limit => Limit::perMinute(60)->by('paynow-page:'.$request->ip()));
+        RateLimiter::for('paynow-customer-status', static fn (Request $request): array => [
+            Limit::perMinute(30)->by('paynow-status-ip:'.$request->ip()),
+            Limit::perMinute(12)->by('paynow-status-ref:'.hash('sha256', is_string($request->query('ref')) ? $request->query('ref') : 'invalid')),
+        ]);
+        RateLimiter::for('paynow-customer-retry', static fn (Request $request): array => [
+            Limit::perMinute(5)->by('paynow-retry-ip:'.$request->ip()),
+            Limit::perMinute(3)->by('paynow-retry-ref:'.hash('sha256', is_string($request->query('ref')) ? $request->query('ref') : 'invalid')),
+        ]);
+
         Shipment::observe(ShipmentObserver::class);
         Shipment::observe(AllegroShipmentTrackingObserver::class);
         ShipmentParcel::observe(AllegroShipmentTrackingObserver::class);

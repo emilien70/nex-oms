@@ -903,6 +903,10 @@ Mechanizm nie tworzy rezerwacji i pozwala na stan ujemny. Nie odwraca ruchu po u
 
 Zestawy są przechowywane w tej samej tabeli products co zwykłe produkty i są rozróżniane przez item_type = bundle. Dzięki temu produkty i zestawy korzystają z jednej sekwencji ID, tych samych opcjonalnych relacji order_items.product_id i invoice_items.product_id oraz istniejącego mechanizmu powiązań ofert PrestaShop.
 
+Formularz zestawu wspoldzieli sekcje Opakowanie produktu. SaveProductBundleRequest waliduje opcjonalne package_weight_kg (3 miejsca, >=0) oraz komplet dodatnich package_length_cm/package_width_cm/package_height_cm (2 miejsca). ProductBundleManagementService zapisuje te istniejace kolumny jako wartosci dziesietne, bez wyliczania wagi lub gabarytow ze skladnikow. OrderCatalogProductService nadal kopiuje wage jednej sztuki do order_items.weight. PrestaShop wybiera wage OMS tylko przy tworzeniu nowej pozycji powiazanego zestawu, nie podczas pozniejszego uzupelniania powiazan. AllegroOrderCatalogService zachowuje source_weight, resetuje wynik przy ponownym rozwiazaniu powiazania i uwzglednia docelowa wage w catalog_hash. Import Allegro zapisuje weight razem z pozycja; zmiana wagi po podgladzie wymaga nowego potwierdzenia.
+
+Waga w order_items jest samodzielnym historycznym zapisem i nie jest automatycznie odczytywana z aktualnego katalogu. order_item_bundle_components nadal opisuje sklad dla magazynu, nie dodatkowa wage do doliczenia. Wymiary nie sa dodawane do order_items i nie zmieniaja ShipmentFormDefaultsService ani istniejacych przesylek. Bez migracji i bez operacji uzupelniajacej historyczne dane.
+
 Tabela prestashop_product_links przechowuje wiele ofert jednego konta PrestaShop przypisanych do tego samego produktu albo zestawu OMS. Unikalna pozostaje trójka prestashop_account_id, external_product_id i external_product_attribute_id, dlatego jedna oferta zewnętrzna nie może wskazywać kilku pozycji OMS. Lista katalogu grupuje rekordy według konta integracji, pokazuje ich liczbę i udostępnia edycję konkretnego rekordu po jego własnym ID. Import nadal rozwiązuje pozycję OMS jednoznacznie przez konto oraz ID produktu PrestaShop.
 
 Aktualny skład zestawu przechowuje tabela product_bundle_components. Każdy rekord wskazuje zestaw, zwykły produkt oraz dodatnią, całkowitą ilość składnika. Zestaw musi mieć co najmniej dwa różne produkty. Zagnieżdżanie zestawów jest zabronione. Dostępność zestawu jest wyliczana jako minimum z całkowitych ilorazów stan produktu / ilość składnika; stan zestawu nie jest zapisywany ani edytowany niezależnie.
@@ -2836,6 +2840,18 @@ Wykonanie akcji pozostaje asynchroniczne na kolejce `automation`. Błąd akcji z
 
 ---
 
+# PayNow - publiczny powrot klienta (PAYNOW.5)
+
+`PayNowReturnUrlService` generuje czasowy podpis Laravel dla konkretnego `paynow_payments.external_id`. Wygasa on dzien po `valid_until` (dla historycznego null: 92 dni od utworzenia). Staly czas na podstawie rekordu, zamiast `now()`, zachowuje podpis przy ponowieniu tego samego zadania z tym samym kluczem idempotencji. Podpis jest osobny dla GET strony, POST sprawdzenia i POST ponowienia. Pomijane przy sprawdzaniu podpisu sa tylko dopisywane przez PayNow `paymentId` i `paymentStatus`; sa traktowane jako niezaufane wskazowki. Nieznany nowy ID odzyskiwanej platnosci czeka na podpisany webhook i nie moze posluzyc do odczytu dowolnej transakcji przez API.
+
+`PayNowCustomerReturnController` nie uzywa layoutu administracyjnego ani nie zwraca adresow, e-maili lub credentiali. GET nie wykonuje HTTP ani ksiegowania. POST status sprawdza wylacznie ID zapisane w autoryzowanym rekordzie i korzysta z `PayNowPaymentStatusService`, bez drugiej sciezki ksiegowania. `PayNowCustomerPaymentService` serializuje ponowienia blokada cache per zamowienie (60 s). `PayNowPaymentLinkService` ponownie sprawdza ostatnia probe, zweryfikowany status i ID, pozostale nierozstrzygniete proby, konto i saldo pod blokadami bazy, przed przygotowaniem linku. Zmiana miedzy odczytem a transakcja blokuje nowe zlecenie. Istniejacy, zgodny aktywny link moze byc zwrocony ponownie; nowa proba wymaga swiezego potwierdzenia stanu REJECTED, ERROR albo EXPIRED. ABANDONED, brak ID, blad odczytu i needs_review nie uprawniaja do utworzenia nowej proby.
+
+`recordSuccess()` zachowuje CONFIRMED i jego provider_payment_id, jesli webhook nadejdzie przed odpowiedzia tworzenia linku. Rozbiezny ID odpowiedzi ustawia needs_review i nie podmienia URL ani potwierdzonego ID. To ochrona kolejnosci zdarzen, bez zmiany kwot lub zasad ksiegowania.
+
+Trzy trasy klienta zachowuja middleware web i CSRF dla POST. Limitery ograniczaja GET do 60/min/IP, status do 30/min/IP i 12/min/ref, ponowienie do 5/min/IP i 3/min/ref. W produkcji wymagany jest wspoldzielony, trwaly cache z atomowymi blokadami (database/Redis albo file na jednym VPS); array jest tylko dla testow. Odpowiedzi strony nie sa cache'owane; maja no-referrer, noindex, DENY i CSP z nonce bez zewnetrznych skryptow, fontow lub analityki. Bez migracji i bez zmiany .env/APP_KEY. Dokumentacja wdrozenia omawia HTTPS i waskie wyjatki Basic Auth.
+
+---
+
 # 41. Integracja PrestaShop — etap PRESTASHOP.1
 
 Fundament integracji znajduje się w `Modules/Integrations/Prestashop`, przy zachowaniu centralnych tras i migracji projektu. `prestashop_accounts` przechowuje jedno logiczne połączenie ze sklepem, zaszyfrowany Klucz API, wynik ostatniego testu oraz wykryte metadane instalacji. `prestashop_order_states` przechowuje lokalny słownik statusów potrzebny w następnym etapie do jawnego mapowania. Zmiana adresu sklepu albo klucza usuwa wykryte dane i wyłącza integrację do czasu ponownego testu.
@@ -2927,6 +2943,20 @@ Etap nie dodaje webhooka ani modułu PrestaShop, nie odświeża danych już zaim
 Potwierdzona płatność PayNow o zgodnym identyfikatorze transakcji, kwocie i walucie jest traktowana jako ten sam przepływ środków i oznaczana jako odzwierciedlona bez ponownego naliczenia. Niezgodność waluty, nadpłata, zmiana historycznej płatności, brak zamówienia lub możliwy duplikat bez wspólnego identyfikatora tworzą bezpieczne zdarzenie wymagające weryfikacji i nie zmieniają salda.
 
 Warstwa widoku dołącza płatności PrestaShop do istniejącej sekcji płatności zamówienia. Etap nie modyfikuje pozycji, adresów ani kwot zamówienia poza saldem wpłat, nie implementuje zwrotów i nie wymaga modułu po stronie sklepu. Scheduler i worker kolejki `integrations` pozostają wymagane na VPS.
+
+---
+
+## PrestaShop - deklaracja oplacenia i identyfikator transakcji
+
+`PrestashopPaymentStatusService` odczytuje `paid` z konfiguracji rzeczywistego statusu sklepu. Import i podsumowania synchronizacji przekazuja tez `current_state`, `total_paid_tax_incl` i `id_currency`. Deklaracja pelnego oplacenia jest rozdzielona od natywnych `order_payments`; zapisujemy `external_payment_paid`, `status_paid_amount` i `status_paid_at` na istniejacym powiazaniu zamowienia. Brak rekordu wplaty nie tworzy sztucznego `external_payment_id` ani `transaction_id`.
+
+Obserwacja, uznanie salda, zdarzenie zamowienia i after-commit event sa chronione transakcja oraz blokadami powiazania i zamowienia. `OrderPaymentRegistered` zachowuje dotychczasowe UUID dla wszystkich starych wywolan; opcjonalna tozsamosc `prestashop-paid-status:<link-id>` zapobiega kolizji z natywnym rekordem platnosci przy zachowaniu zrodla `prestashop` w automatyzacjach. Pozniejsze natywne rekordy mieszczace sie lacznie w juz uznanej kwocie sa `mirrored` ze zrodlem `prestashop_status`, bez nowego naliczenia lub zdarzenia. Kontrole nadplat, walut, zmian kwot i wycofanych rekordow nadal dzialaja. Dozwolone uzupelnienie pustego ID nie pozwala podmieniac juz znanego ID.
+
+Nowy nullable wynik obserwacji pozwala stopniowo sprawdzic stare powiazania poza kursorem `date_upd`: maksymalnie 10 najnowszych na przebieg, bez zamowien usunietych lub innego zrodla. Nie zerujemy kursora i nie zmieniamy danych biznesowych w migracji. Sprawdzenie dostepnosci kolumn chroni okres przed migracja przed czesciowym wlaczeniem nowej polityki.
+
+Ustawienie `prestashop_accounts.warn_missing_transaction_id` jest bool, domyslnie false. Warunek ikony czyta flage sklepu i natywne ID transakcji z bazy, nie wykonuje HTTP i nie zmienia stanu platnosci. Endpoint stanu porownuje flage ostrzezenia klienta, aby odswiezyc fragment informacji i platnosci takze przy samym uzupelnieniu ID. Istniejacy initializer i cleanup tooltipow obejmuje nowa ikone, lacznie z obsluga focus/click.
+
+Migracja `2026_10_26_010000_add_prestashop_paid_status_tracking.php` jest addytywna; `down()` odmawia usuniecia zapisanej historii deklaracji. Nie zmienia historii faktur, numeracji, KSeF ani ustawien innych integracji.
 
 ---
 

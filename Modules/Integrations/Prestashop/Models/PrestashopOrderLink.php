@@ -25,6 +25,9 @@ class PrestashopOrderLink extends Model
         'external_updated_at',
         'source_hash',
         'imported_at',
+        'external_payment_paid',
+        'status_paid_amount',
+        'status_paid_at',
     ];
 
     protected $casts = [
@@ -35,6 +38,9 @@ class PrestashopOrderLink extends Model
         'external_created_at' => 'immutable_datetime',
         'external_updated_at' => 'immutable_datetime',
         'imported_at' => 'immutable_datetime',
+        'external_payment_paid' => 'boolean',
+        'status_paid_amount' => 'decimal:2',
+        'status_paid_at' => 'immutable_datetime',
     ];
 
     public function account(): BelongsTo

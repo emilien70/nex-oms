@@ -4982,7 +4982,7 @@
             });
 
             const disposePaymentLinkTooltips = (root = document) => {
-                root.querySelectorAll('[data-payment-link-action]').forEach((button) => {
+                root.querySelectorAll('[data-payment-link-action], [data-payment-id-warning]').forEach((button) => {
                     window.bootstrap?.Tooltip.getInstance(button)?.dispose();
                 });
             };
@@ -4992,7 +4992,7 @@
                     return;
                 }
 
-                root.querySelectorAll('[data-payment-link-action]').forEach((button) => {
+                root.querySelectorAll('[data-payment-link-action], [data-payment-id-warning]').forEach((button) => {
                     window.bootstrap.Tooltip.getOrCreateInstance(button);
                 });
             };
@@ -5886,6 +5886,7 @@
                 }
 
                 const url = new URL(orderStateUrl, window.location.origin);
+                url.searchParams.set('payment_id_warning', document.querySelector('[data-payment-id-warning]') ? '1' : '0');
                 const historyPage = automationPage ?? document.querySelector('[data-automation-history-current-page]')?.dataset.automationHistoryCurrentPage;
                 if (historyPage) {
                     url.searchParams.set('automation_page', String(historyPage));

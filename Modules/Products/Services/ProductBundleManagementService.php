@@ -20,6 +20,10 @@ class ProductBundleManagementService
         'price_gross',
         'currency',
         'vat_rate',
+        'package_weight_kg',
+        'package_length_cm',
+        'package_width_cm',
+        'package_height_cm',
         'is_active',
     ];
 
@@ -40,10 +44,6 @@ class ProductBundleManagementService
                 $bundle->fill($this->normalizeData($data) + [
                     'item_type' => Product::TYPE_BUNDLE,
                     'stock_quantity' => 0,
-                    'package_weight_kg' => null,
-                    'package_length_cm' => null,
-                    'package_width_cm' => null,
-                    'package_height_cm' => null,
                 ]);
                 $bundle->save();
                 $bundleId = (int) $bundle->getKey();
@@ -188,6 +188,10 @@ class ProductBundleManagementService
         $normalized['price_gross'] = $this->decimal($normalized['price_gross'], 2);
         $normalized['currency'] = $this->currencies->require($normalized['currency'] ?? null);
         $normalized['vat_rate'] = $this->decimal($normalized['vat_rate'], 2);
+        $normalized['package_weight_kg'] = $this->nullableDecimal($normalized['package_weight_kg'] ?? null, 3);
+        $normalized['package_length_cm'] = $this->nullableDecimal($normalized['package_length_cm'] ?? null, 2);
+        $normalized['package_width_cm'] = $this->nullableDecimal($normalized['package_width_cm'] ?? null, 2);
+        $normalized['package_height_cm'] = $this->nullableDecimal($normalized['package_height_cm'] ?? null, 2);
         $normalized['is_active'] = (bool) $normalized['is_active'];
 
         return $normalized;
@@ -197,5 +201,10 @@ class ProductBundleManagementService
     {
         return (string) BigDecimal::of((string) $value)
             ->toScale($scale, RoundingMode::Unnecessary);
+    }
+
+    private function nullableDecimal(mixed $value, int $scale): ?string
+    {
+        return $value === null || $value === '' ? null : $this->decimal($value, $scale);
     }
 }

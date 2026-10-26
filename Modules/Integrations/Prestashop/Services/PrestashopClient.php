@@ -369,7 +369,7 @@ class PrestashopClient
         return $this->normalizeOrderPaymentSummaryRows(
             $this->rows(
                 $this->payload($this->getJson($account, 'orders', [
-                    'display' => '[id,total_paid_real,date_upd]',
+                    'display' => '[id,total_paid_real,total_paid_tax_incl,id_currency,current_state,date_upd]',
                     'filter[id]' => '['.implode('|', $orderIds).']',
                     'sort' => '[id_ASC]',
                 ])),
@@ -400,7 +400,7 @@ class PrestashopClient
         return $this->normalizeOrderPaymentSummaryRows(
             $this->rows(
                 $this->payload($this->getJson($account, 'orders', [
-                    'display' => '[id,total_paid_real,date_upd]',
+                    'display' => '[id,total_paid_real,total_paid_tax_incl,id_currency,current_state,date_upd]',
                     'date' => 1,
                     'filter[date_upd]' => '['.$from.','.$to.']',
                     'sort' => '[date_upd_ASC,id_ASC]',
@@ -662,6 +662,9 @@ class PrestashopClient
             $result[] = [
                 'id' => $id,
                 'total_paid_real' => $paidAmount,
+                'total_paid_tax_incl' => isset($row['total_paid_tax_incl']) ? (string) $row['total_paid_tax_incl'] : null,
+                'id_currency' => $this->positiveId($row['id_currency'] ?? null),
+                'current_state' => $this->positiveId($row['current_state'] ?? null),
                 'date_upd' => $date !== '' && $date !== '0000-00-00 00:00:00' ? $date : null,
             ];
         }

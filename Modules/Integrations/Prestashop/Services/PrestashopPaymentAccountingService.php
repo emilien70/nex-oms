@@ -3,10 +3,12 @@
 namespace Modules\Integrations\Prestashop\Services;
 
 use App\Events\OrderPaymentRegistered;
+use App\Models\Order;
 use App\Services\OrderPaymentStateService;
 use Illuminate\Support\Facades\DB;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Integrations\PayNow\Models\PayNowPayment;
+use Modules\Integrations\Prestashop\Models\PrestashopOrderLink;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderPayment;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
@@ -21,6 +23,9 @@ class PrestashopPaymentAccountingService
     public function account(int $paymentId, string $remotePaidAmount): string
     {
         return DB::transaction(function () use ($paymentId, $remotePaidAmount): string {
+            $paymentLinkId = PrestashopOrderPayment::query()->findOrFail($paymentId)->prestashop_order_link_id;
+            $link = PrestashopOrderLink::query()->lockForUpdate()->findOrFail($paymentLinkId);
+            $order = Order::query()->lockForUpdate()->find($link->order_id);
             $payment = PrestashopOrderPayment::query()
                 ->with('orderLink.order')
                 ->lockForUpdate()
@@ -29,8 +34,6 @@ class PrestashopPaymentAccountingService
             if ($payment->accounting_status !== PrestashopOrderPayment::STATUS_PENDING) {
                 return $payment->accounting_status;
             }
-
-            $order = $payment->orderLink?->order;
 
             if (! $order || $order->trashed()) {
                 return $this->markForReview(
@@ -46,6 +49,26 @@ class PrestashopPaymentAccountingService
                     'currency_mismatch',
                     'Waluta płatności PrestaShop nie jest zgodna z walutą zamówienia.',
                 );
+            }
+
+            if ($link->status_paid_at) {
+                $nativeTotal = '0.00';
+                foreach ($link->payments()->get() as $nativePayment) {
+                    $nativeTotal = $this->decimal->add($nativeTotal, (string) $nativePayment->amount);
+                }
+                if ($this->decimal->compare($nativeTotal, (string) $link->status_paid_amount) <= 0
+                    && $this->decimal->compare((string) $order->paid_amount, (string) $link->status_paid_amount) >= 0) {
+                    $payment->forceFill([
+                        'accounting_status' => PrestashopOrderPayment::STATUS_MIRRORED,
+                        'needs_review' => false,
+                        'safe_error_code' => null,
+                        'safe_error_message' => null,
+                        'matched_payment_source' => 'prestashop_status',
+                        'matched_payment_record_id' => $link->getKey(),
+                    ])->save();
+
+                    return PrestashopOrderPayment::STATUS_MIRRORED;
+                }
             }
 
             $matchingPayNow = $this->matchingPayNowPayment($payment, $order->getKey());

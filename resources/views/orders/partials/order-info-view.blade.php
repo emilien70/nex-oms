@@ -26,6 +26,11 @@
     <div class="nex-label">Zap&#322;acono:</div>
     <button class="badge border-0 {{ $paidBadgeClass }}" type="button" data-paid-edit-open aria-label="Edytuj wp&#322;at&#281;">{{ $moneyValue($order->paid_amount) }} {{ $order->currency }}</button>
     <span class="text-secondary">z {{ $moneyValue($order->total_gross) }} {{ $order->currency }}</span>
+    @if (app(\Modules\Integrations\Prestashop\Services\PrestashopPaymentStatusService::class)->hasMissingTransactionId($order))
+        <button type="button" class="border-0 bg-transparent text-danger p-0 d-inline-flex align-items-center justify-content-center" style="width: 18px; height: 20px; font-size: 16px" data-payment-id-warning data-bs-toggle="tooltip" data-bs-trigger="hover focus click" title="Brak ID płatności" aria-label="Brak ID płatności">
+            <i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>
+        </button>
+    @endif
     <div class="paid-amount-action-group" role="group" aria-label="Akcje p&#322;atno&#347;ci">
         <form method="POST" action="{{ route('orders.recalculate-total', $order) }}" data-order-ajax-form>
             @csrf

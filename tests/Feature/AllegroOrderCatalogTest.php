@@ -11,6 +11,7 @@ use Mockery\MockInterface;
 use Modules\Integrations\Allegro\Exceptions\AllegroImportException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroProductLink;
+use Modules\Integrations\Allegro\Services\AllegroOrderCatalogService;
 use Modules\Integrations\Allegro\Services\AllegroOrderImportService;
 use Modules\Integrations\Allegro\Services\AllegroOrderPreviewService;
 use Modules\Invoices\Services\InvoiceIssuingService;
@@ -98,9 +99,9 @@ class AllegroOrderCatalogTest extends TestCase
     public function test_bundle_is_one_order_line_with_a_frozen_component_snapshot_and_no_stock_change(): void
     {
         $account = $this->account();
-        $decoder = $this->product(['name' => 'Dekoder', 'stock_quantity' => 50]);
-        $wifi = $this->product(['name' => 'Wi-Fi', 'stock_quantity' => 100]);
-        $bundle = $this->product(['name' => 'Dekoder z Wi-Fi', 'item_type' => 'bundle', 'stock_quantity' => 0]);
+        $decoder = $this->product(['name' => 'Dekoder', 'stock_quantity' => 50, 'package_weight_kg' => '10.000']);
+        $wifi = $this->product(['name' => 'Wi-Fi', 'stock_quantity' => 100, 'package_weight_kg' => '20.000']);
+        $bundle = $this->product(['name' => 'Dekoder z Wi-Fi', 'item_type' => 'bundle', 'stock_quantity' => 0, 'package_weight_kg' => '1.234']);
         $bundle->bundleComponents()->create(['component_product_id' => $decoder->id, 'quantity' => 1]);
         $bundle->bundleComponents()->create(['component_product_id' => $wifi->id, 'quantity' => 2]);
         $this->link($account, $bundle);
@@ -109,6 +110,7 @@ class AllegroOrderCatalogTest extends TestCase
         $item = $order->items->sole();
         $this->assertSame($bundle->id, $item->product_id);
         $this->assertSame(3, $item->quantity);
+        $this->assertSame('1.234', $item->weight);
         $this->assertCount(2, $item->bundleComponents);
         $this->assertSame([1, 2], $item->bundleComponents->pluck('quantity_per_bundle')->all());
         $this->assertSame(50, $decoder->fresh()->stock_quantity);
@@ -117,6 +119,9 @@ class AllegroOrderCatalogTest extends TestCase
         $wifi->update(['name' => 'Nowa nazwa Wi-Fi']);
         $this->assertSame([1, 2], $item->bundleComponents()->orderBy('id')->pluck('quantity_per_bundle')->all());
         $this->assertSame('Wi-Fi', $item->bundleComponents()->orderByDesc('id')->first()->component_product_name);
+        $bundle->update(['package_weight_kg' => '9.999']);
+        app(AllegroOrderImportService::class)->import($account, Fixture::ORDER_ID, str_repeat('0', 64));
+        $this->assertSame('1.234', $item->fresh()->weight);
         $this->assertDatabaseCount('product_stock_movements', 0);
     }
 
@@ -134,6 +139,46 @@ class AllegroOrderCatalogTest extends TestCase
         } catch (AllegroImportException) {
             $this->assertDatabaseCount('orders', 0);
         }
+    }
+
+    public function test_bundle_weight_change_after_preview_requires_confirmation(): void
+    {
+        $account = $this->account();
+        $bundle = $this->product(['item_type' => 'bundle', 'package_weight_kg' => '1.000']);
+        $bundle->bundleComponents()->createMany([
+            ['component_product_id' => $this->product()->id, 'quantity' => 1],
+            ['component_product_id' => $this->product()->id, 'quantity' => 1],
+        ]);
+        $this->link($account, $bundle);
+        $preview = $this->preview($account);
+        $bundle->update(['package_weight_kg' => '2.000']);
+        try {
+            app(AllegroOrderImportService::class)->import($account, Fixture::ORDER_ID, $preview['source_hash']);
+            $this->fail('Weight change requires a new preview');
+        } catch (AllegroImportException) {
+            $this->assertDatabaseCount('orders', 0);
+        }
+    }
+
+    public function test_catalog_weight_falls_back_to_source_and_reapplication_does_not_keep_old_bundle_weight(): void
+    {
+        $account = $this->account();
+        $bundle = $this->product(['item_type' => 'bundle', 'package_weight_kg' => '2.500']);
+        $bundle->bundleComponents()->createMany([
+            ['component_product_id' => $this->product()->id, 'quantity' => 1],
+            ['component_product_id' => $this->product()->id, 'quantity' => 1],
+        ]);
+        $this->link($account, $bundle);
+        $preview = $this->preview($account);
+        $preview['items'][0]['source_weight'] = '0.750';
+        $catalog = app(AllegroOrderCatalogService::class);
+        $preview = $catalog->apply($account, $preview);
+        $this->assertSame('2.500', $preview['items'][0]['weight']);
+        $bundle->update(['package_weight_kg' => null]);
+        $preview = $catalog->apply($account, $preview);
+        $this->assertSame('0.750', $preview['items'][0]['weight']);
+        $account->update(['use_linked_products' => false]);
+        $this->assertSame('0.750', $catalog->apply($account, $preview)['items'][0]['weight']);
     }
 
     public function test_bundle_composition_change_after_preview_requires_a_new_confirmation(): void

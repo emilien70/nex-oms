@@ -264,7 +264,18 @@
                             </div>
 
                             <div class="col-12">
-                                <label class="form-label" for="paynow-continue-url">Adres powrotu klienta</label>
+                                <label class="form-label" for="paynow-return-url">Adres strony powrotu OMS</label>
+                                <div class="input-group">
+                                    <input id="paynow-return-url" class="form-control" type="text" value="{{ $returnUrl }}" readonly>
+                                    <button class="btn btn-outline-secondary" type="button" data-copy-paynow-return-url title="Kopiuj adres">
+                                        <i class="bi bi-clipboard" aria-hidden="true"></i>
+                                        <span class="visually-hidden">Kopiuj adres strony powrotu</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label" for="paynow-continue-url">Adres powrotu klienta (własny, opcjonalnie)</label>
                                 <input
                                     id="paynow-continue-url"
                                     class="form-control @error('continue_url') is-invalid @enderror"
@@ -272,7 +283,7 @@
                                     type="url"
                                     maxlength="2048"
                                     value="{{ old('continue_url', $account->continue_url) }}"
-                                    placeholder="https://sklep.example/podziekowanie"
+                                    placeholder="Domyślnie strona powrotu OMS"
                                 >
                             </div>
 
@@ -340,6 +351,16 @@
                 return;
             }
 
+            try {
+                await navigator.clipboard.writeText(input.value);
+            } catch (error) {
+                input.select();
+                document.execCommand('copy');
+            }
+        });
+
+        document.querySelector('[data-copy-paynow-return-url]')?.addEventListener('click', async () => {
+            const input = document.getElementById('paynow-return-url');
             try {
                 await navigator.clipboard.writeText(input.value);
             } catch (error) {

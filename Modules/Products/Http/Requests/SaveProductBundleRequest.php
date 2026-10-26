@@ -35,6 +35,10 @@ class SaveProductBundleRequest extends FormRequest
             'vat_rate_preset' => ['required', Rule::in([...self::STANDARD_VAT_RATES, 'custom'])],
             'custom_vat_rate' => ['nullable', 'required_if:vat_rate_preset,custom', 'decimal:0,2', 'min:0', 'max:100'],
             'vat_rate' => ['required', 'decimal:0,2', 'min:0', 'max:100'],
+            'package_weight_kg' => ['nullable', 'decimal:0,3', 'min:0', 'max:9999999.999'],
+            'package_length_cm' => ['nullable', 'required_with:package_width_cm,package_height_cm', 'decimal:0,2', 'gt:0', 'max:99999999.99'],
+            'package_width_cm' => ['nullable', 'required_with:package_length_cm,package_height_cm', 'decimal:0,2', 'gt:0', 'max:99999999.99'],
+            'package_height_cm' => ['nullable', 'required_with:package_length_cm,package_width_cm', 'decimal:0,2', 'gt:0', 'max:99999999.99'],
             'image' => [
                 'nullable',
                 Rule::prohibitedIf(fn (): bool => $this->boolean('remove_image')),
@@ -68,6 +72,10 @@ class SaveProductBundleRequest extends FormRequest
             'currency' => 'waluta',
             'vat_rate_preset' => 'stawka VAT',
             'custom_vat_rate' => 'inna stawka VAT',
+            'package_weight_kg' => 'waga opakowania',
+            'package_length_cm' => 'długość opakowania',
+            'package_width_cm' => 'szerokość opakowania',
+            'package_height_cm' => 'wysokość opakowania',
             'image' => 'zdjęcie zestawu',
             'is_active' => 'aktywność zestawu',
             'components' => 'skład zestawu',
@@ -98,6 +106,10 @@ class SaveProductBundleRequest extends FormRequest
             'currency' => app(CurrencyCatalog::class)->normalize($this->input('currency')),
             'vat_rate_preset' => $vatPreset,
             'custom_vat_rate' => $customVatRate,
+            'package_weight_kg' => $this->normalizePackageInput($this->input('package_weight_kg')),
+            'package_length_cm' => $this->normalizePackageInput($this->input('package_length_cm')),
+            'package_width_cm' => $this->normalizePackageInput($this->input('package_width_cm')),
+            'package_height_cm' => $this->normalizePackageInput($this->input('package_height_cm')),
             'vat_rate' => in_array($vatPreset, self::STANDARD_VAT_RATES, true)
                 ? $vatPreset
                 : $customVatRate,
@@ -126,5 +138,12 @@ class SaveProductBundleRequest extends FormRequest
         $normalized = str_replace(',', '.', trim((string) $value));
 
         return $normalized !== '' ? $normalized : null;
+    }
+
+    private function normalizePackageInput(mixed $value): mixed
+    {
+        return is_string($value) || is_int($value) || $value === null
+            ? $this->normalizeDecimalInput($value)
+            : $value;
     }
 }

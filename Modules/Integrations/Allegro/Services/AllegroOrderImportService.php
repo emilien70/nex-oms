@@ -157,7 +157,7 @@ class AllegroOrderImportService
                 foreach ($preview['items'] as $item) {
                     $orderItem = $order->items()->create(collect($item)->only([
                         'external_id', 'product_name', 'offer_id', 'quantity', 'unit_price_gross',
-                        'total_price_gross', 'currency', 'product_id', 'vat_rate',
+                        'total_price_gross', 'currency', 'product_id', 'vat_rate', 'weight',
                     ])->all());
                     if ($item['product_id'] !== null && $item['catalog']['item_type'] === Product::TYPE_BUNDLE) {
                         $this->bundleSnapshots->capture($orderItem, Product::query()->findOrFail($item['product_id']));

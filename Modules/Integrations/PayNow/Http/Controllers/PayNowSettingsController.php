@@ -22,6 +22,7 @@ class PayNowSettingsController extends Controller
             'credentialsConfigured' => $account->hasCompleteCredentials(),
             'canActivate' => $account->last_test_status === PayNowConnectionTestStatus::Success,
             'notificationUrl' => route('api.paynow.notifications'),
+            'returnUrl' => route('paynow.return'),
         ]);
     }
 

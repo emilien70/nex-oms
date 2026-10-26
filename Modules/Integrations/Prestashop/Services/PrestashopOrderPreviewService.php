@@ -25,6 +25,7 @@ class PrestashopOrderPreviewService
         private readonly InvoiceDecimalCalculator $decimal,
         private readonly InvoiceFinancialValueValidator $financial,
         private readonly OrderPaymentStateService $paymentState,
+        private readonly PrestashopPaymentStatusService $paymentStatuses,
     ) {}
 
     /** @return array<string, mixed> */
@@ -78,6 +79,7 @@ class PrestashopOrderPreviewService
         $paidAmount = $this->money($remoteOrder['total_paid_real'] ?? '0', 'kwoty zapłaconej');
         $this->assertPaymentsMatch($payments, $paidAmount, $currency);
         $paymentStatus = $this->paymentStatus($totalGross, $paidAmount);
+        $nativePaidAmount = $paidAmount;
         $currentStateId = $this->orderStateId($remoteOrder['current_state'] ?? null);
         $currentState = $currentStateId === null
             ? null
@@ -88,7 +90,11 @@ class PrestashopOrderPreviewService
                 'Status zamówienia nie występuje w zapisanej konfiguracji. Wykonaj ponownie test połączenia.',
             );
         }
-        $warnings = $this->warnings($shippingAddress, $billingAddress, $paidAmount, $payments, $remoteOrder, $pickupPoint);
+        if ($currentState?->paid && $this->paymentStatuses->available()) {
+            $paidAmount = $totalGross;
+            $paymentStatus = $this->paymentStatus($totalGross, $paidAmount);
+        }
+        $warnings = $this->warnings($shippingAddress, $billingAddress, $nativePaidAmount, $payments, $remoteOrder, $pickupPoint);
 
         if ($currentStateId === null) {
             $warnings[] = 'PrestaShop nie przypisał statusu. Zamówienie zostanie zaimportowane do OMS jako Nowe.';
@@ -119,6 +125,8 @@ class PrestashopOrderPreviewService
             'notes' => $this->notes($remoteOrder),
             'items' => $items,
             'payments' => $payments,
+            'native_paid_amount' => $nativePaidAmount,
+            'external_payment_paid' => (bool) $currentState?->paid,
             'warnings' => $warnings,
         ];
 

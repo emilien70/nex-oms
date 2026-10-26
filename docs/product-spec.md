@@ -342,7 +342,7 @@ Zestawy katalogowe:
 
 - lista katalogu posiada osobne zakładki „Produkty” i „Zestawy”,
 - produkt i zestaw korzystają ze wspólnej puli wewnętrznych ID,
-- zestaw ma własną nazwę, cenę, VAT, walutę, opcjonalny EAN i zdjęcie,
+- zestaw ma własną nazwę, cenę, VAT, walutę, opcjonalny EAN i zdjęcie oraz opcjonalną wagę i komplet wymiarów opakowania,
 - zestaw składa się z co najmniej dwóch różnych, istniejących produktów wraz z ilością każdego składnika,
 - zestaw nie może zawierać innego zestawu ani samego siebie,
 - zestaw nie posiada własnego edytowalnego stanu; jego dostępność jest najmniejszą całkowitą liczbą zestawów możliwych do złożenia ze stanów wszystkich składników,
@@ -354,6 +354,10 @@ Zestawy katalogowe:
 - późniejsza zmiana składu zestawu nie zmienia już istniejących pozycji zamówień,
 - akcja „Zmniejsz stan magazynowy” odejmuje od każdego składnika iloczyn ilości zestawów i ilości składnika w snapshotcie,
 - ruchy magazynowe są zapisywane osobno dla składników i pozostają idempotentne dla pary pozycja zamówienia-składnik.
+
+Sekcja Opakowanie zestawu jest identyczna jak w produkcie: waga w kg z trzema miejscami po przecinku oraz dlugosc, szerokosc i wysokosc w cm z dwoma. Wymiary sa albo wszystkie puste, albo wszystkie dodatnie. Parametry opisują jeden kompletny zestaw; nie sumujemy ich ze skladnikow. Reczne dodanie zestawu z katalogu kopiuje wage jednostkowa do nowej pozycji zamowienia. Import powiazanego zestawu z Allegro lub PrestaShop preferuje wage zestawu OMS, a przy null zachowuje dostepna wage ze zrodla. Jawne zero pozostaje zerem, zgodnie z walidacja produktow.
+
+Zmiana parametrow w katalogu ani ponowny import kompletnego zamowienia nie uzupelniaja lub nie nadpisuja historycznych wag. Wymiary pozostaja parametrami katalogowymi; ten etap nie wyznacza automatycznie rozmiaru paczki, nie zmienia domyslnych parametrow kuriera i nie sumuje gabarytow kilku pozycji. Kolumny juz istnieja, wiec nie dodano migracji. Raport: `docs/bundle-packaging-report.md`.
 
 Docelowe założenia:
 
@@ -2367,6 +2371,16 @@ Zdarzenie może uruchamiać istniejące akcje, między innymi zmianę statusu, w
 
 ---
 
+# PAYNOW.5 - strona powrotu klienta
+
+Publiczna strona `/paynow/powrot` pokazuje potwierdzenie wplaty z rzeczywistym ID PayNow, nieudana platnosc z mozliwoscia ponowienia albo stan oczekiwania. Bez poprawnego, czasowego podpisu nie ujawnia danych platnosci. Sama obecnosc `paymentStatus=CONFIRMED` w adresie nie stanowi dowodu wplaty. Potwierdzenie pochodzi z istniejacego podpisanego webhooka lub odczytu statusu przez API, z zachowaniem jednokrotnego ksiegowania i automatyzacji.
+
+Konfiguracja pokazuje bazowy adres strony OMS do skopiowania. Pusty wlasny adres powrotu oznacza automatyczne generowanie podpisanego `continueUrl` dla nowych prob. Istniejacy wlasny adres jest zachowany; wpisanie dokladnego adresu strony OMS rowniez uruchamia podpisany wariant. Wczesniej wydane linki pozostaja bez zmian. Ponowienie sprawdza aktualne saldo, konto, status ostatniej proby i pozostale nierozstrzygniete proby. Nie tworzy kolejnej platnosci przy niepewnym wyniku, wymaganej weryfikacji, oplaconym lub anulowanym zamowieniu. Aktualne potwierdzenie nie jest nadpisywane przez opozniona odpowiedz generowania linku.
+
+Strona jest niezalezna od panelu administracyjnego i responsywna. Odczyt statusu oraz ponowienie korzystaja z POST i CSRF; odswiezanie automatyczne jest ograniczone do szesciu sprawdzen. Brak nowych tabel, migracji, backfillu i zmian historycznych platnosci. Wdrozenie wymaga waskich wyjatkow Basic Auth tylko dla trzech tras klienta, bez otwierania panelu OMS. Instrukcja: `docs/006-Deployment.md`; raport: `docs/paynow-customer-return-report.md`.
+
+---
+
 # PRESTASHOP.1 — konfiguracja i rozpoznanie sklepu
 
 NEX-OMS udostępnia kafel `PrestaShop` oraz konfigurację jednego sklepu internetowego. Operator zapisuje nazwę, bazowy adres HTTPS i 32-znakowy Klucz API. Klucz jest szyfrowany w bazie, nie wraca do HTML ani sesji po błędzie walidacji, a pozostawienie pola pustego zachowuje bieżącą wartość. Integrację można aktywować dopiero po poprawnym teście aktualnego adresu i klucza. Zmiana danych połączenia automatycznie ją wyłącza i unieważnia poprzedni wynik testu.
@@ -2462,6 +2476,18 @@ Każda zewnętrzna płatność jest identyfikowana przez ID `order_payment` Pres
 Jeżeli identyfikator transakcji odpowiada już zaksięgowanej wpłacie PayNow o tej samej kwocie i walucie, rekord PrestaShop jest oznaczany jako odzwierciedlony i nie zwiększa salda ponownie. Niezgodność waluty, nadpłata, zmiana wcześniej zapisanej płatności albo możliwy duplikat bez wspólnego identyfikatora trafiają do ręcznej weryfikacji i nie modyfikują salda zamówienia.
 
 Etap pokazuje płatności PrestaShop w sekcji `Informacje dodatkowe → Płatności`. Nie obsługuje automatycznych zwrotów, usuwania wcześniej zaksięgowanych wpłat ani ręcznego rozstrzygania pozycji wymagających sprawdzenia. Nadal korzysta z natywnego Webservice API i nie wymaga modułu NEX w PrestaShop.
+
+---
+
+## PrestaShop - oplacenie wedlug statusu i brak ID transakcji
+
+Import i synchronizacja platnosci uznaja flage `paid` statusu PrestaShop jako deklaracje pelnego oplacenia. Nie rozpoznaja statusu po nazwie ani stalym ID. Przy braku szczegolowej wplaty zamowienie otrzymuje pelna kwote `paid_amount` i stan `paid`, a historia pokazuje `Oplacenie na podstawie statusu PrestaShop`. Nie tworzymy fikcyjnego identyfikatora transakcji ani rekordu `order_payment`. Pozniejsza zmiana statusu bez flagi `paid` nie zeruje salda i nie zleca zwrotu pieniedzy.
+
+Pozniejsze natywne wplaty mieszczace sie w juz uznanej kwocie potwierdzaja istniejace oplacenie bez ponownego naliczenia i bez powtornego zdarzenia automatyzacji. Uznanie wedlug statusu publikuje jednorazowo `payment.registered` ze zrodlem `prestashop` oraz odrebna tozsamoscia zdarzenia. Waluta i wartosc zdalnego zamowienia musza zgadzac sie z OMS. Istniejace zabezpieczenia zmiany kwoty, waluty, wycofania wplaty i nadplat pozostaja aktywne.
+
+Zakladka Platnosci zawiera `Wyswietlaj ostrzezenie w przypadku braku identyfikatora transakcji: Tak/Nie`, domyslnie Nie. Po wlaczeniu, dla statusu `paid=true`, brak natywnych wplat lub brak `transaction_id` jednej z wplat pokazuje czerwony wykrzyknik po prawej stronie kwoty. Podpowiedz brzmi `Brak ID platnosci`. Ikona nie zmienia salda, statusu ani automatyzacji. Techniczne `external_payment_id` nie zastepuje ID transakcji operatora.
+
+Karta i podpowiedz czytaja tylko zapisane dane. Zmiana ostrzezenia jest uwzgledniana przez istniejace odswiezanie AJAX. Synchronizacja uzupelnia puste ID bez ponownego ksiegowania. Starsze powiazania bez obserwacji nowego mechanizmu sa sprawdzane po maksymalnie 10 na zwykly przebieg, od najnowszych, bez zerowania kursora i bez backfillu w migracji. Wymagana migracja: `2026_10_26_010000_add_prestashop_paid_status_tracking.php`; opis wdrozenia i testow: `docs/prestashop-paid-status-report.md`.
 
 ---
 
