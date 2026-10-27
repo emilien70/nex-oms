@@ -75,7 +75,7 @@ class OrderStatusPollingTest extends TestCase
             ->assertOk()
             ->assertSee('data-order-id="'.$order->id.'"', false)
             ->assertSee('nexoms:automation-finished', false)
-            ->assertSee("refreshOrderState(['sales-documents', 'history'])", false)
+            ->assertSee("refreshOrderState(['sales-documents', 'history', 'automation-history'])", false)
             ->assertSee("refreshOrderState(['sales-documents'])", false)
             ->assertSee('scheduleKsefAutomaticRefresh', false)
             ->assertDontSee('setInterval(refreshOrderState', false);

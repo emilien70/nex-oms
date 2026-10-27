@@ -307,6 +307,334 @@ przez PayNow i nie anuluje zdalnej transakcji.
 W ramach lokalnej implementacji nie zmieniano Nginx, nie laczono sie z VPS
 i nie potwierdzano dzialania tego wyjatku na serwerze.
 
+## Domena klienta i weryfikacja danych - PORTAL.2B
+
+Ta sekcja zastepuje historyczne adresy `/zamowienie/<32 znaki>` z PORTAL.1/2.
+Nowy format to `https://klient.multi-click.pl/<numer OMS>/<10 znakow>`.
+Stare adresy portalu nie sa obslugiwane. Nie dotyczy to zapisanych linkow
+platnosci PayNow, ich `continueUrl`, webhooka ani `/pay/<32 znaki>`.
+
+Po osobno zatwierdzonej kopii bazy uruchomic tylko migracje nowego etapu:
+
+Ponizsza komenda zaklada, ze migracje PORTAL.1 i PORTAL.2 sa juz wykonane.
+Przy pierwszym wdrozeniu portalu wykonac najpierw migracje 040000 i 050000
+z opisow poprzednich etapow. Nie pomijac przegladu pozostalych zaleglych migracji.
+
+```bash
+php artisan migrate --path=database/migrations/2026_10_27_010000_add_customer_domain_and_verification_to_portal_settings.php --force --no-interaction
+php artisan customer-portal:replace-legacy-links --dry-run
+php artisan customer-portal:replace-legacy-links
+```
+
+Wymiana jest idempotentna i obejmuje tylko nadal aktywne stare dostepy.
+Nie przedluza terminu, nie przywraca odwolan, nie pomija zmiany nabywcy,
+nie wlacza portalu ani platnosci i nie wysyla wiadomosci. `--dry-run`
+podaje potencjalnych kandydatow, a zapis ponownie sprawdza tozsamosc
+nabywcy pod blokadami. Nie dodawac tej komendy do kazdego importu ani GET.
+Po wdrozeniu odswiezyc dotychczasowe workery zatwierdzona procedura.
+Jesli przed ich odswiezeniem stary proces utworzyl jeszcze stary kod,
+ponowne wykonanie komendy wymiany obejmie tylko ten aktywny stary dostep.
+Nie cofaj migracji ochrony danych automatycznie; rollback odmawia operacji.
+
+W ustawieniach **Strony informacyjne** jest **Domena strony dla klientow**.
+Wpisac `klient.multi-click.pl`, bez protokolu, portu, sciezki i ukosnika.
+Puste pole korzysta z `APP_URL`; lokalnie dla localhost/127.0.0.1 zachowuje
+tez rzeczywisty port przegladarki, np. 8000. Nie zmieniac globalnego
+`APP_URL` panelu. Osobna domena nie moze byc domena panelu. Jej zmiana
+zmienia adresy prezentowane w OMS i `[link_zamowienia]`, nie kody zamowien.
+Nie przepisuje tresci juz wyslanych wiadomosci ani historycznych platnosci.
+Najpierw przygotowac DNS/HTTPS/vhost, dopiero potem zapisac domene w OMS.
+Zapis pola nie sprawdza wlasnosci DNS i nie instaluje certyfikatu.
+Przed zapisem sprawdzic, czy APP_URL poprawnie wskazuje domene panelu OMS.
+Na stagingu inne hosty niz panel i portal sa odrzucane, poza waskim wyjatkiem
+historycznych podpisanych powrotow i aliasow platnosci. Lokalne srodowisko
+dopuszcza dodatkowo loopback panelu; nie wlaczac APP_ENV=local na VPS.
+Nie zmieniac domeny przy niedokonczonej probie tworzenia linku PayNow bez
+otrzymanego ID/adresu operatora: dotychczasowy serwis odtwarza payload tej
+proby z biezacej konfiguracji. Najpierw wyjasnic taka probe. Nie zmieniamy
+w tym etapie przechowywania payloadow ani zdalnej idempotencji.
+
+Przygotowac osobny vhost HTTPS dla domeny klienta. Panel OMS nadal ma
+dotychczasowy Basic Auth. Ponizszy szablon wymaga juz istniejacego,
+poprawnego certyfikatu; sciezki dopasowac do rzeczywistego serwera:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name klient.multi-click.pl;
+    root /var/www/nex-oms/public;
+
+    ssl_certificate /etc/letsencrypt/live/klient.multi-click.pl/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/klient.multi-click.pl/privkey.pem;
+
+    # Tylko ten publiczny vhost. Nie wylaczac ochrony panelu OMS.
+    auth_basic off;
+    access_log off;
+
+    location ~ "^(?:/[1-9][0-9]{0,17}/[A-Za-z0-9]{10}(?:/(?:dane|weryfikacja|logo|dokumenty/[0-9]+|produkty/[0-9]+/zdjecie|platnosc/(?:pay|status|retry)))?|/paynow/powrot(?:/(?:status|ponow))?|/pay/[A-Za-z0-9_-]{32})/?$" {
+        fastcgi_cache off;
+        rewrite ^ /index.php break;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_hide_header X-Powered-By;
+    }
+
+    # Bez ogolnego try_files do Laravel ani publicznego handlera *.php.
+    location / { return 404; }
+}
+```
+
+Nie dodawac przekierowania klienta do panelu ani wyjatkow `/orders`,
+`/settings`, `/invoices`, calego `/api` lub dowolnego PHP. Osobny blok HTTP
+moze obslugiwac ACME i przekierowanie do HTTPS, zgodnie z metoda certyfikacji.
+Nie sa potrzebne nowe porty aplikacji. Laravel dodatkowo sprawdza domene
+publicznych tras i odmawia tras administracyjnych na domenie klienta.
+Sesja klienta ma osobny host-only cookie `nex_oms_customer_portal_session`,
+Secure i SameSite=Lax. Nie ustawiac wspolnego `SESSION_DOMAIN=.multi-click.pl`.
+Zachowac HTTPS w FastCGI/proxy oraz poprawne zaufane proxy, aby IP i limity
+zadan nie bazowaly na dowolnych naglowkach przesylanych przez klienta.
+
+Na domenie OMS zachowac istniejace scisle wyjatki NEX-Printer, webhooka
+PayNow, `/pay/<32 znaki>` i trzech tras `/paynow/powrot...`: sa potrzebne
+rowniez dla wczesniej wydanych platnosci. Historyczny wyjatek
+`/zamowienie/<32 znaki>` nie jest juz potrzebny i nie daje nowego dostepu.
+Nie zmieniac podpisu webhooka, jego CSRF ani zasad ksiegowania.
+
+W integracji PayNow **Adres strony powrotu OMS** korzysta z domeny klienta:
+`https://klient.multi-click.pl/paynow/powrot`. Nowa domyslna proba dostaje
+indywidualny podpisany URL z parametrami, nie ten sam pusty adres bazowy.
+Wlasny opcjonalny URL konta nadal ma pierwszenstwo; nie jest nadpisywany.
+Przy zmianie domeny sprawdzic ten wlasny URL, zwlaszcza jesli skopiowano
+tam kiedys stary adres bazowy. Adresy powrotu zarejestrowanych juz zdalnie
+platnosci pozostaja niezmienione. Formularze status/retry starego powrotu pozostaja
+na jego pierwotnej domenie. Tylko przegladarka, ktora rozpoczela platnosc
+w portalu i zachowala wazna sesje tego hosta, jest kierowana do zamowienia.
+Sam podpis platnosci nie ujawnia kodu portalu; bez takiej sesji dziala
+osobna strona statusu platnosci. Stary powrot do OMS nie przenosi sesji
+z nowej domeny klienta i nie rozszerzamy w tym celu domeny cookie.
+
+Po przyszlej zmianie domeny stary host moze nadal obslugiwac tylko
+poprawnie podpisane `/paynow/powrot...` i `/pay/<32 znaki>`. Zachowac dla niego
+DNS, HTTPS i te scisle location do wygasniecia wydanych linkow. Podpis jest
+sprawdzany z pierwotnym hostem przed dopuszczeniem wyjatku w Laravel;
+podmieniony host nie przechodzi kontroli. Stary host nie udostepnia panelu
+ani portalu zamowienia. Nie jest automatycznie aliasem nowego portalu.
+
+Maskowanie i weryfikacja PDF sa domyslnie wlaczone. Klient podaje jedna
+pelna wartosc nabywcy: e-mail, imie i nazwisko lub firme (wg ustawienia).
+Nie ma wysylania kodow ani logowania do skrzynki. Porownanie ignoruje
+wielkosc liter; zachowuje diakrytyke i interpunkcje, porzadkuje odstepy
+w nazwach. Puste dane, login marketplace i samo nazwisko nie wystarczaja.
+Pelne dane nie sa osadzane w HTML/JSON przed weryfikacja; wylaczone sekcje
+pozostaja ukryte. PDF sprawdza te sama sesje i dotychczasowe reguly dokumentu,
+takze przy bezposrednim GET/HEAD. Pobieranie z panelu OMS jest bez zmian.
+
+Potwierdzenie trwa 15 minut od poprawnej odpowiedzi, nie odnawia sie przy
+odswiezaniu, jest ograniczone do zamowienia i przegladarki. Zmiana danych,
+polityki, generacji, odwolanego linku lub terminu uniewaznia dostep.
+Brak wymaganych danych wymaga kontaktu ze sklepem; nie ma obejscia bramki.
+To ochrona oparta na znajomosci danych, nie potwierdzenie tozsamosci.
+10 znakow alfanumerycznych daje okolo 59,5 bita losowosci, mniej niz stary
+kod. Numer zamowienia jest przewidywalny i nie dodaje tajnosci.
+Limity: 180 odczytow/min/IP, chybienia kodu 60/min/IP i 15/min/IP+numer,
+bledna weryfikacja 20/min/IP i 5/min/IP+numer (60 sekund), bez trwalej
+globalnej blokady zamowienia. Zachowac dotychczasowe limity platnosci.
+Nie logowac kodow ani wpisywanych wartosci, rowniez na proxy/CDN/WAF/APM.
+Nie cache'owac stron, odpowiedzi bledow, PDF ani formularzy; zachowac
+no-store, no-referrer, noindex. Maskowanie nie ukrywa produktow i kwot.
+
+Po recznej konfiguracji serwera, bez wykonywania platnosci:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+curl -sS -o /dev/null -w '%{http_code}\n' https://klient.multi-click.pl/1/0000000000
+curl -sS -o /dev/null -w '%{http_code}\n' https://klient.multi-click.pl/orders
+curl -sS -o /dev/null -w '%{http_code}\n' https://klient.multi-click.pl/paynow/powrot
+curl -sS -o /dev/null -w '%{http_code}\n' https://oms.multi-click.pl/
+```
+
+Oczekiwane: 404 dla nieistniejacego kodu i /orders, neutralne 200 powrotu
+bez parametrow, 401 panelu bez uwierzytelnienia. Nie jest to test platnosci.
+W prywatnym oknie sprawdzic maskowanie, poprawne/bledne dane, PDF, wygasniecie
+15 minut i odwolanie linku. Nie wysylac fikcyjnego potwierdzenia platnosci.
+Nie udostepniac dokumentow KSeF DEMO/TEST przez publiczna strone.
+Ta dokumentacja nie potwierdza wykonania DNS/TLS/Nginx ani wdrozenia na VPS.
+
+## Automatyczne linki portalu - PORTAL.2A (opis historyczny)
+
+Od tej wersji nowe zamowienie automatycznie otrzymuje link po zatwierdzeniu
+zapisu. Pierwszy rekord konfiguracji jest domyslnie wlaczony. Istniejace
+is_enabled=false nie jest samoczynnie zmieniane. Wczesniejsze opisy
+domyslnie wylaczonego PORTAL.1 ponizej dokumentuja stan poprzedniego etapu.
+Nie zmieniac juz wykonanych migracji PORTAL.1/2; ten etap nie dodaje migracji.
+
+Po kopii bazy i przegladzie ustawien/prywatnosci wykonac:
+
+```bash
+php artisan customer-portal:prepare-links --dry-run
+php artisan customer-portal:prepare-links --enable
+```
+
+--enable jest swiadomym jednorazowym wlaczeniem portalu dla operatora.
+Aby nie nadpisac pozniejszego recznego wylaczenia, nie dodawac --enable
+do rutynowego skryptu kazdej aktualizacji.
+Aby zachowac istniejace wylaczenie, pominac --enable. Komenda tworzy tylko
+brakujace linki zamowien poza koszem. Nie zmienia istniejacych kodow,
+odwolan ani terminow; stare zamowienia moga otrzymac juz wygasly link
+zgodnie z pierwotna data zakupu. Nie wysyla wiadomosci, nie wywoluje API
+i nie wlacza platnosci. Gotowy link jest poufnym dostepem do zamowienia
+i dozwolonych dokumentow, dlatego nie wyswietlac tokenow w logach.
+
+Utrzymac scisle wyjatki Nginx opisane ponizej. Chroniony panel ustawien
+pozwala wybrac numer zamowienia i swiadomie odnowic albo wylaczyc jego link.
+Publiczny link nie prowadzi do zarzadzania ustawieniami. Nie tworzymy linku
+podczas GET. W Zarzadzaniu pokazujemy gotowy aktywny adres albo powod
+niedostepnosci, bez przycisku Strona klienta.
+
+Zmiana danych identyfikujacych nabywce nadal uniewaznia stary dostep.
+Dotyczy tez uzupelniania nabywcy po utworzeniu pustego zamowienia recznego:
+po zakonczonej edycji nalezy odnowic link w ustawieniach, jesli pokazuje
+stan wymagajacy odnowienia. Nie odnawiac automatycznie kodu, ktory mogl
+zostac juz przekazany poprzedniemu odbiorcy.
+
+Po wdrozeniu standardowo odswiezyc istniejace workery importu/automatyzacji,
+aby wczytaly obserwatora. Bez nowego workera ani crona. Rzeczywiste
+uruchomienie VPS i aktualizacja Nginx wymagaja osobnego zatwierdzenia.
+
+## Strony informacyjne klienta - PORTAL.1 (opis historyczny)
+
+Portal jest domyslnie wylaczony. Po kopii bazy i przegladzie wdrozenia
+nowe tabele techniczne dodaje wylacznie migracja:
+
+```bash
+php artisan migrate --path=database/migrations/2026_10_26_040000_create_customer_portal_tables.php --force --no-interaction
+```
+
+Nie ma backfillu, automatycznej wysylki linkow ani nowego crona. Ustawienia
+sa dostepne w panelu jako **Strony informacyjne**. Podglad administratora
+nie tworzy linku klienta i musi pozostac chroniony Basic Auth. Przed
+wlaczeniem trzeba ustawic osobne publiczne nazwy i opisy rzeczywistych
+statusow OMS. Status nieudostepniony nie ujawnia nazwy wewnetrznej.
+
+W tym samym bloku HTTPS `server` Nginx, obok zachowanych wyjatkow
+NEX-Printer, PayNow i `/pay/`, dodac tylko scisle trasy portalu:
+
+```nginx
+# Token jest uprawnieniem do konkretnego zamowienia i jego zasobow.
+location ~ "^/zamowienie/[A-Za-z0-9_-]{32}(?:/(?:logo|dokumenty/[0-9]+|produkty/[0-9]+/zdjecie|platnosc/(?:pay|status|retry)))?$" {
+    auth_basic off;
+    access_log off;
+    fastcgi_cache off;
+
+    rewrite ^ /index.php break;
+
+    fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+    include fastcgi_params;
+    fastcgi_hide_header X-Powered-By;
+}
+```
+
+Regex musi byc przed ogolnym regexem PHP, bez nadrzednego `location ^~`,
+ktory go pomija. Nie otwierac calego `/zamowienie/`, `/settings/`,
+`/orders/`, `/invoices/`, `/api/` ani ogolnego `index.php`.
+Laravel dopuszcza GET/HEAD odczytu oraz POST tylko dla trzech akcji platnosci,
+kontroluje waznosc i przynaleznosc tokenu takze
+przy kazdym PDF, logo i zdjeciu oraz ogranicza ruch do 180 zadan/minute/IP.
+Nie trzeba otwierac nowych portow. Pliki pozostaja na prywatnym dysku;
+oba konta `www-data` i `ubuntu` nadal wymagaja uprawnien opisanych wyzej.
+
+Link jest poufny: kazdy jego posiadacz moze odczytac udostepnione dane.
+Nie zapisywac pelnych URL w monitoringu, analityce, CDN ani logach proxy;
+zabezpieczyc rowniez logi bledow. Nie konfigurowac cache odpowiedzi tych
+tras. Aplikacja ustawia no-store, no-referrer i noindex. Token jest
+losowy (192 bity), przechowywany w postaci szyfrowanej obok skrotu SHA-256;
+nie zmieniac APP_KEY podczas wdrozenia. Token PayNow nie daje dostepu do
+portalu. Zmiana tozsamosci kupujacego, wygasniecie, kosz lub usuniecie
+zamowienia uniewazniaja dostep. Nowy link swiadomie uniewaznia poprzedni.
+
+Kontrola konfiguracji, bez tworzenia linku ani platnosci:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  https://oms.multi-click.pl/zamowienie/00000000000000000000000000000000
+curl -sS -o /dev/null -w '%{http_code}\n' https://oms.multi-click.pl/
+```
+
+Oczekiwane: nieistniejacy kod 404 bez monitu Basic Auth, panel 401.
+Nie jest to pelny test dostepu klienta. Po swiadomym wlaczeniu w panelu
+sprawdzic link wybranego zamowienia w prywatnym oknie, pobranie wlasnego
+PDF i odmowe dostepu po wylaczeniu/zmianie linku. Publicznie dokumenty
+KSeF sa dostepne dopiero po akceptacji w Production; DEMO/TEST tylko
+w podgladzie administratora. Dokument Offline przed akceptacja nie jest
+udostepniany. Nie zmieniac ustawien KSeF w celu wykonania tego testu.
+
+Zmienna `[link_zamowienia]` jest opcjonalna w szablonach e-mail.
+Jej podglad nie zapisuje dostepu; przygotowanie wiadomosci tworzy link
+transakcyjnie dla adresu kupujacego. Nie dodajemy jej do starych szablonow
+ani nie wysylamy zbiorczo. Po wdrozeniu kodu odswiezyc workery zwykla,
+zatwierdzona procedura wdrozeniowa. Nie ma nowego workera ani zadania
+harmonogramu. Nie cofaj niepustych tabel portalu przez rollback migracji.
+
+W ramach implementacji lokalnej nie zmieniano konfiguracji VPS.
+Szczegoly i ograniczenia: [PORTAL.1](portal-1-report.md).
+
+### PORTAL.2 - platnosci PayNow w portalu
+
+Po kopii bazy dodac ustawienia tylko migracja addytywna:
+
+```bash
+php artisan migrate --path=database/migrations/2026_10_26_050000_add_paynow_to_customer_portal_settings.php --force --no-interaction
+```
+
+Nie ma backfillu ani nowego harmonogramu. `paynow_enabled` i
+`paynow_retry_enabled` pozostaja domyslnie false; `paynow_sources = null`
+oznacza tylko zamowienia reczne, a pusta lista nie dopuszcza zadnego zrodla.
+PrestaShop wymaga jawnego zaznaczenia; Allegro nie jest obslugiwane przez
+platnosci portalu w tym etapie. Zwykly podglad zamowienia nadal dziala
+takze bez migracji PORTAL.2, ale akcje platnicze sa wtedy niedostepne.
+
+Powyzszy wyjatek Nginx obejmuje tez scisle sciezki
+`/zamowienie/<kod>/platnosc/pay`, `/status` i `/retry`. Nie otwierac
+szerszego prefiksu. Wszystkie trzy trasy wymagaja POST, sesji i CSRF;
+nie dodawac ich do wyjatkow CSRF webhooka. Limit wynosi 20 POST/min/IP
+i 6 POST/min/kod, niezaleznie od ogolnego limitu odczytu portalu.
+Zachowac istniejace wyjatki `/pay/<kod>`, strony powrotu PayNow,
+webhooka i NEX-Printer. Cookies sesji musza dzialac przez HTTPS
+(`Secure`, `HttpOnly`, `SameSite=Lax`); nie wylaczac ich na reverse proxy.
+
+Klient nie tworzy pierwszego linku. Operator lub istniejaca automatyzacja
+musi najpierw przygotowac probe PayNow w OMS. Portal dopuszcza kontynuacje
+zgodnej aktywnej proby, jawne sprawdzenie statusu oraz opcjonalne ponowienie
+po swiezym odczycie REJECTED/ERROR/EXPIRED. Sam uplyw lokalnego terminu
+nie oznacza potwierdzonego EXPIRED. ABANDONED, nieznany wynik, needs_review,
+niezaksiegowane CONFIRMED, inna nierozstrzygnieta proba, zmiana kwoty/waluty/
+klienta, anulowanie, kosz i pobranie blokuja nowe zlecenie z portalu.
+Zmiana danych po otwarciu strony wymaga jej odswiezenia; portal nie sluzy
+do automatycznego zastapienia linku przygotowanego na inna kwote.
+
+GET portalu/podgladu nie laczy sie z API i nie ksieguje wplat.
+POST sprawdzenia lub ponowienia moze przez istniejacy serwis PayNow
+zaksiegowac potwierdzona wplate i uruchomic dotychczasowe automatyzacje.
+Nie jest to test bez skutkow biznesowych. Pierwsze proby wykonywac tylko
+na przygotowanych danych testowych i koncie Sandbox, po swiadomym wlaczeniu
+ustawien. Nie testowac fikcyjnym webhookiem. Nie zmieniac credentiali ani
+srodowiska konta z nierozstrzygnietymi probami.
+
+Strona powrotu pokazuje `Powrot do zamowienia` tylko w tej samej sesji
+przegladarki, ktora rozpoczela akcje w portalu, i tylko przy nadal waznym
+uprawnieniu. Sam podpisany link PayNow nie ujawnia kodu portalu.
+Stare `continueUrl` i wlasny URL powrotu pozostaja niezmienione;
+przy wlasnym URL przycisk powrotu OMS nie moze byc pokazany.
+Odwolanie portalu nie anuluje juz utworzonej transakcji PayNow.
+
+Po wdrozeniu odswiezyc workery standardowa zatwierdzona procedura.
+Nie ma nowego workera. Szczegoly: [PORTAL.2](portal-2-report.md).
+
 ## Cron Laravel
 
 Na stagingu jeden plik `/etc/cron.d/nex-oms-scheduler` uruchamia istniejacy harmonogram `routes/console.php`:

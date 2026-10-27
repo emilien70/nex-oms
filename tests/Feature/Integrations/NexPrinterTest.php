@@ -415,7 +415,8 @@ class NexPrinterTest extends TestCase
             'printer_id' => $printer->getKey(),
             'idempotency_key' => $idempotencyKey,
         ])->assertCreated()
-            ->assertJsonPath('message', 'Zlecenie wydruku zostało dodane.');
+            ->assertJsonPath('message', 'Zlecenie wydruku zostało dodane.')
+            ->assertJsonPath('order.url', route('orders.show', $order));
 
         $job = NexPrintJob::query()->sole();
         $this->assertSame('invoice', $job->document_type);
@@ -439,6 +440,48 @@ class NexPrinterTest extends TestCase
         ])->assertConflict()
             ->assertJsonPath('error.code', 'idempotency_conflict');
         $this->assertDatabaseCount('nex_print_jobs', 1);
+    }
+
+    public function test_invoice_without_order_keeps_pdf_and_print_actions_and_queues_only_one_job(): void
+    {
+        Storage::fake('local');
+        $order = $this->createDocumentOrder();
+        $this->createDocumentItem($order);
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order,
+            $this->createDocumentSeries(),
+            $this->documentContext(),
+        );
+        [, $printer] = $this->createPdfPrinter();
+        $invoice->forceFill(['order_id' => null])->save();
+        $this->assertNull($invoice->order_id);
+        $before = $invoice->getAttributes();
+
+        $this->get(route('invoices.index'))->assertOk()
+            ->assertSee($invoice->number)
+            ->assertSee(route('invoices.pdf', $invoice), false)
+            ->assertSee(route('invoices.nex-printer.store', $invoice), false)
+            ->assertSee('data-order-label=""', false)
+            ->assertSee('data-order-url=""', false)
+            ->assertSee('Microsoft Print to PDF (Komputer testowy)');
+
+        $contents = "%PDF-1.4\nINVOICE WITHOUT ORDER";
+        $this->mock(InvoicePdfService::class)->shouldReceive('contents')->once()
+            ->withArgs(fn ($document): bool => $document->is($invoice))
+            ->andReturn($contents);
+        $payload = ['printer_id' => $printer->getKey(), 'idempotency_key' => (string) Str::uuid()];
+        $url = route('invoices.nex-printer.store', $invoice);
+
+        $this->postJson($url, $payload)->assertCreated()->assertJsonPath('order', null);
+        $this->postJson($url, $payload)->assertOk()->assertJsonPath('order', null);
+
+        $job = NexPrintJob::query()->sole();
+        $this->assertNull($job->order_id);
+        $this->assertSame($invoice->getKey(), $job->invoice_id);
+        $this->assertSame(hash('sha256', $contents), $job->payload_sha256);
+        Storage::disk('local')->assertExists($job->payload_path);
+        $this->assertDatabaseCount('nex_print_job_events', 1);
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
     }
 
     public function test_shipment_label_printer_icon_queues_the_courier_pdf_once(): void

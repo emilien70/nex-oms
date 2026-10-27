@@ -136,14 +136,16 @@ class OrderCatalogProductTest extends TestCase
 
         $response->assertRedirect(route('orders.show', $copy));
         $this->assertCount(2, $items);
-        $this->assertSame($product->getKey(), $items[0]->product_id);
-        $this->assertSame($catalogItem->product_name, $items[0]->product_name);
-        $this->assertSame($catalogItem->ean, $items[0]->ean);
-        $this->assertSame($catalogItem->unit_price_gross, $items[0]->unit_price_gross);
-        $this->assertSame($catalogItem->vat_rate, $items[0]->vat_rate);
-        $this->assertSame($catalogItem->weight, $items[0]->weight);
-        $this->assertNull($items[1]->product_id);
-        $this->assertSame('Pozycja ręczna', $items[1]->product_name);
+        $catalogCopy = $items->sole(fn ($item): bool => $item->product_id === $product->getKey());
+        $manualCopy = $items->sole(fn ($item): bool => $item->product_id === null);
+        $this->assertSame($catalogItem->product_name, $catalogCopy->product_name);
+        $this->assertSame($catalogItem->ean, $catalogCopy->ean);
+        $this->assertSame($catalogItem->unit_price_gross, $catalogCopy->unit_price_gross);
+        $this->assertSame($catalogItem->vat_rate, $catalogCopy->vat_rate);
+        $this->assertSame($catalogItem->weight, $catalogCopy->weight);
+        $this->assertSame('Pozycja ręczna', $manualCopy->product_name);
+        $this->assertSame('10.00', $manualCopy->unit_price_gross);
+        $this->assertSame('8.00', $manualCopy->vat_rate);
         $this->assertDatabaseCount('products', 1);
 
         $productListUrl = e(route('products.index', [

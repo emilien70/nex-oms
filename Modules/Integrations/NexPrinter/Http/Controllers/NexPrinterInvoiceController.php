@@ -51,7 +51,7 @@ class NexPrinterInvoiceController extends Controller
                     'status' => $job->status->value,
                     'document_number' => $job->document_number,
                 ],
-                'order' => [
+                'order' => $invoice->order_id === null ? null : [
                     'label' => 'Zamówienie '.$invoice->order_reference_snapshot,
                     'url' => route('orders.show', $invoice->order_id),
                 ],

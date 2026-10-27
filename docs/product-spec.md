@@ -24,6 +24,58 @@ Uzupełnienie operacyjne 2026-10-24: bieżący staging OVHcloud/Ubuntu, jeden cr
 
 ---
 
+# PORTAL.2B - domena klienta i prywatnosc
+
+Portal korzysta z konfigurowalnej domeny i adresu /<numer OMS>/<10 losowych
+liter i cyfr>. Stare testowe linki nie sa obslugiwane. Aktywne stare dostepy
+mozna wymienic jawna komenda bez przedluzania waznosci i przywracania odwolan.
+Dane sa domyslnie maskowane po stronie serwera; PDF wymaga podania pelnego
+adresu e-mail albo imienia i nazwiska/firmy nabywcy, zgodnie z ustawieniem.
+Porownanie ignoruje wielkosc liter i nadmiarowe odstepy w nazwach, ale nie
+polskie znaki ani interpunkcje. Nie wysylamy kodow. Potwierdzenie trwa 15 minut
+dla zamowienia i przegladarki. Panel administracyjny nie ma nowej bramki PDF.
+Nowe domyslne powroty PayNow korzystaja z domeny klienta; zapisane proby,
+wlasny URL, webhook i ksiegowanie pozostaja bez zmian. Domena wymaga osobnego
+DNS/HTTPS/vhosta. Szczegoly: [PORTAL.2B](portal-2b-report.md).
+
+# PORTAL.2A - automatyczne aktywne linki
+
+Kazde nowe zamowienie otrzymuje po zatwierdzeniu zapisu poufny link portalu.
+Domyslna konfiguracja nowego portalu jest wlaczona; istniejace reczne
+wylaczenie pozostaje respektowane. Brakujace linki starych zamowien
+uzupelnia jawna komenda, nie otwarcie strony. Linki odwolane, wygasle
+i niezgodne z nabywca nie sa samoczynnie odnawiane.
+
+Na dole Zarzadzania widnieje tylko etykieta, podpowiedz i gotowy adres.
+Przycisk Strona klienta usunieto. Zarzadzanie odnowieniem/wylaczeniem
+przeniesiono do ustawien stron informacyjnych. Zmienna [link_zamowienia]
+korzysta z tego samego adresu. Platnosci i ich ustawienia pozostaja bez zmian.
+Szczegoly: [automatyczne linki](portal-auto-links-report.md).
+
+# PORTAL.2 - platnosci na stronie klienta
+
+W ustawieniach stron informacyjnych dodano osobne przelaczniki platnosci
+PayNow i ponawiania; oba domyslnie wylaczone. Zrodla: reczne domyslnie,
+PrestaShop tylko po zaznaczeniu, Allegro bez obslugi platnosci w tym etapie.
+Klient kontynuuje link przygotowany w OMS, sprawdza status lub jawnie
+ponawia probe po potwierdzeniu niepowodzenia przez PayNow. Nie tworzy
+pierwszej platnosci. Podglad administratora nie zawiera aktywnych akcji.
+
+Portal pokazuje ID potwierdzonej i zaksiegowanej transakcji. Nie oferuje
+nowej platnosci przy stanie niepewnym albo wymagajacym wyjasnienia.
+Kwota i uprawnienia sa ponownie kontrolowane na serwerze. Dotychczasowe
+ksiegowanie, automatyzacje, linki i wlasne adresy powrotu sa zachowane.
+Szczegoly: [PORTAL.2](portal-2-report.md).
+
+# PORTAL.1 - strona informacyjna klienta
+
+Zatwierdzony pierwszy etap obejmuje odczyt zamowienia wszystkich zrodel
+przez poufny link, osobne publiczne opisy etapow, platnosc, przesylki,
+dozwolone PDF i kontakt sklepu. Ustawienia oraz linki sa zarzadzane w OMS;
+portal domyslnie pozostaje wylaczony. Podglad nie wydaje dostepu klientowi.
+Nie udostepniamy notatek wewnetrznych, edycji zamowienia ani operacji
+platniczych w tym etapie. Szczegoly: [PORTAL.1](portal-1-report.md).
+
 # 1. Cel produktu
 
 NEX-OMS jest lokalnym systemem OMS do obsługi sprzedaży i realizacji zamówień.

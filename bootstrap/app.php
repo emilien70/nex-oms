@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Modules\CustomerPortal\Http\Middleware\RestrictCustomerPortalHost;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -11,6 +12,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prependToGroup('web', RestrictCustomerPortalHost::class);
         $middleware->validateCsrfTokens(except: [
             'api/nex-printer/v1/*',
             'api/paynow/v1/notifications',
@@ -25,5 +27,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'offline_private_key_passphrase',
             'signature_key',
             'smtp_password',
+            'portal_value',
         ]);
     })->create();

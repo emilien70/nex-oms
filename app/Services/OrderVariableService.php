@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Support\AddressLineFormatter;
 use App\Support\CountryCatalog;
 use Illuminate\Support\Collection;
+use Modules\CustomerPortal\Services\PortalAccessService;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
@@ -41,6 +42,7 @@ class OrderVariableService
     public function definitions(): array
     {
         $definitions = [
+            'link_zamowienia' => $this->definition('Strona klienta', 'Bezpieczny link do strony zam&oacute;wienia.', 'https://klient.example/222/a7Q2m9K4xP', 'Zam&oacute;wienie'),
             'id_zamowienia' => $this->definition(
                 'ID zam&oacute;wienia',
                 'Wewn&#281;trzny numer zam&oacute;wienia w NEX-OMS.',
@@ -481,6 +483,10 @@ class OrderVariableService
                 'numer_proformy' => $this->latestDocumentNumber($invoices, InvoiceDocumentType::Proforma),
                 'numery_korekt' => $this->documentNumbers($invoices, InvoiceDocumentType::Correction),
             ];
+        }
+
+        if ($this->usesAny($template, ['link_zamowienia'])) {
+            $values['link_zamowienia'] = app(PortalAccessService::class)->templateUrl($order);
         }
 
         return $values;

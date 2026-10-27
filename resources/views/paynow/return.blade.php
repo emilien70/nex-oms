@@ -31,6 +31,7 @@
         button:disabled { opacity: .6; cursor: wait; }
         .secondary { color: #43586d; background: transparent; border-color: #bcc8d4; }
         .secondary:hover { background: #eaf0f5; }
+        .portal-return { display: inline-block; color: #0075c9; margin-top: 20px; text-underline-offset: 3px; }
         form { margin: 0 0 12px; }
         .error { padding: 12px 14px; border-left: 3px solid #b32f36; background: #fbe6e7; color: #7f2027; margin-bottom: 24px; }
         .test { display: inline-block; color: #895400; background: #fff0cf; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 18px; }
@@ -71,6 +72,9 @@
                 @csrf
                 <button type="submit" class="secondary" id="status-button">Sprawdź status</button>
             </form>
+        @endif
+        @if ($portalUrl ?? null)
+            <a class="portal-return" href="{{ $portalUrl }}">Powrót do zamówienia</a>
         @endif
     </main>
     @if ($statusUrl)

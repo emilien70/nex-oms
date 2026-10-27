@@ -6,8 +6,8 @@
     $printMenuAlign = $printMenuAlign ?? 'dropdown-menu-end';
     $printTooltip = 'Drukuj - prześlij bezpośrednio do drukarki';
     $printUrl = $printUrl ?? route('invoices.nex-printer.store', $invoice);
-    $printOrderLabel = $printOrderLabel ?? 'Zamówienie '.$invoice->order_reference_snapshot;
-    $printOrderUrl = $printOrderUrl ?? route('orders.show', $invoice->order_id);
+    $printOrderLabel = $printOrderLabel ?? ($invoice->order_id !== null ? 'Zamówienie '.$invoice->order_reference_snapshot : '');
+    $printOrderUrl = $printOrderUrl ?? ($invoice->order_id !== null ? route('orders.show', $invoice->order_id) : '');
 @endphp
 
 <div

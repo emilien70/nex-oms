@@ -525,6 +525,50 @@
             padding: 0;
         }
 
+        .management-portal-link {
+            grid-column: 1 / -1;
+            min-width: 0;
+            margin-top: 18px;
+            font-size: 14px;
+            line-height: 20px;
+        }
+
+        .management-portal-label {
+            color: #4b5563;
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+
+        .management-portal-help {
+            border: 0;
+            background: transparent;
+            padding: 0 2px;
+            color: inherit;
+            font-size: 13px;
+        }
+
+        .management-portal-url {
+            color: #0075c9;
+            font-weight: 400;
+            text-decoration: none;
+            overflow-wrap: anywhere;
+        }
+
+        .management-portal-url:hover {
+            text-decoration: underline;
+        }
+
+        .management-portal-unavailable {
+            color: #7a838f;
+            overflow-wrap: anywhere;
+        }
+
+        .customer-portal-tooltip .tooltip-inner {
+            max-width: 290px;
+            font-size: 13px;
+            line-height: 18px;
+        }
+
         .management-meta-time {
             margin-left: 14px;
         }
@@ -3674,6 +3718,7 @@
                                     <span data-management-status-date-value>...</span><span class="management-meta-time" data-management-status-time-value></span>
                                 @endif
                             </div>
+                            @include('customer-portal.order-link', ['order' => $order])
                         </div>
                     @else
                         <div class="management-placeholder">Zam&oacute;wienie jest w koszu.</div>
@@ -4389,6 +4434,9 @@
 
             syncSalesDocumentNumberWidths();
             initializeOrderKsefTooltips();
+            document.querySelectorAll('[data-customer-portal-help]').forEach(element => {
+                window.bootstrap?.Tooltip.getOrCreateInstance(element, {container: 'body', customClass: 'customer-portal-tooltip'});
+            });
             window.addEventListener('load', () => syncSalesDocumentNumberWidths());
             document.fonts?.ready.then(() => syncSalesDocumentNumberWidths());
 

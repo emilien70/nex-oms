@@ -68,7 +68,7 @@ class OrderIdentifiersTest extends TestCase
 
         $this->get(route('orders.show', $order))
             ->assertOk()
-            ->assertSee('<div class="nex-value">multi-click.pl<span', false)
+            ->assertSeeText('multi-click.pl (PrestaShop)')
             ->assertSee('<optgroup label="Pozostałe" data-other-source-group>', false)
             ->assertSee('<option value="manual"', false)
             ->assertSee('Ręczne')
@@ -79,7 +79,7 @@ class OrderIdentifiersTest extends TestCase
             ->assertOk()
             ->json('fragments.order-info');
 
-        $this->assertStringContainsString('<div class="nex-value">multi-click.pl<span', $fragment);
+        $this->assertStringContainsString('multi-click.pl (PrestaShop)', strip_tags($fragment));
     }
 
     public function test_prestashop_source_falls_back_to_channel_name_without_integration_link(): void
@@ -96,7 +96,8 @@ class OrderIdentifiersTest extends TestCase
             ->assertOk()
             ->json('fragments.order-info');
 
-        $this->assertStringContainsString('<div class="nex-value">PrestaShop<span', $fragment);
+        $this->assertStringContainsString('PrestaShop', strip_tags($fragment));
+        $this->assertStringNotContainsString('PrestaShop (PrestaShop)', strip_tags($fragment));
     }
 
     public function test_legacy_order_number_is_moved_before_the_column_is_removed(): void

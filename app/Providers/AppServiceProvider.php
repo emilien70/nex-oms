@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Modules\Automation\Listeners\DispatchAutomationEvent;
+use Modules\CustomerPortal\Observers\PortalOrderObserver;
 use Modules\Integrations\Allegro\Listeners\DispatchAllegroInvoiceExports;
 use Modules\Integrations\Allegro\Listeners\DispatchAllegroShipmentExports;
 use Modules\Integrations\Allegro\Listeners\DispatchAllegroStatusSync;
@@ -96,6 +97,11 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('paynow-customer', static fn (Request $request): Limit => Limit::perMinute(60)->by('paynow-page:'.$request->ip()));
+        RateLimiter::for('customer-portal', static fn (Request $request): Limit => Limit::perMinute(180)->by('customer-portal:'.$request->ip()));
+        RateLimiter::for('customer-portal-payment', static fn (Request $request): array => [
+            Limit::perMinute(20)->by('portal-payment-ip:'.$request->ip()),
+            Limit::perMinute(6)->by('portal-payment-token:'.hash('sha256', (string) $request->route('token'))),
+        ]);
         RateLimiter::for('paynow-customer-status', static fn (Request $request): array => [
             Limit::perMinute(30)->by('paynow-status-ip:'.$request->ip()),
             Limit::perMinute(12)->by('paynow-status-ref:'.hash('sha256', is_string($request->query('ref')) ? $request->query('ref') : 'invalid')),
@@ -106,6 +112,7 @@ class AppServiceProvider extends ServiceProvider
         ]);
 
         Shipment::observe(ShipmentObserver::class);
+        Order::observe(PortalOrderObserver::class);
         Shipment::observe(AllegroShipmentTrackingObserver::class);
         ShipmentParcel::observe(AllegroShipmentTrackingObserver::class);
         Event::listen(OrderPaymentRegistered::class, DispatchAutomationEvent::class);

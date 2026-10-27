@@ -1463,6 +1463,7 @@
                         <a class="nav-flyout-link {{ request()->routeIs('orders.automatic-actions.index') ? 'active' : '' }}" href="{{ route('orders.automatic-actions.index') }}">Automatyczne akcje</a>
                         <a class="nav-flyout-link {{ request()->routeIs('orders.email-templates.*', 'orders.email-accounts.*') ? 'active' : '' }}" href="{{ route('orders.email-templates.index') }}">Szablony E-Mail</a>
                         <a class="nav-flyout-link {{ request()->routeIs('settings.variables.index') ? 'active' : '' }}" href="{{ route('settings.variables.index') }}">Zmienne</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('customer-portal.settings*') ? 'active' : '' }}" href="{{ route('customer-portal.settings') }}">Strony informacyjne</a>
                     </div>
                 </div>
                 <div class="sidebar-nav-item has-nav-flyout {{ request()->routeIs('products.*') ? 'is-open' : '' }}">

@@ -9,6 +9,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Modules\Automation\Jobs\EvaluateAutomationEventJob;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\InvoiceItem;
@@ -99,14 +100,17 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         config()->set('ksef.invoice_submission_enabled', $gateEnabled);
         Queue::fake();
 
-        $this->issueInvoice(
+        $invoice = $this->issueInvoice(
             integrationActive: $integrationActive,
             automaticSubmission: $automaticSubmission,
             seriesEnabled: $seriesEnabled,
             environment: $environment,
         );
 
-        Queue::assertNothingPushed();
+        Queue::assertPushed(EvaluateAutomationEventJob::class, fn ($job): bool => $job->eventName === 'invoice.issued'
+            && $job->eventPayload['invoice_id'] === $invoice->getKey());
+        Queue::assertCount(1);
+        Queue::assertNotPushed(KsefAutomaticInvoiceSubmissionJob::class);
         $this->assertDatabaseCount('ksef_invoice_submissions', 0);
         Http::assertNothingSent();
     }

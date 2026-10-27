@@ -32,13 +32,14 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         $fixture = KsefCertificateFixtureFactory::offlineRsa();
         $certificate = $this->importCertificate($fixture);
         $this->seedCachedToken(KsefEnvironment::Test);
-        $validFrom = '2026-09-01T10:15:00Z';
-        $validUntil = '2026-10-01T10:15:00Z';
+        $now = CarbonImmutable::now('UTC');
+        $validFrom = $now->subDay()->setTime(10, 15);
+        $validUntil = $now->addDay()->setTime(10, 15);
         $this->fakeSuccessfulVerification(
             $certificate,
             $fixture,
-            validFrom: $validFrom,
-            validUntil: $validUntil,
+            validFrom: $validFrom->format('Y-m-d\TH:i:s\Z'),
+            validUntil: $validUntil->format('Y-m-d\TH:i:s\Z'),
         );
 
         $verified = app(KsefOfflineCertificateRemoteVerificationService::class)
@@ -49,10 +50,10 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         $this->assertSame('Active', $reloaded->remote_status);
         $this->assertSame('Certyfikat Offline MF', $reloaded->remote_certificate_name);
         $this->assertNotNull($reloaded->remote_verified_at);
-        $this->assertSame('2026-09-01 12:15:00', $raw->remote_valid_from);
-        $this->assertSame('2026-10-01 12:15:00', $raw->remote_valid_until);
-        $this->assertSame('2026-09-01 10:15:00', $reloaded->remote_valid_from->utc()->format('Y-m-d H:i:s'));
-        $this->assertSame('2026-10-01 10:15:00', $reloaded->remote_valid_until->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($validFrom->setTimezone('Europe/Warsaw')->format('Y-m-d H:i:s'), $raw->remote_valid_from);
+        $this->assertSame($validUntil->setTimezone('Europe/Warsaw')->format('Y-m-d H:i:s'), $raw->remote_valid_until);
+        $this->assertSame($validFrom->format('Y-m-d H:i:s'), $reloaded->remote_valid_from->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($validUntil->format('Y-m-d H:i:s'), $reloaded->remote_valid_until->utc()->format('Y-m-d H:i:s'));
         $this->assertTrue(app(KsefOfflineCertificateReadinessService::class)->isReady($reloaded));
         $this->assertCertificateRequests($certificate, KsefEnvironment::Test);
         $this->assertNoMutatingCertificateRequests();
@@ -897,8 +898,8 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
         KsefOfflineCertificate $certificate,
         array $fixture,
         string $status = 'Active',
-        string $validFrom = '2026-09-01T10:15:00Z',
-        string $validUntil = '2026-10-01T10:15:00Z',
+        ?string $validFrom = null,
+        ?string $validUntil = null,
     ): void {
         $this->fakeResponses(
             $certificate,
@@ -964,9 +965,11 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
     private function queryItem(
         KsefOfflineCertificate $certificate,
         string $status = 'Active',
-        string $validFrom = '2026-09-01T10:15:00Z',
-        string $validUntil = '2026-10-01T10:15:00Z',
+        ?string $validFrom = null,
+        ?string $validUntil = null,
     ): array {
+        $now = CarbonImmutable::now('UTC');
+
         return [
             'certificateSerialNumber' => $certificate->certificate_serial_number,
             'name' => 'Certyfikat Offline MF',
@@ -974,8 +977,8 @@ class KsefOfflineCertificateRemoteVerificationTest extends TestCase
             'commonName' => 'NEX-OMS test fixture',
             'status' => $status,
             'subjectIdentifier' => ['type' => 'Nip', 'value' => '1234567890'],
-            'validFrom' => $validFrom,
-            'validTo' => $validUntil,
+            'validFrom' => $validFrom ?? $now->subDay()->format('Y-m-d\TH:i:s\Z'),
+            'validTo' => $validUntil ?? $now->addDay()->format('Y-m-d\TH:i:s\Z'),
         ];
     }
 

@@ -17,6 +17,8 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Modules\CustomerPortal\Services\PortalAccessService;
 use Throwable;
 
 class OrderEmailPreparationService
@@ -93,6 +95,30 @@ class OrderEmailPreparationService
                         'message_content_missing',
                         'Podaj temat, treść i format wiadomości.',
                     );
+                }
+
+                $usesPortal = str_contains($subjectTemplate.$bodyTemplate.($managedTemplate?->subject_template ?? '').($managedTemplate?->body_template ?? ''), '[link_zamowienia]');
+                if ($usesPortal) {
+                    if (mb_strtolower(trim($data->toEmail)) !== mb_strtolower(trim((string) $order->customer_email))) {
+                        throw new OrderEmailException('portal_recipient_mismatch', 'Link strony klienta może zostać przygotowany tylko dla adresu e-mail kupującego.');
+                    }
+                    try {
+                        $portalAccess = app(PortalAccessService::class);
+                        $portalUrl = $portalAccess->issue($order, recipientEmail: $data->toEmail);
+                    } catch (ValidationException) {
+                        throw new OrderEmailException('portal_unavailable', 'Nie można przygotować linku strony klienta. Sprawdź ustawienia i stan linku.');
+                    }
+                    if ($data->contentIsRendered) {
+                        preg_match_all('~https?://[a-zA-Z0-9.\[\]:-]+/(?:[1-9][0-9]{0,17}/[A-Za-z0-9]{10}|zamowienie/[A-Za-z0-9_-]{32})(?![A-Za-z0-9_/-])~', $subjectTemplate.$bodyTemplate, $renderedPortalLinks);
+                        foreach ($renderedPortalLinks[0] as $renderedPortalLink) {
+                            if (! hash_equals($portalUrl, $renderedPortalLink)) {
+                                throw new OrderEmailException('portal_preview_expired', 'Link w podglądzie wiadomości uległ zmianie. Wczytaj ponownie szablon przed wysyłką.');
+                            }
+                        }
+                        $placeholders = ['[link_zamowienia]', $portalAccess->previewPlaceholder()];
+                        $subjectTemplate = str_replace($placeholders, $portalUrl, $subjectTemplate);
+                        $bodyTemplate = str_replace($placeholders, $format === EmailTemplateFormat::Html ? htmlspecialchars($portalUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') : $portalUrl, $bodyTemplate);
+                    }
                 }
 
                 $rendered = $data->contentIsRendered

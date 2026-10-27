@@ -1,5 +1,72 @@
 # NEX-OMS — architektura systemu
 
+## PORTAL.2B - domena i weryfikacja klienta
+
+PortalUrlService buduje kanoniczne adresy bez zmiany globalnego generatora
+URL. PortalAccessService zachowuje tabele i szyfrowanie, tworzy 10-znakowe
+kody CSPRNG z unikalnym skrotem SHA-256 i sprawdza pare numer/kod dla zasobow.
+Middleware ogranicza domeny i blokuje panel na hoscie klienta; osobna sesja
+host-only nie jest wspoldzielona z panelem. PortalVerificationService porownuje
+pelne dane Unicode po normalizacji wielkosci liter, ogranicza bledne proby,
+zapisuje 15-minutowy grant HMAC zwiazany z biezacym klientem, linkiem i polityka.
+Prezentacja redaguje DTO przed Blade. Publiczny PDF kontroluje sesje przed
+renderowaniem, bez zmian admin PDF i polityk dokumentow/KSeF. Nowa migracja
+jest addytywna. Komenda wymiany zachowuje terminy i nie odnawia nieaktywnych
+uprawnien. PayNowReturnUrlService izoluje generator podpisanych URL; nowe
+powroty uzywaja domeny portalu, stare formularze zachowuja host z poprawnego
+podpisanego zadania. Sam podpis platnosci nie staje sie uprawnieniem portalu.
+Szczegoly: [PORTAL.2B](portal-2b-report.md).
+
+## PORTAL.2A - automatyczne przygotowanie linkow
+
+PortalOrderObserver jest zarejestrowany w istniejacym AppServiceProvider.
+Po created czeka na commit polaczenia zamowienia i odczytuje koncowe dane.
+PortalAccessService::provision() tworzy w transakcji tylko brakujacy link;
+blokady settings -> order -> link i unikalny order_id chronia powtorzenia.
+Blad po commit nie zmienia udanego importu w nieudane zamowienie;
+log zawiera tylko ID i klase bledu, a jawna komenda uzupelnia braki.
+
+Nowa konfiguracja modelu jest wlaczona domyslnie; zapisane false nie jest
+nadpisywane przez provisioning. customer-portal:prepare-links --enable
+stanowi osobna, jawna decyzje operatora; --dry-run niczego nie zapisuje.
+Nie ma migracji, dodatkowego workera ani harmonogramu. GET zamowienia,
+ustawien i podgladu pozostaje bez tworzenia linkow lub ustawien.
+Szczegoly: [automatyczne linki](portal-auto-links-report.md).
+
+## PORTAL.2 - jawne akcje platnicze klienta
+
+PortalPaymentService udostepnia tylko juz przygotowane proby PayNow.
+Publiczne POST maja CSRF, osobny limiter, blokade cache i HMAC intencji
+wiazacy link/generacje, rewizje ustawien, klienta, saldo, konto i probe.
+Ponowna kontrola pod blokadami przebiega settings -> account -> order ->
+link -> attempts, takze przed zapisem odpowiedzi statusu i przygotowaniem
+ponowienia. API jest wywolywane poza transakcja bazy.
+
+Opcjonalny callback autoryzacji w istniejacych serwisach PayNow chroni
+wylacznie sciezke portalu; dotychczasowe wywolania bez callbacka zachowuja
+swoja polityke. Ksiegowanie i retry pozostaja centralne. GET nie wywoluje
+API, nie wydaje aliasow ani nie tworzy pierwszej proby. Przekierowanie
+wykorzystuje istniejacy PayNowShortLinkService z walidacja celu HTTPS.
+
+Powrot do zamowienia jest uprawnieniem sesji przegladarki, nie powiazaniem
+payment -> portal ujawnianym wszystkim posiadaczom linku platnosci.
+Sesja nie przechowuje jawnego tokenu ani credentiali; kontroluje generacje,
+hash, tozsamosc i waznosc przed odtworzeniem URL. Historyczne continueUrl
+pozostaja bez zmian. Flagi platnosci i retry domyslnie wylaczone.
+Szczegoly: [PORTAL.2](portal-2-report.md).
+
+## PORTAL.1 - publiczny odczyt zamowienia
+
+Modules/CustomerPortal korzysta z centralnych tras web.php i istniejacego
+AppServiceProvider, bez osobnego providera lub harmonogramu. Trzy tabele
+techniczne przechowuja ustawienia, publiczne opisy statusow oraz szyfrowane,
+odwolywalne tokeny zamowien. Prezentacja opiera sie na jawnej liscie pol;
+prywatne obrazy i PDF sa udostepniane przez kontroler po ponownej kontroli
+dostepu. Renderowanie dokumentow wykorzystuje istniejace serwisy faktur
+i finalnych PDF KSeF, bez zmiany lifecycle. Przygotowanie zmiennej
+[link_zamowienia] jest transakcyjne z wiadomoscia; podglady sa bez zapisu.
+Szczegoly i ograniczenia: [PORTAL.1](portal-1-report.md).
+
 ## Status dokumentu
 
 Ten dokument opisuje:

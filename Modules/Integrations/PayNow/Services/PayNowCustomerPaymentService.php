@@ -4,6 +4,7 @@ namespace Modules\Integrations\PayNow\Services;
 
 use App\Models\Order;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Integrations\PayNow\Enums\PayNowEnvironment;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
@@ -20,7 +21,7 @@ class PayNowCustomerPaymentService
         private readonly InvoiceDecimalCalculator $decimal,
     ) {}
 
-    public function check(PayNowPayment $payment, ?string $providerHint): array
+    public function check(PayNowPayment $payment, ?string $providerHint, ?callable $authorize = null): array
     {
         if ($providerHint !== null && $providerHint !== $payment->provider_payment_id) {
             return $this->present($payment);
@@ -30,7 +31,7 @@ class PayNowCustomerPaymentService
             return $this->present($payment, true);
         }
 
-        $verified = $this->verify($payment);
+        $verified = $this->verify($payment, $authorize);
 
         return $verified ? $this->present($verified, true) : $this->present($payment->refresh(), unavailable: true);
     }
@@ -81,7 +82,7 @@ class PayNowCustomerPaymentService
         ];
     }
 
-    public function retry(PayNowPayment $source, ?string $providerHint): string
+    public function retry(PayNowPayment $source, ?string $providerHint, ?callable $authorize = null): string
     {
         if (! $source->order_id || ($providerHint !== null && $providerHint !== $source->provider_payment_id)) {
             $this->denyRetry();
@@ -94,7 +95,7 @@ class PayNowCustomerPaymentService
 
         try {
             $latest = PayNowPayment::query()->where('order_id', $source->order_id)->latest('id')->firstOrFail();
-            $latest = $this->verify($latest);
+            $latest = $this->verify($latest, $authorize);
             if (! $latest) {
                 $this->denyRetry();
             }
@@ -104,7 +105,7 @@ class PayNowCustomerPaymentService
                 $this->denyRetry();
             }
 
-            $result = $this->links->createOrReuseForCustomer($latest);
+            $result = $this->links->createOrReuseForCustomer($latest, $authorize);
             $url = (string) $result->payment->payment_url;
             $parts = parse_url($url);
             $host = strtolower((string) ($parts['host'] ?? ''));
@@ -121,8 +122,11 @@ class PayNowCustomerPaymentService
         }
     }
 
-    private function verify(PayNowPayment $payment): ?PayNowPayment
+    private function verify(PayNowPayment $payment, ?callable $authorize = null): ?PayNowPayment
     {
+        if ($authorize) {
+            DB::transaction(fn () => $authorize(), 3);
+        }
         if ($payment->status === PayNowPaymentStatus::Confirmed) {
             return $payment;
         }
@@ -133,7 +137,15 @@ class PayNowCustomerPaymentService
         try {
             $result = $this->client->getPaymentStatus($payment->account, $payment->provider_payment_id);
 
-            return $this->statuses->recordStatusCheck($payment, $result['status'], $result['payload'], $result['raw_body']);
+            if (! $authorize) {
+                return $this->statuses->recordStatusCheck($payment, $result['status'], $result['payload'], $result['raw_body']);
+            }
+
+            return DB::transaction(function () use ($authorize, $payment, $result): PayNowPayment {
+                $authorize();
+
+                return $this->statuses->recordStatusCheck($payment, $result['status'], $result['payload'], $result['raw_body']);
+            }, 3);
         } catch (PayNowApiException) {
             return null;
         }

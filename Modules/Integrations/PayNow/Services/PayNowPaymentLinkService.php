@@ -32,15 +32,18 @@ class PayNowPaymentLinkService
         return $this->create($order);
     }
 
-    public function createOrReuseForCustomer(PayNowPayment $verifiedPayment): PayNowPaymentLinkResult
+    public function createOrReuseForCustomer(PayNowPayment $verifiedPayment, ?callable $authorize = null): PayNowPaymentLinkResult
     {
-        return $this->create($verifiedPayment->order()->firstOrFail(), $verifiedPayment);
+        return $this->create($verifiedPayment->order()->firstOrFail(), $verifiedPayment, $authorize);
     }
 
-    private function create(Order $order, ?PayNowPayment $verifiedPayment = null): PayNowPaymentLinkResult
+    private function create(Order $order, ?PayNowPayment $verifiedPayment = null, ?callable $authorize = null): PayNowPaymentLinkResult
     {
         $account = $this->accountService->get();
-        $payment = $this->prepare($order, $account, $verifiedPayment);
+        $payment = $this->prepare($order, $account, $verifiedPayment, $authorize);
+        if ($authorize) {
+            DB::transaction(fn () => $authorize($payment), 3);
+        }
 
         if ($this->hasUsableLink($payment)) {
             return new PayNowPaymentLinkResult($payment, true);
@@ -61,9 +64,12 @@ class PayNowPaymentLinkService
         return $this->recordSuccess($payment, $response);
     }
 
-    private function prepare(Order $order, PayNowAccount $account, ?PayNowPayment $verifiedPayment): PayNowPayment
+    private function prepare(Order $order, PayNowAccount $account, ?PayNowPayment $verifiedPayment, ?callable $authorize): PayNowPayment
     {
-        return DB::transaction(function () use ($order, $account, $verifiedPayment): PayNowPayment {
+        return DB::transaction(function () use ($order, $account, $verifiedPayment, $authorize): PayNowPayment {
+            if ($authorize) {
+                $authorize();
+            }
             $managedAccount = PayNowAccount::query()->lockForUpdate()->findOrFail($account->getKey());
             $managedOrder = Order::query()->lockForUpdate()->findOrFail($order->getKey());
             $managedOrder->assertPurchaseReady();
@@ -177,7 +183,7 @@ class PayNowPaymentLinkService
         ];
 
         $customReturn = $account->continue_url;
-        $payload['continueUrl'] = ! $customReturn || rtrim($customReturn, '/') === route('paynow.return')
+        $payload['continueUrl'] = $this->returnUrls->isDefaultReturn($customReturn)
             ? $this->returnUrls->forPayment($payment)
             : $customReturn;
 

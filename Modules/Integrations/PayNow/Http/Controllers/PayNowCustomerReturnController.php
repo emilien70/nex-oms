@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Modules\CustomerPortal\Services\PortalPaymentService;
 use Modules\Integrations\PayNow\Exceptions\PayNowApiException;
 use Modules\Integrations\PayNow\Models\PayNowPayment;
 use Modules\Integrations\PayNow\Services\PayNowCustomerPaymentService;
@@ -26,6 +27,9 @@ class PayNowCustomerReturnController extends Controller
         }
 
         $payment = $this->urls->resolve($request);
+        if ($payment && ($portal = app(PortalPaymentService::class)->returnUrl($request, $payment))) {
+            return $this->secure(redirect()->to($portal, 303));
+        }
 
         return $payment
             ? $this->page($request, $payment, $this->payments->present($payment))
@@ -56,7 +60,7 @@ class PayNowCustomerReturnController extends Controller
         try {
             return $this->secure(redirect()->away($this->payments->retry($payment, $request->query('paymentId')), 303));
         } catch (ValidationException|PayNowApiException) {
-            return $this->secure(redirect()->to($this->urls->withProviderHint($this->urls->forPayment($payment), $request), 303)
+            return $this->secure(redirect()->to($this->urls->withProviderHint($this->urls->forPayment($payment, request: $request), $request), 303)
                 ->with('paynow_customer_error', 'Nie można teraz ponowić płatności. Sprawdź jej status ponownie lub skontaktuj się ze sprzedawcą.'));
         }
     }
@@ -68,8 +72,9 @@ class PayNowCustomerReturnController extends Controller
         $response = response()->view('paynow.return', [
             'data' => $data,
             'nonce' => $nonce,
-            'statusUrl' => $canCheck ? $this->urls->withProviderHint($this->urls->forPayment($payment, 'paynow.return.status'), $request) : null,
-            'retryUrl' => $canCheck ? $this->urls->withProviderHint($this->urls->forPayment($payment, 'paynow.return.retry'), $request) : null,
+            'portalUrl' => $payment ? app(PortalPaymentService::class)->returnUrl($request, $payment) : null,
+            'statusUrl' => $canCheck ? $this->urls->withProviderHint($this->urls->forPayment($payment, 'paynow.return.status', $request), $request) : null,
+            'retryUrl' => $canCheck ? $this->urls->withProviderHint($this->urls->forPayment($payment, 'paynow.return.retry', $request), $request) : null,
         ], $status);
         $response->headers->set('Content-Security-Policy', "default-src 'none'; style-src 'nonce-{$nonce}'; script-src 'nonce-{$nonce}'; connect-src 'self'; img-src 'self' data:; form-action 'self' https://paynow.pl https://*.paynow.pl; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
 

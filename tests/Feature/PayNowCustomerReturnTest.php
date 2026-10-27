@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Modules\CustomerPortal\Models\PortalSetting;
 use Modules\Integrations\PayNow\Enums\PayNowConnectionTestStatus;
 use Modules\Integrations\PayNow\Enums\PayNowEnvironment;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
@@ -68,6 +69,26 @@ class PayNowCustomerReturnTest extends TestCase
         $this->travel(1)->minutes();
         $this->assertSame($return, $this->url($payment));
         $this->assertSame('0.00', $order->fresh()->paid_amount);
+    }
+
+    #[DataProvider('portalDefaultReturns')]
+    public function test_new_attempt_uses_the_customer_portal_domain_for_the_default_return(?string $custom): void
+    {
+        PortalSetting::query()->create(['customer_domain' => 'klient.example.test']);
+        $this->account(['continue_url' => $custom]);
+        $order = $this->order();
+        $this->fakeProvider();
+        $this->postJson(route('orders.paynow.payment-link', $order))->assertOk();
+        $return = Http::recorded(fn (Request $request): bool => $request->method() === 'POST')->sole()[0]->data()['continueUrl'];
+        $this->assertStringStartsWith('https://klient.example.test/paynow/powrot?', $return);
+        $this->assertTrue(URL::hasValidSignature(ServerRequest::create($return)));
+        $this->assertSame('0.00', $order->fresh()->paid_amount);
+        $this->get($return)->assertOk()->assertDontSee('Powrót do zamówienia');
+    }
+
+    public static function portalDefaultReturns(): array
+    {
+        return [[null], ['https://klient.example.test/paynow/powrot'], ['http://localhost/paynow/powrot']];
     }
 
     public function test_copying_the_base_address_into_the_custom_field_still_produces_a_signed_return(): void

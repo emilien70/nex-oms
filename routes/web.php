@@ -29,6 +29,9 @@ use Modules\Analytics\Http\Controllers\BasicStatisticsController;
 use Modules\Analytics\Http\Controllers\BasicStatisticsCsvController;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\CustomerPortal\Http\Controllers\PortalController;
+use Modules\CustomerPortal\Http\Controllers\PortalPaymentController;
+use Modules\CustomerPortal\Http\Controllers\PortalSettingsController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroAutomaticOrdersController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroCommissionRefundController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroInvoiceExportController;
@@ -132,6 +135,27 @@ Route::get('/paynow/powrot', [PayNowCustomerReturnController::class, 'show'])
 Route::get('/pay/{token}', PayNowShortLinkController::class)
     ->where('token', '[A-Za-z0-9_-]{32}')
     ->middleware('throttle:paynow-customer')->name('paynow.short-link');
+Route::prefix('{orderNumber}/{token}')->where(['orderNumber' => '[1-9][0-9]{0,17}', 'token' => '[A-Za-z0-9]{10}'])->middleware('throttle:customer-portal')->group(function (): void {
+    Route::get('/', [PortalController::class, 'show'])->name('customer-portal.show');
+    Route::get('/dane', [PortalController::class, 'details'])->name('customer-portal.details');
+    Route::post('/weryfikacja', [PortalController::class, 'verify'])->name('customer-portal.verify');
+    Route::get('/dokumenty/{invoice}', [PortalController::class, 'document'])->whereNumber('invoice')->name('customer-portal.document');
+    Route::get('/produkty/{item}/zdjecie', [PortalController::class, 'image'])->whereNumber('item')->name('customer-portal.image');
+    Route::get('/logo', [PortalController::class, 'logo'])->name('customer-portal.logo');
+    Route::post('/platnosc/{action}', PortalPaymentController::class)->whereIn('action', ['pay', 'status', 'retry'])
+        ->middleware('throttle:customer-portal-payment')->name('customer-portal.payment');
+});
+Route::get('/settings/customer-portal', [PortalSettingsController::class, 'edit'])->name('customer-portal.settings');
+Route::put('/settings/customer-portal', [PortalSettingsController::class, 'update'])->name('customer-portal.settings.update');
+Route::get('/settings/customer-portal/preview', [PortalSettingsController::class, 'selectPreview'])->name('customer-portal.preview-select');
+Route::prefix('settings/customer-portal/preview/{order}')->group(function (): void {
+    Route::get('/', [PortalController::class, 'preview'])->name('customer-portal.preview');
+    Route::get('/dokumenty/{invoice}', [PortalController::class, 'previewDocument'])->whereNumber('invoice')->name('customer-portal.preview.document');
+    Route::get('/produkty/{item}/zdjecie', [PortalController::class, 'previewImage'])->whereNumber('item')->name('customer-portal.preview.image');
+    Route::get('/logo', [PortalController::class, 'previewLogo'])->name('customer-portal.preview.logo');
+});
+Route::post('/orders/{order}/customer-portal/link', [PortalSettingsController::class, 'issue'])->name('customer-portal.issue');
+Route::post('/orders/{order}/customer-portal/revoke', [PortalSettingsController::class, 'revoke'])->name('customer-portal.revoke');
 Route::post('/paynow/powrot/status', [PayNowCustomerReturnController::class, 'status'])
     ->middleware('throttle:paynow-customer-status')->name('paynow.return.status');
 Route::post('/paynow/powrot/ponow', [PayNowCustomerReturnController::class, 'retry'])

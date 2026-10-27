@@ -3,7 +3,9 @@
 namespace Tests\Support\Ksef;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Event;
 use Modules\Invoices\Enums\InvoiceDocumentType;
+use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -37,7 +39,11 @@ trait CreatesSubmissionRecoveryScenario
             'include_shipping' => false, 'seller_tax_id' => '9876543210',
         ]);
         KsefSeriesSetting::query()->create(['invoice_series_id' => $series->id, 'is_enabled' => true]);
-        $invoice = app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext('2026-08-19 10:00:00'));
+        // Fixture issuance must not pollute assertions about the recovery operation's effects.
+        $invoice = Event::fakeFor(
+            fn () => app(InvoiceIssuingService::class)->issue($order, $series, $this->documentContext('2026-08-19 10:00:00')),
+            [InvoiceIssued::class],
+        );
 
         return app(KsefInvoiceSubmissionService::class)->prepare(app(InvoiceFinalizationService::class)->finalize($invoice));
     }

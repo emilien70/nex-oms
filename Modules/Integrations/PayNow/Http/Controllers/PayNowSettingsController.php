@@ -9,6 +9,7 @@ use Modules\Integrations\PayNow\Enums\PayNowConnectionTestStatus;
 use Modules\Integrations\PayNow\Enums\PayNowEnvironment;
 use Modules\Integrations\PayNow\Http\Requests\UpdatePayNowAccountRequest;
 use Modules\Integrations\PayNow\Services\PayNowAccountService;
+use Modules\Integrations\PayNow\Services\PayNowReturnUrlService;
 
 class PayNowSettingsController extends Controller
 {
@@ -22,7 +23,7 @@ class PayNowSettingsController extends Controller
             'credentialsConfigured' => $account->hasCompleteCredentials(),
             'canActivate' => $account->last_test_status === PayNowConnectionTestStatus::Success,
             'notificationUrl' => route('api.paynow.notifications'),
-            'returnUrl' => route('paynow.return'),
+            'returnUrl' => app(PayNowReturnUrlService::class)->base(),
         ]);
     }
 

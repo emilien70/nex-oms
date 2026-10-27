@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Modules\Automation\Jobs\EvaluateAutomationEventJob;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Enums\InvoiceSeriesSystemKey;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
@@ -1018,7 +1019,9 @@ class KsefManualCorrectionSubmissionTest extends TestCase
         app(KsefSettingsService::class)->get()->forceFill(['automatic_submission' => true])->save();
 
         $this->assertNull(app(KsefAutomaticInvoiceSubmissionPolicy::class)->snapshotFor($correction));
-        Queue::assertNothingPushed();
+        Queue::assertPushed(EvaluateAutomationEventJob::class, fn ($job): bool => $job->eventName === 'invoice.issued'
+            && $job->eventPayload['invoice_id'] === $root->getKey());
+        Queue::assertCount(1);
         $this->assertDatabaseCount('ksef_invoice_submissions', 1);
         Http::assertNothingSent();
     }
