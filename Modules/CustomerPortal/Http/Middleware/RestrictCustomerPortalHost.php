@@ -14,7 +14,8 @@ class RestrictCustomerPortalHost
     {
         $urls = app(PortalUrlService::class);
         $name = $request->route()?->getName();
-        $publicPortal = in_array($name, ['customer-portal.show', 'customer-portal.document', 'customer-portal.details',
+        $customerLanding = $urls->isCustomerLanding($request);
+        $publicPortal = $customerLanding || in_array($name, ['customer-portal.show', 'customer-portal.document', 'customer-portal.details',
             'customer-portal.verify', 'customer-portal.image', 'customer-portal.logo', 'customer-portal.payment'], true);
         $customerHost = $urls->domain();
         $ownerHost = strtolower((string) parse_url(config('app.url'), PHP_URL_HOST));
@@ -23,7 +24,8 @@ class RestrictCustomerPortalHost
         $historicalReturn = in_array($name, ['paynow.return', 'paynow.return.status', 'paynow.return.retry'], true)
             && URL::hasValidSignature($request, true, ['paymentId', 'paymentStatus']);
         $paymentAlias = $name === 'paynow.short-link';
-        if (($customerHost && ! $localOwner && ! $historicalReturn && ! $paymentAlias
+        if (($request->is('/') && ! $localOwner && ! $customerLanding && strtolower($request->getHost()) !== $ownerHost)
+            || ($customerHost && ! $localOwner && ! $historicalReturn && ! $paymentAlias
                 && ! in_array(strtolower($request->getHost()), [$ownerHost, $customerHost], true))
             || ($publicPortal && ! $urls->accepts($request))
             || ($customerHost && strtolower($request->getHost()) === $customerHost && ! $publicPortal

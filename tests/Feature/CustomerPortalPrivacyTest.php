@@ -158,16 +158,16 @@ class CustomerPortalPrivacyTest extends TestCase
             'policy' => $settings->update(['verification_method' => 'email']),
             'revision' => $settings->increment('revision'),
             'revoke' => app(PortalAccessService::class)->revoke($order, 1),
-            'rotate' => app(PortalAccessService::class)->issue($order, true, 1),
+            'reactivate' => $this->reactivate($order),
             'disable' => $settings->update(['is_enabled' => false]),
         };
         $response = $this->get($url)->assertDontSee('Angelika Kozik')->assertDontSee('New private street');
-        $response->assertStatus(in_array($change, ['buyer', 'revoke', 'rotate', 'disable'], true) ? 404 : 200);
+        $response->assertStatus(in_array($change, ['revoke', 'disable'], true) ? 404 : 200);
     }
 
     public static function grantChanges(): array
     {
-        return [['shipping'], ['buyer'], ['policy'], ['revision'], ['revoke'], ['rotate'], ['disable']];
+        return [['shipping'], ['buyer'], ['policy'], ['revision'], ['revoke'], ['reactivate'], ['disable']];
     }
 
     public function test_pdf_and_head_are_gated_and_admin_download_is_unchanged(): void
@@ -249,10 +249,14 @@ class CustomerPortalPrivacyTest extends TestCase
 
     public function test_ten_character_codes_are_case_sensitive_order_scoped_and_old_routes_do_not_work(): void
     {
-        $order = $this->order();
+        Str::createRandomStringsUsing(fn () => 'AbC123xYz9');
+        try {
+            $order = $this->order();
+        } finally {
+            Str::createRandomStringsNormally();
+        }
         $link = PortalLink::query()->sole();
         $this->assertMatchesRegularExpression('/^[A-Za-z0-9]{10}$/D', $link->token);
-        $link->update(['token' => 'AbC123xYz9', 'token_hash' => hash('sha256', 'AbC123xYz9')]);
         $this->get('/'.$order->id.'/AbC123xYz9')->assertOk();
         $this->get('/'.$order->id.'/abc123xyz9')->assertNotFound();
         $this->get('/'.($order->id + 1).'/AbC123xYz9')->assertNotFound();
@@ -263,9 +267,13 @@ class CustomerPortalPrivacyTest extends TestCase
 
     public function test_random_code_collision_is_retried_without_replacing_another_orders_link(): void
     {
-        $order = $this->order();
+        Str::createRandomStringsUsing(fn () => 'AAAAAAAAAA');
+        try {
+            $order = $this->order();
+        } finally {
+            Str::createRandomStringsNormally();
+        }
         $link = PortalLink::query()->sole();
-        $link->update(['token' => 'AAAAAAAAAA', 'token_hash' => hash('sha256', 'AAAAAAAAAA')]);
         $attempt = 0;
         Str::createRandomStringsUsing(function () use (&$attempt): string {
             return ++$attempt === 1 ? 'AAAAAAAAAA' : 'BBBBBBBBBB';
@@ -395,14 +403,14 @@ class CustomerPortalPrivacyTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_legacy_replacement_is_idempotent_preserves_expiry_and_never_revives_inactive_access(): void
+    public function test_legacy_replacement_is_disabled_and_preserves_all_existing_codes(): void
     {
         $orders = [];
         foreach (['active', 'revoked', 'expired', 'buyer'] as $case) {
             $order = $this->order();
             $link = PortalLink::query()->where('order_id', $order->id)->sole();
             $token = Str::random(32);
-            $link->update(['token' => $token, 'token_hash' => hash('sha256', $token)]);
+            PortalLink::withoutEvents(fn () => $link->update(['token' => $token, 'token_hash' => hash('sha256', $token), 'binding_hash' => null]));
             if ($case === 'revoked') {
                 $link->update(['revoked_at' => now()]);
             }
@@ -415,21 +423,22 @@ class CustomerPortalPrivacyTest extends TestCase
             $orders[$case] = [$order, $link->fresh()->getAttributes()];
         }
         $all = PortalLink::query()->get()->map->getAttributes()->all();
-        $this->artisan('customer-portal:replace-legacy-links', ['--dry-run' => true])->assertSuccessful();
+        $this->artisan('customer-portal:replace-legacy-links', ['--dry-run' => true])->assertFailed();
         $this->assertSame($all, PortalLink::query()->get()->map->getAttributes()->all());
-        $this->artisan('customer-portal:replace-legacy-links')->expectsOutput('Wymienione aktywne linki: 1')->assertSuccessful();
-        $this->artisan('customer-portal:replace-legacy-links')->expectsOutput('Wymienione aktywne linki: 0')->assertSuccessful();
+        $this->artisan('customer-portal:replace-legacy-links')->assertFailed();
+        $this->artisan('customer-portal:replace-legacy-links')->assertFailed();
         foreach ($orders as $case => [$order, $before]) {
             $after = PortalLink::query()->where('order_id', $order->id)->sole();
-            if ($case === 'active') {
-                $this->assertSame(10, strlen($after->token));
-                $this->assertSame($before['expires_at'], $after->getRawOriginal('expires_at'));
-                $this->assertSame(2, $after->generation);
-            } else {
-                $this->assertSame($before, $after->getAttributes());
-            }
+            $this->assertSame($before, $after->getAttributes());
         }
         Http::assertNothingSent();
+    }
+
+    private function reactivate(Order $order): void
+    {
+        $access = app(PortalAccessService::class);
+        $access->revoke($order, 1);
+        $access->activate($order, 2);
     }
 
     public function test_changing_customer_domain_preserves_only_signed_historical_payment_returns(): void

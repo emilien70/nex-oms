@@ -322,19 +322,45 @@ z opisow poprzednich etapow. Nie pomijac przegladu pozostalych zaleglych migracj
 
 ```bash
 php artisan migrate --path=database/migrations/2026_10_27_010000_add_customer_domain_and_verification_to_portal_settings.php --force --no-interaction
-php artisan customer-portal:replace-legacy-links --dry-run
-php artisan customer-portal:replace-legacy-links
 ```
 
-Wymiana jest idempotentna i obejmuje tylko nadal aktywne stare dostepy.
-Nie przedluza terminu, nie przywraca odwolan, nie pomija zmiany nabywcy,
-nie wlacza portalu ani platnosci i nie wysyla wiadomosci. `--dry-run`
-podaje potencjalnych kandydatow, a zapis ponownie sprawdza tozsamosc
-nabywcy pod blokadami. Nie dodawac tej komendy do kazdego importu ani GET.
-Po wdrozeniu odswiezyc dotychczasowe workery zatwierdzona procedura.
-Jesli przed ich odswiezeniem stary proces utworzyl jeszcze stary kod,
-ponowne wykonanie komendy wymiany obejmie tylko ten aktywny stary dostep.
+Historyczna komenda `customer-portal:replace-legacy-links` z PORTAL.2B
+jest zablokowana od PORTAL.2C: istniejace kody nie sa juz wymieniane.
+Nie uruchamiac starego kodu tej komendy z wczesniejszego wydania.
+Nieobslugiwany historyczny format wymaga odrebnej decyzji, nie automatycznej
+rotacji. Po wdrozeniu odswiezyc workery zatwierdzona procedura.
 Nie cofaj migracji ochrony danych automatycznie; rollback odmawia operacji.
+
+### Stale linki - PORTAL.2C
+
+Po osobnym zatwierdzeniu wdrozenia i wykonaniu spojnej kopii bazy:
+
+```bash
+php artisan migrate --path=database/migrations/2026_10_27_020000_add_permanent_binding_to_customer_portal_links.php --force --no-interaction
+php artisan customer-portal:bind-links --dry-run
+php artisan customer-portal:bind-links
+```
+
+To nie jest polecenie do wykonania na VPS w ramach lokalnej implementacji.
+Nowa instalacja wykonuje rowniez wczesniejsze migracje portalu. Istniejace
+workery trzeba przeladowac zgodnie z zatwierdzona procedura wdrozenia,
+aby stare procesy nie wykonywaly dawnej rotacji. Zapis nowych linkow
+nowym kodem od razu tworzy podpis; jawna komenda uzupelnia starsze rekordy.
+Pole `binding_hash` jest opcjonalne w strukturze, ale podpis istniejacego
+linku po uzupelnieniu jest niezmienny. Do tego czasu dziala stara walidacja.
+Nie usuwac kolumny ani podpisow w ramach automatycznego rollbacku.
+
+Komenda nie zmienia kodow, szyfrogramow, terminow, odwolan, zamowien,
+platnosci ani ustawien. Podpisuje tez nieaktywne rekordy, lecz nie wlacza
+ich dostepu. Pierwszy zapis podpisu uniewaznia dotychczasowa weryfikacje
+klienta, bez uniewaznienia URL. Powtorzenie komendy nie zmienia rekordow.
+Niespojny kod/podpis przerywa uzupelnianie z ID rekordu do sprawdzenia;
+wczesniej poprawnie podpisane rekordy pozostaja podpisane. Nie ponawiac
+po usunieciu podpisu. Po operacji sprawdzic raport i ponownie --dry-run.
+Kodow ani pelnych URL nie publikowac w logach wdrozenia.
+Poprawne historyczne 32-znakowe kody bez podpisu sa pomijane i zliczane
+osobno: nie obsluguje ich obecny routing i nie sa wymieniane ani wlaczane.
+Uszkodzony szyfrogram/skrot albo niespojny podpis nadal przerywa operacje.
 
 W ustawieniach **Strony informacyjne** jest **Domena strony dla klientow**.
 Wpisac `klient.multi-click.pl`, bez protokolu, portu, sciezki i ukosnika.
@@ -371,6 +397,16 @@ server {
     auth_basic off;
     access_log off;
 
+    # Strona glowna domeny klienta: widok niedostepnego zamowienia, HTTP 404.
+    location = / {
+        fastcgi_cache off;
+        rewrite ^ /index.php break;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_hide_header X-Powered-By;
+    }
+
     location ~ "^(?:/[1-9][0-9]{0,17}/[A-Za-z0-9]{10}(?:/(?:dane|weryfikacja|logo|dokumenty/[0-9]+|produkty/[0-9]+/zdjecie|platnosc/(?:pay|status|retry)))?|/paynow/powrot(?:/(?:status|ponow))?|/pay/[A-Za-z0-9_-]{32})/?$" {
         fastcgi_cache off;
         rewrite ^ /index.php break;
@@ -384,6 +420,41 @@ server {
     location / { return 404; }
 }
 ```
+
+Scisly `location = /` wymaga kodu obslugujacego strone glowna domeny
+klienta w Laravel. Wdrozyc najpierw te poprawke aplikacji, a dopiero potem
+dodac wyjatek w istniejacym bloku HTTPS klienta. Bez poprawki Nginx nadal
+zwraca swoj 404; samo dopuszczenie `/` nie wystarczy. Nie kopiowac wyjatku
+do vhosta panelu OMS i nie usuwac pozostalego `location / { return 404; }`.
+
+`GET /` i `HEAD /` na skonfigurowanej domenie klienta korzystaja z istniejacego
+widoku niedostepnego zamowienia, bez przekierowania, szukania zamowienia,
+wydawania linku i operacji platniczych. Zachowuja HTTP 404, CSP, no-store,
+noindex i osobna sesje klienta. Root domeny OMS nadal wyswietla dashboard
+za dotychczasowym Basic Auth. Wyczyszczenie/zmiana domeny w ustawieniach
+nie udostepnia dashboardu na dawnym publicznym hoscie. Gdy domena jest
+nieustawiona albo brakuje jej migracji, nierozpoznany host pozostaje odrzucony.
+Nie ma nowej migracji, zmiany danych, linkow ani potrzeby restartu workerow.
+
+Po osobno zatwierdzonej zmianie konfiguracji na VPS sprawdzic:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+curl -sS -o /dev/null -w '%{http_code}\n' https://klient.multi-click.pl/
+curl -sS -I https://klient.multi-click.pl/
+curl -sS https://klient.multi-click.pl/
+curl -sS -o /dev/null -w '%{http_code}\n' https://klient.multi-click.pl/orders
+curl -sS -o /dev/null -w '%{http_code}\n' https://oms.multi-click.pl/
+```
+
+Oczekiwane: klient root GET/HEAD 404, GET z polskim komunikatem
+"Strona zamowienia jest niedostepna" (w rzeczywistym HTML z polskimi znakami),
+HEAD bez tresci, bez naglowka Location; /orders na domenie klienta nadal 404,
+a panel OMS bez Basic Auth nadal 401. Sprawdzic tez istniejacy poprawny
+link zamowienia. Sam status 404 nie odroznia strony aplikacji od Nginx:
+trzeba obejrzec tresc i naglowki. Nie wpisywac poufnych kodow do publicznych
+logow. W ramach lokalnej implementacji nie wykonywano tych operacji na VPS.
 
 Nie dodawac przekierowania klienta do panelu ani wyjatkow `/orders`,
 `/settings`, `/invoices`, calego `/api` lub dowolnego PHP. Osobny blok HTTP

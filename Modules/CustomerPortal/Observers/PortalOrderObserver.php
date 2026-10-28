@@ -9,6 +9,25 @@ use Throwable;
 
 class PortalOrderObserver
 {
+    public function updated(Order $order): void
+    {
+        $before = (new Order)->setRawAttributes($order->getRawOriginal(), true);
+        $access = app(PortalAccessService::class);
+        if (! hash_equals($access->verificationIdentity($before), $access->verificationIdentity($order))) {
+            $access->invalidateVerification((int) $order->id);
+        }
+    }
+
+    public function deleted(Order $order): void
+    {
+        app(PortalAccessService::class)->invalidateVerification((int) $order->id);
+    }
+
+    public function restored(Order $order): void
+    {
+        app(PortalAccessService::class)->invalidateVerification((int) $order->id);
+    }
+
     public function created(Order $order): void
     {
         $id = (int) $order->id;

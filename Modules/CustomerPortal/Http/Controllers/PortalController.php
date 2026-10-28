@@ -23,6 +23,11 @@ class PortalController extends Controller
     public function __construct(private readonly PortalAccessService $access, private readonly PortalPresentationService $presentation,
         private readonly PortalVerificationService $verification, private readonly PortalUrlService $urls) {}
 
+    public function unavailable(): Response
+    {
+        return $this->page(null, 404);
+    }
+
     public function show(Request $request, string $orderNumber, string $token): Response
     {
         $grant = $this->grant($request, $orderNumber, $token);

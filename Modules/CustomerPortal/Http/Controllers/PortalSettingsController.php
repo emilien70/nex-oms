@@ -144,13 +144,15 @@ class PortalSettingsController extends Controller
 
     public function issue(Request $request, Order $order, PortalAccessService $access)
     {
-        $request->validate(['rotate' => ['sometimes', 'boolean'], 'confirm' => ['required', 'accepted'],
-            'expected_generation' => ['required_if:rotate,1', 'nullable', 'integer', 'min:0']]);
-        $url = $access->issue($order, $request->boolean('rotate'), $request->has('expected_generation') ? $request->integer('expected_generation') : null);
+        $request->validate(['rotate' => ['sometimes', 'declined'], 'activate' => ['sometimes', 'boolean'], 'confirm' => ['required', 'accepted'],
+            'expected_generation' => ['required_if:activate,1', 'nullable', 'integer', 'min:0']]);
+        $url = $request->boolean('activate')
+            ? $access->activate($order, $request->integer('expected_generation'))
+            : $access->issue($order);
 
         return $request->expectsJson()
             ? response()->json(['url' => $url, 'generation' => PortalLink::query()->where('order_id', $order->id)->value('generation')])->header('Cache-Control', 'private, no-store')
-            : redirect()->route('customer-portal.settings', ['order' => $order->id])->with('success', 'Przygotowano link strony zamówienia.');
+            : redirect()->route('customer-portal.settings', ['order' => $order->id])->with('success', 'Włączono dostęp do strony zamówienia. Adres pozostaje bez zmian.');
     }
 
     public function revoke(Request $request, Order $order, PortalAccessService $access)

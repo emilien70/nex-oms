@@ -59,4 +59,10 @@ class PortalUrlService
     {
         return strtolower($request->getSchemeAndHttpHost()) === strtolower($this->base());
     }
+
+    public function isCustomerLanding(Request $request): bool
+    {
+        return $this->domain() !== null && $request->is('/')
+            && in_array($request->method(), ['GET', 'HEAD'], true) && $this->accepts($request);
+    }
 }

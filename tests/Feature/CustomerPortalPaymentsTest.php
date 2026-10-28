@@ -169,7 +169,7 @@ class CustomerPortalPaymentsTest extends TestCase
             'review' => $payment->update(['needs_review' => true]),
             'confirmed' => $payment->update(['status' => 'CONFIRMED']),
             'revoked' => app(PortalAccessService::class)->revoke($order, 1),
-            'rotated' => app(PortalAccessService::class)->issue($order, true, 1),
+            'reactivated' => $this->reactivate($order),
             'expired' => PortalLink::query()->sole()->update(['expires_at' => now()->subSecond()]),
             'newer' => $this->anotherAttempt($payment),
         };
@@ -184,7 +184,14 @@ class CustomerPortalPaymentsTest extends TestCase
     {
         return array_map(fn ($name) => [$name], ['total', 'paid', 'email', 'currency', 'cancelled', 'cod', 'trash',
             'disabled', 'revision', 'source', 'inactive', 'credentials', 'provider-id', 'target', 'review',
-            'confirmed', 'revoked', 'rotated', 'expired', 'newer']);
+            'confirmed', 'revoked', 'reactivated', 'expired', 'newer']);
+    }
+
+    private function reactivate(Order $order): void
+    {
+        $access = app(PortalAccessService::class);
+        $access->revoke($order, 1);
+        $access->activate($order, 2);
     }
 
     #[DataProvider('failedStatuses')]

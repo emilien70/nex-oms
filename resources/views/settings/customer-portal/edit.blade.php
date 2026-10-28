@@ -71,17 +71,18 @@
         <form method="GET" action="{{ route('customer-portal.settings') }}" class="preview-form mb-3"><label for="portal-managed-order">Numer zamówienia</label><input type="number" class="form-control form-control-sm" id="portal-managed-order" name="order" min="1" value="{{ $managedPortalOrder?->id }}" required><button type="submit" class="btn btn-outline-secondary btn-sm">Wybierz</button></form>
         @if($managedPortalOrder)
             <p>Zamówienie <a href="{{ route('orders.show', $managedPortalOrder) }}">{{ $managedPortalOrder->id }}</a></p>
-            @if($managedPortalData['active'])
+            @if($managedPortalData['url'])
                 <p class="text-break"><a href="{{ $managedPortalData['url'] }}" target="_blank" rel="noopener noreferrer">{{ $managedPortalData['url'] }}</a></p>
-            @else
+            @endif
+            @if(!$managedPortalData['active'])
                 <p class="text-secondary">{{ $managedPortalData['reason'] }}</p>
             @endif
             <div class="d-flex flex-wrap gap-2">
-                @if($settings->is_enabled)
-                    <form method="POST" action="{{ route('customer-portal.issue', $managedPortalOrder) }}" onsubmit="return confirm('Wygenerować nowy link? Dotychczasowy adres przestanie działać.');">@csrf<input type="hidden" name="confirm" value="1"><input type="hidden" name="rotate" value="1"><input type="hidden" name="expected_generation" value="{{ $managedPortalLink?->generation ?? 0 }}"><button class="btn btn-outline-primary btn-sm" type="submit">Wygeneruj nowy link</button></form>
+                @if($settings->is_enabled && !$managedPortalData['active'])
+                    <form method="POST" action="{{ route('customer-portal.issue', $managedPortalOrder) }}" onsubmit="return confirm('Włączyć dostęp do strony tego zamówienia pod tym samym adresem?');">@csrf<input type="hidden" name="confirm" value="1"><input type="hidden" name="activate" value="1"><input type="hidden" name="expected_generation" value="{{ $managedPortalLink?->generation ?? 0 }}"><button class="btn btn-outline-primary btn-sm" type="submit"><i class="bi bi-toggle-on" aria-hidden="true"></i> Włącz dostęp</button></form>
                 @endif
                 @if($managedPortalLink && !$managedPortalLink->revoked_at)
-                    <form method="POST" action="{{ route('customer-portal.revoke', $managedPortalOrder) }}" onsubmit="return confirm('Wyłączyć link strony tego zamówienia?');">@csrf<input type="hidden" name="confirm" value="1"><input type="hidden" name="expected_generation" value="{{ $managedPortalLink->generation }}"><button class="btn btn-outline-danger btn-sm" type="submit">Wyłącz link</button></form>
+                    <form method="POST" action="{{ route('customer-portal.revoke', $managedPortalOrder) }}" onsubmit="return confirm('Wyłączyć dostęp do strony tego zamówienia? Adres pozostanie bez zmian.');">@csrf<input type="hidden" name="confirm" value="1"><input type="hidden" name="expected_generation" value="{{ $managedPortalLink->generation }}"><button class="btn btn-outline-danger btn-sm" type="submit"><i class="bi bi-toggle-off" aria-hidden="true"></i> Wyłącz dostęp</button></form>
                 @endif
             </div>
         @endif

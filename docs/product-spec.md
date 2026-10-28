@@ -24,11 +24,30 @@ Uzupełnienie operacyjne 2026-10-24: bieżący staging OVHcloud/Ubuntu, jeden cr
 
 ---
 
+# PORTAL.2C - staly adres zamowienia
+
+Kod portalu jest przypisany na stale do konkretnego zamowienia. Zmiany
+nabywcy, e-maila, NIP-u, adresu, zrodla, statusu, pozycji i kwot nie wymieniaja
+kodu. Istniejace adresy zostaja zachowane. Zmiana domeny nadal zmienia host.
+Ustawienia oferuja Wlacz dostep / Wylacz dostep pod tym samym adresem,
+bez generowania nowego linku. Globalne wylaczenie, Kosz, usuniecie i termin
+dostepnosci nadal obowiazuja. Automatyzacje i odczyt nie wznawiaja odwolan
+ani wygaslych dostepow. Jawne ponowne wlaczenie nie zmienia kodu i wymaga
+nadal waznego okresu dostepnosci od daty zakupu.
+
+Zmiana danych osobowych uniewaznia weryfikacje pelnych danych i PDF,
+takze gdy operator pozniej przywroci poprzednie dane. Sam link pozostaje
+aktywny. Osoba posiadajaca adres nadal widzi podstawowe informacje o tym
+zamowieniu; staly link nie jest przypisany do konkretnego nabywcy.
+Platnosci i ich zabezpieczenia pozostaja bez zmian. Historyczna komenda
+wymiany kodow z PORTAL.2B jest zablokowana. Szczegoly:
+[stale linki portalu](portal-permanent-links-report.md).
+
 # PORTAL.2B - domena klienta i prywatnosc
 
 Portal korzysta z konfigurowalnej domeny i adresu /<numer OMS>/<10 losowych
 liter i cyfr>. Stare testowe linki nie sa obslugiwane. Aktywne stare dostepy
-mozna wymienic jawna komenda bez przedluzania waznosci i przywracania odwolan.
+mozna bylo wymienic jawna komenda; PORTAL.2C blokuje dalsza wymiane kodow.
 Dane sa domyslnie maskowane po stronie serwera; PDF wymaga podania pelnego
 adresu e-mail albo imienia i nazwiska/firmy nabywcy, zgodnie z ustawieniem.
 Porownanie ignoruje wielkosc liter i nadmiarowe odstepy w nazwach, ale nie

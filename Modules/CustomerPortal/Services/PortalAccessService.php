@@ -5,6 +5,7 @@ namespace Modules\CustomerPortal\Services;
 use App\Exceptions\OrderEmailException;
 use App\Models\Order;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -25,6 +26,11 @@ class PortalAccessService
     public function settings(): PortalSetting
     {
         return $this->ready() ? (PortalSetting::query()->where('singleton_key', PortalSetting::KEY)->first() ?? new PortalSetting) : new PortalSetting;
+    }
+
+    public function bindingsReady(): bool
+    {
+        return $this->ready() && Schema::hasColumn('customer_portal_links', 'binding_hash');
     }
 
     public function expiry(Order $order, PortalSetting $settings): CarbonImmutable
@@ -73,13 +79,17 @@ class PortalAccessService
         if (! $link) {
             return $data;
         }
+        if (! $this->intact($link, $order)) {
+            $data['reason'] = 'Przypisanie linku wymaga sprawdzenia przez administratora.';
+
+            return $data;
+        }
         $data['url'] = $this->urls->link($link);
         $data['reason'] = match (true) {
             ! $settings->is_enabled => 'Portal został wyłączony w ustawieniach.',
-            ! $this->shortToken($link->token) => 'Link wymaga wymiany na nowy format.',
             $link->revoked_at !== null => 'Link został wyłączony.',
             ! $link->expires_at->isFuture(), ! $this->expiry($order, $settings)->isFuture() => 'Link wygasł.',
-            ! hash_equals($link->identity_hash, $this->identity($order)) => 'Link wymaga odnowienia po zmianie danych nabywcy.',
+            ! $this->identityMatches($link, $order) => 'Link wymaga uzupełnienia stałego przypisania do zamówienia.',
             default => null,
         };
         $data['active'] = $data['reason'] === null;
@@ -89,11 +99,11 @@ class PortalAccessService
 
     public function issue(Order $order, bool $rotate = false, ?int $expectedGeneration = null, ?string $recipientEmail = null): string
     {
-        if (! $this->ready()) {
+        if (! $this->ready() || $rotate) {
             $this->deny();
         }
 
-        return DB::transaction(function () use ($order, $rotate, $expectedGeneration, $recipientEmail): string {
+        return DB::transaction(function () use ($order, $recipientEmail): string {
             $settings = $this->savedSettings();
             $order = Order::query()->whereKey($order->id)->lockForUpdate()->first();
             if (! $settings?->is_enabled || ! $order || ! $this->expiry($order, $settings)->isFuture()) {
@@ -103,14 +113,39 @@ class PortalAccessService
                 $this->deny();
             }
             $link = PortalLink::query()->where('order_id', $order->id)->lockForUpdate()->first();
-            if ($rotate && $expectedGeneration !== ($link?->generation ?? 0)) {
-                $this->deny();
-            }
-            if (! $link || $rotate) {
-                $link = $this->saveLink($order, $settings, $link);
+            if (! $link) {
+                $link = $this->saveLink($order, $settings);
             }
             if (! $this->valid($link, $order, $settings)) {
                 $this->deny();
+            }
+
+            return $this->urls->link($link);
+        }, 3);
+    }
+
+    public function activate(Order $order, int $expectedGeneration): string
+    {
+        if (! $this->bindingsReady()) {
+            $this->deny();
+        }
+
+        return DB::transaction(function () use ($order, $expectedGeneration): string {
+            $settings = $this->savedSettings();
+            $order = Order::query()->whereKey($order->id)->lockForUpdate()->first();
+            if (! $settings->is_enabled || ! $order || ! $this->expiry($order, $settings)->isFuture()) {
+                $this->deny();
+            }
+            $link = PortalLink::query()->where('order_id', $order->id)->lockForUpdate()->first();
+            if ($expectedGeneration !== ($link?->generation ?? 0)) {
+                $this->deny();
+            }
+            if (! $link) {
+                $link = $this->saveLink($order, $settings);
+            } elseif (! $this->intact($link, $order) || ! $link->isBoundTo($order)) {
+                $this->deny();
+            } elseif ($link->revoked_at || ! $link->expires_at->isFuture()) {
+                $link->update(['revoked_at' => null, 'expires_at' => $this->expiry($order, $settings), 'generation' => $link->generation + 1]);
             }
 
             return $this->urls->link($link);
@@ -130,7 +165,7 @@ class PortalAccessService
                 $this->deny();
             }
             if (! $link->revoked_at) {
-                $link->update(['revoked_at' => now()]);
+                $link->update(['revoked_at' => now(), 'generation' => $link->generation + 1]);
             }
         }, 3);
     }
@@ -174,7 +209,7 @@ class PortalAccessService
             return $this->previewPlaceholder();
         }
         if (! $this->valid($link, $order, $settings)) {
-            throw new OrderEmailException('portal_link_unavailable', 'Link strony klienta wymaga świadomego wygenerowania nowego kodu na karcie zamówienia.');
+            throw new OrderEmailException('portal_link_unavailable', 'Dostęp do strony klienta jest wyłączony, wygasł lub wymaga sprawdzenia w ustawieniach portalu.');
         }
 
         return $this->urls->link($link);
@@ -187,20 +222,46 @@ class PortalAccessService
 
     public function replaceLegacyLink(int $orderId): bool
     {
-        return DB::transaction(function () use ($orderId): bool {
-            $settings = $this->savedSettings();
-            $order = Order::query()->whereKey($orderId)->lockForUpdate()->first();
-            $link = PortalLink::query()->where('order_id', $orderId)->lockForUpdate()->first();
-            if (! $settings->is_enabled || ! $order || ! $link || $this->shortToken($link->token)
-                || $link->revoked_at || ! $link->expires_at->isFuture() || ! $this->expiry($order, $settings)->isFuture()
-                || ! hash_equals($link->identity_hash, $this->identity($order))) {
+        $this->deny();
+    }
+
+    public function bindExistingLink(int $linkId, bool $dryRun = false): bool
+    {
+        abort_unless($this->bindingsReady(), 503);
+
+        return DB::transaction(function () use ($linkId, $dryRun): bool {
+            $candidate = PortalLink::query()->find($linkId);
+            if (! $candidate?->order_id) {
                 return false;
             }
-            $expiry = $link->expires_at;
-            $this->saveLink($order, $settings, $link)->update(['expires_at' => $expiry]);
+            $order = Order::withTrashed()->whereKey($candidate->order_id)->lockForUpdate()->first();
+            $link = PortalLink::query()->whereKey($linkId)->lockForUpdate()->first();
+            if (! $order || ! $link || ! $this->intact($link, $order)) {
+                throw new \RuntimeException('Invalid customer portal link; binding aborted for ID '.$linkId.'.');
+            }
+            if ($link->binding_hash !== null) {
+                return false;
+            }
+            if (! $dryRun) {
+                $link->update(['binding_hash' => PortalLink::bindingFor($order->id, $link->token_hash), 'generation' => $link->generation + 1]);
+            }
 
             return true;
         }, 3);
+    }
+
+    public function verificationIdentity(Order $order): string
+    {
+        return hash_hmac('sha256', json_encode([$order->customer_email, $order->customer_phone,
+            $order->shippingAddressData(), $order->billingAddressData(),
+        ], JSON_THROW_ON_ERROR), (string) config('app.key'));
+    }
+
+    public function invalidateVerification(int $orderId): void
+    {
+        if ($this->bindingsReady()) {
+            PortalLink::query()->where('order_id', $orderId)->whereNotNull('binding_hash')->increment('generation');
+        }
     }
 
     private function savedSettings(): PortalSetting
@@ -210,7 +271,7 @@ class PortalAccessService
         return PortalSetting::query()->whereKey($settings->id)->lockForUpdate()->firstOrFail();
     }
 
-    private function saveLink(Order $order, PortalSetting $settings, ?PortalLink $previous = null): PortalLink
+    private function saveLink(Order $order, PortalSetting $settings): PortalLink
     {
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $token = Str::random(10);
@@ -220,10 +281,11 @@ class PortalAccessService
             }
             try {
                 // A savepoint keeps a rare unique-token collision safe on every supported driver.
-                return DB::transaction(fn () => PortalLink::query()->updateOrCreate(['order_id' => $order->id], [
-                    'token' => $token, 'token_hash' => $hash,
+                return DB::transaction(fn () => PortalLink::query()->create([
+                    'order_id' => $order->id, 'token' => $token, 'token_hash' => $hash,
                     'identity_hash' => $this->identity($order), 'expires_at' => $this->expiry($order, $settings),
-                    'revoked_at' => null, 'generation' => ($previous?->generation ?? 0) + 1,
+                    'revoked_at' => null, 'generation' => 1,
+                    ...($this->bindingsReady() ? ['binding_hash' => PortalLink::bindingFor($order->id, $hash)] : []),
                 ]));
             } catch (UniqueConstraintViolationException $exception) {
                 if (! PortalLink::query()->where('token_hash', $hash)->exists()) {
@@ -236,8 +298,24 @@ class PortalAccessService
 
     private function valid(PortalLink $link, Order $order, PortalSetting $settings): bool
     {
-        return $this->shortToken($link->token) && ! $link->revoked_at && $link->expires_at->isFuture() && $this->expiry($order, $settings)->isFuture()
-            && hash_equals($link->identity_hash, $this->identity($order));
+        return $this->intact($link, $order) && ! $link->revoked_at && $link->expires_at->isFuture() && $this->expiry($order, $settings)->isFuture()
+            && $this->identityMatches($link, $order);
+    }
+
+    private function identityMatches(PortalLink $link, Order $order): bool
+    {
+        return $link->binding_hash !== null ? $link->isBoundTo($order) : hash_equals($link->identity_hash, $this->identity($order));
+    }
+
+    private function intact(PortalLink $link, Order $order): bool
+    {
+        try {
+            return $link->order_id === $order->id && $this->shortToken($link->token)
+                && hash_equals($link->token_hash, hash('sha256', $link->token))
+                && ($link->binding_hash === null || $link->isBoundTo($order));
+        } catch (DecryptException) {
+            return false;
+        }
     }
 
     private function shortToken(string $token): bool

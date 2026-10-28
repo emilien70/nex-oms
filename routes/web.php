@@ -24,6 +24,7 @@ use App\Http\Controllers\SettingsOrderStatusesController;
 use App\Http\Controllers\SettingsVariablesController;
 use App\Http\Controllers\ShipmentController;
 use App\Models\Order;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Modules\Analytics\Http\Controllers\BasicStatisticsController;
 use Modules\Analytics\Http\Controllers\BasicStatisticsCsvController;
@@ -32,6 +33,7 @@ use Modules\Automation\Http\Controllers\AutomationRuleController;
 use Modules\CustomerPortal\Http\Controllers\PortalController;
 use Modules\CustomerPortal\Http\Controllers\PortalPaymentController;
 use Modules\CustomerPortal\Http\Controllers\PortalSettingsController;
+use Modules\CustomerPortal\Services\PortalUrlService;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroAutomaticOrdersController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroCommissionRefundController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroInvoiceExportController;
@@ -100,7 +102,11 @@ use Modules\Ksef\Http\Controllers\KsefSettingsController;
 use Modules\Products\Http\Controllers\ProductBundleController;
 use Modules\Products\Http\Controllers\ProductController;
 
-Route::get('/', function () {
+Route::get('/', function (Request $request, PortalUrlService $portalUrls, PortalController $portal) {
+    if ($portalUrls->isCustomerLanding($request)) {
+        return $portal->unavailable();
+    }
+
     $dashboardStats = [
         'newOrders' => Order::query()
             ->where('status', Order::STATUS_NEW)

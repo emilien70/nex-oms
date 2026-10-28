@@ -1,5 +1,33 @@
 # NEX-OMS — architektura systemu
 
+## PORTAL.2C - niezmienne przypisanie linku
+
+Nullable customer_portal_links.binding_hash przechowuje HMAC-SHA256 wersji
+kontraktu, order_id i token_hash. Nie zalezy od mutowalnych danych nabywcy.
+Nowe linki otrzymuja podpis przy utworzeniu. Jawne customer-portal:bind-links
+uzupelnia go po migracji, bez zmiany szyfrogramu tokena, adresu, tozsamosci
+historycznej, expires_at, revoked_at ani ustawien. --dry-run jest tylko
+odczytowy. Kazde pierwsze uzupelnienie podnosi generation i uniewaznia sesje.
+Niepodpisane historyczne rekordy zachowuja konserwatywna walidacje identity_hash
+do czasu jawnego uzupelnienia. Niespojny podpis/kod blokuje dostep i backfill.
+Poprawne historyczne kody 32-znakowe sa pomijane bez zapisu i raportowane;
+nie sa przywracane do obecnego routingu ani wymieniane.
+
+PortalLink blokuje edycje order_id, tokena, token_hash i istniejacego podpisu.
+PortalAccessService tworzy tylko brakujace rekordy; nie uzywa updateOrCreate.
+Aktywacja i odwolanie dzialaja pod blokadami settings -> order -> link,
+z expected_generation. Odwolanie/ponowne wlaczenie zwieksza generation,
+zachowujac URL. Stare endpointy/metody rotacji odmawiaja wymiany kodu.
+
+PortalOrderObserver uniewaznia weryfikacje przez zwiekszenie generation
+w tej samej transakcji co zmiana danych osobowych, jezeli taka transakcja
+otacza zapis zamowienia. Obejmuje tez usuniecie/Kosz i przywrocenie.
+Istniejace odciski weryfikacji i formularzy platnosci uwzgledniaja generation;
+powrot danych do poprzednich wartosci nie odnawia starej sesji ani formularza.
+Nie zmieniono dopasowania danych klienta, okresu 15 minut ani regul PayNow.
+Migracja odmawia cofniecia po zapisaniu trwalych przypisan. Szczegoly:
+[stale linki portalu](portal-permanent-links-report.md).
+
 ## PORTAL.2B - domena i weryfikacja klienta
 
 PortalUrlService buduje kanoniczne adresy bez zmiany globalnego generatora

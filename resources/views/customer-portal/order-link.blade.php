@@ -5,6 +5,9 @@
     </div>
     @if($portalOrderLink['active'])
         <a class="management-portal-url" href="{{ $portalOrderLink['url'] }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">{{ $portalOrderLink['url'] }}</a>
+    @elseif($portalOrderLink['url'])
+        <span class="management-portal-unavailable text-break">{{ $portalOrderLink['url'] }}</span>
+        <span class="management-portal-unavailable">{{ $portalOrderLink['reason'] }}</span>
     @else
         <span class="management-portal-unavailable">{{ $portalOrderLink['reason'] }}</span>
     @endif

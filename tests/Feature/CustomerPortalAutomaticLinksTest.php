@@ -118,7 +118,6 @@ class CustomerPortalAutomaticLinksTest extends TestCase
         match ($scenario) {
             'revoked' => app(PortalAccessService::class)->revoke($order, 1),
             'expired' => $link->update(['expires_at' => now()->subSecond()]),
-            'buyer' => $order->update(['customer_email' => 'another@example.test']),
         };
         $before = $link->fresh()->getAttributes();
         app(PortalAccessService::class)->provision($order->id);
@@ -130,7 +129,7 @@ class CustomerPortalAutomaticLinksTest extends TestCase
 
     public static function inactiveLinks(): array
     {
-        return [['revoked'], ['expired'], ['buyer']];
+        return [['revoked'], ['expired']];
     }
 
     public function test_copying_an_order_creates_a_different_capability(): void
@@ -219,20 +218,21 @@ class CustomerPortalAutomaticLinksTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_settings_can_revoke_and_explicitly_renew_a_link_without_changing_payments(): void
+    public function test_settings_can_disable_and_enable_the_same_link_without_changing_payments(): void
     {
         $order = $this->order();
         $old = app(PortalAccessService::class)->orderLink($order)['url'];
-        $this->get(route('customer-portal.settings', ['order' => $order->id]))->assertOk()->assertSee('Wygeneruj nowy link')->assertSee($old, false);
+        $this->get(route('customer-portal.settings', ['order' => $order->id]))->assertOk()->assertSee('Wyłącz dostęp')->assertDontSee('Wygeneruj nowy link')->assertSee($old, false);
         $this->post(route('customer-portal.revoke', $order), ['confirm' => 1, 'expected_generation' => 1])
             ->assertRedirect(route('customer-portal.settings', ['order' => $order->id]));
         $this->get($old)->assertNotFound();
-        $this->post(route('customer-portal.issue', $order), ['confirm' => 1, 'rotate' => 1, 'expected_generation' => 1])
+        $this->get(route('customer-portal.settings', ['order' => $order->id]))->assertOk()->assertSee('Włącz dostęp')->assertSee($old, false);
+        $this->post(route('customer-portal.issue', $order), ['confirm' => 1, 'activate' => 1, 'expected_generation' => 2])
             ->assertRedirect(route('customer-portal.settings', ['order' => $order->id]));
         $new = app(PortalAccessService::class)->orderLink($order)['url'];
-        $this->assertNotSame($old, $new);
+        $this->assertSame($old, $new);
         $this->get($new)->assertOk();
-        $this->get($old)->assertNotFound();
+        $this->get($old)->assertOk();
         $this->postJson(route('customer-portal.issue', $order), ['confirm' => 1, 'rotate' => 1, 'expected_generation' => 1])->assertUnprocessable();
         $this->assertFalse(PortalSetting::query()->sole()->paynow_enabled);
         $this->assertFalse(PortalSetting::query()->sole()->paynow_retry_enabled);

@@ -127,7 +127,7 @@ class CustomerPortalTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_revoke_and_rotation_protect_against_stale_and_repeated_requests(): void
+    public function test_revoke_and_activation_keep_the_url_and_reject_stale_requests(): void
     {
         $this->settings();
         $order = $this->order();
@@ -135,11 +135,11 @@ class CustomerPortalTest extends TestCase
         $this->post(route('customer-portal.revoke', $order), ['confirm' => 1, 'expected_generation' => 1])->assertRedirect();
         $this->get($url)->assertNotFound()->assertDontSee('123,00');
         $this->postJson(route('customer-portal.issue', $order), ['confirm' => 1])->assertUnprocessable();
-        $data = ['confirm' => 1, 'rotate' => 1, 'expected_generation' => 1];
+        $data = ['confirm' => 1, 'activate' => 1, 'expected_generation' => 2];
         $new = $this->postJson(route('customer-portal.issue', $order), $data)->assertOk()->json('url');
-        $this->assertNotSame($url, $new);
+        $this->assertSame($url, $new);
         $this->get($new)->assertOk();
-        $this->get($url)->assertNotFound();
+        $this->get($url)->assertOk();
         $this->postJson(route('customer-portal.issue', $order), $data)->assertUnprocessable();
         $this->postJson(route('customer-portal.revoke', $order), ['confirm' => 1, 'expected_generation' => 1])->assertUnprocessable();
         $this->get($new)->assertOk();
@@ -166,7 +166,11 @@ class CustomerPortalTest extends TestCase
         } else {
             $order->delete();
         }
-        $this->get($url)->assertNotFound()->assertDontSee('klient@example.test')->assertDontSee('123,00');
+        if (in_array($scenario, ['email', 'buyer'], true)) {
+            $this->get($url)->assertOk();
+        } else {
+            $this->get($url)->assertNotFound()->assertDontSee('klient@example.test')->assertDontSee('123,00');
+        }
         Http::assertNothingSent();
     }
 
@@ -434,11 +438,10 @@ class CustomerPortalTest extends TestCase
         }
         $this->assertDatabaseCount('customer_portal_links', 0);
         $order->refresh();
-        $oldUrl = $this->url($order);
-        app(PortalAccessService::class)->issue($order, true, 1);
+        $oldUrl = dirname($this->url($order)).'/'.Str::random(10);
         try {
             $service->prepareAndQueue($order, $template, $data('Zamówienie', $oldUrl));
-            $this->fail('A rotated link in an old preview must not be sent.');
+            $this->fail('An unrelated link in a preview must not be sent.');
         } catch (OrderEmailException $exception) {
             $this->assertSame('portal_preview_expired', $exception->safeCode());
         }
@@ -456,9 +459,10 @@ class CustomerPortalTest extends TestCase
         $settings->update(['availability_days' => 365]);
         $this->get($url)->assertNotFound();
         $this->postJson(route('customer-portal.issue', $order), ['confirm' => 1])->assertUnprocessable();
-        $new = $this->postJson(route('customer-portal.issue', $order), ['confirm' => 1, 'rotate' => 1, 'expected_generation' => 1])->assertOk()->json('url');
+        $new = $this->postJson(route('customer-portal.issue', $order), ['confirm' => 1, 'activate' => 1, 'expected_generation' => 1])->assertOk()->json('url');
         $this->get($new)->assertOk();
-        $this->get($url)->assertNotFound();
+        $this->assertSame($url, $new);
+        $this->get($url)->assertOk();
         $old = $this->order(['purchased_at' => now()->subDays(366)]);
         $this->postJson(route('customer-portal.issue', $old), ['confirm' => 1])->assertUnprocessable();
     }
