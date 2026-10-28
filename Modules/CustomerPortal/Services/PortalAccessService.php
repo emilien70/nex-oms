@@ -253,7 +253,7 @@ class PortalAccessService
     public function verificationIdentity(Order $order): string
     {
         return hash_hmac('sha256', json_encode([$order->customer_email, $order->customer_phone,
-            $order->shippingAddressData(), $order->billingAddressData(),
+            $order->shippingAddressData(), $order->billingAddressData(), $order->pickupPointData(),
         ], JSON_THROW_ON_ERROR), (string) config('app.key'));
     }
 

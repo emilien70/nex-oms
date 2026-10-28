@@ -7,6 +7,11 @@
             @include('orders.partials.buyer-comments', ['order' => $order])
         </div>
         <div class="alert alert-danger py-2 px-3 mb-3 d-none" role="alert" data-email-form-error></div>
+        <div class="order-email-type-options d-none mb-3" data-contact-channels>
+            <span class="form-label mb-0 me-2">Typ wiadomości:</span>
+            <label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="order_contact_channel" value="email" checked><span class="form-check-label">E-mail</span></label>
+            <label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="order_contact_channel" value="sms" @disabled(!$smsReady)><span class="form-check-label">SMS</span></label>
+        </div>
 
         <form class="order-email-compose d-none" method="POST" action="{{ route('orders.email-messages.store', $order) }}" data-order-email-form>
             @csrf
@@ -24,20 +29,6 @@
                         <option value="{{ $emailTemplate->getKey() }}" data-preview-url="{{ route('orders.email-templates.preview', [$order, $emailTemplate]) }}">{{ $emailTemplate->name }}</option>
                     @endforeach
                 </select>
-            </div>
-
-            <div class="order-email-form-row order-email-type-row">
-                <span class="form-label mb-0">Typ wiadomości:</span>
-                <div class="order-email-type-options">
-                    <label class="form-check form-check-inline mb-0">
-                        <input class="form-check-input" type="radio" checked>
-                        <span class="form-check-label">E-mail</span>
-                    </label>
-                    <label class="form-check form-check-inline mb-0" title="Obsługa SMS zostanie dodana w przyszłości">
-                        <input class="form-check-input" type="radio" disabled>
-                        <span class="form-check-label text-secondary">SMS</span>
-                    </label>
-                </div>
             </div>
 
             <div>
@@ -99,6 +90,8 @@
                 <div class="small text-danger">Najpierw skonfiguruj konto SMTP w zakładce Konta E-Mail.</div>
             @endif
         </form>
+
+        @include('components.order-sms-compose')
 
         <div class="order-email-empty {{ $emailMessages->isNotEmpty() ? 'd-none' : '' }}" data-email-empty>Brak wiadomości wysłanych do klienta.</div>
 

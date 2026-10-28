@@ -16,6 +16,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/nex-printer/v1/*',
             'api/paynow/v1/notifications',
+            'api/macrodroid/v1/heartbeat',
+            'api/macrodroid/v1/claim',
+            'api/macrodroid/v1/begin',
+            'api/macrodroid/v1/acknowledge',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -28,5 +32,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'signature_key',
             'smtp_password',
             'portal_value',
+            'webhook_url',
+            'access_token',
+            'claim_token',
         ]);
     })->create();

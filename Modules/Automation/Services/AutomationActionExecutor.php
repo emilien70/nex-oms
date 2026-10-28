@@ -16,6 +16,7 @@ class AutomationActionExecutor
         private readonly AutomationUrlActionService $urlActionService,
         private readonly AutomationInvoiceActionService $invoiceActionService,
         private readonly AutomationEmailActionService $emailActionService,
+        private readonly AutomationSmsActionService $smsActionService,
         private readonly AutomationStockActionService $stockActionService,
         private readonly AutomationNexPrinterActionService $nexPrinterActionService,
     ) {}
@@ -34,6 +35,7 @@ class AutomationActionExecutor
             AutomationCatalog::ACTION_CALL_URL => $this->urlActionService->execute($run, $configuration),
             AutomationCatalog::ACTION_ISSUE_INVOICE => $this->invoiceActionService->execute($run, $configuration),
             AutomationCatalog::ACTION_SEND_EMAIL => $this->emailActionService->execute($run, $step, $configuration),
+            AutomationCatalog::ACTION_SEND_SMS => $this->smsActionService->execute($run, $step, $configuration),
             AutomationCatalog::ACTION_DECREASE_STOCK => $this->stockActionService->execute($run, $step),
             AutomationCatalog::ACTION_PRINT => $this->nexPrinterActionService->execute($run, $step, $configuration),
             default => throw new DomainException('Nieobslugiwany typ akcji automatycznej: '.$type),

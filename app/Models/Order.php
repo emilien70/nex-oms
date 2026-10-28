@@ -195,6 +195,17 @@ class Order extends Model
         ];
     }
 
+    public function pickupPointData(): object
+    {
+        return (object) [
+            'name' => $this->pickup_point_name,
+            'id' => $this->pickup_point_id,
+            'address' => $this->pickup_point_address,
+            'postal_code' => $this->pickup_point_postal_code,
+            'city' => $this->pickup_point_city,
+        ];
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);

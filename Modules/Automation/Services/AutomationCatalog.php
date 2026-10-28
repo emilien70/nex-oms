@@ -4,9 +4,11 @@ namespace Modules\Automation\Services;
 
 use App\Models\EmailTemplate;
 use App\Models\OrderStatusSetting;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Modules\Integrations\DPD\Services\DpdServiceResolver;
 use Modules\Integrations\InPost\Services\InPostCourierServiceResolver;
+use Modules\Integrations\MacroDroid\Models\SmsTemplate;
 use Modules\Integrations\NexPrinter\Models\NexPrinter;
 use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
 use Modules\Invoices\Enums\InvoiceDocumentType;
@@ -31,6 +33,8 @@ class AutomationCatalog
     public const ACTION_ISSUE_INVOICE = 'issue_invoice';
 
     public const ACTION_SEND_EMAIL = 'send_email';
+
+    public const ACTION_SEND_SMS = 'send_sms';
 
     public const ACTION_DECREASE_STOCK = 'decrease_stock';
 
@@ -167,6 +171,7 @@ class AutomationCatalog
             self::ACTION_CALL_URL => $this->decode('Wywo&#322;aj URL'),
             self::ACTION_ISSUE_INVOICE => $this->decode('Wystaw Faktur&#281;'),
             self::ACTION_SEND_EMAIL => $this->decode('Wy&#347;lij e-mail'),
+            self::ACTION_SEND_SMS => $this->decode('Wy&#347;lij SMS'),
             self::ACTION_DECREASE_STOCK => 'Zmniejsz stan magazynowy',
             self::ACTION_PRINT => 'Drukuj',
         ];
@@ -206,10 +211,17 @@ class AutomationCatalog
                 .Str::limit((string) ($configuration['url'] ?? '...'), 80),
             self::ACTION_ISSUE_INVOICE => $this->invoiceActionSummary($type, $configuration),
             self::ACTION_SEND_EMAIL => $this->emailActionSummary($type, $configuration),
+            self::ACTION_SEND_SMS => $this->actionLabel($type).': '.($this->smsTemplates()[$configuration['sms_template_id'] ?? ''] ?? 'Szablon niedostepny'),
             self::ACTION_DECREASE_STOCK => $this->actionLabel($type),
             self::ACTION_PRINT => $this->printActionSummary($type, $configuration),
             default => $type,
         };
+    }
+
+    public function smsTemplates(): array
+    {
+        return Schema::hasTable('sms_templates')
+            ? SmsTemplate::query()->orderBy('name')->pluck('name', 'id')->all() : [];
     }
 
     public function emailTemplates(): array

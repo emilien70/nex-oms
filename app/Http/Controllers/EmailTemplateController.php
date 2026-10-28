@@ -11,7 +11,9 @@ use App\Models\EmailTemplate;
 use App\Services\EmailTemplateManagementService;
 use App\Services\OrderVariableService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
+use Modules\Integrations\MacroDroid\Models\SmsTemplate;
 
 class EmailTemplateController extends Controller
 {
@@ -34,6 +36,8 @@ class EmailTemplateController extends Controller
 
         return view('orders.email-settings', [
             'activeTab' => 'templates',
+            'smsTemplates' => Schema::hasTable('sms_templates')
+                ? SmsTemplate::query()->orderBy('name')->paginate(15, ['*'], 'sms_page')->withQueryString() : null,
             'templates' => $templates,
             'accounts' => $accounts,
             'formatOptions' => EmailTemplateFormat::cases(),

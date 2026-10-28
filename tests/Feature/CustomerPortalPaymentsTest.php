@@ -155,6 +155,7 @@ class CustomerPortalPaymentsTest extends TestCase
             'total' => $order->update(['total_gross' => '200.00']),
             'paid' => $order->update(['paid_amount' => '1.00']),
             'email' => $order->update(['customer_email' => 'another@example.test']),
+            'pickup' => $order->update(['pickup_point_id' => 'WAW77Q']),
             'currency' => $order->update(['currency' => 'EUR']),
             'cancelled' => $order->update(['status' => Order::STATUS_CANCELLED]),
             'cod' => $order->update(['cash_on_delivery' => true]),
@@ -182,7 +183,7 @@ class CustomerPortalPaymentsTest extends TestCase
 
     public static function changedContexts(): array
     {
-        return array_map(fn ($name) => [$name], ['total', 'paid', 'email', 'currency', 'cancelled', 'cod', 'trash',
+        return array_map(fn ($name) => [$name], ['total', 'paid', 'email', 'pickup', 'currency', 'cancelled', 'cod', 'trash',
             'disabled', 'revision', 'source', 'inactive', 'credentials', 'provider-id', 'target', 'review',
             'confirmed', 'revoked', 'reactivated', 'expired', 'newer']);
     }

@@ -261,6 +261,7 @@
             const shipmentDefinitions = {{ Illuminate\Support\Js::from($shipmentActionDefinitions) }};
             const invoiceSeries = {{ Illuminate\Support\Js::from($invoiceSeries) }};
             const emailTemplates = {{ Illuminate\Support\Js::from($emailTemplates) }};
+            const smsTemplates = {{ Illuminate\Support\Js::from($smsTemplates) }};
             const nexPrinters = {{ Illuminate\Support\Js::from($nexPrinters) }};
             const printDocumentTypes = {{ Illuminate\Support\Js::from($printDocumentTypes) }};
             const editors = new Map();
@@ -473,6 +474,14 @@
 
                         return `<label class="automation-block-label">SERIA NUMERACJI</label><select class="form-select form-select-sm action-config" data-key="invoice_series_id" required name="actions[${index}][configuration][invoice_series_id]">${unavailableOption}${optionsHtml(invoiceSeries, selectedSeriesId)}</select>`;
                     }
+                    if (action.type === 'send_sms') {
+                        const selected = String(configuration.sms_template_id ?? '');
+                        const phones = Array.isArray(configuration.recipient_phones) ? configuration.recipient_phones : [];
+                        const customer = configuration.recipient_customer === undefined || ![false, '0', 0].includes(configuration.recipient_customer);
+                        const chips = phones.map((phone, p) => `<span class="automation-email-recipient-chip"><span>${escapeHtml(phone)}</span><button class="automation-email-recipient-remove sms-remove-phone" type="button" data-index="${p}" aria-label="Usun numer"><i class="bi bi-x"></i></button></span><input type="hidden" name="actions[${index}][configuration][recipient_phones][]" value="${escapeHtml(phone)}">`).join('');
+                        const customerChip = customer ? '<span class="automation-email-recipient-chip">Do klienta<button type="button" class="automation-email-recipient-remove sms-remove-customer" aria-label="Usun klienta"><i class="bi bi-x"></i></button></span>' : '<button type="button" class="btn btn-sm btn-light border sms-add-customer">+ Do klienta</button>';
+                        return `<label class="automation-block-label">SZABLON SMS</label><select class="form-select form-select-sm action-config" data-key="sms_template_id" name="actions[${index}][configuration][sms_template_id]" required><option value="">Wybierz szablon SMS</option>${optionsHtml(smsTemplates, selected)}</select><label class="automation-block-label mt-2">DO</label><div class="automation-email-recipients">${customerChip}${chips}<input class="automation-email-recipient-input sms-phone-input" type="tel" maxlength="32" aria-label="Dodaj numer telefonu" placeholder="Numer telefonu i Enter"></div><input type="hidden" name="actions[${index}][configuration][recipient_customer]" value="${customer ? '1' : '0'}">`;
+                    }
                     if (action.type === 'send_email') {
                         const selectedTemplateId = String(configuration.email_template_id ?? '');
                         const selectedTemplateAvailable = selectedTemplateId === '' || Object.hasOwn(emailTemplates, selectedTemplateId);
@@ -526,6 +535,7 @@
                     if (type === 'call_url') return {url: ''};
                     if (type === 'issue_invoice') return {invoice_series_id: Object.keys(invoiceSeries)[0] || ''};
                     if (type === 'send_email') return {email_template_id: Object.keys(emailTemplates)[0] || '', recipient_customer: true, recipient_emails: []};
+                    if (type === 'send_sms') return {sms_template_id: Object.keys(smsTemplates)[0] || '', recipient_customer: true, recipient_phones: []};
                     if (type === 'decrease_stock') return {};
                     if (type === 'print_document') return {document_type: 'invoice', printer_id: ''};
                     return {minutes: 1};
@@ -561,6 +571,7 @@
                             renderActions();
                         });
                         card.querySelectorAll('.action-config').forEach(control => {
+                            // SMS recipients have their own chips, independent of the e-mail editor.
                             const update = event => actions[index].configuration[event.target.dataset.key] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
                             control.addEventListener('input', update);
                             control.addEventListener('change', update);
@@ -581,6 +592,22 @@
                             actions[index].configuration.recipient_customer = false;
                             renderActions();
                         });
+                        const phoneInput = card.querySelector('.sms-phone-input');
+                        const addPhone = () => {
+                            const phone = phoneInput?.value.trim();
+                            if (!phone) return;
+                            const phones = actions[index].configuration.recipient_phones || [];
+                            if (phones.length >= 10) return;
+                            actions[index].configuration.recipient_phones = [...new Set([...phones, phone])];
+                            renderActions();
+                        };
+                        phoneInput?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addPhone(); } });
+                        phoneInput?.addEventListener('change', addPhone);
+                        card.querySelectorAll('.sms-remove-phone').forEach(button => button.addEventListener('click', () => {
+                            actions[index].configuration.recipient_phones.splice(Number(button.dataset.index), 1); renderActions();
+                        }));
+                        card.querySelector('.sms-remove-customer')?.addEventListener('click', () => { actions[index].configuration.recipient_customer = false; renderActions(); });
+                        card.querySelector('.sms-add-customer')?.addEventListener('click', () => { actions[index].configuration.recipient_customer = true; renderActions(); });
                         card.querySelector('.email-add-customer')?.addEventListener('click', () => {
                             actions[index].configuration.recipient_customer = true;
                             renderActions();

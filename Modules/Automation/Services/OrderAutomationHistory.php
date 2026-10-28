@@ -73,6 +73,7 @@ class OrderAutomationHistory
             AutomationCatalog::ACTION_ISSUE_INVOICE => (string) ($output['invoice_number']
                 ?? ('Seria #'.($configuration['invoice_series_id'] ?? '...'))),
             AutomationCatalog::ACTION_SEND_EMAIL => $this->emailTarget($configuration, $output, $step),
+            AutomationCatalog::ACTION_SEND_SMS => (string) ($output['template_name'] ?? ('Szablon SMS #'.($configuration['sms_template_id'] ?? '...'))),
             AutomationCatalog::ACTION_PRINT => $this->printTarget($configuration, $output),
             AutomationCatalog::ACTION_DECREASE_STOCK => 'Produkty z Faktury VAT',
             default => '...',
@@ -138,6 +139,7 @@ class OrderAutomationHistory
 
         return html_entity_decode(match ($type) {
             AutomationCatalog::ACTION_SEND_EMAIL => 'Przekazano do kolejki e-mail. Wynik wysy&#322;ki jest w wymianie wiadomo&#347;ci.',
+            AutomationCatalog::ACTION_SEND_SMS => 'Przygotowano SMS do kolejki. Wynik telefonu jest w wymianie wiadomosci.',
             AutomationCatalog::ACTION_CREATE_SHIPMENT => 'Zlecono utworzenie przesy&#322;ki. Wynik jest w sekcji przesy&#322;ek.',
             AutomationCatalog::ACTION_PRINT => 'Dodano do kolejki NEX Printer. Nie oznacza potwierdzenia wydruku.',
             default => $fallback,

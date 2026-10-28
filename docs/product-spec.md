@@ -24,6 +24,72 @@ Uzupełnienie operacyjne 2026-10-24: bieżący staging OVHcloud/Ubuntu, jeden cr
 
 ---
 
+# SMS.1 - bramka i szablony SMS
+
+Integracja MacroDroid umozliwia reczne przygotowanie SMS z zamowienia i akcje
+automatyczna Wyslij SMS. W Szablony E-mail/SMS pod dotychczasowa lista e-mail
+znajduje sie osobna lista szablonow SMS z katalogiem zmiennych OMS i podgladem.
+SMS nie ma tematu, HTML ani zalacznikow. Tresc i odbiorca sa zamrazane przy
+przygotowaniu. Licznik uwzglednia GSM-7, znaki rozszerzone i UTF-16.
+
+Odbiorcy automatyzacji to Do klienta i maksymalnie 10 dodatkowych numerow.
+Numery sa normalizowane i deduplikowane; brak wymaganego numeru blokuje cala
+akcje przed przygotowaniem. [link_zamowienia] moze trafiac tylko do numeru
+klienta. Uzytkownik widzi historie, zrodlo i wynik kazdego odbiorcy osobno.
+
+Nowa integracja jest wylaczona. Wymaga osobnego klucza telefonu i webhooka,
+ma limity tempa, liczby czesci i waznosci zlecen. Test polaczenia nie wysyla
+SMS; rzeczywisty SMS testowy wymaga jawnego potwierdzenia. Zgloszenie wykonania
+akcji przez telefon nie oznacza doreczenia. Niepewnych SMS nie ponawia sie
+automatycznie. Zmiana konfiguracji anuluje nierozpoczete zlecenia.
+
+Instrukcja i dwa pliki importu sa w integracji: bramka oraz test polaczenia
+bez SMS. Oba przeszly walidator MacroDroid Macro Builder i po imporcie sa
+wylaczone. Wymagaja uzupelnienia adresu HTTPS/klucza i sprawdzenia na telefonie
+Android 10 / MacroDroid 6.0.11 Pro / jedna SIM. Walidacja pliku nie jest
+potwierdzeniem rzeczywistej wysylki. Odbieranie odpowiedzi pozostaje poza
+SMS.1. Szczegoly: [SMS.1](sms-1-report.md).
+
+# Portal - adres dostawy i maskowanie
+
+W adresie dostawy i danych nabywcy maskowanie pozostawia pierwsza litere
+kazdego czlonu nazwy, firmy, ulicy i miasta. Kod pocztowy, numery budynku
+i lokalu oraz NIP pozostaja zakryte w calosci; kraj jest widoczny.
+Telefon w adresie dostawy pokazuje przed weryfikacja prefiks i ostatnie
+trzy cyfry, a po weryfikacji pelny numer z odsylaczem tel. Bardzo krotkie
+numery pozostaja calkowicie zakryte. Telefon odbiorcy ma pierwszenstwo
+przed telefonem klienta; przy braku poprawnego numeru odbiorcy stosuje
+sie telefon klienta. Dane nabywcy nie otrzymuja dodatkowego telefonu.
+
+Jezeli wypelniono jakiekolwiek dane kafli Odbior w punkcie, adres dostawy
+portalu sklada sie tylko z dostepnych danych tego punktu i telefonu klienta.
+Nie miesza sie go z nazwiskiem, firma, adresem ani krajem dostawy domowej.
+Niepelny punkt nie jest uzupelniany danymi domowymi. Nazwa/ID/adres/miasto
+punktu podlegaja temu samemu maskowaniu; kraj nie jest domyslany.
+Weryfikacja nadal korzysta z danych nabywcy, nie nazwy lub ID punktu.
+Zmiany punktu uniewazniaja potwierdzenie danych bez wymiany URL.
+Szczegoly: [adresy portalu](portal-delivery-address-report.md).
+
+# Portal - adres dostawy i maskowanie
+
+W adresie dostawy i danych nabywcy maskowanie pozostawia pierwsza litere
+kazdego czlonu nazwy, firmy, ulicy i miasta. Kod pocztowy, numery budynku
+i lokalu oraz NIP pozostaja zakryte w calosci; kraj jest widoczny.
+Telefon w adresie dostawy pokazuje przed weryfikacja prefiks i ostatnie
+trzy cyfry, a po weryfikacji pelny numer z odsylaczem tel. Bardzo krotkie
+numery pozostaja calkowicie zakryte. Telefon odbiorcy ma pierwszenstwo
+przed telefonem klienta; przy braku poprawnego numeru odbiorcy stosuje
+sie telefon klienta. Dane nabywcy nie otrzymuja dodatkowego telefonu.
+
+Jezeli wypelniono jakiekolwiek dane kafli Odbior w punkcie, adres dostawy
+portalu sklada sie tylko z dostepnych danych tego punktu i telefonu klienta.
+Nie miesza sie go z nazwiskiem, firma, adresem ani krajem dostawy domowej.
+Niepelny punkt nie jest uzupelniany danymi domowymi. Nazwa/ID/adres/miasto
+punktu podlegaja temu samemu maskowaniu; kraj nie jest domyslany.
+Weryfikacja nadal korzysta z danych nabywcy, nie nazwy lub ID punktu.
+Zmiany punktu uniewazniaja potwierdzenie danych bez wymiany URL.
+Szczegoly: [adresy portalu](portal-delivery-address-report.md).
+
 # PORTAL.2C - staly adres zamowienia
 
 Kod portalu jest przypisany na stale do konkretnego zamowienia. Zmiany

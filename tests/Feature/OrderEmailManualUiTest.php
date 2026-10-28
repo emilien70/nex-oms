@@ -28,7 +28,7 @@ class OrderEmailManualUiTest extends TestCase
         Storage::fake('local');
     }
 
-    public function test_order_view_shows_optional_template_required_default_account_and_future_sms_option(): void
+    public function test_order_view_shows_optional_template_required_default_account_and_sms_channel(): void
     {
         $order = $this->order();
         $secondAccount = $this->account([
@@ -54,6 +54,8 @@ class OrderEmailManualUiTest extends TestCase
             ->assertSee('Typ wiadomości:')
             ->assertSee('E-mail')
             ->assertSee('SMS')
+            ->assertSee('data-contact-channels', false)
+            ->assertSee('data-sms-form', false)
             ->assertSee('name="email_account_id"', false)
             ->assertSee('value="'.$defaultAccount->getKey().'" selected', false)
             ->assertSee(route('orders.email-templates.preview', [$order, $visibleTemplate]), false)

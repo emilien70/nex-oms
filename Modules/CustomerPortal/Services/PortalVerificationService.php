@@ -105,7 +105,7 @@ class PortalVerificationService
         return $this->hash(json_encode([$order->id, $link->id, $link->generation, $link->token_hash, $link->identity_hash,
             $link->expires_at->toISOString(), $settings->revision, $settings->is_enabled, $settings->customer_domain,
             $settings->masksPersonalData(), $settings->verifiesDocuments(), $settings->verificationMethod(),
-            $order->customer_email, $order->customer_phone, $order->shippingAddressData(), $order->billingAddressData(),
+            $order->customer_email, $order->customer_phone, $order->shippingAddressData(), $order->billingAddressData(), $order->pickupPointData(),
         ], JSON_THROW_ON_ERROR));
     }
 

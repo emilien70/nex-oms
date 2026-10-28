@@ -4,6 +4,7 @@ use App\Services\OrderEmailQueuedRecoveryService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\Schema;
 use Modules\Automation\Services\AutomationExecutionState;
 use Modules\Integrations\Allegro\Jobs\DiscoverAllegroOrdersJob;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
@@ -16,6 +17,7 @@ use Modules\Integrations\Allegro\Services\AllegroShipmentExportService;
 use Modules\Integrations\AllegroShipping\Jobs\RefreshAllegroShipmentJob;
 use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
+use Modules\Integrations\MacroDroid\Services\SmsGatewayService;
 use Modules\Integrations\PayNow\Services\PayNowReconciliationService;
 use Modules\Integrations\Prestashop\Services\PrestashopOrderImportDispatcher;
 use Modules\Integrations\Prestashop\Services\PrestashopPaymentSyncDispatcher;
@@ -29,6 +31,13 @@ use Modules\Shipments\Services\IntegrationApiLogPruner;
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Artisan::command('sms:expire', function (): void {
+    $count = Schema::hasTable('order_sms_messages')
+        ? app(SmsGatewayService::class)->expire() : 0;
+    $this->info('SMS: '.$count.' wygaslych lub niepotwierdzonych zlecen.');
+})->purpose('Oznacz stare zlecenia SMS bez ponawiania wysylki');
+Schedule::command('sms:expire')->everyMinute()->withoutOverlapping();
 
 Schedule::call(function (): void {
     $syncCutoff = now()->subMinutes(max(1, (int) config('services.inpost.sync_interval_minutes', 60)));

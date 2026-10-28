@@ -708,6 +708,68 @@ Nie ma nowego workera. Szczegoly: [PORTAL.2](portal-2-report.md).
 
 ## Cron Laravel
 
+### MacroDroid SMS - przygotowanie do wdrozenia
+
+SMS.1 uzywa istniejacej kolejki `default`, bez nowego workera Supervisor.
+Po wdrozeniu kodu i migracji przeladowac dotychczasowe workery zgodnie ze
+standardowa procedura. `sms:expire` dziala co minute przez istniejacy
+Laravel Scheduler/cron; oznacza wygasle i niepewne zlecenia oraz ponawia
+tylko pobudke nierozpoczetej kolejki. Nie ponawia skutku wysylki po `begin`.
+
+Po kopii bazy uruchomic wskazana migracje addytywna:
+
+```bash
+php artisan migrate --path=database/migrations/2026_10_28_010000_create_macrodroid_sms_tables.php --force
+```
+
+Integracja pozostaje wylaczona do jawnego skonfigurowania. Klucz urzadzenia
+jest osobny od hasla panelu i SSH, wyswietlany raz i zapisany jako skrot.
+Webhook jest szyfrowany istniejacym APP_KEY; nie zmieniac APP_KEY. Nie
+umieszczac klucza, numeru ani tresci SMS w URL. Makro testu polaczenia ma
+identyfikator webhooka bramki z dopiskiem `-probe` i nie zawiera akcji SMS.
+Pobudka nie przenosi tresci ani numerow; telefon pobiera najstarsze
+zlecenie przez uwierzytelnione API. Puste claim i odmowa begin zwracaja 409,
+nie 200; nigdy nie traktowac dowolnego 2xx jako zgody na SMS.
+
+Przy globalnym Basic Auth przygotowac waski wyjatek we wlasciwym bloku
+`server` HTTPS **domeny OMS**, nie klienta. Przyklad ponizej nie zostal
+wdrozony na VPS w ramach SMS.1:
+
+```nginx
+location ~ ^/api/macrodroid/v1/(heartbeat|claim|begin|acknowledge)$ {
+    auth_basic off;
+    rewrite ^ /index.php break;
+    fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+    fastcgi_param HTTP_AUTHORIZATION $http_authorization;
+    fastcgi_param HTTPS on;
+    fastcgi_hide_header X-Powered-By;
+}
+```
+
+Te cztery POST maja w Laravel osobny Bearer token, wymog HTTPS, limitery
+IP/token i dokladne wyjatki CSRF. Panel pozostaje chroniony Basic Auth.
+Nie upubliczniac calego `/api/`. Zachowac wyjatki NEX-Printer, PayNow
+i portalu. Nie otwierac nowych portow UFW.
+
+Kontrola po recznej konfiguracji: `nginx -t`, reload, panel bez logowania
+401, POST `/api/macrodroid/v1/heartbeat` bez tokenu 401, domena klienta
+dla tras SMS 404. Test polaczenia jest potwierdzony dopiero po heartbeat
+z wlasciwym UUID sondy; samo HTTP 200 webhooka nie wystarcza. Nie testowac
+na numerach klientow. Oba pliki makr przeszly walidator MacroDroid Macro
+Builder; pobieranie jest w Integracje -> MacroDroid. Pliki nie zawieraja
+klucza ani prywatnego webhooka i sa domyslnie wylaczone. Sprawdz oms_url
+(domena panelu HTTPS, nie portalu), uzupelnij klucz_oms w obu makrach.
+Lokalne HTTP pozostawia adres zastepczy .invalid. Nie zmieniaj identyfikatorow
+nex-oms-sms / nex-oms-sms-probe ani nazw makr, do ktorych odnosi sie blokada
+rownoczesnego uruchomienia. Zweryfikuj import, domyslna SIM, uprawnienia SMS,
+prace w tle, powtorzone pobudki i utrate sieci na docelowym telefonie.
+Walidacja pliku nie potwierdza wykonania/doreczenia SMS przez Androida.
+Szczegoly i ograniczenia: [SMS.1](sms-1-report.md).
+
+### Dotychczasowy harmonogram
+
 Na stagingu jeden plik `/etc/cron.d/nex-oms-scheduler` uruchamia istniejacy harmonogram `routes/console.php`:
 
 ```cron

@@ -50,6 +50,11 @@ use Modules\Integrations\Allegro\Http\Controllers\AllegroShipmentExportControlle
 use Modules\Integrations\Allegro\Http\Controllers\AllegroShipmentSettingsController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroStatusMappingController;
 use Modules\Integrations\Allegro\Http\Controllers\AllegroStatusSyncController;
+use Modules\Integrations\MacroDroid\Http\Controllers\OrderSmsController;
+use Modules\Integrations\MacroDroid\Http\Controllers\SmsDeviceApiController;
+use Modules\Integrations\MacroDroid\Http\Controllers\SmsSettingsController;
+use Modules\Integrations\MacroDroid\Http\Controllers\SmsTemplateController;
+use Modules\Integrations\MacroDroid\Http\Middleware\AuthenticateSmsDevice;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterClientController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterInvoiceController;
 use Modules\Integrations\NexPrinter\Http\Controllers\NexPrinterSettingsController;
@@ -382,6 +387,26 @@ Route::get('/orders/automatic-actions/{automationRule}/edit', [AutomationRuleCon
 Route::put('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'update'])->name('orders.automatic-actions.update');
 Route::patch('/orders/automatic-actions/{automationRule}/toggle', [AutomationRuleController::class, 'toggle'])->name('orders.automatic-actions.toggle');
 Route::delete('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'destroy'])->name('orders.automatic-actions.destroy');
+Route::prefix('api/macrodroid/v1')->middleware([AuthenticateSmsDevice::class, 'throttle:macrodroid-device'])->group(function (): void {
+    Route::post('/heartbeat', [SmsDeviceApiController::class, 'heartbeat'])->name('macrodroid.api.heartbeat');
+    Route::post('/claim', [SmsDeviceApiController::class, 'claim'])->name('macrodroid.api.claim');
+    Route::post('/begin', [SmsDeviceApiController::class, 'begin'])->name('macrodroid.api.begin');
+    Route::post('/acknowledge', [SmsDeviceApiController::class, 'acknowledge'])->name('macrodroid.api.acknowledge');
+});
+Route::get('/integrations/macrodroid', [SmsSettingsController::class, 'edit'])->name('integrations.macrodroid.edit');
+Route::get('/integrations/macrodroid/configuration/{kind}', [SmsSettingsController::class, 'configuration'])->whereIn('kind', ['sms', 'probe'])->name('integrations.macrodroid.configuration');
+Route::put('/integrations/macrodroid', [SmsSettingsController::class, 'update'])->name('integrations.macrodroid.update');
+Route::post('/integrations/macrodroid/key', [SmsSettingsController::class, 'rotate'])->middleware('throttle:macrodroid-admin')->name('integrations.macrodroid.key');
+Route::post('/integrations/macrodroid/probe', [SmsSettingsController::class, 'probe'])->middleware('throttle:macrodroid-admin')->name('integrations.macrodroid.probe');
+Route::post('/integrations/macrodroid/test-sms', [SmsSettingsController::class, 'testSms'])->middleware('throttle:macrodroid-admin')->name('integrations.macrodroid.test-sms');
+Route::post('/orders/sms-preview', [OrderSmsController::class, 'preview'])->middleware('throttle:macrodroid-preview')->name('orders.sms.preview');
+Route::post('/orders/sms-templates', [SmsTemplateController::class, 'store'])->name('orders.sms-templates.store');
+Route::patch('/orders/sms-templates/{smsTemplate}', [SmsTemplateController::class, 'update'])->name('orders.sms-templates.update');
+Route::delete('/orders/sms-templates/{smsTemplate}', [SmsTemplateController::class, 'destroy'])->name('orders.sms-templates.destroy');
+Route::post('/orders/{order}/sms-messages', [OrderSmsController::class, 'store'])->middleware('throttle:macrodroid-admin')->name('orders.sms.store');
+Route::get('/orders/{order}/sms-messages', [OrderSmsController::class, 'history'])->name('orders.sms.history');
+Route::post('/orders/{order}/sms-messages/{smsMessage}/cancel', [OrderSmsController::class, 'cancel'])->name('orders.sms.cancel');
+
 Route::get('/orders/email-templates', [EmailTemplateController::class, 'index'])->name('orders.email-templates.index');
 Route::post('/orders/email-templates', [EmailTemplateController::class, 'store'])->name('orders.email-templates.store');
 Route::patch('/orders/email-templates/{emailTemplate}', [EmailTemplateController::class, 'update'])->name('orders.email-templates.update');

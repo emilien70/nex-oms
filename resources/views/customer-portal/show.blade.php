@@ -21,6 +21,7 @@
         .payment-actions{display:grid;gap:10px;margin-top:20px}.payment-actions form{margin:0}.payment-actions button{width:100%;font-family:inherit;line-height:1.4;color:var(--accent);background:#fff;cursor:pointer;white-space:normal}.payment-actions .primary{background:var(--accent);border-color:var(--accent);color:#fff}.payment-message{font-size:13px;margin-top:16px}.payment-error{color:#a1323d}.sandbox{display:block;font-size:12px;color:#8a5a16;margin-top:12px}button:focus-visible{outline:3px solid #92c8ec;outline-offset:3px}
         @media(max-width:760px){.layout{grid-template-columns:minmax(0,1fr);gap:0}.brandbar{min-height:74px}.logo{max-width:165px;max-height:52px}.service{max-width:110px}main{padding-top:24px}.stage{padding:18px;margin:22px 0 28px}.stage strong{font-size:20px}h1{font-size:25px}.item{grid-template-columns:48px minmax(0,1fr);gap:12px}.item img{width:48px;height:48px}.item .price{grid-column:2}.item.no-image{grid-template-columns:minmax(0,1fr) auto}.item.no-image .price{grid-column:auto}.document{align-items:flex-start}.inner{width:calc(100% - 36px)}}
         .verification{max-width:760px;padding:24px 0 48px}.verification h1{font-size:22px;margin-bottom:18px}.verification form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}.verification label{display:block;font-size:14px;margin-bottom:8px}.verification input{width:100%;min-width:0;border:1px solid #bfcbd3;border-radius:4px;padding:10px 12px;font:inherit}.verification button{background:var(--accent);color:#fff;border-color:var(--accent);font-family:inherit;cursor:pointer}.verification .payment-error{margin:14px 0}.verification .back{display:inline-block;margin-top:20px}.personal{overflow-wrap:anywhere}@media(max-width:480px){.verification form{grid-template-columns:minmax(0,1fr)}.verification button{width:100%}}
+        .personal-lines>span,.personal-lines>a{display:block}.personal-lines>a{width:fit-content;max-width:100%}
     </style>
 </head>
 <body>
@@ -107,9 +108,25 @@
                 </section>
                 @foreach(['address' => 'Adres dostawy', 'buyer' => 'Dane nabywcy'] as $field => $label)
                     @if($data[$field])
-                        <section class="personal"><h2>{{ $label }}</h2><p>{{ $data[$field]->name }}<br>{{ $data[$field]->company_name }}<br>{{ \App\Support\AddressLineFormatter::formatAddressLine($data[$field]->street,$data[$field]->building_number,$data[$field]->apartment_number) }}<br>{{ $data[$field]->postal_code }} {{ $data[$field]->city }}
-                            @if($data[$field]->tax_id)
-                                <br>NIP: {{ $data[$field]->tax_id }}
+                        @php
+                            $personal = $data[$field];
+                            $streetLine = \App\Support\AddressLineFormatter::formatAddressLine($personal->street, $personal->building_number, $personal->apartment_number);
+                            $postalCity = \App\Support\AddressLineFormatter::formatPostalCity($personal->postal_code, $personal->city);
+                            $localityLine = implode(', ', array_filter([$postalCity, $personal->country_name], fn ($value) => $value !== null && $value !== ''));
+                        @endphp
+                        <section class="personal"><h2>{{ $label }}</h2><p class="personal-lines">
+                            @if($personal->name !== '')<span>{{ $personal->name }}</span>@endif
+                            @if($personal->company_name !== '')<span>{{ $personal->company_name }}</span>@endif
+                            @if($personal->point_id !== '')<span>ID punktu: {{ $personal->point_id }}</span>@endif
+                            @if($streetLine !== null)<span>{{ $streetLine }}</span>@endif
+                            @if($localityLine !== '')<span>{{ $localityLine }}</span>@endif
+                            @if($personal->tax_id !== '')<span>NIP: {{ $personal->tax_id }}</span>@endif
+                            @if($field === 'address' && $personal->phone)
+                                @if($personal->phone_url)
+                                    <a href="{{ $personal->phone_url }}">{{ $personal->phone }}</a>
+                                @else
+                                    <span>{{ $personal->phone }}</span>
+                                @endif
                             @endif
                         </p>
                         @if($field === 'buyer' && $data['detailsUrl'])

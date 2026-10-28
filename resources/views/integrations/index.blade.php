@@ -113,6 +113,10 @@
         </header>
 
         <section class="integrations-grid" aria-label="Dostępne integracje">
+            <a class="integration-tile" data-integration="macrodroid" aria-label="MacroDroid - bramka SMS" href="{{ route('integrations.macrodroid.edit') }}">
+                <i class="bi bi-phone integration-nex-printer-icon" aria-hidden="true"></i>
+                <span class="integration-tile-name">MacroDroid SMS</span>
+            </a>
             <a
                 class="integration-tile"
                 data-integration="allegro"

@@ -1,5 +1,76 @@
 # NEX-OMS — architektura systemu
 
+## SMS.1 - MacroDroid
+
+Modules/Integrations/MacroDroid korzysta z centralnych routes/web.php,
+AppServiceProvider i istniejacej kolejki default. Nowa migracja tworzy
+macrodroid_devices, sms_templates i order_sms_messages; integracja nie
+jest automatycznie wlaczana. Numer i wyrenderowana tresc SMS sa szyfrowane,
+klucz urzadzenia przechowywany jako SHA-256, webhook szyfrowany. Szablony SMS
+korzystaja z OrderVariableService bez zmiany transportu ani tabel e-mail.
+
+SmsPreparationService przygotowuje atomowo wszystkich odbiorcow. batch_key
+wraz z HMAC intencji chroni cala akcje, nie tylko pojedynczy numer.
+SmsGatewayService stosuje kolejnosc blokad portal settings -> device -> order
+-> message, claim z losowym tokenem, jednokrotne begin i idempotentny ack.
+Sprawdzane sa aktualny numer klienta, gotowosc zakupu, generacja urzadzenia,
+termin oraz uprawnienia portalu. Nie ma automatycznego ponowienia skutku SMS.
+Status submitted oznacza wykonanie akcji zgloszone przez telefon, nie dowod
+wyslania przez operatora ani doreczenia. Niepewny wynik pozostaje niepewny.
+
+NotifySmsDeviceJob wysyla do scisle walidowanego webhooka tylko pobudke,
+bez danych SMS ani UUID. Osobny webhook z dopiskiem -probe sluzy tylko
+testowi polaczenia. Telefon pobiera nastepne zlecenie przez POST claim;
+odmowa claim/begin ma HTTP 409, nigdy 200. Makro testowe nie pobiera SMS.
+API ma osobny Bearer token, HTTPS, limitery i cztery dokladne wyjatki CSRF.
+sms:expire oznacza wygasle/niepewne zlecenia i budzi tylko nierozpoczeta kolejke;
+nie wysyla SMS samodzielnie. Zadanie dziala co minute w istniejacym schedulerze.
+Profile resources/macrodroid/{sms,probe}.macro powstaly z katalogu i schematu
+MacroDroid Macro Builder; oba przeszly jego walidator. Panel udostepnia je
+przez kontrolowana trase konfiguracji, bez klucza i zapisanego webhooka.
+Eksport ma wylaczone makro i logowanie, pusta lokalna zmienna klucz_oms,
+blokujace HTTP bez przekierowan, reset kodu/odpowiedzi przed kazdym HTTP,
+bramki HTTP 200 + available/may_send=true i ograniczenie uruchomionej instancji.
+Bezpieczny app.url HTTPS uzupelnia oms_url; lokalny HTTP pozostawia .invalid.
+Walidacja formatu nie potwierdza importu, wspolbieznosci ani SMS na Androidzie.
+Szczegoly i warunki proby na telefonie: [SMS.1](sms-1-report.md).
+
+## Portal - adresy i punkt odbioru
+
+Order::pickupPointData() odczytuje piec istniejacych pol pickup_point_*.
+PortalPresentationService wybiera punkt na podstawie danych, niezaleznie
+od integracji i nazwy sposobu wysylki. Do DTO nie trafia wtedy domowy
+adres dostawy. Maskowanie odbywa sie przed Blade: pierwsze litery czlonow
+Unicode i stale gwiazdki, pelna maska kodu/numerycznych pol oraz czesciowy
+telefon. Maskowany telefon nie ma pelnego numeru w href ani innych polach.
+CountryCatalog i PhoneNumberFormatter pozostaja wspolnymi zrodlami formatu.
+
+pickupPointData() jest tez czescia verificationIdentity i odcisku sesji.
+Istniejacy PortalOrderObserver podnosi generation przy zmianie punktu,
+takze dla sekwencji stary -> nowy -> stary. Staly kod i binding_hash nie
+zmieniaja sie. Istniejace intencje platnosci kontroluja generation,
+dlatego stary formularz po zmianie punktu zostaje odrzucony bez API.
+Nie zmieniono warunkow dopasowania danych nabywcy, zasad PDF ani PayNow.
+Nie ma migracji. Szczegoly: [adresy portalu](portal-delivery-address-report.md).
+
+## Portal - adresy i punkt odbioru
+
+Order::pickupPointData() odczytuje piec istniejacych pol pickup_point_*.
+PortalPresentationService wybiera punkt na podstawie danych, niezaleznie
+od integracji i nazwy sposobu wysylki. Do DTO nie trafia wtedy domowy
+adres dostawy. Maskowanie odbywa sie przed Blade: pierwsze litery czlonow
+Unicode i stale gwiazdki, pelna maska kodu/numerycznych pol oraz czesciowy
+telefon. Maskowany telefon nie ma pelnego numeru w href ani innych polach.
+CountryCatalog i PhoneNumberFormatter pozostaja wspolnymi zrodlami formatu.
+
+pickupPointData() jest tez czescia verificationIdentity i odcisku sesji.
+Istniejacy PortalOrderObserver podnosi generation przy zmianie punktu,
+takze dla sekwencji stary -> nowy -> stary. Staly kod i binding_hash nie
+zmieniaja sie. Istniejace intencje platnosci kontroluja generation,
+dlatego stary formularz po zmianie punktu zostaje odrzucony bez API.
+Nie zmieniono warunkow dopasowania danych nabywcy, zasad PDF ani PayNow.
+Nie ma migracji. Szczegoly: [adresy portalu](portal-delivery-address-report.md).
+
 ## PORTAL.2C - niezmienne przypisanie linku
 
 Nullable customer_portal_links.binding_hash przechowuje HMAC-SHA256 wersji

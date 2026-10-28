@@ -7,8 +7,11 @@ use App\Models\OrderStatusSetting;
 use App\Services\OrderVariableService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
 use Modules\Automation\Services\AutomationCatalog;
+use Modules\Integrations\MacroDroid\Models\SmsTemplate;
+use Modules\Integrations\MacroDroid\Services\SmsPhoneNumber;
 use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\InvoiceSeries;
@@ -131,6 +134,31 @@ class SaveAutomationRuleRequest extends FormRequest
                             "actions.$index.configuration.invoice_series_id",
                             'Wybierz aktywną serię numeracji Faktur VAT.',
                         );
+                    }
+                }
+
+                if ($type === AutomationCatalog::ACTION_SEND_SMS) {
+                    $id = $configuration['sms_template_id'] ?? null;
+                    $phones = $configuration['recipient_phones'] ?? [];
+                    if (! is_numeric($id) || ! SmsTemplate::query()->whereKey($id)->exists()) {
+                        $validator->errors()->add("actions.$index.configuration.sms_template_id", 'Wybierz istniejacy szablon SMS.');
+                    }
+                    if (! in_array($configuration['recipient_customer'] ?? true, [true, false, 0, 1, '0', '1'], true)) {
+                        $validator->errors()->add("actions.$index.configuration.recipient_customer", 'Wybierz poprawnego odbiorce.');
+                    }
+                    if (! is_array($phones) || count($phones) > 10) {
+                        $validator->errors()->add("actions.$index.configuration.recipient_phones", 'Podaj maksymalnie 10 numerow.');
+                    } else {
+                        foreach ($phones as $position => $phone) {
+                            try {
+                                SmsPhoneNumber::normalize($phone);
+                            } catch (ValidationException) {
+                                $validator->errors()->add("actions.$index.configuration.recipient_phones.$position", 'Nieprawidlowy numer telefonu.');
+                            }
+                        }
+                        if (! ($configuration['recipient_customer'] ?? true) && $phones === []) {
+                            $validator->errors()->add("actions.$index.configuration.recipient_phones", 'Wybierz klienta lub podaj numer.');
+                        }
                     }
                 }
 
@@ -278,6 +306,28 @@ class SaveAutomationRuleRequest extends FormRequest
                         $configuration['invoice_series_id'] = $seriesId;
                     }
 
+                    $action['configuration'] = $configuration;
+                }
+
+                if (($action['type'] ?? '') === AutomationCatalog::ACTION_SEND_SMS) {
+                    $configuration = $action['configuration'] ?? [];
+                    $configuration['sms_template_id'] = $configuration['sms_template_id'] ?? null;
+                    if (is_numeric($configuration['sms_template_id'])) {
+                        $configuration['sms_template_id'] = (int) $configuration['sms_template_id'];
+                    }
+                    $configuration['recipient_customer'] = $configuration['recipient_customer'] ?? true;
+                    $phones = $configuration['recipient_phones'] ?? [];
+                    if (is_array($phones)) {
+                        $phones = array_map(static function ($phone) {
+                            try {
+                                return SmsPhoneNumber::normalize($phone);
+                            } catch (ValidationException) {
+                                return $phone;
+                            }
+                        }, $phones);
+                        $phones = array_values(array_unique($phones, SORT_REGULAR));
+                    }
+                    $configuration['recipient_phones'] = $phones;
                     $action['configuration'] = $configuration;
                 }
 

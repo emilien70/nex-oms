@@ -1461,7 +1461,7 @@
                         <a class="nav-flyout-link {{ request()->routeIs('returns.*') ? 'active' : '' }}" href="{{ route('returns.index') }}">Zwroty</a>
                         <a class="nav-flyout-link {{ request()->routeIs('settings.order-statuses.index') ? 'active' : '' }}" href="{{ route('settings.order-statuses.index') }}">Statusy zam&oacute;wie&#324;</a>
                         <a class="nav-flyout-link {{ request()->routeIs('orders.automatic-actions.index') ? 'active' : '' }}" href="{{ route('orders.automatic-actions.index') }}">Automatyczne akcje</a>
-                        <a class="nav-flyout-link {{ request()->routeIs('orders.email-templates.*', 'orders.email-accounts.*') ? 'active' : '' }}" href="{{ route('orders.email-templates.index') }}">Szablony E-Mail</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('orders.email-templates.*', 'orders.email-accounts.*', 'orders.sms-templates.*') ? 'active' : '' }}" href="{{ route('orders.email-templates.index') }}">Szablony E-mail/SMS</a>
                         <a class="nav-flyout-link {{ request()->routeIs('settings.variables.index') ? 'active' : '' }}" href="{{ route('settings.variables.index') }}">Zmienne</a>
                         <a class="nav-flyout-link {{ request()->routeIs('customer-portal.settings*') ? 'active' : '' }}" href="{{ route('customer-portal.settings') }}">Strony informacyjne</a>
                     </div>

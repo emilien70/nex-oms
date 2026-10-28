@@ -21,7 +21,7 @@ class EmailSettingsPageTest extends TestCase
     {
         $this->get(route('orders.email-templates.index'))
             ->assertOk()
-            ->assertSee('Szablony E-Mail')
+            ->assertSee('Szablony E-mail/SMS')
             ->assertSee('Konta E-Mail')
             ->assertSee(route('orders.email-templates.index'), false)
             ->assertSee(route('orders.email-accounts.index'), false)
@@ -32,7 +32,7 @@ class EmailSettingsPageTest extends TestCase
     {
         $this->get(route('orders.email-accounts.index'))
             ->assertOk()
-            ->assertSee('Szablony E-Mail')
+            ->assertSee('Szablony E-mail/SMS')
             ->assertSee('Konta E-Mail')
             ->assertSee('Dodaj nowe konto')
             ->assertSee('Nie dodano jeszcze żadnego konta SMTP.')

@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', ($activeTab === 'accounts' ? 'Konta E-Mail' : 'Szablony E-Mail').' - NEX-OMS')
+@section('title', ($activeTab === 'accounts' ? 'Konta E-Mail' : 'Szablony E-mail/SMS').' - NEX-OMS')
 
 @section('content')
     <style>
@@ -257,14 +257,14 @@
     </style>
 
     <div class="email-settings-page">
-        <h1 class="visually-hidden">{{ $activeTab === 'accounts' ? 'Konta E-Mail' : 'Szablony E-Mail' }}</h1>
+        <h1 class="visually-hidden">{{ $activeTab === 'accounts' ? 'Konta E-Mail' : 'Szablony E-mail/SMS' }}</h1>
 
         <nav class="email-settings-tabs" aria-label="Ustawienia wiadomości e-mail">
             <a
                 class="email-settings-tab {{ $activeTab === 'templates' ? 'active' : '' }}"
                 href="{{ route('orders.email-templates.index') }}"
                 @if ($activeTab === 'templates') aria-current="page" @endif
-            >Szablony E-Mail</a>
+            >Szablony E-mail/SMS</a>
             <a
                 class="email-settings-tab {{ $activeTab === 'accounts' ? 'active' : '' }}"
                 href="{{ route('orders.email-accounts.index') }}"
@@ -566,6 +566,7 @@
             </script>
         @else
             @include('orders._email-templates')
+            @include('orders._sms-templates')
         @endif
     </div>
 @endsection

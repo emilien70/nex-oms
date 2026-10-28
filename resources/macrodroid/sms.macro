@@ -1,0 +1,394 @@
+{
+  "macroExportVersion": 1,
+  "macro": {
+    "m_name": "NEX-OMS SMS",
+    "m_description": "Bramka SMS NEX-OMS. Wysylka tylko po dwoch zgodach OMS. Przed wlaczeniem uzupelnij oms_url i klucz_oms, sprawdz karte SIM. Nie ponawiaj SMS po bledzie.",
+    "m_enabled": false,
+    "m_completed": true,
+    "m_GUID": 0,
+    "aiGenerated": 1,
+    "m_category": "NEX-OMS",
+    "m_excludeLog": true,
+    "localVariables": [
+      {
+        "m_name": "oms_url",
+        "m_type": 2,
+        "isLocalVar": true,
+        "m_stringValue": "https://uzupelnij-adres-oms.invalid"
+      },
+      {
+        "m_name": "klucz_oms",
+        "m_type": 2,
+        "isLocalVar": true,
+        "m_stringValue": "",
+        "isSecure": true
+      },
+      {
+        "m_name": "kod_http",
+        "m_type": 1,
+        "isLocalVar": true,
+        "m_intValue": 0
+      },
+      {
+        "m_name": "odpowiedz_http",
+        "m_type": 2,
+        "isLocalVar": true,
+        "m_stringValue": ""
+      },
+      {
+        "m_name": "zlecenie",
+        "m_type": 4,
+        "isLocalVar": true,
+        "dictionary": {
+          "entries": [],
+          "isArray": false
+        }
+      },
+      {
+        "m_name": "zgoda_sms",
+        "m_type": 4,
+        "isLocalVar": true,
+        "dictionary": {
+          "entries": [],
+          "isArray": false
+        }
+      }
+    ],
+    "m_triggerList": [
+      {
+        "m_classType": "WebHookTrigger",
+        "m_SIGUID": 0,
+        "identifier": "nex-oms-sms",
+        "variableWhiteListEnabled": true,
+        "variableWhiteList": []
+      }
+    ],
+    "m_actionList": [
+      {
+        "m_classType": "ClearDictionaryArrayEntryAction",
+        "m_SIGUID": 0,
+        "variableName": "zlecenie",
+        "clearOption": 1,
+        "isAllEntries": true
+      },
+      {
+        "m_classType": "ClearDictionaryArrayEntryAction",
+        "m_SIGUID": 0,
+        "variableName": "zgoda_sms",
+        "clearOption": 1,
+        "isAllEntries": true
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "kod_http",
+          "m_type": 1,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newIntValue": 0
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "odpowiedz_http",
+          "m_type": 2,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newStringValue": ""
+      },
+      {
+        "m_classType": "HttpRequestAction",
+        "m_SIGUID": 0,
+        "requestConfig": {
+          "requestType": 1,
+          "urlToOpen": "{lv=oms_url}/api/macrodroid/v1/claim",
+          "blockNextAction": true,
+          "requestTimeOutSeconds": 15,
+          "maxTotalDurationSeconds": 20,
+          "contentType": "application/json",
+          "contentBodySource": 0,
+          "contentBodyText": "{}",
+          "saveReturnCodeToVariable": true,
+          "returnCodeVariableName": "kod_http",
+          "saveResponseType": 1,
+          "responseVariableName": "odpowiedz_http",
+          "allowAnyCertificate": false,
+          "followRedirects": false,
+          "basicAuthEnabled": false,
+          "headerParams": [
+            {
+              "paramName": "Authorization",
+              "paramValue": "Bearer {lv=klucz_oms}"
+            },
+            {
+              "paramName": "Accept",
+              "paramValue": "application/json"
+            }
+          ]
+        }
+      },
+      {
+        "m_classType": "IfConditionAction",
+        "m_SIGUID": 0,
+        "m_constraintList": [
+          {
+            "m_classType": "MacroDroidVariableConstraint",
+            "m_SIGUID": 0,
+            "m_variable": {
+              "m_name": "kod_http",
+              "m_type": 1,
+              "isLocalVar": true
+            },
+            "m_intValue": 200
+          }
+        ]
+      },
+      {
+        "m_classType": "ClearDictionaryArrayEntryAction",
+        "m_SIGUID": 0,
+        "variableName": "zlecenie",
+        "clearOption": 1,
+        "isAllEntries": true
+      },
+      {
+        "m_classType": "JsonParseAction",
+        "m_SIGUID": 0,
+        "stringVarName": "odpowiedz_http",
+        "dictionaryVarName": "zlecenie",
+        "parseColors": false
+      },
+      {
+        "m_classType": "IfConditionAction",
+        "m_SIGUID": 0,
+        "m_constraintList": [
+          {
+            "m_classType": "MacroDroidVariableConstraint",
+            "m_SIGUID": 0,
+            "m_variable": {
+              "m_name": "zlecenie",
+              "m_type": 4,
+              "isLocalVar": true
+            },
+            "dictionaryKeys": {
+              "keys": [
+                "available"
+              ]
+            },
+            "dictionaryType": 0,
+            "m_booleanValue": true
+          },
+          {
+            "m_classType": "SignalOnOffConstraint",
+            "m_SIGUID": 0,
+            "m_option": 0,
+            "subscriptionId": -1
+          }
+        ]
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "kod_http",
+          "m_type": 1,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newIntValue": 0
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "odpowiedz_http",
+          "m_type": 2,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newStringValue": ""
+      },
+      {
+        "m_classType": "HttpRequestAction",
+        "m_SIGUID": 0,
+        "requestConfig": {
+          "requestType": 1,
+          "urlToOpen": "{lv=oms_url}/api/macrodroid/v1/begin",
+          "blockNextAction": true,
+          "requestTimeOutSeconds": 15,
+          "maxTotalDurationSeconds": 20,
+          "contentType": "application/json",
+          "contentBodySource": 0,
+          "contentBodyText": "{\"job_id\":\"{lv=zlecenie[job_id]}\",\"claim_token\":\"{lv=zlecenie[claim_token]}\"}",
+          "saveReturnCodeToVariable": true,
+          "returnCodeVariableName": "kod_http",
+          "saveResponseType": 1,
+          "responseVariableName": "odpowiedz_http",
+          "allowAnyCertificate": false,
+          "followRedirects": false,
+          "basicAuthEnabled": false,
+          "headerParams": [
+            {
+              "paramName": "Authorization",
+              "paramValue": "Bearer {lv=klucz_oms}"
+            },
+            {
+              "paramName": "Accept",
+              "paramValue": "application/json"
+            }
+          ]
+        }
+      },
+      {
+        "m_classType": "IfConditionAction",
+        "m_SIGUID": 0,
+        "m_constraintList": [
+          {
+            "m_classType": "MacroDroidVariableConstraint",
+            "m_SIGUID": 0,
+            "m_variable": {
+              "m_name": "kod_http",
+              "m_type": 1,
+              "isLocalVar": true
+            },
+            "m_intValue": 200
+          }
+        ]
+      },
+      {
+        "m_classType": "ClearDictionaryArrayEntryAction",
+        "m_SIGUID": 0,
+        "variableName": "zgoda_sms",
+        "clearOption": 1,
+        "isAllEntries": true
+      },
+      {
+        "m_classType": "JsonParseAction",
+        "m_SIGUID": 0,
+        "stringVarName": "odpowiedz_http",
+        "dictionaryVarName": "zgoda_sms",
+        "parseColors": false
+      },
+      {
+        "m_classType": "IfConditionAction",
+        "m_SIGUID": 0,
+        "m_constraintList": [
+          {
+            "m_classType": "MacroDroidVariableConstraint",
+            "m_SIGUID": 0,
+            "m_variable": {
+              "m_name": "zgoda_sms",
+              "m_type": 4,
+              "isLocalVar": true
+            },
+            "dictionaryKeys": {
+              "keys": [
+                "may_send"
+              ]
+            },
+            "dictionaryType": 0,
+            "m_booleanValue": true
+          }
+        ]
+      },
+      {
+        "m_classType": "SendSMSAction",
+        "m_SIGUID": 0,
+        "m_number": "{lv=zlecenie[phone]}",
+        "m_messageContent": "{lv=zlecenie[text]}",
+        "m_prePopulate": false,
+        "m_simId": 0
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "kod_http",
+          "m_type": 1,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newIntValue": 0
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "odpowiedz_http",
+          "m_type": 2,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newStringValue": ""
+      },
+      {
+        "m_classType": "HttpRequestAction",
+        "m_SIGUID": 0,
+        "requestConfig": {
+          "requestType": 1,
+          "urlToOpen": "{lv=oms_url}/api/macrodroid/v1/acknowledge",
+          "blockNextAction": true,
+          "requestTimeOutSeconds": 15,
+          "maxTotalDurationSeconds": 20,
+          "contentType": "application/json",
+          "contentBodySource": 0,
+          "contentBodyText": "{\"job_id\":\"{lv=zlecenie[job_id]}\",\"claim_token\":\"{lv=zlecenie[claim_token]}\",\"outcome\":\"submitted\"}",
+          "saveReturnCodeToVariable": true,
+          "returnCodeVariableName": "kod_http",
+          "saveResponseType": 1,
+          "responseVariableName": "odpowiedz_http",
+          "allowAnyCertificate": false,
+          "followRedirects": false,
+          "basicAuthEnabled": false,
+          "headerParams": [
+            {
+              "paramName": "Authorization",
+              "paramValue": "Bearer {lv=klucz_oms}"
+            },
+            {
+              "paramName": "Accept",
+              "paramValue": "application/json"
+            }
+          ]
+        }
+      },
+      {
+        "m_classType": "EndIfAction",
+        "m_SIGUID": 0
+      },
+      {
+        "m_classType": "EndIfAction",
+        "m_SIGUID": 0
+      },
+      {
+        "m_classType": "EndIfAction",
+        "m_SIGUID": 0
+      },
+      {
+        "m_classType": "EndIfAction",
+        "m_SIGUID": 0
+      }
+    ],
+    "m_constraintList": [
+      {
+        "m_classType": "MacroRunningConstraint",
+        "m_SIGUID": 0,
+        "option": 1,
+        "textToMatch": "NEX-OMS SMS",
+        "matchOption": 1
+      },
+      {
+        "m_classType": "SignalOnOffConstraint",
+        "m_SIGUID": 0,
+        "m_option": 0,
+        "subscriptionId": -1
+      }
+    ]
+  },
+  "globalVariables": [],
+  "userIcons": null,
+  "aiFeedback": "Profil dla Android 10 / MacroDroid 6.0.11 Pro, jedna karta SIM. Import pozostaje wylaczony. Wymagane uzupelnienie adresu HTTPS i klucza OMS oraz test na telefonie."
+}

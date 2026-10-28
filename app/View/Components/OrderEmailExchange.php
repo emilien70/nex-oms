@@ -7,7 +7,11 @@ use App\Models\EmailTemplate;
 use App\Models\Order;
 use App\Models\OrderEmailMessage;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\Component;
+use Modules\Integrations\MacroDroid\Models\SmsDevice;
+use Modules\Integrations\MacroDroid\Models\SmsMessage;
+use Modules\Integrations\MacroDroid\Models\SmsTemplate;
 
 class OrderEmailExchange extends Component
 {
@@ -35,6 +39,12 @@ class OrderEmailExchange extends Component
             'emailAccounts' => $emailAccounts,
             'emailTemplates' => $emailTemplates,
             'emailMessages' => $emailMessages,
+            'smsReady' => Schema::hasTable('sms_templates'),
+            'smsEnabled' => SmsDevice::configured()?->enabled ?? false,
+            'smsTemplates' => Schema::hasTable('sms_templates')
+                ? SmsTemplate::query()->orderBy('name')->get() : collect(),
+            'smsMessages' => Schema::hasTable('order_sms_messages')
+                ? SmsMessage::query()->where('order_id', $this->order->id)->latest('id')->limit(25)->get() : collect(),
             'defaultEmailAccountId' => $emailAccounts->first()?->getKey(),
         ]);
     }

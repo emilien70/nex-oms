@@ -6487,13 +6487,17 @@
                 };
 
                 emailToggle?.addEventListener('click', () => {
-                    const opening = emailForm.classList.contains('d-none');
-                    emailForm.classList.toggle('d-none', !opening);
+                    const smsForm = emailExchange.querySelector('[data-sms-form]');
+                    const opening = emailForm.classList.contains('d-none') && (!smsForm || smsForm.classList.contains('d-none'));
+                    const smsSelected = emailExchange.querySelector('[name="order_contact_channel"]:checked')?.value === 'sms';
+                    emailForm.classList.toggle('d-none', !opening || smsSelected);
+                    smsForm?.classList.toggle('d-none', !opening || !smsSelected);
+                    emailExchange.querySelector('[data-contact-channels]')?.classList.toggle('d-none', !opening);
                     emailToggleLabel.textContent = opening ? 'Zamknij wiadomość' : 'Napisz wiadomość';
 
                     if (opening) {
                         ensureEmailIdempotencyKey();
-                        emailTemplate.focus();
+                        if (!smsSelected) emailTemplate.focus();
                     }
                 });
 
@@ -6710,6 +6714,7 @@
                         replaceEmailMessage(payload, true);
                         resetEmailForm();
                         emailForm.classList.add('d-none');
+                        emailExchange.querySelector('[data-contact-channels]')?.classList.add('d-none');
                         emailToggleLabel.textContent = 'Napisz wiadomość';
 
                         if (!payload.polling_finished) {

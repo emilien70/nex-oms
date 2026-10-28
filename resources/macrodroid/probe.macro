@@ -1,0 +1,245 @@
+{
+  "macroExportVersion": 1,
+  "macro": {
+    "m_name": "NEX-OMS test polaczenia (bez SMS)",
+    "m_description": "Test polaczenia z OMS. Bez pobierania zlecen i bez SMS. Przed wlaczeniem uzupelnij oms_url i klucz_oms.",
+    "m_enabled": false,
+    "m_completed": true,
+    "m_GUID": 0,
+    "aiGenerated": 1,
+    "m_category": "NEX-OMS",
+    "m_excludeLog": true,
+    "localVariables": [
+      {
+        "m_name": "oms_url",
+        "m_type": 2,
+        "isLocalVar": true,
+        "m_stringValue": "https://uzupelnij-adres-oms.invalid"
+      },
+      {
+        "m_name": "klucz_oms",
+        "m_type": 2,
+        "isLocalVar": true,
+        "m_stringValue": "",
+        "isSecure": true
+      },
+      {
+        "m_name": "kod_http",
+        "m_type": 1,
+        "isLocalVar": true,
+        "m_intValue": 0
+      },
+      {
+        "m_name": "odpowiedz_http",
+        "m_type": 2,
+        "isLocalVar": true,
+        "m_stringValue": ""
+      },
+      {
+        "m_name": "test_polaczenia",
+        "m_type": 4,
+        "isLocalVar": true,
+        "dictionary": {
+          "entries": [],
+          "isArray": false
+        }
+      }
+    ],
+    "m_triggerList": [
+      {
+        "m_classType": "WebHookTrigger",
+        "m_SIGUID": 0,
+        "identifier": "nex-oms-sms-probe",
+        "variableWhiteListEnabled": true,
+        "variableWhiteList": []
+      }
+    ],
+    "m_actionList": [
+      {
+        "m_classType": "ClearDictionaryArrayEntryAction",
+        "m_SIGUID": 0,
+        "variableName": "test_polaczenia",
+        "clearOption": 1,
+        "isAllEntries": true
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "kod_http",
+          "m_type": 1,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newIntValue": 0
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "odpowiedz_http",
+          "m_type": 2,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newStringValue": ""
+      },
+      {
+        "m_classType": "HttpRequestAction",
+        "m_SIGUID": 0,
+        "requestConfig": {
+          "requestType": 1,
+          "urlToOpen": "{lv=oms_url}/api/macrodroid/v1/heartbeat",
+          "blockNextAction": true,
+          "requestTimeOutSeconds": 15,
+          "maxTotalDurationSeconds": 20,
+          "contentType": "application/json",
+          "contentBodySource": 0,
+          "contentBodyText": "{}",
+          "saveReturnCodeToVariable": true,
+          "returnCodeVariableName": "kod_http",
+          "saveResponseType": 1,
+          "responseVariableName": "odpowiedz_http",
+          "allowAnyCertificate": false,
+          "followRedirects": false,
+          "basicAuthEnabled": false,
+          "headerParams": [
+            {
+              "paramName": "Authorization",
+              "paramValue": "Bearer {lv=klucz_oms}"
+            },
+            {
+              "paramName": "Accept",
+              "paramValue": "application/json"
+            }
+          ]
+        }
+      },
+      {
+        "m_classType": "IfConditionAction",
+        "m_SIGUID": 0,
+        "m_constraintList": [
+          {
+            "m_classType": "MacroDroidVariableConstraint",
+            "m_SIGUID": 0,
+            "m_variable": {
+              "m_name": "kod_http",
+              "m_type": 1,
+              "isLocalVar": true
+            },
+            "m_intValue": 200
+          }
+        ]
+      },
+      {
+        "m_classType": "ClearDictionaryArrayEntryAction",
+        "m_SIGUID": 0,
+        "variableName": "test_polaczenia",
+        "clearOption": 1,
+        "isAllEntries": true
+      },
+      {
+        "m_classType": "JsonParseAction",
+        "m_SIGUID": 0,
+        "stringVarName": "odpowiedz_http",
+        "dictionaryVarName": "test_polaczenia",
+        "parseColors": false
+      },
+      {
+        "m_classType": "IfConditionAction",
+        "m_SIGUID": 0,
+        "m_constraintList": [
+          {
+            "m_classType": "MacroDroidVariableConstraint",
+            "m_SIGUID": 0,
+            "m_variable": {
+              "m_name": "test_polaczenia",
+              "m_type": 4,
+              "isLocalVar": true
+            },
+            "dictionaryKeys": {
+              "keys": [
+                "ok"
+              ]
+            },
+            "dictionaryType": 0,
+            "m_booleanValue": true
+          }
+        ]
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "kod_http",
+          "m_type": 1,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newIntValue": 0
+      },
+      {
+        "m_classType": "SetVariableAction",
+        "m_SIGUID": 0,
+        "m_variable": {
+          "m_name": "odpowiedz_http",
+          "m_type": 2,
+          "isLocalVar": true
+        },
+        "excludeFromLog": true,
+        "m_newStringValue": ""
+      },
+      {
+        "m_classType": "HttpRequestAction",
+        "m_SIGUID": 0,
+        "requestConfig": {
+          "requestType": 1,
+          "urlToOpen": "{lv=oms_url}/api/macrodroid/v1/heartbeat",
+          "blockNextAction": true,
+          "requestTimeOutSeconds": 15,
+          "maxTotalDurationSeconds": 20,
+          "contentType": "application/json",
+          "contentBodySource": 0,
+          "contentBodyText": "{\"probe_id\":\"{lv=test_polaczenia[probe_id]}\"}",
+          "saveReturnCodeToVariable": true,
+          "returnCodeVariableName": "kod_http",
+          "saveResponseType": 1,
+          "responseVariableName": "odpowiedz_http",
+          "allowAnyCertificate": false,
+          "followRedirects": false,
+          "basicAuthEnabled": false,
+          "headerParams": [
+            {
+              "paramName": "Authorization",
+              "paramValue": "Bearer {lv=klucz_oms}"
+            },
+            {
+              "paramName": "Accept",
+              "paramValue": "application/json"
+            }
+          ]
+        }
+      },
+      {
+        "m_classType": "EndIfAction",
+        "m_SIGUID": 0
+      },
+      {
+        "m_classType": "EndIfAction",
+        "m_SIGUID": 0
+      }
+    ],
+    "m_constraintList": [
+      {
+        "m_classType": "MacroRunningConstraint",
+        "m_SIGUID": 0,
+        "option": 1,
+        "textToMatch": "NEX-OMS test polaczenia (bez SMS)",
+        "matchOption": 1
+      }
+    ]
+  },
+  "globalVariables": [],
+  "userIcons": null,
+  "aiFeedback": "Profil dla Android 10 / MacroDroid 6.0.11 Pro, jedna karta SIM. Import pozostaje wylaczony. Wymagane uzupelnienie adresu HTTPS i klucza OMS oraz test na telefonie."
+}
