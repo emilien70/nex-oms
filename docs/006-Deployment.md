@@ -732,8 +732,8 @@ zlecenie przez uwierzytelnione API. Puste claim i odmowa begin zwracaja 409,
 nie 200; nigdy nie traktowac dowolnego 2xx jako zgody na SMS.
 
 Przy globalnym Basic Auth przygotowac waski wyjatek we wlasciwym bloku
-`server` HTTPS **domeny OMS**, nie klienta. Przyklad ponizej nie zostal
-wdrozony na VPS w ramach SMS.1:
+`server` HTTPS **domeny OMS**, nie klienta. Ponizsza konfiguracja zostala
+wdrozona na VPS 2026-10-29, bez globalnego wylaczania ochrony panelu:
 
 ```nginx
 location ~ ^/api/macrodroid/v1/(heartbeat|claim|begin|acknowledge)$ {
@@ -752,6 +752,28 @@ Te cztery POST maja w Laravel osobny Bearer token, wymog HTTPS, limitery
 IP/token i dokladne wyjatki CSRF. Panel pozostaje chroniony Basic Auth.
 Nie upubliczniac calego `/api/`. Zachowac wyjatki NEX-Printer, PayNow
 i portalu. Nie otwierac nowych portow UFW.
+
+Kopia konfiguracji panelu sprzed tej zmiany:
+`/root/nex-oms-backups/oms-nginx-before-macrodroid-20261029T083558Z.conf`.
+Zmieniono tylko `/etc/nginx/sites-available/oms.multi-click.pl`; konfiguracje
+domeny klienta, publicznych platnosci, certyfikatow i hasel pozostaly bez zmian.
+`nginx -t` i lagodne `systemctl reload nginx`: PASS. Nie zatrzymywano
+workerow, crona ani PHP-FPM i nie zmieniano danych lub ustawien SMS.
+
+Kontrola z 2026-10-29, bez poprawnego klucza telefonu:
+
+- POST kazdego z czterech endpointow bez tokenu i z niepoprawnym tokenem:
+  HTTP 401, JSON Laravel, **bez** naglowka `WWW-Authenticate: Basic`.
+- GET kazdego endpointu: HTTP 405, bez wyzwania Basic Auth.
+- Panel, konfiguracja/pobieranie makr oraz inne sciezki `/api/`, w tym
+  nieznany endpoint i `heartbeat/` z koncowym ukosnikiem: HTTP 401 z wyzwaniem
+  Basic Auth. Wyjatek jest celowo bez opcjonalnego koncowego `/`.
+- Konfiguracja MacroDroid po prawidlowym Basic Auth: HTTP 200.
+- Domena klienta dla API MacroDroid: HTTP 404; GET webhooka PayNow nadal 405.
+
+Te kontrole potwierdzaja kierowanie zadan i odmowe dostepu bez klucza,
+nie wysylke ani doreczenie SMS. Nie generowano klucza, nie wlaczano
+integracji i nie zlecano testowego SMS w ramach zmiany Nginx.
 
 Kontrola po recznej konfiguracji: `nginx -t`, reload, panel bez logowania
 401, POST `/api/macrodroid/v1/heartbeat` bez tokenu 401, domena klienta

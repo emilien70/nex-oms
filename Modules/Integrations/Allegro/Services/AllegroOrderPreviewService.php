@@ -84,9 +84,10 @@ class AllegroOrderPreviewService
         if (! in_array($paymentType, ['ONLINE', 'CASH_ON_DELIVERY'], true)) {
             $blockers[] = 'Sposób płatności '.$paymentType.' wymaga odrębnej obsługi. W tym etapie importujemy płatności internetowe i pobrania.';
         }
-        if (filled(data_get($raw, 'payment.reconciliation'))
-            || collect((array) ($raw['lineItems'] ?? []))->contains(fn ($item) => filled($item['reconciliation'] ?? null))) {
-            $blockers[] = 'Zamówienie zawiera dodatkowe rozliczenie Allegro Ceny, które wymaga sprawdzenia.';
+        try {
+            $this->assertPriceReconciliations($raw, $currency);
+        } catch (AllegroImportException $exception) {
+            $blockers[] = 'Nieprawidłowe dane rozliczenia Allegro Ceny: '.$exception->getMessage();
         }
 
         $payments = [];
@@ -98,7 +99,7 @@ class AllegroOrderPreviewService
             if (! is_array($surcharge)) {
                 throw new AllegroImportException('Nieprawidłowe dane dopłaty Allegro.');
             }
-            if (($surcharge['type'] ?? null) !== 'ONLINE' || filled($surcharge['reconciliation'] ?? null)) {
+            if (($surcharge['type'] ?? null) !== 'ONLINE') {
                 $blockers[] = 'Dopłata Allegro wymaga odrębnej obsługi rozliczenia.';
             }
             $payments[] = $this->payment($surcharge, $currency, false);
@@ -108,6 +109,7 @@ class AllegroOrderPreviewService
             throw new AllegroImportException('Allegro zwróciło powtórzony identyfikator płatności.');
         }
 
+        // Allegro Ceny reconciles the seller's settlement, not the buyer's paidAmount.
         $paid = '0.00';
         $paidAt = null;
         foreach ($payments as $payment) {
@@ -283,6 +285,30 @@ class AllegroOrderPreviewService
         $preview['importable'] = false;
 
         return $preview;
+    }
+
+    private function assertPriceReconciliations(array $raw, string $currency): void
+    {
+        foreach ((array) ($raw['lineItems'] ?? []) as $line) {
+            $reconciliation = $line['reconciliation'] ?? null;
+            if ($reconciliation === null) {
+                continue;
+            }
+            if (! is_array($reconciliation)
+                || ! in_array($reconciliation['type'] ?? null, ['BILLING', 'WALLET'], true)
+                || ! is_int($reconciliation['quantity'] ?? null)
+                || $reconciliation['quantity'] < 1
+                || $reconciliation['quantity'] > $line['quantity']) {
+                throw new AllegroImportException('Nieznany typ lub nieprawidłowa ilość rozliczenia pozycji.');
+            }
+            $this->money($reconciliation['value'] ?? null, $currency);
+        }
+
+        foreach (array_merge([$raw['payment'] ?? []], (array) ($raw['surcharges'] ?? [])) as $payment) {
+            if (is_array($payment) && ($payment['reconciliation'] ?? null) !== null) {
+                $this->money($payment['reconciliation'], $currency);
+            }
+        }
     }
 
     private function items(array $lines, string $currency): array

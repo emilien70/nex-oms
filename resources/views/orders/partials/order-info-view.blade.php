@@ -20,6 +20,10 @@
         $allegroSourceName = $order->allegroOrderLink->account?->name ?: $order->allegroOrderLink->account_name;
         $sourceLabel = filled($allegroSourceName) ? $allegroSourceName.' ('.$sourceTypeLabel.')' : $sourceTypeLabel;
     }
+    if ($order->source === 'von_halsky' && $order->vonHalskyOrderLink) {
+        $halskyName = $order->vonHalskyOrderLink->account?->name ?: $order->vonHalskyOrderLink->account_name;
+        $sourceLabel = filled($halskyName) ? $halskyName.' (InPost Von Halsky)' : 'InPost Von Halsky';
+    }
 @endphp
 
 <div class="paid-amount-row" data-paid-view>

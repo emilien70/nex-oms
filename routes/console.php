@@ -22,6 +22,7 @@ use Modules\Integrations\PayNow\Services\PayNowReconciliationService;
 use Modules\Integrations\Prestashop\Services\PrestashopOrderImportDispatcher;
 use Modules\Integrations\Prestashop\Services\PrestashopPaymentSyncDispatcher;
 use Modules\Integrations\Prestashop\Services\PrestashopStatusSyncDispatcher;
+use Modules\Integrations\VonHalsky\Services\VonHalskyOrderImportDispatcher;
 use Modules\Ksef\Services\KsefLatarniaOperationalSyncService;
 use Modules\Ksef\Services\KsefSubmissionFollowUpDispatcher;
 use Modules\Shipments\Models\CourierAccount;
@@ -122,6 +123,9 @@ Schedule::call(fn () => app(PrestashopOrderImportDispatcher::class)->dispatchDue
     ->name('prestashop-import-new-orders')
     ->everyMinute()
     ->withoutOverlapping();
+
+Schedule::call(fn () => app(VonHalskyOrderImportDispatcher::class)->dispatchDue())
+    ->name('von-halsky-import-orders')->everyMinute()->withoutOverlapping();
 
 Schedule::call(fn () => app(PrestashopPaymentSyncDispatcher::class)->dispatchDue())
     ->name('prestashop-sync-payments')

@@ -19,6 +19,7 @@ class AutomationActionExecutor
         private readonly AutomationSmsActionService $smsActionService,
         private readonly AutomationStockActionService $stockActionService,
         private readonly AutomationNexPrinterActionService $nexPrinterActionService,
+        private readonly AutomationOrderModificationService $orderModificationService,
     ) {}
 
     public function execute(
@@ -27,9 +28,11 @@ class AutomationActionExecutor
         string $type,
         array $configuration,
     ): array {
+        $run->load('order');
         $run->order->assertPurchaseReady();
 
         return match ($type) {
+            AutomationCatalog::ACTION_MODIFY_ORDER => $this->orderModificationService->execute($run, $step, $configuration),
             AutomationCatalog::ACTION_CHANGE_STATUS => $this->changeStatus($run, $configuration),
             AutomationCatalog::ACTION_CREATE_SHIPMENT => $this->shipmentActionService->execute($run, $configuration),
             AutomationCatalog::ACTION_CALL_URL => $this->urlActionService->execute($run, $configuration),

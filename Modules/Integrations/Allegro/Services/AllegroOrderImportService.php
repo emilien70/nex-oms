@@ -2,6 +2,8 @@
 
 namespace Modules\Integrations\Allegro\Services;
 
+use App\Events\OrderCreated;
+use App\Events\OrderDataCompleted;
 use App\Models\Order;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -185,7 +187,15 @@ class AllegroOrderImportService
                     ],
                 ]);
 
-                return $order->refresh();
+                $order->refresh();
+                if ($existing === null) {
+                    OrderCreated::dispatch($order);
+                }
+                if ($complete) {
+                    OrderDataCompleted::dispatch($order);
+                }
+
+                return $order;
             }, 3);
         } catch (UniqueConstraintViolationException $exception) {
             $existing = $this->link($account, $identifier);

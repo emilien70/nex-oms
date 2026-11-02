@@ -522,6 +522,7 @@ class OrderVariableService
             'manual' => $this->decode('R&#281;czne'),
             'allegro' => 'Allegro',
             'prestashop' => 'PrestaShop',
+            'von_halsky' => 'InPost Von Halsky',
             default => (string) ($source ?? ''),
         };
     }

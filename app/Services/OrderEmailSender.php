@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Contracts\OrderEmailTransport;
+use App\Enums\OrderEmailMessageSource;
 use App\Enums\OrderEmailMessageStatus;
 use App\Exceptions\OrderEmailTransportException;
 use App\Models\EmailAccount;
+use App\Models\Order;
 use App\Models\OrderEmailMessage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -96,6 +98,13 @@ class OrderEmailSender
             return;
         }
 
+        $recipientFailure = $this->recipientFailure($message);
+        if ($recipientFailure !== null) {
+            $this->markFailed($messageId, ...$recipientFailure);
+
+            return;
+        }
+
         try {
             $this->transport->send($account, $email);
         } catch (OrderEmailTransportException $exception) {
@@ -157,10 +166,27 @@ class OrderEmailSender
     private function claim(int $messageId): ?OrderEmailMessage
     {
         $claimed = DB::transaction(function () use ($messageId): ?OrderEmailMessage {
+            $candidate = OrderEmailMessage::query()->find($messageId);
+            if (! $candidate) {
+                return null;
+            }
+            $order = Order::query()->whereKey($candidate->order_id)->lockForUpdate()->first();
             $message = OrderEmailMessage::query()->lockForUpdate()->find($messageId);
 
             if (! $message instanceof OrderEmailMessage
                 || $message->status !== OrderEmailMessageStatus::Queued) {
+                return null;
+            }
+
+            $recipientFailure = $this->recipientFailure($message, $order);
+            if ($recipientFailure !== null) {
+                $message->update([
+                    'status' => OrderEmailMessageStatus::Failed,
+                    'safe_error_code' => $recipientFailure[0],
+                    'safe_error_message' => $recipientFailure[1],
+                    'failed_at' => now(),
+                ]);
+
                 return null;
             }
 
@@ -177,6 +203,34 @@ class OrderEmailSender
         });
 
         return $claimed?->load(['emailAccount', 'attachments']);
+    }
+
+    /** @return null|array{string, string} */
+    private function recipientFailure(OrderEmailMessage $message, ?Order $order = null): ?array
+    {
+        $actor = $message->actor_snapshot ?? [];
+        if (! is_array($actor)) {
+            return ['recipient_context_missing', 'Nie mozna potwierdzic odbiorcy zlecenia. Utworz nowa wiadomosc.'];
+        }
+        $customer = $actor['recipient_customer'] ?? null;
+        if (array_key_exists('recipient_customer', $actor) && ! is_bool($customer)) {
+            return ['recipient_context_missing', 'Nie mozna potwierdzic odbiorcy zlecenia. Utworz nowa wiadomosc.'];
+        }
+        if ($customer === false) {
+            return null;
+        }
+        if ($customer !== true && $message->source !== OrderEmailMessageSource::Manual) {
+            return ['recipient_context_missing', 'Nie mozna potwierdzic odbiorcy starszego zlecenia. Utworz nowa wiadomosc.'];
+        }
+
+        $order ??= Order::query()->find($message->order_id);
+        if (! $order || preg_match('/[\r\n]/', (string) $order->customer_email)
+            || filter_var(trim((string) $order->customer_email), FILTER_VALIDATE_EMAIL) === false
+            || mb_strtolower(trim((string) $order->customer_email)) !== mb_strtolower(trim((string) $message->to_email))) {
+            return ['recipient_changed', 'Adres e-mail klienta zmienil sie lub jest niedostepny. Utworz nowa wiadomosc.'];
+        }
+
+        return null;
     }
 
     private function buildEmail(OrderEmailMessage $message): Email

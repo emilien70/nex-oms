@@ -4,6 +4,18 @@
     </div>
     <div class="nex-card-body">
         <div class="accordion order-information-accordion" id="orderAdditionalInformation">
+            @if ($order->source === 'von_halsky' && $order->vonHalskyOrderLink)
+                <div class="accordion-item">
+                    <h3 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#orderVonHalskyDetailsCollapse" aria-expanded="false" aria-controls="orderVonHalskyDetailsCollapse">Szczegóły zamówienia</button>
+                    </h3>
+                    <div id="orderVonHalskyDetailsCollapse" class="accordion-collapse collapse" data-bs-parent="#orderAdditionalInformation">
+                        <div class="accordion-body" data-von-halsky-status-body>
+                            @include('orders.partials.von-halsky-status', ['order' => $order])
+                        </div>
+                    </div>
+                </div>
+            @endif
             @if ($order->source === 'allegro' && $order->allegroOrderLink)
                 <div class="accordion-item">
                     <h3 class="accordion-header">

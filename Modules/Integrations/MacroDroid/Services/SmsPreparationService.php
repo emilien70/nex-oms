@@ -4,6 +4,7 @@ namespace Modules\Integrations\MacroDroid\Services;
 
 use App\Exceptions\OrderEmailException;
 use App\Models\Order;
+use App\Services\OrderMessageRecipientService;
 use App\Services\OrderVariableService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -67,7 +68,12 @@ class SmsPreparationService
             }
             $recipients = [];
             if ($customer) {
-                $recipients[SmsPhoneNumber::normalize($order->customer_phone)] = true;
+                $phone = SmsPhoneNumber::normalize($order->customer_phone);
+                if (isset($data['expected_customer_phone']) && SmsPhoneNumber::normalize($data['expected_customer_phone']) !== $phone) {
+                    $this->invalid('recipient', 'Numer klienta zmienil sie. Kliknij Wyslij ponownie, aby pobrac aktualny numer.');
+                }
+                app(OrderMessageRecipientService::class)->assertConfirmation($order, 'sms', $data['recipient_token'] ?? null);
+                $recipients[$phone] = true;
             }
             foreach ($numbers as $number) {
                 $recipients[SmsPhoneNumber::normalize($number)] ??= false;

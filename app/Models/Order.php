@@ -17,6 +17,7 @@ use Modules\Integrations\Allegro\Support\AllegroPaymentProvider;
 use Modules\Integrations\PayNow\Models\PayNowPayment;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderLink;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderMessage;
+use Modules\Integrations\VonHalsky\Models\VonHalskyOrderLink;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Models\OrderDocumentSlot;
 use Modules\Shipments\Models\Shipment;
@@ -259,6 +260,11 @@ class Order extends Model
     public function allegroOrderLink(): HasOne
     {
         return $this->hasOne(AllegroOrderLink::class);
+    }
+
+    public function vonHalskyOrderLink(): HasOne
+    {
+        return $this->hasOne(VonHalskyOrderLink::class);
     }
 
     public function prestashopBuyerMessages(): HasManyThrough

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\OrderCreated;
 use App\Exceptions\OrderCurrencyException;
 use App\Exceptions\OrderPaymentStateException;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
@@ -226,6 +227,8 @@ class OrdersController extends Controller
                     ],
                 ]);
 
+                OrderCreated::dispatch($order);
+
                 return $order;
             });
         } catch (OrderCurrencyException $exception) {
@@ -265,6 +268,8 @@ class OrdersController extends Controller
                     'order_id' => $order->id,
                 ],
             ]);
+
+            OrderCreated::dispatch($order);
 
             return $order;
         });
@@ -356,6 +361,8 @@ class OrdersController extends Controller
                     'source_order_id' => $order->id,
                 ],
             ]);
+
+            OrderCreated::dispatch($newOrder);
 
             return $newOrder;
         });
@@ -472,6 +479,8 @@ class OrdersController extends Controller
                     ],
                 ]);
 
+                OrderCreated::dispatch($newOrder);
+
                 return $newOrder;
             });
         } catch (InvoiceDomainException $exception) {
@@ -508,7 +517,7 @@ class OrdersController extends Controller
         return Order::query()
             ->when($withItems, fn (Builder $query) => $query
                 ->with('items')
-                ->with(['prestashopOrderLinks.account', 'allegroOrderLink.account'])
+                ->with(['prestashopOrderLinks.account', 'allegroOrderLink.account', 'vonHalskyOrderLink.account'])
                 ->withExists(['prestashopBuyerMessages', 'visibleShipments as shipments_exists', 'invoices as issued_invoice_exists' => fn ($query) => $query->where('document_type', 'invoice')->where('status', 'issued')]))
             ->when($showTrash, fn (Builder $query) => $query->onlyTrashed())
             ->when(
@@ -624,7 +633,7 @@ class OrdersController extends Controller
             $query->whereDate('status_changed_at', '<=', $filters['status_to']);
         }
 
-        if (in_array($filters['source'] ?? null, ['allegro', 'prestashop'], true)) {
+        if (in_array($filters['source'] ?? null, ['allegro', 'prestashop', 'von_halsky'], true)) {
             $query->where('source', $filters['source']);
         }
 
@@ -732,6 +741,7 @@ class OrdersController extends Controller
             'prestashopOrderLinks.account',
             'prestashopBuyerMessages',
             'allegroOrderLink.account',
+            'vonHalskyOrderLink.account',
             'allegroOrderLink.payments',
             'prestashopOrderLinks.payments' => fn ($query) => $query
                 ->orderByDesc('paid_at')
@@ -946,7 +956,7 @@ class OrdersController extends Controller
         ]);
 
         return $request->validate([
-            'source' => ['required', 'string', 'in:manual,allegro,prestashop'],
+            'source' => ['required', 'string', 'in:manual,allegro,prestashop,von_halsky'],
             'external_id' => ['nullable', 'string', 'max:255'],
             'status' => ['required', 'string', 'in:'.implode(',', $statuses)],
             'purchased_at' => ['nullable', 'date'],
@@ -1201,6 +1211,7 @@ class OrdersController extends Controller
             'manual' => html_entity_decode('R&#281;czne', ENT_QUOTES, 'UTF-8'),
             'allegro' => 'Allegro',
             'prestashop' => 'PrestaShop',
+            'von_halsky' => 'InPost Von Halsky',
         ];
     }
 

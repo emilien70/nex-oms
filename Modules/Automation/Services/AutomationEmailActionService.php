@@ -23,7 +23,7 @@ class AutomationEmailActionService
         AutomationRunStep $step,
         array $configuration,
     ): array {
-        $order = $run->order;
+        $order = Order::query()->find($run->order_id);
 
         if (! $order instanceof Order) {
             throw new OrderEmailException(
@@ -64,6 +64,7 @@ class AutomationEmailActionService
                             $recipient['customer'],
                         ),
                         automationRun: $run,
+                        recipientCustomer: $recipient['customer'],
                     ),
                 );
             });

@@ -81,6 +81,11 @@
         .automation-email-recipient-remove:hover { color: #b42318; }
         .automation-email-recipient-input { border: 0; box-shadow: none; flex: 1 1 180px; font-size: 12px; min-width: 150px; outline: 0; padding: 3px; }
         .automation-email-add-customer { font-size: 11px; padding: 3px 7px; }
+        .automation-source-options { border: 1px solid #cfd7e1; border-radius: 5px; background: #fff; }
+        .automation-source-options summary { cursor: pointer; padding: 7px 9px; overflow-wrap: anywhere; }
+        .automation-source-options .source-options { border-top: 1px solid #e6eaee; max-height: 220px; overflow-y: auto; padding: 8px; }
+        .automation-source-options label { align-items: flex-start; display: flex; gap: 8px; padding: 4px; overflow-wrap: anywhere; }
+        .automation-modify-config { display: grid; gap: 9px; }
         @media (max-width: 900px) {
             .automation-page { margin: -1rem; padding: 12px; }
             .automation-table { min-width: 760px; }
@@ -257,6 +262,8 @@
             const definitions = {{ Illuminate\Support\Js::from($catalog->conditionDefinitions()) }};
             const operatorLabels = {{ Illuminate\Support\Js::from($catalog->operators()) }};
             const actionLabels = {{ Illuminate\Support\Js::from($catalog->actions()) }};
+            const orderFields = {{ Illuminate\Support\Js::from($catalog->orderFields()) }};
+            const countries = {{ Illuminate\Support\Js::from(app(\App\Support\CountryCatalog::class)->all()) }};
             const statuses = {{ Illuminate\Support\Js::from($statuses) }};
             const shipmentDefinitions = {{ Illuminate\Support\Js::from($shipmentActionDefinitions) }};
             const invoiceSeries = {{ Illuminate\Support\Js::from($invoiceSeries) }};
@@ -410,28 +417,55 @@
                 let conditions = clone(initial.conditions || []);
                 let actions = clone(initial.actions || []);
                 const conditionsRoot = form.querySelector('[data-conditions-root]');
+                const sourcesRoot = form.querySelector('[data-order-sources-root]');
                 const conditionsEmpty = form.querySelector('[data-conditions-empty]');
                 const actionsRoot = form.querySelector('[data-actions-root]');
                 const errorBox = form.querySelector('[data-editor-error]');
 
                 const renderConditions = () => {
-                    conditionsEmpty.classList.toggle('d-none', conditions.length > 0);
+                    if (!conditions.some(condition => condition.field === 'integration_source')) {
+                        conditions.unshift({field: 'integration_source', operator: 'in', value: ['*']});
+                    }
+                    conditionsEmpty.classList.toggle('d-none', conditions.some(condition => condition.field !== 'integration_source'));
+                    sourcesRoot.innerHTML = '';
                     conditionsRoot.innerHTML = conditions.map((condition, index) => {
                         const field = condition.field && definitions[condition.field] ? condition.field : Object.keys(definitions)[0];
                         const definition = definitions[field];
                         const operator = definition.operators.includes(condition.operator) ? condition.operator : definition.operators[0];
                         conditions[index] = {...condition, field, operator};
+                        if (field === 'integration_source') {
+                            const selected = Array.isArray(condition.value) ? condition.value : [];
+                            const sourceOptions = {...definition.options};
+                            selected.forEach(value => { if (!Object.hasOwn(sourceOptions, value)) sourceOptions[value] = `${value} (niedostępne)`; });
+                            const summary = selected.map(value => sourceOptions[value] || value).join(', ') || 'Wybierz źródła';
+                            sourcesRoot.innerHTML += `<label class="automation-block-label">ŹRÓDŁA ZAMÓWIENIA</label><div data-source-condition-index="${index}"><input type="hidden" name="conditions[${index}][field]" value="integration_source"><input type="hidden" name="conditions[${index}][operator]" value="in"><details class="automation-source-options"><summary>${escapeHtml(summary)}</summary><div class="source-options">${Object.entries(sourceOptions).map(([value, label]) => `<label><input type="checkbox" class="form-check-input source-option" name="conditions[${index}][value][]" value="${escapeHtml(value)}" ${selected.includes(value) ? 'checked' : ''}><span>${escapeHtml(label)}</span></label>`).join('')}</div></details></div>`;
+                            return '';
+                        }
                         const valueControl = definition.type === 'select'
                             ? `<select class="form-select form-select-sm condition-value" name="conditions[${index}][value]">${optionsHtml(definition.options, condition.value)}</select>`
                             : `<input class="form-control form-control-sm condition-value" type="${definition.type === 'number' ? 'number' : 'text'}" ${definition.type === 'number' ? 'step="0.01"' : ''} name="conditions[${index}][value]" value="${escapeHtml(condition.value)}">`;
 
                         return `<div class="automation-condition-row" data-condition-index="${index}">
-                            <select class="form-select form-select-sm condition-field" name="conditions[${index}][field]">${optionsHtml(Object.fromEntries(Object.entries(definitions).map(([key, item]) => [key, item.label])), field)}</select>
+                            <select class="form-select form-select-sm condition-field" name="conditions[${index}][field]">${optionsHtml(Object.fromEntries(Object.entries(definitions).filter(([key]) => key !== 'integration_source').map(([key, item]) => [key, item.label])), field)}</select>
                             <select class="form-select form-select-sm condition-operator" name="conditions[${index}][operator]">${optionsHtml(Object.fromEntries(definition.operators.map(key => [key, operatorLabels[key] || key])), operator)}</select>
                             ${valueControl}
                             <button class="automation-icon-btn condition-remove" type="button" aria-label="Usu&#324; warunek">&#10005;</button>
                         </div>`;
                     }).join('');
+
+                    sourcesRoot.querySelectorAll('[data-source-condition-index]').forEach(root => {
+                        const index = Number(root.dataset.sourceConditionIndex);
+                        root.querySelectorAll('.source-option').forEach(control => control.addEventListener('change', event => {
+                            let selected = [...root.querySelectorAll('.source-option:checked')].map(input => input.value);
+                            if (event.target.checked) {
+                                selected = event.target.value === '*' ? ['*'] : selected.filter(value => value !== '*');
+                            }
+                            conditions[index].value = selected;
+                            const open = root.querySelector('details').open;
+                            renderConditions();
+                            if (open) sourcesRoot.querySelector('details').open = true;
+                        }));
+                    });
 
                     conditionsRoot.querySelectorAll('[data-condition-index]').forEach(row => {
                         const index = Number(row.dataset.conditionIndex);
@@ -452,6 +486,23 @@
 
                 const actionConfiguration = (action, index) => {
                     const configuration = action.configuration || {};
+                    if (action.type === 'modify_order') {
+                        const field = configuration.field || 'notes';
+                        const definition = orderFields[field];
+                        const grouped = Object.entries(orderFields).reduce((groups, [key, item]) => {
+                            (groups[item.group] ||= {})[key] = item.label;
+                            return groups;
+                        }, {});
+                        const fieldOptions = Object.entries(grouped).map(([group, options]) => `<optgroup label="${escapeHtml(group)}">${optionsHtml(options, field)}</optgroup>`).join('');
+                        const unavailable = definition ? '' : `<option value="${escapeHtml(field)}" selected>Pole niedostępne</option>`;
+                        const value = configuration.value ?? '';
+                        const valueControl = definition?.type === 'country'
+                            ? `<select class="form-select form-select-sm action-config" data-key="value" aria-label="Wartość pola" name="actions[${index}][configuration][value]"><option value="">Wybierz kraj</option>${optionsHtml(countries, value)}</select>`
+                            : definition?.type === 'textarea'
+                                ? `<textarea class="form-control form-control-sm action-config" data-key="value" aria-label="Wartość pola" name="actions[${index}][configuration][value]" rows="4" maxlength="10000">${escapeHtml(value)}</textarea>`
+                                : `<input class="form-control form-control-sm action-config" data-key="value" aria-label="Wartość pola" name="actions[${index}][configuration][value]" type="text" maxlength="10000" value="${escapeHtml(value)}">`;
+                        return `<div class="automation-modify-config"><div><label class="automation-block-label">POLE</label><select class="form-select form-select-sm modify-order-field action-config" data-key="field" aria-label="Pole zamówienia" name="actions[${index}][configuration][field]">${unavailable}${fieldOptions}</select></div><div><label class="automation-block-label">WARTOŚĆ</label>${valueControl}</div><div class="form-text"><a href="{{ route('settings.variables.index') }}" target="_blank" rel="noopener">Zmienne OMS</a></div></div>`;
+                    }
                     if (action.type === 'change_order_status') {
                         return `<label class="automation-block-label">STATUS DOCELOWY</label><select class="form-select form-select-sm action-config" data-key="status" name="actions[${index}][configuration][status]">${optionsHtml(statuses, configuration.status)}</select>`;
                     }
@@ -530,6 +581,7 @@
                 };
 
                 const defaultActionConfiguration = type => {
+                    if (type === 'modify_order') return {field: 'notes', value: ''};
                     if (type === 'change_order_status') return {status: Object.keys(statuses)[0]};
                     if (type === 'create_inpost_shipment') return defaultShipmentConfiguration();
                     if (type === 'call_url') return {url: ''};
@@ -575,6 +627,10 @@
                             const update = event => actions[index].configuration[event.target.dataset.key] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
                             control.addEventListener('input', update);
                             control.addEventListener('change', update);
+                        });
+                        card.querySelector('.modify-order-field')?.addEventListener('change', () => {
+                            actions[index].configuration.value = '';
+                            renderActions();
                         });
                         const recipientInput = card.querySelector('[data-email-recipient-input]');
                         const addRecipients = () => {
@@ -662,7 +718,7 @@
                 };
 
                 form.querySelector('[data-add-condition]').addEventListener('click', () => {
-                    const field = Object.keys(definitions)[0];
+                    const field = Object.keys(definitions).find(key => key !== 'integration_source');
                     conditions.push({field, operator: definitions[field].operators[0], value: ''});
                     renderConditions();
                 });

@@ -2645,6 +2645,24 @@
             grid-template-columns: 136px minmax(0, 1fr);
         }
 
+        .order-sms-compose > .order-email-type-options {
+            border-bottom: 1px solid #cfd6df;
+            border-top: 1px solid #cfd6df;
+            display: grid;
+            gap: 12px;
+            grid-template-columns: 136px max-content max-content;
+            margin-bottom: 0 !important;
+            padding: 10px 0;
+        }
+
+        .order-sms-counter-row { align-items: center; display: flex; gap: 10px; justify-content: space-between; }
+        .order-sms-counter { color: #94a3b8; font-size: 11px; }
+        .order-sms-preview-button { height: 26px; padding: 0; width: 28px; }
+        .order-sms-preview { background: #fff; border: 1px solid #cfd6df; border-radius: 5px; margin: 0; white-space: pre-wrap; }
+        .order-sms-editor::placeholder { color: #94a3b8; }
+        .order-sms-compose [readonly] { background: #fff; }
+        .order-sms-message-body { white-space: pre-wrap; }
+
         .order-email-type-options {
             align-items: center;
             display: flex;
@@ -2829,6 +2847,8 @@
             background: #dcfce7;
             color: #166534;
         }
+
+        .order-sms-status.is-sent { background: #198754; color: #fff; }
 
         .order-email-status.is-failed,
         .order-email-status.is-unknown {
@@ -3116,6 +3136,9 @@
         }
 
         @media (max-width: 575.98px) {
+            .order-sms-compose > .order-email-type-options { grid-template-columns: max-content max-content; }
+            .order-sms-compose > .order-email-type-options > .form-label { grid-column: 1 / -1; }
+
             .order-email-form-row {
                 align-items: stretch;
                 gap: 5px;
@@ -3286,6 +3309,9 @@
         </nav>
     </div>
 
+    @if ($order->source === 'von_halsky' && $order->vonHalskyOrderLink)
+        <div data-von-halsky-warning-body>@include('orders.partials.von-halsky-warning', ['order' => $order])</div>
+    @endif
     @if ($allegroOrderLink && ! $allegroOrderLink->isReady())
         <div class="alert {{ in_array($allegroOrderLink->import_state, ['cancelled', 'superseded', 'review'], true) ? 'alert-warning' : 'alert-info' }}" role="status" data-purchase-readiness>
             @if ($allegroOrderLink->import_state === 'superseded')
@@ -3623,6 +3649,10 @@
                                             <optgroup label="{{ $label }}" data-prestashop-source-group>
                                                 <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $prestashopDisplayName }}</option>
                                             </optgroup>
+                                        @elseif ($source === 'von_halsky' && $order->vonHalskyOrderLink)
+                                            <optgroup label="{{ $label }}" data-von-halsky-source-group>
+                                                <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $order->vonHalskyOrderLink->account?->name ?: $order->vonHalskyOrderLink->account_name }}</option>
+                                            </optgroup>
                                         @else
                                             <option value="{{ $source }}" @selected(old('source', $order->source) === $source)>{{ $label }}</option>
                                         @endif
@@ -3701,10 +3731,13 @@
                                     @endif
                                 </div>
                                 </div>
+                            @elseif ($order->source === 'von_halsky')
+                                <div class="management-meta-label">Numer transakcji:</div>
+                                <div class="management-meta-value fw-bold" style="color: #7a838f">{{ $order->external_id }}</div>
                             @endif
                             <div class="management-meta-label">Data z&#322;o&#380;enia:</div>
                             <div class="management-meta-value">
-                                @if ($createdAtParts = $managementDateParts($allegroOrderLink ? ($order->purchased_at ?? $order->created_at) : $order->created_at))
+                                @if ($createdAtParts = $managementDateParts(($allegroOrderLink || $order->vonHalskyOrderLink) ? ($order->purchased_at ?? $order->created_at) : $order->created_at))
                                     <span>{{ $createdAtParts['date'] }}</span><span class="management-meta-time">{{ $createdAtParts['time'] }}</span>
                                 @else
                                     ...
@@ -3802,7 +3835,7 @@
                         <button class="btn btn-sm btn-light border icon-action-button" type="button" data-edit-section="billing" title="Edytuj dane do faktury" aria-label="Edytuj dane do faktury"><i class="bi bi-pencil" aria-hidden="true"></i></button>
                     </div>
                 </div>
-                @if ($order->source === 'allegro' && $allegroOrderLink?->invoice_required)
+                @if (($order->source === 'allegro' && $allegroOrderLink?->invoice_required) || ($order->source === 'von_halsky' && $order->vonHalskyOrderLink?->invoice_required))
                     <div class="billing-invoice-request" data-invoice-request-notice role="note">
                         <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
                         <span>Klient prosi o fakturę</span>
@@ -4050,6 +4083,61 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const deferredFormFields = new WeakMap();
+            const contactFieldSelector = '[name="customer_email"], [name="customer_phone"]';
+            const pendingContactSaves = new Map();
+            const messageExchange = document.querySelector('[data-order-email-exchange]');
+            const hasUnsavedMessageContact = (scope = document) => Array.from(scope.querySelectorAll(contactFieldSelector)).some((field) => {
+                if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) || field.type === 'hidden') {
+                    return false;
+                }
+
+                const isEditing = Boolean(field.closest('.is-editing'));
+                const isVisible = field.getClientRects().length > 0 && window.getComputedStyle(field).visibility !== 'hidden';
+                return (isEditing || isVisible) && field.value !== field.defaultValue;
+            });
+
+            if (messageExchange) {
+                messageExchange.assertMessageContactSaved = () => {
+                    if (pendingContactSaves.size > 0) {
+                        throw new Error('Trwa zapis danych kontaktowych. Poczekaj na jego zakończenie i spróbuj ponownie.');
+                    }
+                    if (hasUnsavedMessageContact()) {
+                        throw new Error('Najpierw zapisz lub anuluj zmiany adresu e-mail i telefonu klienta w zamówieniu.');
+                    }
+                };
+
+                messageExchange.resolveMessageRecipient = async (channel) => {
+                    while (pendingContactSaves.size > 0) {
+                        await Promise.all(Array.from(pendingContactSaves.values(), (save) => save.promise));
+                    }
+                    messageExchange.assertMessageContactSaved();
+
+                    const url = new URL(@json(route('orders.message-recipient', $order)), window.location.origin);
+                    url.searchParams.set('channel', channel);
+                    const response = await fetch(url.toString(), {
+                        method: 'GET',
+                        cache: 'no-store',
+                        headers: {
+                            Accept: 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                    });
+                    const payload = await response.json().catch(() => ({}));
+                    messageExchange.assertMessageContactSaved();
+
+                    if (!response.ok) {
+                        const messages = Object.values(payload.errors || {}).flat();
+                        throw new Error(messages[0] || payload.message || 'Nie udało się odczytać aktualnego kontaktu klienta.');
+                    }
+                    if (typeof payload.recipient !== 'string' || !payload.recipient.trim()
+                        || typeof payload.recipient_token !== 'string' || !/^[a-f0-9]{64}$/i.test(payload.recipient_token)) {
+                        throw new Error('Nie udało się potwierdzić aktualnego kontaktu klienta. Spróbuj ponownie.');
+                    }
+
+                    return {recipient: payload.recipient, recipient_token: payload.recipient_token};
+                };
+            }
+
             let deferredOrderInfoHtml = null;
             const paymentLinkClickTimers = new WeakMap();
             const allegroTransactionClickTimers = new WeakMap();
@@ -5274,6 +5362,7 @@
             let currentLatestEventId = null;
             let currentShipmentsSignature = null;
             let currentBuyerCommentsSignature = null;
+            let currentVonHalskyStatusSignature = null;
             let payNowRefreshTimer = null;
 
             const cancelShipmentModal = document.getElementById('cancelShipmentModal');
@@ -5741,6 +5830,8 @@
                 'automation-history': '[data-order-automation-history-body]',
                 payments: '[data-order-payments-body]',
                 'buyer-comments': '[data-order-buyer-comments]',
+                'von-halsky-status': '[data-von-halsky-status-body]',
+                'von-halsky-warning': '[data-von-halsky-warning-body]',
             };
 
             const syncEditableFields = (fields, savedForm = null) => {
@@ -5759,6 +5850,13 @@
                             return;
                         }
                         const normalizedValue = value ?? '';
+                        const contactSave = pendingContactSaves.get(form);
+                        if (contactSave?.submittedValues.has(field) && field.value !== contactSave.submittedValues.get(field)) {
+                            const draftValue = field.value;
+                            field.defaultValue = String(normalizedValue);
+                            field.value = draftValue;
+                            return;
+                        }
 
                         if (field.type === 'checkbox' || field.type === 'radio') {
                             field.checked = String(field.value) === String(normalizedValue);
@@ -5929,6 +6027,7 @@
                 currentLatestEventId = Number(state.latest_event_id || 0);
                 currentShipmentsSignature = state.shipments_signature || '';
                 currentBuyerCommentsSignature = state.buyer_comments_signature || '';
+                currentVonHalskyStatusSignature = state.von_halsky_status_signature || '';
             };
 
             const fetchOrderState = async (fragments = [], syncFields = false, savedForm = null, automationPage = null) => {
@@ -5953,6 +6052,9 @@
                 }
                 if (currentBuyerCommentsSignature !== null) {
                     url.searchParams.set('buyer_comments_signature', currentBuyerCommentsSignature);
+                }
+                if (currentVonHalskyStatusSignature !== null) {
+                    url.searchParams.set('von_halsky_status_signature', currentVonHalskyStatusSignature);
                 }
                 const response = await fetch(url.toString(), {
                     headers: {
@@ -6155,6 +6257,10 @@
 
                 event.preventDefault();
 
+                if (pendingContactSaves.has(form)) {
+                    return;
+                }
+
                 if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
                     return;
                 }
@@ -6169,6 +6275,20 @@
                         return;
                     }
                     paidInput.value = value.toFixed(2);
+                }
+
+                let contactSave = null;
+                if (form.querySelector(contactFieldSelector)) {
+                    contactSave = {
+                        submittedValues: new Map(Array.from(form.querySelectorAll(contactFieldSelector), (field) => [field, field.value])),
+                    };
+                    contactSave.promise = new Promise((resolve, reject) => {
+                        contactSave.resolve = resolve;
+                        contactSave.reject = reject;
+                    });
+                    // Keep failures observable by Send without an unhandled rejection when nobody is waiting.
+                    contactSave.promise.catch(() => {});
+                    pendingContactSaves.set(form, contactSave);
                 }
 
                 clearAjaxErrors(form);
@@ -6200,7 +6320,7 @@
                     }
 
                     const inlineSection = form.closest('.inline-section');
-                    if (inlineSection) {
+                    if (inlineSection && (!contactSave || !hasUnsavedMessageContact(form))) {
                         closeSection(inlineSection);
                     }
 
@@ -6224,13 +6344,18 @@
                     if (form.matches('[data-catalog-products-form]')) {
                         window.bootstrap?.Modal.getOrCreateInstance(catalogProductModal)?.hide();
                     }
+                    contactSave?.resolve();
                 } catch (error) {
+                    contactSave?.reject(new Error(error.message || 'Nie udało się zapisać danych kontaktowych klienta.'));
                     if (form.matches('[data-catalog-products-form]') && catalogFormError) {
                         catalogFormError.textContent = error.message || 'Nie udało się dodać produktów.';
                         catalogFormError.hidden = false;
                     }
                     alert(error.message || 'Nie udało się zapisać zmian.');
                 } finally {
+                    if (contactSave) {
+                        pendingContactSaves.delete(form);
+                    }
                     stopAjaxLoading();
                     buttons.forEach((button) => { button.disabled = false; });
                 }
@@ -6392,6 +6517,18 @@
                 const defaultEmailAccount = emailAccount?.value || '';
                 let emailFormDirty = false;
                 let emailSourceMode = false;
+                let emailSending = false;
+                let hasSmsMessages = Boolean(emailExchange.querySelector('[data-sms-id]'));
+
+                const syncMessageEmptyState = () => {
+                    const hasMessages = Boolean(emailMessages?.querySelector('[data-email-message-id]')) || hasSmsMessages;
+                    emailEmpty?.classList.toggle('d-none', hasMessages);
+                };
+                emailExchange.addEventListener('nexoms:sms-history-updated', event => {
+                    if (typeof event.detail?.hasMessages === 'boolean') hasSmsMessages = event.detail.hasMessages;
+                    syncMessageEmptyState();
+                });
+                syncMessageEmptyState();
 
                 const newEmailIdempotencyKey = () => {
                     if (typeof crypto.randomUUID === 'function') {
@@ -6653,7 +6790,7 @@
                         emailMessages.prepend(replacement);
                     }
 
-                    emailEmpty?.classList.add('d-none');
+                    syncMessageEmptyState();
                 };
 
                 const pollEmailMessage = async (statusUrl, messageId, attempt = 0) => {
@@ -6688,21 +6825,30 @@
 
                 emailForm?.addEventListener('submit', async (event) => {
                     event.preventDefault();
-                    setEmailError();
-                    ensureEmailIdempotencyKey();
-                    emailBodyInput.value = currentEmailBody();
+                    if (emailSending || emailSubmit.disabled) {
+                        return;
+                    }
+                    emailSending = true;
                     emailSubmit.disabled = true;
+                    setEmailError();
                     const previousLabel = emailSubmit.textContent;
                     emailSubmit.textContent = 'Wysyłanie...';
 
                     try {
+                        ensureEmailIdempotencyKey();
+                        emailBodyInput.value = currentEmailBody();
+                        const formData = new FormData(emailForm);
+                        const recipient = await emailExchange.resolveMessageRecipient('email');
+                        emailExchange.assertMessageContactSaved();
+                        formData.set('recipient_token', recipient.recipient_token);
+
                         const response = await fetch(emailForm.action, {
                             method: 'POST',
                             headers: {
                                 Accept: 'application/json',
                                 'X-Requested-With': 'XMLHttpRequest',
                             },
-                            body: new FormData(emailForm),
+                            body: formData,
                         });
                         const payload = await response.json().catch(() => ({}));
 
@@ -6723,6 +6869,7 @@
                     } catch (error) {
                         setEmailError(error.message || 'Nie udało się wysłać wiadomości.');
                     } finally {
+                        emailSending = false;
                         emailSubmit.disabled = false;
                         emailSubmit.textContent = previousLabel;
                     }

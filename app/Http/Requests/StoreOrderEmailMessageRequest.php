@@ -39,6 +39,7 @@ class StoreOrderEmailMessageRequest extends FormRequest
             'content_rendered' => ['sometimes', 'boolean'],
             'sending_option' => ['required', Rule::in(['page_and_email'])],
             'idempotency_key' => ['required', 'uuid'],
+            'recipient_token' => ['sometimes', 'required', 'string', 'regex:/\A[a-f0-9]{64}\z/D'],
         ];
     }
 

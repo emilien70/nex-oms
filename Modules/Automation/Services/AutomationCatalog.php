@@ -40,11 +40,15 @@ class AutomationCatalog
 
     public const ACTION_PRINT = 'print_document';
 
+    public const ACTION_MODIFY_ORDER = 'modify_order';
+
     public const PRINT_DOCUMENT_INVOICE = 'invoice';
 
     public const PRINT_DOCUMENT_LATEST_SHIPMENT_LABEL = 'latest_shipment_label';
 
     public const PRINT_DOCUMENT_ALL_SHIPMENT_LABELS = 'all_shipment_labels';
+
+    private ?array $orderSourceOptions = null;
 
     public function __construct(
         private readonly InPostCourierServiceResolver $inPostCourierServices,
@@ -57,6 +61,8 @@ class AutomationCatalog
     {
         return [
             'order.status_changed' => 'Ustawiono status',
+            'order.created' => 'Utworzono zamówienie',
+            'order.data_completed' => 'Pobrano kompletne dane zamówienia',
             'payment.registered' => $this->decode('Zarejestrowano p&#322;atno&#347;&#263;'),
             'invoice.issued' => 'Wystawiono Fakturę VAT',
             'shipment.created' => $this->decode('Utworzono przesy&#322;k&#281;'),
@@ -69,6 +75,12 @@ class AutomationCatalog
     public function conditionDefinitions(): array
     {
         return [
+            'integration_source' => [
+                'label' => 'Źródła zamówienia',
+                'type' => 'multiselect',
+                'operators' => ['in'],
+                'options' => $this->orderSourceOptions ??= app(AutomationOrderSources::class)->options(),
+            ],
             'order_status' => [
                 'label' => $this->decode('Status zam&oacute;wienia'),
                 'type' => 'select',
@@ -83,6 +95,7 @@ class AutomationCatalog
                     'manual' => $this->decode('R&#281;czne'),
                     'allegro' => 'Allegro',
                     'prestashop' => 'PrestaShop',
+                    'von_halsky' => 'InPost Von Halsky',
                 ],
             ],
             'billing_tax_id' => [
@@ -154,6 +167,7 @@ class AutomationCatalog
     public function operators(): array
     {
         return [
+            'in' => 'Dowolne z wybranych',
             'equals' => $this->decode('R&oacute;wne'),
             'not_equals' => $this->decode('R&oacute;&#380;ne'),
             'contains' => $this->decode('Zawiera fraz&#281;'),
@@ -166,6 +180,7 @@ class AutomationCatalog
     {
         return [
             self::ACTION_CHANGE_STATUS => $this->decode('Zmie&#324; status'),
+            self::ACTION_MODIFY_ORDER => 'Zmodyfikuj zamówienie',
             self::ACTION_CREATE_SHIPMENT => $this->decode('Utw&oacute;rz przesy&#322;k&#281;'),
             self::ACTION_DELAY => 'Poczekaj przez',
             self::ACTION_CALL_URL => $this->decode('Wywo&#322;aj URL'),
@@ -193,6 +208,15 @@ class AutomationCatalog
         $operator = $this->operators()[$condition['operator'] ?? ''] ?? ($condition['operator'] ?? '');
         $value = $condition['value'] ?? '';
 
+        if (is_array($value)) {
+            $value = implode(', ', array_map(
+                fn ($item): string => (string) ($definition['options'][(string) $item] ?? $item),
+                $value,
+            ));
+
+            return ($definition['label'] ?? $condition['field']).': '.$value;
+        }
+
         if ($definition && isset($definition['options'][(string) $value])) {
             $value = $definition['options'][(string) $value];
         }
@@ -203,6 +227,8 @@ class AutomationCatalog
     public function actionSummary(string $type, array $configuration): string
     {
         return match ($type) {
+            self::ACTION_MODIFY_ORDER => $this->actionLabel($type).': '
+                .($this->orderFields()[$configuration['field'] ?? '']['label'] ?? 'Pole niedostępne'),
             self::ACTION_CHANGE_STATUS => $this->actionLabel($type).': '
                 .(OrderStatusSetting::labelFor((string) ($configuration['status'] ?? '')) ?? ($configuration['status'] ?? '...')),
             self::ACTION_CREATE_SHIPMENT => $this->shipmentActionSummary($type, $configuration),
@@ -222,6 +248,11 @@ class AutomationCatalog
     {
         return Schema::hasTable('sms_templates')
             ? SmsTemplate::query()->orderBy('name')->pluck('name', 'id')->all() : [];
+    }
+
+    public function orderFields(): array
+    {
+        return app(AutomationOrderFields::class)->definitions();
     }
 
     public function emailTemplates(): array

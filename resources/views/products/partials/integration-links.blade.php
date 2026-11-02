@@ -53,6 +53,21 @@
         </div>
     @endforeach
 
+    @foreach ($product->vonHalskyProductLinks->filter(fn ($link) => $link->belongsToCurrentIdentity())->sortBy('external_offer_id')->groupBy('von_halsky_account_id') as $links)
+        @php($account = $links->first()->account)
+        <button class="product-integration-link" type="button" data-integration-list data-integration-type="von-halsky"
+            data-account-id="{{ $account->id }}" data-connection-revision="{{ $account->connection_revision }}"
+            data-account-label="{{ $account->name }} (InPost Von Halsky)" title="Pokaż powiązania: {{ $account->name }} (InPost Von Halsky) - {{ $links->count() }}">
+            <i class="bi bi-shop" aria-hidden="true"></i><span>{{ $account->name }}</span>
+            <span class="product-integration-count" aria-label="Liczba powiązań: {{ $links->count() }}">{{ $links->count() }}</span>
+        </button>
+        <div data-integration-group data-integration-type="von-halsky" data-account-id="{{ $account->id }}" hidden>
+            @foreach ($links as $link)
+                <span data-integration-link-record data-link-id="{{ $link->id }}" data-external-product-id="{{ $link->external_offer_id }}"></span>
+            @endforeach
+        </div>
+    @endforeach
+
     <button
         class="product-integration-add"
         type="button"

@@ -35,12 +35,15 @@ class OrderEmailExchange extends Component
             ->limit(25)
             ->get();
 
+        $smsDevice = SmsDevice::configured();
+
         return view('components.order-email-exchange', [
             'emailAccounts' => $emailAccounts,
             'emailTemplates' => $emailTemplates,
             'emailMessages' => $emailMessages,
             'smsReady' => Schema::hasTable('sms_templates'),
-            'smsEnabled' => SmsDevice::configured()?->enabled ?? false,
+            'smsEnabled' => $smsDevice?->enabled ?? false,
+            'smsSenderPhone' => $smsDevice?->sender_phone,
             'smsTemplates' => Schema::hasTable('sms_templates')
                 ? SmsTemplate::query()->orderBy('name')->get() : collect(),
             'smsMessages' => Schema::hasTable('order_sms_messages')

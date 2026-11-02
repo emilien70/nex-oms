@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Modules\Integrations\Allegro\Models\AllegroProductLink;
 use Modules\Integrations\Prestashop\Models\PrestashopProductLink;
+use Modules\Integrations\VonHalsky\Models\VonHalskyProductLink;
 use Modules\Invoices\Models\InvoiceItem;
 
 class Product extends Model
@@ -79,6 +80,11 @@ class Product extends Model
     public function bundleComponents(): HasMany
     {
         return $this->hasMany(ProductBundleComponent::class, 'bundle_id');
+    }
+
+    public function vonHalskyProductLinks(): HasMany
+    {
+        return $this->hasMany(VonHalskyProductLink::class);
     }
 
     public function containingBundles(): HasMany

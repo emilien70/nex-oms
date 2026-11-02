@@ -93,7 +93,7 @@
 
         @include('components.order-sms-compose')
 
-        <div class="order-email-empty {{ $emailMessages->isNotEmpty() ? 'd-none' : '' }}" data-email-empty>Brak wiadomości wysłanych do klienta.</div>
+        <div class="order-email-empty {{ $emailMessages->isNotEmpty() || $smsMessages->isNotEmpty() ? 'd-none' : '' }}" data-email-empty>Brak wiadomości wysłanych do klienta.</div>
 
         <div class="order-email-messages" data-email-messages>
             @foreach ($emailMessages as $message)

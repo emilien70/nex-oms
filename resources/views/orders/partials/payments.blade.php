@@ -103,7 +103,20 @@
     </div>
 @endforeach
 
-@if ($order->payNowPayments->isEmpty() && $prestashopPayments->isEmpty() && $allegroPayments->isEmpty() && ! $order->prestashopOrderLinks->contains(fn ($link) => $link->status_paid_at !== null))
+@if ($halskyPayment = $order->vonHalskyOrderLink)
+    <div class="nex-timeline-item">
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+            <div><div class="small text-secondary">{{ $halskyPayment->channel_paid_at?->format('Y-m-d H:i') }}</div><div class="fw-semibold">Opłacenie potwierdzone przez Von Halsky</div></div>
+            <div class="fw-semibold">{{ str_replace('.', ',', $halskyPayment->channel_paid_amount) }} {{ $order->currency }}</div>
+        </div>
+        @foreach ($halskyPayment->payment_evidence as $evidence)
+            <div class="small text-secondary mt-1" style="overflow-wrap: anywhere">ID płatności: {{ $evidence['paymentId'] ?? '—' }}</div>
+            <div class="small text-secondary">{{ $evidence['paymentType'] ?? '' }}</div>
+        @endforeach
+        <div class="small text-secondary mt-1">Kwota zamówienia uznana za opłaconą według API. Dostawca nie przekazuje odrębnej kwoty transakcji.</div>
+    </div>
+@endif
+@if ($order->payNowPayments->isEmpty() && $prestashopPayments->isEmpty() && $allegroPayments->isEmpty() && ! $order->vonHalskyOrderLink && ! $order->prestashopOrderLinks->contains(fn ($link) => $link->status_paid_at !== null))
     <div class="text-secondary">Brak zarejestrowanych płatności.</div>
 @endif
 

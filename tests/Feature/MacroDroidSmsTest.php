@@ -122,7 +122,9 @@ class MacroDroidSmsTest extends TestCase
         $this->api('acknowledge', $payload + ['outcome' => 'submitted'])->assertOk();
         $this->assertEquals($completed, $message->fresh()->completed_at);
         $this->get(route('orders.sms.history', $message->order_id))->assertOk()->assertJsonFragment(['pending' => false]);
-        $this->assertStringContainsString('nie jest potwierdzenie doreczenia', view('components.order-sms-history', ['messages' => collect([$message->fresh()]), 'order' => $message->order])->render());
+        $html = view('components.order-sms-history', ['messages' => collect([$message->fresh()]), 'order' => $message->order])->render();
+        $this->assertStringContainsString('>Wysłane</span>', $html);
+        $this->assertStringContainsString('title="Telefon zgłosił wykonanie akcji SMS. To nie jest potwierdzenie doręczenia."', $html);
     }
 
     public function test_wrong_device_token_and_wrong_claim_are_rejected(): void

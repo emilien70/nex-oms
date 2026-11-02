@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Contracts\OrderEmailTransport;
+use App\Events\OrderCreated;
+use App\Events\OrderDataCompleted;
 use App\Events\OrderPaymentRegistered;
 use App\Events\OrderStatusChanged;
 use App\Models\Order;
@@ -27,6 +29,7 @@ use Modules\Integrations\InPost\Drivers\InPostCourierDriver;
 use Modules\Integrations\InPost\Drivers\InPostLockerDriver;
 use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
 use Modules\Integrations\Prestashop\Listeners\DispatchPrestashopStatusSync;
+use Modules\Integrations\VonHalsky\Listeners\DispatchVonHalskyOrderCommand;
 use Modules\Invoices\Events\CorrectionFinalized;
 use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Ksef\Events\KsefInvoiceAccepted;
@@ -124,8 +127,11 @@ class AppServiceProvider extends ServiceProvider
         ShipmentParcel::observe(AllegroShipmentTrackingObserver::class);
         Event::listen(OrderPaymentRegistered::class, DispatchAutomationEvent::class);
         Event::listen(OrderStatusChanged::class, DispatchAutomationEvent::class);
+        Event::listen(OrderCreated::class, DispatchAutomationEvent::class);
+        Event::listen(OrderDataCompleted::class, DispatchAutomationEvent::class);
         Event::listen(OrderStatusChanged::class, DispatchPrestashopStatusSync::class);
         Event::listen(OrderStatusChanged::class, DispatchAllegroStatusSync::class);
+        Event::listen(OrderStatusChanged::class, DispatchVonHalskyOrderCommand::class);
         Event::listen(OrderStatusChanged::class, DispatchAllegroShipmentExports::class);
         Event::listen(OrderStatusChanged::class, DispatchAllegroInvoiceExports::class);
         Event::listen(InvoiceIssued::class, DispatchAutomationEvent::class);

@@ -8,6 +8,8 @@ use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Modules\Automation\Jobs\EvaluateAutomationEventJob;
+use Modules\Automation\Models\AutomationRule;
 use Modules\Integrations\Prestashop\Enums\PrestashopCatalogVatMode;
 use Modules\Integrations\Prestashop\Enums\PrestashopConnectionTestStatus;
 use Modules\Integrations\Prestashop\Jobs\FetchPrestashopOrderMessagesJob;
@@ -20,6 +22,26 @@ use Tests\TestCase;
 class PrestashopOrderImportTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_completed_data_event_includes_full_unpaid_order_and_is_not_repeated_by_reimport(): void
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        AutomationRule::query()->create(['name' => 'Komplet', 'trigger' => 'order.data_completed', 'is_active' => true]);
+        $account = $this->account();
+        $this->fakePrestashop(orderOverrides: ['total_paid_real' => '0.000000'], withoutPayments: true);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])->assertSessionHasNoErrors();
+        Queue::assertPushed(EvaluateAutomationEventJob::class, 1);
+        Queue::assertPushed(EvaluateAutomationEventJob::class, function ($job) use ($account): bool {
+            $order = Order::findOrFail($job->eventPayload['order_id']);
+
+            return $job->eventName === 'order.data_completed' && $order->payment_status === 'unpaid'
+                && $order->items()->count() === 1 && $order->shipping_street === 'Długa 12/4'
+                && $job->eventPayload['order_source'] === ['channel' => 'prestashop', 'account_id' => $account->id];
+        });
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])->assertSessionHasNoErrors();
+        Queue::assertPushed(EvaluateAutomationEventJob::class, 1);
+    }
 
     public function test_preview_reads_order_without_writing_to_oms(): void
     {

@@ -1,13 +1,14 @@
 @php
     $complete = $order->purchaseIsComplete();
     $link = $order->allegroOrderLink;
-    $cancelled = $link?->import_state === 'cancelled' || $link?->external_status === 'CANCELLED';
+    $halskyStatus = $order->source === 'von_halsky' ? $order->vonHalskyOrderLink?->externalOrderStatus() : null;
+    $cancelled = $link?->import_state === 'cancelled' || $link?->external_status === 'CANCELLED' || $halskyStatus?->isNegative();
     $paymentColor = $order->cash_on_delivery ? 'cod' : ($order->payment_status === 'paid' ? 'confirmed' : 'inactive');
     if (\Brick\Math\BigDecimal::of((string) $order->paid_amount)->isGreaterThan(0) && $order->payment_status !== 'paid' && ! $order->cash_on_delivery) {
         $paymentColor = 'attention';
     }
     $readinessTitle = $cancelled
-        ? trim('Zamówienie anulowane w Allegro. '.($link?->processing_error ?? ''))
+        ? ($halskyStatus?->isNegative() ? $halskyStatus->warning() : trim('Zamówienie anulowane w Allegro. '.($link?->processing_error ?? '')))
         : ($complete ? 'Kompletne dane zamówienia' : ($link?->processing_error ?: 'Zakup niepełny. Oczekujemy na dokończenie w Allegro.'));
 @endphp
 <div class="order-indicators" aria-label="Informacje o zamówieniu">
@@ -17,7 +18,7 @@
     @if ($order->issued_invoice_exists)
         <span class="order-indicator invoice" title="Wystawiono fakturę VAT" aria-label="Wystawiono fakturę VAT"><i class="bi bi-file-earmark-fill" aria-hidden="true"></i><span class="invoice-lines" aria-hidden="true"></span><span class="invoice-currency" aria-hidden="true">$</span></span>
     @endif
-    @if (filled($link?->buyer_message) || $order->prestashop_buyer_messages_exists)
+    @if (filled($link?->buyer_message) || $order->prestashop_buyer_messages_exists || filled($order->vonHalskyOrderLink?->buyer_message))
         <span class="order-indicator inactive" title="Komentarz kupującego do zamówienia" aria-label="Komentarz kupującego"><i class="bi bi-envelope" aria-hidden="true"></i></span>
     @endif
     @if (filled($order->notes))

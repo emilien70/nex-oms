@@ -35,7 +35,7 @@ class AllegroProductLinkController extends Controller
 
     private function response(Product $product, string $message, ?AllegroProductLink $link = null): JsonResponse
     {
-        $product->load(['prestashopProductLinks.account', 'allegroProductLinks.account']);
+        $product->load(['prestashopProductLinks.account', 'allegroProductLinks.account', 'vonHalskyProductLinks.account']);
 
         return response()->json([
             'message' => $message,

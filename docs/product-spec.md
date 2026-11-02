@@ -24,7 +24,206 @@ Uzupełnienie operacyjne 2026-10-24: bieżący staging OVHcloud/Ubuntu, jeden cr
 
 ---
 
+# HALSKY.1 - polaczenie i podglad Von Halsky
+
+InPost Von Halsky posiada osobna konfiguracje w Integracjach: Polaczenie
+i Zamowienia. Etap pozwala zapisac dane wlasnej aplikacji sprzedawcy,
+sprawdzic odczyt zamowien organizacji i recznie obejrzec zamowienie po ID.
+Domyslne srodowisko to Stage; polaczenie jest nieaktywne do poprawnego testu.
+Client Secret i token sa szyfrowane. Puste pole sekretu zachowuje poprzednia
+wartosc, a zmiana danych polaczenia wymaga ponownego testu.
+
+Podglad nie tworzy zamowienia w OMS, nie ksieguje wplat i nie akceptuje
+zakupu. Brak danych kupujacego przed oplaceniem jest poprawnym stanem.
+Nie zmienia sie aktywnej integracji Base ani PrestaShop. Przed rzeczywistym
+polaczeniem produkcyjnym trzeba uzgodnic z InPost rownolegly dostep OMS.
+Import, harmonogram, mapowanie produktow/VAT, przesylki, zwroty i eksport
+dokumentow wymagaja kolejnych etapow. Szczegoly i ograniczenia kontraktu API:
+[raport HALSKY.1](halsky-1-report.md).
+
+# HALSKY.2A - reczny import zamowienia
+
+Podglad pozwala recznie zaimportowac kompletne, zaakceptowane i oplacone
+zamowienie do zwyklego widoku OMS. Ponowny import otwiera istniejace
+zamowienie bez aktualizacji jego danych. Usuniecie lub Kosz nie pozwalaja
+na odtworzenie zakupu przez ponowny import. Tozsamosc obejmuje organizacje,
+srodowisko oraz zewnetrzny numer zamowienia.
+
+Obecne API nie podaje ilosci pozycji. Wlasciciel dopuscil reczne wpisanie
+i potwierdzenie ilosci przed kazdym takim importem; nie ma domyslnej 1.
+Niezgodnosc sumy pozycji i dostawy z wartoscia kanalu blokuje zapis.
+Status poczatkowy pochodzi ze slownika OMS, domyslny VAT jest opcjonalny.
+Brak stawki nie jest traktowany jako 0 ani automatycznie jako 23%.
+Oplacenie pochodzi z deklaracji API; historia nie udaje odrebnej kwoty
+transakcji, ktorej dostawca nie przekazuje.
+
+Import tego etapu nie uruchamia automatycznych akcji, SMS ani faktur.
+Pozniejsze swiadome zmiany w zamowieniu moga uruchamiac zwykle reguly OMS.
+Nie ma automatycznego pobierania ani zapisow do marketplace.
+Szczegoly: [raport HALSKY.2A](halsky-2a-report.md).
+
+# HALSKY.2B - powiazania ofert z katalogiem OMS
+
+Von Halsky korzysta z tego samego okna powiazan produktow i zestawow co
+Allegro oraz PrestaShop. Reczne powiazanie obejmuje konto, organizacje,
+srodowisko i ID oferty. Jedna oferta wskazuje jedna pozycje OMS; produkt
+lub zestaw moze miec wiele ofert. Nie dopasowuje sie nazw, SKU ani EAN.
+
+Trzy ustawienia (powiazane produkty, nazwy OMS, VAT OMS) sa domyslnie
+wylaczone. Nazwa i VAT sa stosowane tylko dla jawnie powiazanej pozycji.
+Ceny, rabaty, koszt dostawy oraz potwierdzone oplacenie pozostaja ze zrodla.
+VAT korzysta ze wspolnej reguly: poprawny katalog przy wlaczonej opcji,
+poprawny kanal, domyslna stawka tylko przy braku stawki. Jawne 0 pozostaje 0.
+Niepoprawny lub szczegolny VAT kanalu nie jest maskowany stawka domyslna.
+Obecny kontrakt Von Halsky nie dostarcza VAT; nie pobiera sie katalogu ofert.
+
+Zestaw pozostaje jedna pozycja zamowienia z zamrozonym skladem i waga.
+Brak mapowania nie blokuje poprawnego importu; wadliwy powiazany zestaw tak.
+Zmiana powiazania, nazwy, VAT, wagi lub skladu miedzy podgladem i zapisem
+wymaga nowego potwierdzenia. Historyczne zamowienia nie sa przebudowywane,
+w tym lokalne 343. Nadal obowiazuje potwierdzanie brakujacych ilosci i import
+bez automatycznych akcji. Szczegoly: [HALSKY.2B](halsky-2b-report.md).
+
+# HALSKY.2C - wykrywanie zakupow i historia pobierania
+
+Zakladka Zamowienia pozwala ustawic automatyczne pobieranie (domyslnie Nie),
+interwal 1 lub 10 minut i jawna date rozpoczecia. Sprawdz teraz zleca ten sam
+odczyt w kolejce bez wlaczania harmonogramu. Pobieranie nie akceptuje zakupu
+w marketplace i nie wlacza automatycznych akcji OMS.
+
+OMS odczytuje zmienione zamowienia z paginacja i zakladka czasu; raz dziennie
+ponownie sprawdza zakres od wybranej daty. Wykryte zakupy trafiaja do trwalej
+historii przed przesunieciem punktu ostatniego odczytu. Jeden zakup ma jeden
+aktualizowany wiersz. Historia pokazuje 10 ostatnich zamowien bez kolejnych
+stron; osobna lista Wymagaja uwagi jest stronicowana po 20, aby nie ukrywac
+starszych problemow i nie ladowac calej historii do strony.
+
+Kompletne, zaakceptowane i oplacone zakupy z jednoznaczna iloscia z API
+moga byc importowane automatycznie przez ten sam serwis i reguly katalogu.
+Brak ilosci wymaga recznego podgladu i potwierdzenia; nie przyjmuje sie 1
+ani nie wylicza ilosci z kwoty. Obecna specyfikacja 1.7.6 nie definiuje
+quantity w OrderLineItem, wiec pelny import moze nadal wymagac tej czynnosci.
+Przyszle jawne ilosci sa walidowane tak samo jak w recznym imporcie.
+
+Istniejace zamowienia, ich pozycje, platnosci i dokumenty nie sa nadpisywane.
+Kosz i tombstone blokuja odtworzenie. Status platformy w historii nie zmienia
+automatycznie statusu OMS. Ustawienia polaczenia i pobierania uniewazniaja
+stare zadania kolejki; bledy chwilowe maja odstep przed ponowieniem.
+Nie ma wysylki statusow, faktur, SMS ani potwierdzania zakupu w Von Halsky.
+Szczegoly: [HALSKY.2C](halsky-2c-report.md).
+
+# HALSKY.2D - standardowe automatyczne akcje OMS
+
+Von Halsky korzysta z tego samego mechanizmu automatycznych akcji co Allegro
+i PrestaShop. Nie ma osobnego przelacznika integracji. Nowy poprawny import,
+reczny lub automatyczny, przekazuje Utworzono zamowienie i Pobrano kompletne
+dane zamowienia po zatwierdzeniu calego zapisu. W obecnym modelu oba zdarzenia
+dotycza tego samego pierwszego importu kompletnego, oplaconego zakupu.
+Samo wykrycie zakupu lub brak potwierdzonych ilosci nie uruchamia zdarzen.
+
+Zrodla automatyzacji obejmuja kanal Von Halsky i konkretne konto po ID;
+mozna laczyc je z innymi zrodlami. Wszystkie zrodla i reguly bez warunku
+zrodla obejmuja rowniez Von Halsky. Wykonuja sie tylko aktywne, pasujace
+reguly, z istniejacymi ograniczeniami poszczegolnych akcji. Nie tworzy sie
+nowych regul ani nie uruchamia ich dla dawnych importow, w tym OMS 343.
+Ponowny odczyt/import nie powtarza zdarzen pierwszego utworzenia.
+
+Zniesiono historyczne pomijanie automatyzacji z HALSKY.2A/2B/2C oraz checkbox
+Importuje bez automatycznych akcji. Potwierdzenie ilosci pozostaje. Starszy
+otwarty podglad wymaga odswiezenia przed importem wedlug nowego zachowania.
+Historyczne oznaczenia pominiecia akcji pozostaja niezmienne. Nie dodano
+opcji, migracji, tabeli ani osobnej polityki anulowania poprawnych zdarzen.
+Wysylka zmian do Von Halsky nadal jest poza zakresem. Akcje lokalne, w tym
+SMS, e-mail i dokumenty, wynikaja ze zwyklych regul OMS.
+Szczegoly: [HALSKY.2D](halsky-2d-report.md).
+
+# HALSKY.3A - informacyjny status po imporcie
+
+Istniejace pobieranie sprawdza rowniez aktualny status znanych zamowien,
+w tym dawnych importow recznych sprzed daty rozpoczecia nowych importow.
+Obowiazuje wspolny interwal konta 1 lub 10 minut i Sprawdz teraz. Nie ma
+osobnego przelacznika, crona ani kolejki. Bez daty nowych importow reczne
+Sprawdz teraz moze sprawdzic tylko juz powiazane zamowienia.
+
+Na karcie jest status Von Halsky w Informacjach dodatkowych. CANCELED
+oznacza anulowanie przez kupujacego, REFUSED odrzucenie przez sprzedawce,
+a REJECTED odrzucenie przez platforme. Kazdy z nich daje komunikat na
+karcie oraz czerwone !! zamiast T na liscie, z odpowiednia podpowiedzia.
+UNKNOWN i przyszly nieznany kod wymagaja sprawdzenia, ale nie udaja
+anulowania. Kazda rzeczywista zmiana statusu ma jeden wpis historii.
+Historia pobierania nadal ma jeden aktualizowany wiersz na zakup.
+
+Jest to tylko informacja z marketplace. Status OMS, wplaty, dokumenty,
+pozycje, adresy, uwagi i przesylki pozostaja bez zmian; nie ma nowych
+zdarzen automatyzacji ani ponownego zdarzenia importu. Blad odczytu
+zachowuje poprzedni status i pokazuje bezpieczny komunikat. Nie wysyla sie
+zmian do Von Halsky. Szczegoly: [HALSKY.3A](halsky-3a-report.md).
+
+# HALSKY.3B - przekazywanie decyzji z OMS
+
+Zakladka Statusy zamowien ma Powiazanie statusow Tak/Nie (domyslnie Nie)
+i liste aktualnych statusow OMS, takze wlasnych i poczatkowego. Kazdy ma
+Nie przekazuj (domyslnie), Zaakceptowano lub Anulowane. Zapis mapowania
+nie wysyla zaleglych decyzji. Dopiero przyszla zmiana statusu reczna,
+zbiorcza lub z automatycznej akcji moze zlecic operacje w kolejce.
+
+Zaakceptowano to dodatkowe potwierdzenie sprzedawcy/integratora. Sam status
+platformy ACCEPTED nie jest dowodem, ze OMS wyslal takie potwierdzenie.
+Import kompletnych, oplaconych zakupow nie zmienia sie i niczego sam nie
+potwierdza. Wynik zlecenia jest oddzielny od statusu platformy HALSKY.3A.
+
+Anulowane oznacza odmowe sprzedawcy przez refuse, nie refundacje. Wytyczne
+InPost nie pozwalaja anulowac oplaconego i automatycznie zaakceptowanego
+zakupu. Operacja jest blokowana przy wplacie API/OMS, historycznym
+oplaceniu lub stanie innym niz CREATED. Tylko zgodny, nieoplacony CREATED
+moze uzyc refuse. Obecny importer przyjmuje tylko oplacone ACCEPTED, wiec
+ta opcja nie anuluje obecnie importowanych zakupow; ich obsluga finansowa
+wymaga osobnego etapu i wyjasnienia z dostawca. Nie ma automatycznego zwrotu.
+
+OMS zapisuje zlecenie, jego wynik i historie, sprawdza asynchroniczny wynik
+po commandId. HTTP 202 samo nie oznacza sukcesu. Sukces, trwajace lub
+niepewne zlecenie blokuja drugi POST tego samego zakupu. Przy utracie
+odpowiedzi nie ponawia sie zapisu w ciemno. Wylaczenie mapowania zatrzymuje
+nowe operacje, ale nie gubi odczytu wynikow juz wyslanych zlecen.
+Nie ma zmian kwot, dokumentow, przesylek ani automatycznego cofania statusu
+OMS po bledzie. Szczegoly i ograniczenia: [HALSKY.3B](halsky-3b-report.md).
+
+# Automatyzacje - kompletne dane i modyfikacja zamowienia
+
+Zdarzenie `Pobrano kompletne dane zamowienia` obsluguje jednoczesnie wybrane
+konta Allegro, sklepy PrestaShop i Von Halsky. Allegro uruchamia je po poprawnym zapisie
+`READY_FOR_PROCESSING`, takze gdy zakup byl wczesniej niepelny. `FILLED_IN`,
+anulowanie i stan wymagajacy sprawdzenia nie wystarczaja. PrestaShop uruchamia
+zdarzenie po pierwszym pelnym imporcie; oplacenie nie jest wymagane. Pobranie
+lub ponowna synchronizacja juz kompletnego zamowienia nie powtarza zdarzenia.
+
+Osobne `Utworzono zamowienie` dotyczy pierwszego zapisu recznego i importu,
+rowniez niepelnego zakupu Allegro. Puste zamowienie reczne nie ma jeszcze
+danych klienta. Dla Allegro zalecanym zdarzeniem do dalszej obslugi pozostaje
+`Pobrano kompletne dane zamowienia`; istniejace blokady gotowosci pozostaja.
+
+Zrodla wybiera sie wielokrotnie (OR), pozostale warunki sa laczone AND.
+Lista zawiera aktualne konta, kanaly, Reczne i Wszystkie zrodla. Reguly
+przechowuja identyfikatory kont, nie ich nazwy. Stare warunki pozostaja zgodne.
+
+Akcja `Zmodyfikuj zamowienie` zmienia jedno wybrane pole: kontakt, dane
+adresowe, dane do faktury/NIP lub uwagi sprzedawcy. Obsluguje zmienne OMS,
+zastepowanie wartosci i jawne wyczyszczenie dozwolonego pola. Kwoty, wplaty,
+status, tozsamosc zrodla i dokumenty nie sa dostepne w tej akcji. Kolejny krok
+korzysta z nowych danych. Wystawione dokumenty pozostaja niezmienne; link
+portalu pozostaje staly, a poprzednia weryfikacja klienta jest uniewazniana.
+Nie ma migracji, backfillu ani uruchomienia regul dla dawnych importow.
+Szczegoly: [raport wdrozenia](automation-order-data-report.md).
+
 # SMS.1 - bramka i szablony SMS
+
+Uzupelnienie 2026-10-30: reczna wysylka do klienta odczytuje aktualnie zapisany
+kontakt dopiero po Wyślij. Formularz czeka na trwajacy zapis kontaktu i blokuje
+niezapisana edycje. Serwer ponownie sprawdza potwierdzonego odbiorce przed
+utworzeniem zlecenia. Odbiorca zakolejkowanej wiadomosci nie jest podmieniany;
+zmiana kontaktu klienta przed przekazaniem do telefonu/SMTP zatrzymuje wysylke.
+Jawni dodatkowi odbiorcy automatyzacji pozostaja stali. Szczegoly i ograniczenia:
+[raport odbiorcow wiadomosci](message-recipient-report.md).
 
 Integracja MacroDroid umozliwia reczne przygotowanie SMS z zamowienia i akcje
 automatyczna Wyslij SMS. W Szablony E-mail/SMS pod dotychczasowa lista e-mail
@@ -2705,6 +2904,8 @@ Na liscie stale widoczne sa T, $ oraz samochod: T jest zielone dla kompletnego A
 Etap nie wysyla statusow, numerow przesylek ani Faktur do Allegro, nie zmniejsza stanow i nie uruchamia akcji automatycznych wskutek samego importu. Przerwa przekraczajaca bezpieczny okres dziennika jest sygnalizowana bez samoczynnego resetu. Wymagany User-Agent pozostaje wspolny dla kazdego zadania i ponowienia.
 
 Historia pobierania pokazuje maksymalnie 10 unikalnych zamowien aktualnego konta, sprzedawcy i srodowiska, posortowanych wedlug ostatniej aktualizacji. Nie ma paginacji ani rozwijanych logow. Jeden wiersz pokazuje ostatnie zdarzenie wedlug czasu jego wystapienia oraz zbiorczy stan pobierania: nierozwiazany blad ma pierwszenstwo przed oczekujacym zdarzeniem i poprawnym przetworzeniem. Przycisk ponowienia dotyczy nieudanego zdarzenia, nawet jezeli ostatnie zdarzenie tej transakcji zostalo przetworzone poprawnie. Grupowanie dotyczy tylko prezentacji; techniczny dziennik, starsze zamowienia i ich zdarzenia pozostaja w bazie.
+
+Aktualizacja 2026-11-02: poprawne rozliczenia Allegro Ceny `BILLING` i `WALLET` nie blokuja kompletnego zamowienia ani nie powoduja ogolnego komunikatu o koniecznosci sprawdzenia. OMS waliduje typ, ilosc oraz kwote i walute rozliczenia. Cena pozycji pochodzi nadal z `lineItems[].price`, suma z `summary.totalToPay`, a wplata klienta wylacznie z potwierdzonych `paidAmount` platnosci i doplat. Wyrownanie sprzedawcy nie jest doliczane do zadnej z tych kwot. Nieznane lub niepoprawne rozliczenia oraz pozostale niezgodnosci nadal wymagaja sprawdzenia. Rozszerzenie dotyczy importu; nie zmienia osobnej polityki zlecania zwrotow wplat dla Allegro Ceny.
 
 ---
 

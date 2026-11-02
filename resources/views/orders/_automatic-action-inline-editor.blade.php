@@ -46,6 +46,8 @@
                         </select>
                     </div>
 
+                    <div class="mt-3" data-order-sources-root></div>
+
                     <div class="automation-section-separator"></div>
                     <div class="d-flex align-items-center justify-content-between mb-2">
                         <div>

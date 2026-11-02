@@ -892,6 +892,9 @@
     data-integration-allegro-store-url="{{ route('products.integrations.allegro.store', ['__product__', '__account__']) }}"
     data-integration-allegro-update-url="{{ route('products.integrations.allegro.update', ['__product__', '__account__', '__link__']) }}"
     data-integration-allegro-delete-url="{{ route('products.integrations.allegro.destroy', ['__product__', '__account__', '__link__']) }}"
+    data-integration-halsky-store-url="{{ route('products.integrations.von-halsky.store', ['__product__', '__account__']) }}"
+    data-integration-halsky-update-url="{{ route('products.integrations.von-halsky.update', ['__product__', '__account__', '__link__']) }}"
+    data-integration-halsky-delete-url="{{ route('products.integrations.von-halsky.destroy', ['__product__', '__account__', '__link__']) }}"
 >
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -922,7 +925,14 @@
                                 <span>{{ $account->name }} (Allegro)</span><i class="bi bi-chevron-right" aria-hidden="true"></i>
                             </button>
                         @endforeach
-                        @if ($prestashopAccounts->isEmpty() && $allegroAccounts->isEmpty())
+                        @foreach ($vonHalskyAccounts as $account)
+                            <button class="product-integration-choice" type="button" data-integration-choice data-integration-type="von-halsky"
+                                data-account-id="{{ $account->id }}" data-connection-revision="{{ $account->connection_revision }}"
+                                data-account-label="{{ $account->name }} (InPost Von Halsky)">
+                                <span>{{ $account->name }} (InPost Von Halsky)</span><i class="bi bi-chevron-right" aria-hidden="true"></i>
+                            </button>
+                        @endforeach
+                        @if ($prestashopAccounts->isEmpty() && $allegroAccounts->isEmpty() && $vonHalskyAccounts->isEmpty())
                             <div class="text-muted small">Brak aktywnych integracji.</div>
                         @endif
                     </div>
@@ -1202,12 +1212,18 @@
                 update: integrationModalElement?.dataset.integrationAllegroUpdateUrl ?? '',
                 delete: integrationModalElement?.dataset.integrationAllegroDeleteUrl ?? '',
             },
+            'von-halsky': {
+                store: integrationModalElement?.dataset.integrationHalskyStoreUrl ?? '',
+                update: integrationModalElement?.dataset.integrationHalskyUpdateUrl ?? '',
+                delete: integrationModalElement?.dataset.integrationHalskyDeleteUrl ?? '',
+            },
         };
         let activeIntegrationCell = null;
         let activeIntegrationType = 'prestashop';
         let activeIntegrationAccountId = null;
         let activeIntegrationAccountLabel = '';
         let activeIntegrationLinkId = null;
+        let activeIntegrationConnectionRevision = null;
         let integrationFormReturnStep = 'choices';
 
         const integrationUrl = (template, productId, accountId, linkId = null) => template
@@ -1316,11 +1332,13 @@
                 const row = document.createElement('div');
                 row.className = 'product-integration-offer-row';
 
-                const link = document.createElement('a');
+                const link = document.createElement(record.dataset.offerUrl ? 'a' : 'span');
                 link.className = 'product-integration-offer-link';
-                link.href = record.dataset.offerUrl ?? '#';
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
+                if (record.dataset.offerUrl) {
+                    link.href = record.dataset.offerUrl;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                }
                 link.textContent = `Oferta: ${record.dataset.externalProductId ?? ''}`;
 
                 const edit = document.createElement('button');
@@ -1386,12 +1404,14 @@
             activeIntegrationLinkId = record?.dataset.linkId ?? null;
             integrationFormReturnStep = returnStep;
             const isAllegro = activeIntegrationType === 'allegro';
-            integrationExternalId.type = isAllegro ? 'text' : 'number';
-            integrationExternalId.name = isAllegro ? 'external_offer_id' : 'external_product_id';
-            integrationExternalId.pattern = isAllegro ? '[1-9][0-9]{0,31}' : '';
-            if (isAllegro) integrationExternalId.maxLength = 32;
+            const isHalsky = activeIntegrationType === 'von-halsky';
+            integrationExternalId.type = isAllegro || isHalsky ? 'text' : 'number';
+            integrationExternalId.inputMode = isHalsky ? 'text' : 'numeric';
+            integrationExternalId.name = isAllegro || isHalsky ? 'external_offer_id' : 'external_product_id';
+            integrationExternalId.pattern = isHalsky ? '[A-Za-z0-9][A-Za-z0-9._\\-]{0,254}' : (isAllegro ? '[1-9][0-9]{0,31}' : '');
+            if (isAllegro || isHalsky) integrationExternalId.maxLength = isHalsky ? 255 : 32;
             else integrationExternalId.removeAttribute('maxlength');
-            if (integrationIdLabel) integrationIdLabel.textContent = isAllegro ? 'ID oferty Allegro' : 'ID produktu w PrestaShop';
+            if (integrationIdLabel) integrationIdLabel.textContent = isHalsky ? 'ID oferty Von Halsky' : (isAllegro ? 'ID oferty Allegro' : 'ID produktu w PrestaShop');
 
             if (integrationProductName) {
                 integrationProductName.textContent = activeIntegrationCell.dataset.productName ?? '';
@@ -1442,6 +1462,7 @@
             if (listButton) {
                 activeIntegrationCell = listButton.closest('[data-product-integrations]');
                 activeIntegrationType = listButton.dataset.integrationType ?? 'prestashop';
+                activeIntegrationConnectionRevision = listButton.dataset.connectionRevision ?? null;
                 getIntegrationModal()?.show();
                 showIntegrationList(
                     listButton.dataset.accountId,
@@ -1469,6 +1490,7 @@
         integrationModalElement?.querySelectorAll('[data-integration-choice]').forEach((choice) => {
             choice.addEventListener('click', () => {
                 activeIntegrationType = choice.dataset.integrationType ?? 'prestashop';
+                activeIntegrationConnectionRevision = choice.dataset.connectionRevision ?? null;
                 showIntegrationForm(
                 choice.dataset.accountId,
                 choice.dataset.accountLabel ?? 'PrestaShop',
@@ -1526,6 +1548,7 @@
                     },
                     body: JSON.stringify({
                         [integrationExternalId.name]: integrationExternalId.value,
+                        ...(activeIntegrationType === 'von-halsky' ? { expected_connection_revision: activeIntegrationConnectionRevision } : {}),
                     }),
                 });
                 const payload = await response.json().catch(() => ({}));
@@ -1599,9 +1622,12 @@
                     method: 'DELETE',
                     headers: {
                         'Accept': 'application/json',
+                        'Content-Type': 'application/json',
                         'X-CSRF-TOKEN': csrfToken,
                         'X-Requested-With': 'XMLHttpRequest',
                     },
+                    body: activeIntegrationType === 'von-halsky'
+                        ? JSON.stringify({ expected_connection_revision: activeIntegrationConnectionRevision }) : undefined,
                 });
                 const payload = await response.json().catch(() => ({}));
 

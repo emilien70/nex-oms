@@ -28,10 +28,13 @@ class OrderSmsController extends Controller
     {
         $data = $request->validate(['body' => ['required', 'string', 'max:12000'],
             'sms_template_id' => ['nullable', 'integer', 'exists:sms_templates,id'],
-            'recipient' => ['required', 'string', 'max:32'], 'idempotency_key' => ['required', 'uuid']]);
+            'recipient' => ['sometimes', 'required', 'string', 'max:32'],
+            'recipient_token' => ['sometimes', 'required', 'string', 'regex:/\A[a-f0-9]{64}\z/D'],
+            'idempotency_key' => ['required', 'uuid']]);
         $template = isset($data['sms_template_id']) ? SmsTemplate::query()->findOrFail($data['sms_template_id']) : null;
         $messages = $preparation->prepare($order, $template, $data + [
-            'recipient_customer' => false, 'recipient_phones' => [$data['recipient']],
+            'recipient_customer' => true, 'recipient_phones' => [],
+            'expected_customer_phone' => $data['recipient'] ?? null,
             'actor_name' => $request->user()?->name ?? 'Operator NEX-OMS',
         ]);
 

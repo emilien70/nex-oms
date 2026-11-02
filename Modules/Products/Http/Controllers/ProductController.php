@@ -14,6 +14,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
+use Modules\Integrations\VonHalsky\Models\VonHalskyAccount;
 use Modules\Products\Http\Requests\SaveProductRequest;
 use Modules\Products\Http\Requests\UpdateProductActiveRequest;
 use Modules\Products\Http\Requests\UpdateProductStockRequest;
@@ -45,6 +46,7 @@ class ProductController extends Controller
             ->with([
                 'prestashopProductLinks.account',
                 'allegroProductLinks.account',
+                'vonHalskyProductLinks.account',
                 'bundleComponents.component',
             ])
             ->where('item_type', $itemType)
@@ -83,6 +85,8 @@ class ProductController extends Controller
                 ->get(),
             'allegroAccounts' => AllegroAccount::query()->where('is_active', true)->orderBy('name')->orderBy('id')->get()
                 ->filter(fn (AllegroAccount $account): bool => $account->isOperational() && filled($account->allegro_user_id)),
+            'vonHalskyAccounts' => VonHalskyAccount::query()->where('is_active', true)->where('last_test_status', 'success')
+                ->whereNotNull('organization_id')->orderBy('name')->orderBy('id')->get(),
         ]);
     }
 

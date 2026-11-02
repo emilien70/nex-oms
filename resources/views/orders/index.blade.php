@@ -85,7 +85,7 @@
                     <div class="orders-filter-field"><label for="filter_status_from">Data w statusie od</label><input id="filter_status_from" class="form-control form-control-sm" type="date" name="status_from" value="{{ $filterValue('status_from') }}"></div>
                     <div class="orders-filter-field"><label for="filter_status_to">Data w statusie do</label><input id="filter_status_to" class="form-control form-control-sm" type="date" name="status_to" value="{{ $filterValue('status_to') }}"></div>
 
-                    <div class="orders-filter-field"><label for="filter_source">&#377;r&oacute;d&#322;o zam.</label><select id="filter_source" class="form-select form-select-sm" name="source"><option value="">Wszystkie</option><option value="allegro" @selected($filterValue('source') === 'allegro')>Allegro</option><option value="prestashop" @selected($filterValue('source') === 'prestashop')>PrestaShop</option></select></div>
+                    <div class="orders-filter-field"><label for="filter_source">&#377;r&oacute;d&#322;o zam.</label><select id="filter_source" class="form-select form-select-sm" name="source"><option value="">Wszystkie</option><option value="allegro" @selected($filterValue('source') === 'allegro')>Allegro</option><option value="prestashop" @selected($filterValue('source') === 'prestashop')>PrestaShop</option><option value="von_halsky" @selected($filterValue('source') === 'von_halsky')>InPost Von Halsky</option></select></div>
                     <div class="orders-filter-field"><label for="filter_completeness">Kompletność</label><select id="filter_completeness" class="form-select form-select-sm" name="completeness"><option value="">Wszystkie</option><option value="incomplete" @selected($filterValue('completeness') === 'incomplete')>Niepełne</option><option value="complete" @selected($filterValue('completeness') === 'complete')>Pełne</option><option value="review" @selected($filterValue('completeness') === 'review')>Wymagające uwagi</option></select></div>
                     <div class="orders-filter-field"><label for="filter_customer">Imi&#281; / Nazwisko / Firma</label><input id="filter_customer" class="form-control form-control-sm" type="text" name="customer" value="{{ $filterValue('customer') }}"></div>
                     <div class="orders-filter-field"><label for="filter_login">Login</label><input id="filter_login" class="form-control form-control-sm" type="text" name="login" value="{{ $filterValue('login') }}"></div>
@@ -261,6 +261,10 @@
                                     ? '('.($order->customer_login ?: '...').')'
                                     : $sourceLabel;
                                 $allegroSourceName = '';
+                                if ($order->source === 'von_halsky' && $order->vonHalskyOrderLink) {
+                                    $halskyName = $order->vonHalskyOrderLink->account?->name ?: $order->vonHalskyOrderLink->account_name;
+                                    $sourceDisplayLabel = $halskyName.' (InPost Von Halsky)';
+                                }
                                 if ($order->source === 'allegro' && $order->allegroOrderLink) {
                                     $allegroSourceName = trim((string) ($order->allegroOrderLink->account?->name ?: $order->allegroOrderLink->account_name));
                                     $sourceDisplayLabel .= $allegroSourceName !== '' ? ' z '.$allegroSourceName : '';
@@ -268,11 +272,13 @@
                                 $sourceIconClass = match ($order->source) {
                                     'allegro' => 'source-allegro',
                                     'prestashop' => 'source-prestashop',
+                                    'von_halsky' => 'source-von-halsky',
                                     default => 'source-manual',
                                 };
                                 $sourceIcon = match ($order->source) {
                                     'allegro' => 'al',
                                     'prestashop' => '<span class="source-cart-handle"></span>',
+                                    'von_halsky' => '<i class="bi bi-shop"></i>',
                                     default => '',
                                 };
                                 $currentStar = $order->star_color ?? '';

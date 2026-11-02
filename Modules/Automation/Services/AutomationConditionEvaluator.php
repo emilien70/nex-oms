@@ -19,6 +19,10 @@ class AutomationConditionEvaluator
 
     private function matchesCondition(Order $order, array $eventPayload, array $condition): bool
     {
+        if (($condition['field'] ?? '') === 'integration_source') {
+            return ($condition['operator'] ?? '') === 'in' && is_array($condition['value'] ?? null)
+                && app(AutomationOrderSources::class)->matches($order, $eventPayload, $condition['value']);
+        }
         $actual = $this->value($order, $eventPayload, (string) ($condition['field'] ?? ''));
         $expected = $condition['value'] ?? null;
 
@@ -27,7 +31,7 @@ class AutomationConditionEvaluator
             'contains' => str_contains(mb_strtolower((string) $actual), mb_strtolower((string) $expected)),
             'greater_or_equal' => is_numeric($actual) && is_numeric($expected) && (float) $actual >= (float) $expected,
             'less_or_equal' => is_numeric($actual) && is_numeric($expected) && (float) $actual <= (float) $expected,
-            default => $this->equals($actual, $expected),
+            default => is_scalar($expected) && $this->equals($actual, $expected),
         };
     }
 

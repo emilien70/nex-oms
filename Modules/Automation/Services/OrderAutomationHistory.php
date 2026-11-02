@@ -64,6 +64,8 @@ class OrderAutomationHistory
         $output = $step?->output ?? [];
 
         return match ($type) {
+            AutomationCatalog::ACTION_MODIFY_ORDER => (string) ($output['field_label']
+                ?? $this->catalog->orderFields()[$configuration['field'] ?? '']['label'] ?? 'Pole niedostępne'),
             AutomationCatalog::ACTION_CHANGE_STATUS => OrderStatusSetting::labelFor(
                 (string) ($output['status'] ?? $configuration['status'] ?? ''),
             ) ?? (string) ($configuration['status'] ?? '...'),

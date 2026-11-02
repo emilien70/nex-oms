@@ -2,6 +2,8 @@
 
 namespace Modules\Integrations\Prestashop\Services;
 
+use App\Events\OrderCreated;
+use App\Events\OrderDataCompleted;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
 use Modules\Integrations\Prestashop\Enums\PrestashopCatalogVatMode;
@@ -218,6 +220,9 @@ class PrestashopOrderImportService
             ]);
 
             $this->buyerMessages->enqueue($link->id);
+
+            OrderCreated::dispatch($order);
+            OrderDataCompleted::dispatch($order);
 
             return $order->refresh();
         }, 3);

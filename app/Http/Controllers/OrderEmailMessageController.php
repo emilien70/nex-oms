@@ -99,6 +99,8 @@ class OrderEmailMessageController extends Controller
                     emailAccount: $account,
                     actorName: $user?->name ?? 'Operator NEX-OMS',
                     contentIsRendered: $request->boolean('content_rendered'),
+                    recipientCustomer: true,
+                    recipientToken: $validated['recipient_token'] ?? null,
                 ),
             );
         } catch (OrderEmailException $exception) {

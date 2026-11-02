@@ -16,8 +16,10 @@ use Illuminate\Bus\UniqueLock;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Modules\CustomerPortal\Models\PortalSetting;
 use Modules\CustomerPortal\Services\PortalAccessService;
 use Throwable;
 
@@ -37,15 +39,8 @@ class OrderEmailPreparationService
         ?EmailTemplate $template,
         OrderEmailPreparationData $data,
     ): OrderEmailMessage {
-        $intentFingerprint = $this->intentFingerprints->make($order, $template, $data);
-        $existing = OrderEmailMessage::query()
-            ->where('idempotency_key', $data->idempotencyKey)
-            ->first();
-
-        if ($existing instanceof OrderEmailMessage) {
-            return $this->resolveExisting($existing, $intentFingerprint);
-        }
-
+        $intentFingerprint = null;
+        $existingMessage = false;
         $message = null;
         $messageRecordId = null;
 
@@ -54,9 +49,35 @@ class OrderEmailPreparationService
                 $order,
                 $template,
                 $data,
-                $intentFingerprint,
+                &$intentFingerprint,
+                &$existingMessage,
                 &$messageRecordId,
             ): OrderEmailMessage {
+                // Match the portal/SMS lock order before locking the order or template.
+                if (Schema::hasTable('customer_portal_settings')) {
+                    PortalSetting::query()->where('singleton_key', PortalSetting::KEY)->lockForUpdate()->first();
+                }
+                if ($data->recipientCustomer) {
+                    $order = Order::query()->whereKey($order->getKey())->lockForUpdate()->first();
+                    if (! $order instanceof Order) {
+                        throw new OrderEmailException('email_context_invalid', 'Zamowienie juz nie istnieje.');
+                    }
+                    $order->assertPurchaseReady();
+                    $this->validate($order, $template, $data);
+                    if ($data->source === OrderEmailMessageSource::Automation
+                        && $this->intentFingerprints->normalizeEmail($data->toEmail)
+                            !== $this->intentFingerprints->normalizeEmail((string) $order->customer_email)) {
+                        throw new OrderEmailException('recipient_changed', 'Adres klienta zmienil sie podczas przygotowania automatycznej wiadomosci.');
+                    }
+                    app(OrderMessageRecipientService::class)->assertConfirmation($order, 'email', $data->recipientToken);
+                }
+                $intentFingerprint = $this->intentFingerprints->make($order, $template, $data);
+                $existing = OrderEmailMessage::query()->where('idempotency_key', $data->idempotencyKey)->first();
+                if ($existing instanceof OrderEmailMessage) {
+                    $existingMessage = true;
+
+                    return $existing;
+                }
                 $managedTemplate = null;
 
                 if ($template instanceof EmailTemplate) {
@@ -99,12 +120,12 @@ class OrderEmailPreparationService
 
                 $usesPortal = str_contains($subjectTemplate.$bodyTemplate.($managedTemplate?->subject_template ?? '').($managedTemplate?->body_template ?? ''), '[link_zamowienia]');
                 if ($usesPortal) {
-                    if (mb_strtolower(trim($data->toEmail)) !== mb_strtolower(trim((string) $order->customer_email))) {
+                    if (mb_strtolower(trim($data->recipientEmail($order))) !== mb_strtolower(trim((string) $order->customer_email))) {
                         throw new OrderEmailException('portal_recipient_mismatch', 'Link strony klienta może zostać przygotowany tylko dla adresu e-mail kupującego.');
                     }
                     try {
                         $portalAccess = app(PortalAccessService::class);
-                        $portalUrl = $portalAccess->issue($order, recipientEmail: $data->toEmail);
+                        $portalUrl = $portalAccess->issue($order, recipientEmail: $data->recipientEmail($order));
                     } catch (ValidationException) {
                         throw new OrderEmailException('portal_unavailable', 'Nie można przygotować linku strony klienta. Sprawdź ustawienia i stan linku.');
                     }
@@ -125,6 +146,7 @@ class OrderEmailPreparationService
                     ? $this->renderer->finalizeRendered($subjectTemplate, $bodyTemplate, $format)
                     : $this->renderer->render($order, $subjectTemplate, $bodyTemplate, $format);
                 $actorSnapshot = $this->actorSnapshot($data);
+                $actorSnapshot['recipient_customer'] = $data->recipientCustomer;
                 $messageId = 'order-email-'.$data->idempotencyKey.'@'.$this->emailDomain($account->email);
 
                 $created = $order->emailMessages()->create([
@@ -145,8 +167,8 @@ class OrderEmailPreparationService
                     'from_email' => $account->email,
                     'from_name' => $this->intentFingerprints->normalizeName($account->name),
                     'reply_to_email' => $account->email,
-                    'to_email' => $this->intentFingerprints->normalizeEmail($data->toEmail),
-                    'to_name' => $this->intentFingerprints->normalizeName($data->toName),
+                    'to_email' => $this->intentFingerprints->normalizeEmail($data->recipientEmail($order)),
+                    'to_name' => $this->intentFingerprints->normalizeName($data->recipientName($order)),
                     'subject' => $rendered->subject,
                     'format' => $rendered->format,
                     'body_text' => $rendered->bodyText,
@@ -173,8 +195,8 @@ class OrderEmailPreparationService
                 ->where('idempotency_key', $data->idempotencyKey)
                 ->first();
 
-            if ($existing instanceof OrderEmailMessage) {
-                return $this->resolveExisting($existing, $intentFingerprint);
+            if ($existing instanceof OrderEmailMessage && is_string($intentFingerprint)) {
+                return $this->resolveExisting($existing, $intentFingerprint, $data->recipientCustomer);
             }
 
             throw $exception;
@@ -184,6 +206,10 @@ class OrderEmailPreparationService
             }
 
             throw $exception;
+        }
+
+        if ($existingMessage) {
+            return $this->resolveExisting($message, $intentFingerprint, $data->recipientCustomer);
         }
 
         $this->dispatch($message);
@@ -201,8 +227,8 @@ class OrderEmailPreparationService
             throw new OrderEmailException('idempotency_key_invalid', 'Identyfikator operacji wysyłki jest nieprawidłowy.');
         }
 
-        if (filter_var(trim($data->toEmail), FILTER_VALIDATE_EMAIL) === false
-            || preg_match('/[\r\n]/', $data->toEmail)) {
+        if (filter_var(trim($data->recipientEmail($order)), FILTER_VALIDATE_EMAIL) === false
+            || preg_match('/[\r\n]/', $data->recipientEmail($order))) {
             throw new OrderEmailException('recipient_invalid', 'Adres e-mail odbiorcy jest nieprawidłowy.');
         }
 
@@ -256,8 +282,9 @@ class OrderEmailPreparationService
     private function resolveExisting(
         OrderEmailMessage $message,
         string $intentFingerprint,
+        bool $recipientCustomer,
     ): OrderEmailMessage {
-        $this->assertMatchingIntent($message, $intentFingerprint);
+        $this->assertMatchingIntent($message, $intentFingerprint, $recipientCustomer);
 
         if (! $this->canRecoverQueueDispatch($message)) {
             return $message->loadMissing('attachments');
@@ -267,6 +294,7 @@ class OrderEmailPreparationService
         $resolved = DB::transaction(function () use (
             $message,
             $intentFingerprint,
+            $recipientCustomer,
             &$shouldDispatch,
         ): OrderEmailMessage {
             $locked = OrderEmailMessage::query()
@@ -281,7 +309,7 @@ class OrderEmailPreparationService
                 );
             }
 
-            $this->assertMatchingIntent($locked, $intentFingerprint);
+            $this->assertMatchingIntent($locked, $intentFingerprint, $recipientCustomer);
 
             if (! $this->canRecoverQueueDispatch($locked)) {
                 return $locked;
@@ -306,9 +334,14 @@ class OrderEmailPreparationService
         return $resolved->loadMissing('attachments');
     }
 
-    private function assertMatchingIntent(OrderEmailMessage $message, string $intentFingerprint): void
+    private function assertMatchingIntent(OrderEmailMessage $message, string $intentFingerprint, bool $recipientCustomer): void
     {
+        $actor = $message->actor_snapshot ?? [];
+        $sameRecipientKind = is_array($actor) && (array_key_exists('recipient_customer', $actor)
+            ? $actor['recipient_customer'] === $recipientCustomer
+            : $message->source === OrderEmailMessageSource::Manual && $recipientCustomer);
         if (is_string($message->intent_fingerprint)
+            && $sameRecipientKind
             && hash_equals($message->intent_fingerprint, $intentFingerprint)) {
             return;
         }

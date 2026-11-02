@@ -1,5 +1,282 @@
 # NEX-OMS — architektura systemu
 
+## HALSKY.1 - Von Halsky read-only
+
+Modules/Integrations/VonHalsky zachowuje centralne routes/web.php i migracje.
+Nowa tabela von_halsky_accounts przechowuje jedno logiczne konto default,
+UUID organizacji poziomu 2, dane OAuth Client Credentials, szyfrowany sekret
+i token, termin tokenu, stan testu oraz wersje konfiguracji. GET konfiguracji
+nie tworzy konta i nie wywoluje API. Nie jest to integracja ShipX.
+
+VonHalskyEnvironment zamyka HTTPS hosty Stage/Production. Klient wystawia
+tylko test listy limit=1 i odczyt pojedynczego zamowienia; jedyny POST do
+dostawcy to uzyskanie tokenu z zakresem openid api:orders:read. Nie ma
+uniwersalnej metody zapisu do API, dowolnego base URL ani przekierowan HTTP.
+Konfiguracja wlasnej aplikacji sprzedawcy w portalu InPost moze wymagac
+pelnego zestawu pieciu scopes opisanego przez dostawce; nie dowodzi to
+wykonywania zapisow przez OMS. Dostep nalezy potwierdzic na koncie Stage.
+
+Zmiana credentials, organizacji, srodowiska, rozlaczenie i nowy test zmieniaja
+connection_revision. Siec dziala poza transakcja; token, wynik testu i podglad
+sa odrzucane po zmianie tej wersji. lock_version chroni formularze przed
+nadpisaniem nowszej konfiguracji. Odczyt 401 odnawia token najwyzej raz,
+401/403 uniewazniaja polaczenie, 429 respektuje Retry-After w cache,
+timeout/5xx nie uruchamiaja automatycznej petli prob.
+
+Podglad weryfikuje ID zamowienia i organizacji oraz strukture danych.
+Kwoty sa tylko prezentowane: brak ksiegowania, sumowania lub zapisu kwot.
+Odpowiedz API nie trafia do sesji ani integration_api_logs, a widok ma
+private/no-store i escape Blade. Trasy pozostaja w chronionym panelu web
+z CSRF i limitami zadania testu/podgladu; nie nalezy dodawac wyjatku Basic Auth.
+Nie ma modeli zamowien Von Halsky, kolejki, schedulera ani zdarzen automatyzacji.
+Raport, kontrakt API i wymagania nastepnego etapu: [HALSKY.1](halsky-1-report.md).
+
+## HALSKY.2A - reczny import
+
+VonHalskyOrderJson zachowuje leksymy amount jako stringi przy walidacji
+standardowym parserem JSON, bez zmiany typow pozostalych pol.
+VonHalskyOrderNormalizer buduje osobne dane importu, sprawdza pieniadze
+przez BigDecimal, ilosci, gotowosc, kraj, walute, kontakt i platnosc.
+HMAC source_hash kanonizuje mapy i wiaze z konfiguracja. Sesja przechowuje
+tylko dowod z terminem, nie dane kupujacego. Import wymaga ponownego GET.
+
+VonHalskyOrderImportService zapisuje Order, pozycje, VonHalskyOrderLink
+i order_events w jednej transakcji z blokada konta/statusu. Unikalnosc
+environment + organization_id + external_order_id chroni przed wyscigiem.
+Nullable FK do zamowienia/konta z nullOnDelete zachowuja tombstone i historie.
+payment_evidence jest encrypted:array, channel_paid_amount to deklaracja
+oplacenia wartosci zamowienia, nie domniemana kwota indywidualnej transakcji.
+quantities_snapshot przechowuje wartosc i pochodzenie api/manual.
+Nowa migracja dodaje tez nullable initial_status_setting_id i default_vat_rate.
+
+Nie emituje sie domenowych zdarzen automatyzacji przy imporcie tego etapu;
+obserwatory Eloquent, w tym przygotowanie linku portalu, pozostaja aktywne.
+Brak nowej kolejki, schedulera i klienta zapisow marketplace. Standardowe
+widoki zamowienia prezentuja zrodlo, numer, komentarz, platnosc i ikony.
+Szczegoly, testy i ograniczenia: [HALSKY.2A](halsky-2a-report.md).
+
+## HALSKY.2B - katalog produktow przy imporcie
+
+VonHalskyProductLink i addytywna migracja 2026_10_29_030000 przechowuja
+konfiguracyjne relacje ofert. Unikalny vh_product_offer_unique obejmuje
+environment + organization_id + external_offer_id, a odczyt sprawdza rowniez
+von_halsky_account_id. Krotkie nazwy indeksow sa zgodne z limitem MySQL.
+FK konfiguracji uzywaja cascadeOnDelete; nie sa to dokumenty historyczne.
+Zapisane pozycje i snapshoty zestawow zachowuja wlasne dane po usunieciu
+powiazania lub produktu. down odmawia usuniecia uzytych ustawien/mapowan.
+
+VonHalskyProductLinkService blokuje konto i sprawdza connection_revision
+formularza oraz aktualna tozsamosc relacji. POST/PATCH/DELETE pozostaja
+w centralnych routes/web.php i web/CSRF. Nie wywoluja API marketplace.
+Dotychczasowy modal produktow obsluguje trzeci typ integracji; odpowiedzi
+AJAX kazdego typu zachowuja wszystkie trzy grupy. Bez zgadywanego URL oferty.
+
+VonHalskyOrderCatalogService uzywa OrderImportVatResolver oraz istniejącego
+OrderItemBundleSnapshotService. Wzbogaca tylko product_id, nazwe, VAT,
+sklad zestawu i jego wage; nie kopiuje ceny ani stanu magazynowego.
+Fingerprint katalogu jest czescia HMAC source_hash, niezalezna od recznie
+uzupelnianych ilosci. Importer sprawdza go po ponownym odczycie API,
+nastepnie ponownie pod blokadami konta, powiazan, produktow i skladnikow.
+Whitelist zapisu odrzuca dodatkowe pola POST i metadane podgladu.
+Capture skladu korzysta z istniejacego serwisu w tej samej transakcji.
+Brak backfillu, schedulera, nowych scopes, kolejki i nowych automatyzacji.
+Szczegoly: [HALSKY.2B](halsky-2b-report.md).
+
+## HALSKY.2C - discovery i kolejka importu
+
+Migracja 2026_10_29_040000 dodaje domyslnie wylaczone ustawienia pobierania,
+rewizje konfiguracji, daty kursora oraz von_halsky_order_import_attempts.
+FK do konta i Order sa nullable/nullOnDelete. Unikalnosc obejmuje srodowisko,
+organizacje i zewnetrzne ID; model historii nie przechowuje payloadu API,
+danych kontaktowych, tresci zakupu ani credentiali. Daty historii maja
+precyzje mikrosekund, aby ten sam fractional updatedAt nie resetowal wyniku.
+
+VonHalskyClient::ordersUpdatedSince uzywa publicznego GET orders ze scope
+api:orders:read, updatedAtGte, sort=updatedAt/createdAt i PAID/NOT_PAID.
+Tablice form/explode sa kodowane przez Guzzle Psr7 Query jako powtorzone
+klucze, nie nawiasy PHP. Strony maja po 30 rekordow. Walidowane sa metadane,
+tozsamosc organizacji, ID, chronologia i kolejnosc; nie liczy sie pieniedzy
+z listy. Szczegoly nadal uzywaja dekodera precyzyjnych kwot HALSKY.2A.
+
+VonHalskyOrderDiscoveryService zapisuje metadane kandydatow przed kursorem.
+Stosuje 5-minutowa zakladke, minute stabilizacji i dobowa kontrole od daty
+poczatku. Maksimum przebiegu to 50 stron i 45 s budzetu przed kolejnym HTTP;
+przekroczenie/blad nie przesuwa kursora. Lista API nie jest atomowa, dlatego
+paginacja offsetowa ma powyzsze zabezpieczenia i okresowe uzgodnienie.
+Nie zalezy od eventow dostepnych jedynie 72 h. Istniejace powiazania sa
+tylko odczytywane; status OMS i finansowe dane zamowienia nie sa synchronizowane.
+
+VonHalskyOrderImportDispatcher jest wywolywany co minute przez istniejący
+Scheduler, z ustawionym interwalem konta. Dwa joby na integrations sa
+ShouldBeUnique; discovery ma dodatkowy WithoutOverlapping. Gotowosc wymaga
+zapisanej migracji. order_import_revision oraz aktualna tozsamosc chronia
+przed wykonaniem starych zadan po zmianie ustawien lub polaczenia.
+Ręczne Sprawdz teraz ma POST/CSRF, lock_version, limit zadan i jawny tryb
+jednorazowego zlecenia, ktory nie wlacza order_import_enabled.
+
+VonHalskyOrderProcessingService rezerwuje probe tokenem UUID i lease 180 s.
+Stary token nie moze nadpisac wyniku lub zapisac zamowienia. Osierocone proby
+sa odzyskiwane przez dispatcher, a 429/timeout/5xx maja trwaly next_attempt_at.
+Brak ilosci daje needs_quantity, wadliwe dane blocked, niedokonczony zakup
+waiting. Potwierdzenie reczne korzysta z dotychczasowej sesji podgladu.
+VonHalskyOrderImportService::importAutomatic ponownie pobiera szczegoly bez
+podawania recznych ilosci i sprawdza gotowosc, hash, api jako pochodzenie
+wszystkich ilosci oraz aktywny token/rewizje pod blokadami przed zapisem.
+Reczny i automatyczny tryb wspoldziela persist; Order, pozycje, snapshoty
+zestawu, powiazanie, wynik historii i zdarzenie sa w jednej transakcji.
+Nie emituje sie zdarzen automatyzacji. Istniejace obserwatory portalu dzialaja.
+Szczegoly i ograniczenia: [HALSKY.2C](halsky-2c-report.md).
+
+## HALSKY.2D - wspolne zdarzenia automatyzacji
+
+VonHalskyOrderImportService::persist przekazuje istniejace OrderCreated
+i OrderDataCompleted wylacznie dla nowego Order, po pozycjach, linku,
+snapshotach i historii importu. Oba zdarzenia maja ShouldDispatchAfterCommit.
+Przed przekazaniem odswieza sie Order, aby jego zrodlo obejmowalo zapisany
+VonHalskyOrderLink. Powrot istniejacego zamowienia nie emituje zdarzen.
+
+AutomationOrderSources dodaje kanal von_halsky i von_halsky:account_id,
+rowniez w wyborze wielokrotnym; identity korzysta z historycznego linku,
+nie nazwy konta. Starszy skalarny warunek source takze obsluguje kanal.
+Pasujace reguly ocenia i wykonuje niezmieniony wspolny engine/runner.
+Deterministyczne ID zdarzen i unikalnosc runow sa wspolne z Allegro/PrestaShop.
+Brak nowej blokady konta przy wykonywaniu przyjetego juz zdarzenia.
+
+Zniesiono confirmed_without_automations w formularzu, Form Request i
+wewnetrznym wywolaniu importu. Metoda import zachowuje nazwe i pierwszych
+piec argumentow; wszystkie lokalne wywolania dostosowano. HTTP POST i CSRF
+pozostaja bez zmian. import_version=2 w istniejacym HMAC podgladu wymusza
+odswiezenie starego potwierdzenia importu bez akcji; nie zmienia numerow,
+kwot ani tozsamosci zamowienia. Nowe linki i zdarzenia zapisuja istniejace
+automations_suppressed=false. Starych linkow/historii nie aktualizuje sie.
+Nie dodano migracji, ustawienia integracji, kolejki ani nowego listenera.
+Szczegoly: [HALSKY.2D](halsky-2d-report.md).
+
+## HALSKY.3A - odczyt statusow znanych zamowien
+
+Migracja 2026_10_30_010000 dodaje cztery nullable pola do
+von_halsky_order_links: external_status_updated_at, last_status_checked_at,
+last_status_sync_requested_at (datetime z mikrosekundami) i
+last_status_sync_error. Nie zmienia kluczy, indeksow ani danych historycznych.
+down odmawia usuniecia metadanych po rozpoczeciu ich uzywania. Gotowosc
+wymaga wszystkich kolumn i zapisu migracji, takze przy wdrozeniu czesciowym.
+
+Istniejacy VonHalskyOrderImportDispatcher zleca po rezerwacji skanu konta
+takze SyncVonHalskyOrderStatusJob na integrations. Osobne GET po ID obejmuje
+powiazane zywe Order niezaleznie od daty nowych importow. Limit wynosi
+100 zlecen na przebieg, od najdawniej sprawdzanych/zleconych. Reczne
+Sprawdz teraz moze dzialac bez daty nowych importow, jesli istnieja znane
+zamowienia; wtedy nie zleca discovery. Nie dodano trasy ani harmonogramu.
+
+VonHalskyOrderStatusSyncService sprawdza konto, rewizje importu, srodowisko,
+organizacje i powiazanie source/external_id. Siec dziala poza transakcja.
+Przed zapisem ponownie blokuje konto, Order i link, sprawdza generacje
+zlecenia oraz chronologie opcjonalnego updatedAt. Brak updatedAt nie jest
+zastepowany createdAt w external_status_updated_at. Job jest ShouldBeUnique
+(180 s), timeout 80 s, tries=1; rezerwacja chroni przed ponownym zleceniem
+w trakcie pracy, a porzucona moze zostac zastapiona po 180 s. Ukonczony job
+i spozniony blad nie nadpisuja sukcesu. Klient zachowuje wspolne Retry-After.
+Granice interwalu porownuje sie do sekund jak rezerwacje skanu konta,
+zachowujac mikrosekundy generacji, aby drobne roznice startu schedulera
+nie pomijaly kolejnego minutowego sprawdzenia.
+
+Transakcja aktualizuje tylko status i metadane linku, jeden wiersz
+von_halsky_order_import_attempts oraz, przy rzeczywistej zmianie, jeden
+order_events typu von_halsky_status_changed. Nie zapisuje Order ani jego
+pozycji, wplat, dokumentow i przesylek, nie emituje zdarzen domenowych
+automatyzacji. Historia bez updatedAt zachowuje dotychczasowa konwencje
+external_updated_at=createdAt tylko przy pierwszym utworzeniu wiersza;
+nie jest to deklaracja daty zmiany statusu.
+
+VonHalskyOrderStatus centralizuje etykiety i ostrzezenia. Blade prezentuje
+status i negatywne stany z escape, bez danych payloadu API. Istniejacy
+orders.state zwraca sygnature i zmienione fragmenty statusu/ostrzezenia;
+przegladarka nie odpytuje marketplace. Ikona !! uzywa obecnej klasy
+cancelled, nie zmienia znaczenia ikon platnosci/przesylek ani gotowosci
+automatyzacji. Szczegoly: [HALSKY.3A](halsky-3a-report.md).
+
+## HALSKY.3B - polecenia wychodzace
+
+Migracja 2026_10_30_020000 dodaje domyslnie wylaczone status_sync_enabled,
+status_sync_revision, nullable access_token_scopes oraz tabele
+von_halsky_status_mappings i von_halsky_order_commands. Krotkie jawne nazwy
+indeksow/FK mieszcza sie w limicie MySQL. Relacje historii sa nullable /
+nullOnDelete, konfiguracja uzywa cascadeOnDelete. down odmawia usuniecia
+zapisanej konfiguracji lub historii. Ready wymaga tabel, kolumn i migracji.
+
+VonHalskyStatusMappingService blokuje konto, sprawdza expected_lock_version
+i aktualne nieusuniete statusy OMS. Powiazania obejmuja konto, srodowisko,
+organizacje i ID statusu. Zmiana konfiguracji podnosi rewizje, bez backfillu.
+Zmiana polaczenia/test/rozlaczenie wylacza zapisy i uniewaznia stary kontekst.
+
+Listener OrderStatusChanged przekazuje przyszle zmiany reczne, zbiorcze
+i automatyczne do VonHalskyOrderCommandService. Zapis zlecenia i rezerwacji
+jest transakcyjny, dispatch dziala po commit. Unikalne event_id odrzuca
+powtorzone zdarzenie, nullable operation_key identyfikuje srodowisko /
+organizacje / zakup. Queued, sending, pending, uncertain i succeeded
+utrzymuja rezerwacje; failed/blocked/skipped ja zwalniaja. Definitywny blad
+mozna recznie ponowic jako nowy wiersz retry_of_id, z lock_version starego.
+Niepewny wynik ani sukces nie pozwalaja na ponowienie POST. Zmiana statusu
+lub rewizji przed wysylka uniewaznia stare queued, nie odwraca wyslanej operacji.
+
+Przed POST odczytuje sie biezace zamowienie dostawcy, weryfikuje tozsamosc,
+stan i dowody platnosci, uzyskuje token write, a potem ponownie sprawdza
+kontekst pod blokadami konta/Order/linku. Siec jest poza transakcja. Sending
+jest zapisane przed POST; utrata workera daje uncertain, nie nowy POST.
+HTTP 202 ma walidowane commandId i PENDING/SUCCESS/FAILURE. Identyfikator
+jest kanonizowany do malej litery i unikalny w organizacji/srodowisku.
+Nie moze potwierdzic drugiego zakupu. Utrata lokalnego zapisu wyniku
+zachowuje znane ID do odzyskania przez GET, nigdy przez ponowny POST.
+
+Istniejacy VonHalskyOrderImportDispatcher obsluguje tez due commands,
+niezaleznie od order_import_enabled. Ten sam job na integrations ma
+ShouldBeUnique 180 s, timeout 80 s i tries=1. Limit due to 100 wierszy.
+Poll znanego commandId dziala takze po wylaczeniu mapowania/zmianie statusu
+OMS, ale nie przenosi sie na inna organizacje/srodowisko. Nierozstrzygniety
+wynik bez commandId wymaga wyjasnienia. HTTP 429 respektuje wspolny cooldown.
+
+VonHalskyClient zachowuje read scopes dla odczytow. Dopiero przygotowanie
+zapisu uzyskuje read + write i zapisuje przyznany zakres tokenu. Brak write
+nie udaje sukcesu i nie wylacza poprawnego dostepu read. POST polecenia
+nie ma automatycznej proby po 401 ani 5xx. Klient nie zawiera refund endpointu.
+
+Widok statusow zachowuje centralne trasy web/CSRF. Karta prezentuje ostatnie
+zlecenie i kontrolowane ponowienie bledu; historia wynikow trafia do
+order_events. Istniejaca sygnatura fragmentu HALSKY.3A odswieza tez wynik
+polecenia, bez nowego pollingu JS i bez wywolan API z GET widoku.
+Anulowane jest ograniczone do nieoplaconego CREATED; przy obecnym imporcie
+oplaconych ACCEPTED daje blokade, nie refund. Szczegoly: [HALSKY.3B](halsky-3b-report.md).
+
+## Automatyzacje - kompletne dane i modyfikacja
+
+OrderCreated i OrderDataCompleted implementuja ShouldDispatchAfterCommit.
+Kontroler recznego tworzenia i importery emituja zdarzenia dopiero po zapisie
+ich danych, pozycji i powiazan. Deterministyczne UUID v5 (typ + order_id)
+wykorzystuje istniejaca unikalnosc automation_runs(automation_rule_id, event_id).
+Importer Allegro emituje komplet tylko przy pierwszym poprawnym imporcie
+READY_FOR_PROCESSING lub przejsciu z zakupu niepelnego; completed_at oraz
+stany cancelled/superseded nadal blokuja ponowny import. PrestaShop emituje
+komplet tylko dla nowego powiazania, nigdy przy completeExistingOrder.
+Bez aktywnej reguly danego nowego zdarzenia nie dodaje sie zadania do kolejki.
+
+AutomationOrderSources buduje liste z kont Allegro/PrestaShop/VonHalsky. Nowy warunek
+integration_source/in przechowuje liste kanalow lub kanal:account_id, z
+osobnym '*' oznaczajacym wszystkie zrodla. order_source w zdarzeniu zachowuje
+pochodzenie niezaleznie od pola source sluzacego do lancuchow automatyzacji.
+Dotychczasowy skalarny warunek source/equals lub not_equals nie jest zmieniany.
+
+AutomationOrderFields zawiera zamknieta liste pol i walidacje typu, dlugosci,
+e-maila oraz kraju z CountryCatalog. Telefon uzywa PhoneNumberFormatter,
+uwagi wskazuja orders.notes. AutomationOrderModificationService blokuje run,
+krok i zamowienie, sprawdza aktualna dzierzawe i gotowosc zakupu, renderuje
+zmienne i waliduje wynik. Zapis pola, OrderEvent i potwierdzenie w step.output
+sa jedna transakcja. Powtorzenie nie nadpisuje pozniejszej zmiany recznej.
+Runner nadal osobno konczy krok; przerwanie nie uruchamia automatycznej proby
+ponownego wykonania. Executor odczytuje aktualne Order przed kazda akcja.
+Zapis przez model zachowuje obserwatory portalu i nie dotyka snapshotow faktur.
+Nowe trasy, tabele, zaleznosci i konfiguracja kolejek nie sa potrzebne.
+Raport: [automatyzacje zamowien](automation-order-data-report.md).
+
 ## SMS.1 - MacroDroid
 
 Modules/Integrations/MacroDroid korzysta z centralnych routes/web.php,
@@ -1248,6 +1525,21 @@ Zasady:
 ---
 
 # 21. E-mail i kolejki
+
+Uzupelnienie 2026-10-30: GET orders/{order}/message-recipient jest prywatnym,
+limitowanym odczytem panelu; zwraca znormalizowany kontakt i HMAC zwiazany z
+zamowieniem, kanalem i odbiorca. UI wywoluje go dopiero po Wyślij, po zakonczeniu
+zapisu kontaktu. SMS i e-mail weryfikuja HMAC pod blokada zamowienia przed
+utrwaleniem wiadomosci. Brak tokenu zachowuje kompatybilnosc starszego klienta,
+ale podany pusty lub niepoprawny token nigdy nie uruchamia tego trybu.
+OrderEmailPreparationData jawnie rozroznia odbiorce-klienta od adresu stalego;
+proweniencja jest zapisana w niezmiennym actor_snapshot i sprawdzana obok
+fingerprintu intencji, bez zmiany historycznego formatu hashy. Przygotowanie
+e-mail blokuje ustawienia portalu przed Order, zgodnie z kolejnoscia SMS.
+Sender sprawdza klienta przy claim oraz bezposrednio przed SMTP. Legacy manual
+bez znacznika jest traktowane jako klient, niejednoznaczne legacy automation
+konczy sie recipient_context_missing bez transportu. Historia nie jest
+uzupelniana ani przepisywana. Szczegoly: [raport](message-recipient-report.md).
 
 Wysyłka e-mail powinna być asynchroniczna.
 
@@ -3221,6 +3513,8 @@ Po zmianie konfiguracji należy odświeżyć jej cache, jeżeli jest używany, o
 ---
 
 # Integracja Allegro - ALLEGRO.2C
+
+Aktualizacja 2026-11-02: `AllegroOrderPreviewService` rozpoznaje `lineItems[].reconciliation` typu `BILLING` lub `WALLET`. Dodatnia calkowita ilosc rozliczenia nie moze przekraczac ilosci pozycji; `value` oraz `payment.reconciliation` i `surcharges[].reconciliation` przechodza istniejaca walidacje nieujemnych kwot i zgodnosci waluty. Brak/null oznacza brak rozliczenia, ale puste lub blednie typowane struktury sa odrzucane. Rozliczenia sprzedawcy nie zmieniaja cen, sumy ani wplat klienta. Pozostaja kontrole sumy pozycji z dostawa, dat platnosci, unikalnosci ID, nadplaty, pobrania i kompletnosci zakupu. Nie ma dodatkowego odczytu billing ani zaleznosci importu od oznaczenia rabatu. Dotychczasowy zapis transakcyjny uzupelnia zakup `review` pod tym samym ID; nie nadpisuje juz kompletnego zamowienia. Bez migracji i hurtowego odtwarzania historii.
 
 Migracja 2026_10_20_150000_add_allegro_automatic_order_import dodaje konfiguracje kursora na allegro_accounts, stan kompletowania na allegro_order_links i trwaly dziennik allegro_order_import_events. Historyczne powiazania otrzymuja completed_at z imported_at. Domyslny import_state=complete zachowuje kompatybilnosc starych zapisow. Nowy import jawnie wybiera incomplete, complete albo review. Anulowanie i polaczenie ustawiaja cancelled/superseded. Klucze historyczne sa nullable z nullOnDelete; replaced_by_link_id wskazuje nastepce, nie zmienia tozsamosci starej transakcji.
 

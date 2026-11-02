@@ -10,6 +10,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
 use Modules\Automation\Services\AutomationCatalog;
+use Modules\Automation\Services\AutomationOrderFields;
 use Modules\Integrations\MacroDroid\Models\SmsTemplate;
 use Modules\Integrations\MacroDroid\Services\SmsPhoneNumber;
 use Modules\Integrations\NexPrinter\Services\NexPrinterSelectionService;
@@ -63,7 +64,19 @@ class SaveAutomationRuleRequest extends FormRequest
 
                 $value = $condition['value'] ?? null;
 
-                if ($value === null || $value === '') {
+                if ($definition['type'] === 'multiselect') {
+                    if (! is_array($value) || ! array_is_list($value) || $value === [] || count($value) > 100
+                        || count(array_filter($value, 'is_string')) !== count($value)
+                        || count(array_unique($value, SORT_REGULAR)) !== count($value)
+                        || array_diff($value, array_keys($definition['options'])) !== []
+                        || (in_array('*', $value, true) && count($value) !== 1)) {
+                        $validator->errors()->add("conditions.$index.value", 'Wybierz źródła zamówienia lub tylko Wszystkie źródła.');
+                    }
+
+                    continue;
+                }
+
+                if (! is_scalar($value) || $value === '') {
                     $validator->errors()->add("conditions.$index.value", 'Podaj wartosc warunku.');
                 } elseif ($definition['type'] === 'select' && ! array_key_exists((string) $value, $definition['options'])) {
                     $validator->errors()->add("conditions.$index.value", 'Wybrana wartosc warunku jest nieprawidlowa.');
@@ -75,6 +88,22 @@ class SaveAutomationRuleRequest extends FormRequest
             foreach ($this->input('actions', []) as $index => $action) {
                 $type = $action['type'] ?? '';
                 $configuration = $action['configuration'] ?? [];
+
+                if (! is_array($configuration)) {
+                    continue;
+                }
+
+                if ($type === AutomationCatalog::ACTION_MODIFY_ORDER) {
+                    try {
+                        app(AutomationOrderFields::class)->validateConfiguration($configuration);
+                    } catch (ValidationException $exception) {
+                        foreach ($exception->errors() as $field => $messages) {
+                            foreach ($messages as $message) {
+                                $validator->errors()->add("actions.$index.configuration.$field", $message);
+                            }
+                        }
+                    }
+                }
 
                 if ($type === AutomationCatalog::ACTION_CHANGE_STATUS
                     && ! array_key_exists((string) ($configuration['status'] ?? ''), OrderStatusSetting::orderedStatuses())) {

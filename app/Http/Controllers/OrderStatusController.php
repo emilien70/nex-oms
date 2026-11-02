@@ -54,6 +54,7 @@ class OrderStatusController extends Controller
             'prestashopBuyerMessages',
             'prestashopOrderLinks.payments',
             'allegroOrderLink.account',
+            'vonHalskyOrderLink.account',
             'allegroOrderLink.payments',
             'shipments' => fn ($query) => $query
                 ->whereNotNull('tracking_number')
@@ -75,6 +76,13 @@ class OrderStatusController extends Controller
         $paymentIdWarning = app(PrestashopPaymentStatusService::class)->hasMissingTransactionId($order);
         $buyerCommentsHtml = view('orders.partials.buyer-comments', compact('order'))->render();
         $buyerCommentsSignature = hash('sha256', $buyerCommentsHtml);
+        $halskyStatusHtml = $order->source === 'von_halsky' && $order->vonHalskyOrderLink
+            ? view('orders.partials.von-halsky-status', compact('order'))->render() : '';
+        $halskyWarningHtml = $order->source === 'von_halsky' && $order->vonHalskyOrderLink
+            ? view('orders.partials.von-halsky-warning', compact('order'))->render() : '';
+        $halskySignature = hash('sha256', $halskyStatusHtml.$halskyWarningHtml);
+        $halskyFragments = $request?->query('von_halsky_status_signature') !== $halskySignature
+            && $order->source === 'von_halsky' ? ['von-halsky-status' => $halskyStatusHtml, 'von-halsky-warning' => $halskyWarningHtml] : [];
         if ($request?->query('buyer_comments_signature') !== $buyerCommentsSignature) {
             $requestedFragments->push('buyer-comments');
         }
@@ -108,13 +116,14 @@ class OrderStatusController extends Controller
             'latest_event_id' => $latestEventId,
             'payment_id_warning' => $paymentIdWarning,
             'buyer_comments_signature' => $buyerCommentsSignature,
+            'von_halsky_status_signature' => $halskySignature,
             'shipments_signature' => $shipmentsSignature,
             'shipments_count' => $order->shipments->count(),
             'header_customer' => $order->shipping_name ?: $order->customer_login,
             'star_color' => $order->star_color,
             'fields' => $this->editableFields($order),
             'fragments' => $this->renderFragments($order, $requestedFragments->unique(), $request?->integer('automation_page', 1) ?? 1)
-                + ($requestedFragments->contains('buyer-comments') ? ['buyer-comments' => $buyerCommentsHtml] : []),
+                + ($requestedFragments->contains('buyer-comments') ? ['buyer-comments' => $buyerCommentsHtml] : []) + $halskyFragments,
         ])->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 

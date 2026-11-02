@@ -326,6 +326,12 @@
             text-transform: lowercase;
         }
 
+        .order-source-icon.source-von-halsky {
+            background: #9ca3af;
+            color: #ffffff;
+            font-size: 12px;
+        }
+
         .order-source-icon.source-manual {
             background: #9ca3af;
             color: #ffffff;

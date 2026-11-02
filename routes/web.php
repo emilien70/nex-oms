@@ -10,6 +10,7 @@ use App\Http\Controllers\Integrations\InPostCourierParcelTemplateController;
 use App\Http\Controllers\Integrations\IntegrationController;
 use App\Http\Controllers\OrderCatalogProductController;
 use App\Http\Controllers\OrderEmailMessageController;
+use App\Http\Controllers\OrderMessageRecipientController;
 use App\Http\Controllers\OrderMetaController;
 use App\Http\Controllers\OrderProductController;
 use App\Http\Controllers\OrderReturnController;
@@ -77,6 +78,10 @@ use Modules\Integrations\Prestashop\Http\Controllers\PrestashopProductLinkContro
 use Modules\Integrations\Prestashop\Http\Controllers\PrestashopSettingsController;
 use Modules\Integrations\Prestashop\Http\Controllers\PrestashopStatusMappingController;
 use Modules\Integrations\Prestashop\Http\Controllers\PrestashopStatusSyncController;
+use Modules\Integrations\VonHalsky\Http\Controllers\VonHalskyOrderCommandController;
+use Modules\Integrations\VonHalsky\Http\Controllers\VonHalskyOrderImportController;
+use Modules\Integrations\VonHalsky\Http\Controllers\VonHalskyProductLinkController;
+use Modules\Integrations\VonHalsky\Http\Controllers\VonHalskySettingsController;
 use Modules\Invoices\Http\Controllers\CorrectionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkDeletionController;
 use Modules\Invoices\Http\Controllers\InvoiceBulkPdfController;
@@ -173,6 +178,17 @@ Route::post('/paynow/powrot/ponow', [PayNowCustomerReturnController::class, 'ret
     ->middleware('throttle:paynow-customer-retry')->name('paynow.return.retry');
 
 Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
+Route::get('/integrations/von-halsky', [VonHalskySettingsController::class, 'edit'])->name('integrations.von-halsky.edit');
+Route::put('/integrations/von-halsky', [VonHalskySettingsController::class, 'update'])->name('integrations.von-halsky.update');
+Route::post('/integrations/von-halsky/test-connection', [VonHalskySettingsController::class, 'testConnection'])->middleware('throttle:6,1')->name('integrations.von-halsky.test-connection');
+Route::post('/integrations/von-halsky/preview', [VonHalskySettingsController::class, 'preview'])->middleware('throttle:12,1')->name('integrations.von-halsky.preview');
+Route::post('/integrations/von-halsky/import-settings', [VonHalskySettingsController::class, 'updateImportSettings'])->name('integrations.von-halsky.import-settings');
+Route::post('/integrations/von-halsky/automatic-import', [VonHalskySettingsController::class, 'updateAutomaticImport'])->name('integrations.von-halsky.automatic-import');
+Route::post('/integrations/von-halsky/check-now', [VonHalskySettingsController::class, 'checkNow'])->middleware('throttle:6,1')->name('integrations.von-halsky.check-now');
+Route::post('/integrations/von-halsky/status-mappings', [VonHalskySettingsController::class, 'updateStatusMappings'])->name('integrations.von-halsky.status-mappings');
+Route::post('/orders/{order}/von-halsky/commands/{command}/retry', VonHalskyOrderCommandController::class)->middleware('throttle:6,1')->name('orders.von-halsky-command.retry');
+Route::post('/integrations/von-halsky/import', VonHalskyOrderImportController::class)->middleware('throttle:6,1')->name('integrations.von-halsky.import');
+Route::delete('/integrations/von-halsky/disconnect', [VonHalskySettingsController::class, 'disconnect'])->name('integrations.von-halsky.disconnect');
 Route::get('/integrations/allegro', [AllegroSettingsController::class, 'edit'])->name('integrations.allegro.edit');
 Route::put('/integrations/allegro', [AllegroSettingsController::class, 'update'])->name('integrations.allegro.update');
 Route::match(['post', 'put'], '/integrations/allegro/device/start', [AllegroSettingsController::class, 'startDeviceAuthorization'])->name('integrations.allegro.device.start');
@@ -200,6 +216,9 @@ Route::post('/orders/{order}/allegro-information', AllegroOrderInformationContro
 Route::post('/orders/{order}/allegro-fees', [AllegroOrderInformationController::class, 'fees'])
     ->middleware('throttle:20,1')->name('orders.allegro-fees.refresh');
 Route::post('/products/{product}/integrations/allegro/{allegroAccount}', [AllegroProductLinkController::class, 'store'])->name('products.integrations.allegro.store');
+Route::post('/products/{product}/integrations/von-halsky/{vonHalskyAccount}', [VonHalskyProductLinkController::class, 'store'])->name('products.integrations.von-halsky.store');
+Route::patch('/products/{product}/integrations/von-halsky/{vonHalskyAccount}/{vonHalskyProductLink}', [VonHalskyProductLinkController::class, 'update'])->name('products.integrations.von-halsky.update');
+Route::delete('/products/{product}/integrations/von-halsky/{vonHalskyAccount}/{vonHalskyProductLink}', [VonHalskyProductLinkController::class, 'destroy'])->name('products.integrations.von-halsky.destroy');
 Route::patch('/products/{product}/integrations/allegro/{allegroAccount}/{allegroProductLink}', [AllegroProductLinkController::class, 'update'])->name('products.integrations.allegro.update');
 Route::delete('/products/{product}/integrations/allegro/{allegroAccount}/{allegroProductLink}', [AllegroProductLinkController::class, 'destroy'])->name('products.integrations.allegro.destroy');
 Route::get('/integrations/nex-printer', [NexPrinterSettingsController::class, 'index'])->name('integrations.nex-printer.index');
@@ -436,6 +455,8 @@ Route::post('/orders/{order}/catalog-products', [OrderCatalogProductController::
     ->name('orders.catalog-products.store');
 Route::get('/orders/{order}/email-templates/{emailTemplate}/preview', [OrderEmailMessageController::class, 'preview'])
     ->name('orders.email-templates.preview');
+Route::get('/orders/{order}/message-recipient', [OrderMessageRecipientController::class, 'show'])
+    ->middleware('throttle:60,1')->name('orders.message-recipient');
 Route::post('/orders/{order}/email-messages', [OrderEmailMessageController::class, 'store'])
     ->name('orders.email-messages.store');
 Route::get('/orders/{order}/email-messages/{orderEmailMessage}/status', [OrderEmailMessageController::class, 'status'])

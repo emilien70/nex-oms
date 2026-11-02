@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Modules\Analytics\Services\AnalyticsFilterService;
+use Modules\Automation\Jobs\EvaluateAutomationEventJob;
+use Modules\Automation\Models\AutomationRule;
 use Modules\Integrations\Allegro\Jobs\DiscoverAllegroOrdersJob;
 use Modules\Integrations\Allegro\Jobs\SyncAllegroOrderJob;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
@@ -31,6 +33,80 @@ class AllegroAutomaticOrderImportTest extends TestCase
     use RefreshDatabase;
 
     private array $raw;
+
+    public function test_completed_data_automation_waits_for_ready_and_is_not_repeated_by_sync(): void
+    {
+        AutomationRule::query()->create(['name' => 'Komplet', 'trigger' => 'order.data_completed', 'is_active' => true]);
+        $account = $this->account();
+        $this->raw['status'] = 'BOUGHT';
+        $this->fakeOrder();
+        $this->sync($account);
+        Queue::assertNotPushed(EvaluateAutomationEventJob::class);
+        $this->raw['status'] = 'FILLED_IN';
+        $this->sync($account);
+        Queue::assertNotPushed(EvaluateAutomationEventJob::class);
+        $this->raw['status'] = 'READY_FOR_PROCESSING';
+        $this->sync($account);
+        Queue::assertPushed(EvaluateAutomationEventJob::class, 1);
+        Queue::assertPushed(EvaluateAutomationEventJob::class, function ($job) use ($account): bool {
+            $order = Order::findOrFail($job->eventPayload['order_id']);
+
+            return $job->eventName === 'order.data_completed' && $order->purchaseIsComplete()
+                && $order->items()->count() === 1 && $order->shipping_street === 'Dostawcza 10/2'
+                && $job->eventPayload['order_source'] === ['channel' => 'allegro', 'account_id' => $account->id];
+        });
+        $this->sync($account);
+        Queue::assertPushed(EvaluateAutomationEventJob::class, 1);
+    }
+
+    public function test_first_import_of_ready_cod_fires_completed_data_without_requiring_payment(): void
+    {
+        AutomationRule::query()->create(['name' => 'Komplet', 'trigger' => 'order.data_completed', 'is_active' => true]);
+        $account = $this->account();
+        $this->raw['payment'] = ['id' => Fixture::PAYMENT_ID, 'type' => 'CASH_ON_DELIVERY', 'paidAmount' => null, 'finishedAt' => null];
+        $this->raw['surcharges'] = [];
+        $this->fakeOrder();
+        $this->sync($account);
+        $this->assertSame('unpaid', Order::query()->sole()->payment_status);
+        Queue::assertPushed(EvaluateAutomationEventJob::class, 1);
+    }
+
+    public function test_ready_purchase_requiring_review_does_not_fire_completed_data(): void
+    {
+        AutomationRule::query()->create(['name' => 'Komplet', 'trigger' => 'order.data_completed', 'is_active' => true]);
+        $this->raw['payment']['type'] = 'EXTENDED_TERM';
+        $this->fakeOrder();
+        $this->sync($this->account());
+        Queue::assertNotPushed(EvaluateAutomationEventJob::class);
+        $this->assertFalse(Order::query()->sole()->purchaseIsComplete());
+    }
+
+    public function test_creation_is_not_repeated_when_allegro_data_becomes_complete(): void
+    {
+        AutomationRule::query()->create(['name' => 'Utworzenie', 'trigger' => 'order.created', 'is_active' => true]);
+        $account = $this->account();
+        $this->raw['status'] = 'BOUGHT';
+        $this->fakeOrder();
+        $this->sync($account);
+        Queue::assertPushed(EvaluateAutomationEventJob::class, 1);
+        $this->raw['status'] = 'READY_FOR_PROCESSING';
+        $this->sync($account);
+        Queue::assertPushed(EvaluateAutomationEventJob::class, 1);
+    }
+
+    public function test_cancelled_incomplete_purchase_does_not_fire_completed_data_on_late_ready(): void
+    {
+        AutomationRule::query()->create(['name' => 'Komplet', 'trigger' => 'order.data_completed', 'is_active' => true]);
+        $account = $this->account();
+        $this->raw['status'] = 'BOUGHT';
+        $this->fakeOrder();
+        $this->sync($account);
+        $this->raw['status'] = 'CANCELLED';
+        $this->sync($account);
+        $this->raw['status'] = 'READY_FOR_PROCESSING';
+        $this->sync($account);
+        Queue::assertNotPushed(EvaluateAutomationEventJob::class);
+    }
 
     protected function setUp(): void
     {
