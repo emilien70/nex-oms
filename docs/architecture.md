@@ -393,6 +393,14 @@ powroty uzywaja domeny portalu, stare formularze zachowuja host z poprawnego
 podpisanego zadania. Sam podpis platnosci nie staje sie uprawnieniem portalu.
 Szczegoly: [PORTAL.2B](portal-2b-report.md).
 
+Odczyt domeny jest pamietany w atrybutach biezacego zadania HTTP, lacznie
+z wynikiem null. RestrictCustomerPortalHost najpierw odczytuje i waliduje
+konfiguracje, a nastepnie udostepnia wynik wszystkim instancjom
+PortalUrlService do zakonczenia obslugi zadania. Blok finally usuwa wynik
+takze po bledzie. Kolejne zadanie ponownie odczytuje baze; wywolania poza
+tym zakresem HTTP (w tym kolejki i CLI) nie korzystaja z tej pamieci.
+Nie jest to globalny cache ani zmiana walidacji domen i ograniczen hosta.
+
 ## PORTAL.2A - automatyczne przygotowanie linkow
 
 PortalOrderObserver jest zarejestrowany w istniejacym AppServiceProvider.
@@ -1556,9 +1564,13 @@ uzupelniana ani przepisywana. Szczegoly: [raport](message-recipient-report.md).
 
 Wysyłka e-mail powinna być asynchroniczna.
 
-Przed kolejką powstaje niezmienny snapshot treści i prywatnych załączników. Operację chronią `idempotency_key` wraz z fingerprintem intencji, sealed manifest załączników oraz HMAC transportowo istotnej konfiguracji SMTP; jej zmiana przed wysłaniem kończy wiadomość kontrolowanym błędem. Scheduler co pięć minut ponownie dispatchuje wyłącznie stare, nietknięte rekordy `queued`, a atomowy claim w bazie pozostaje ostateczną ochroną przed podwójnym transportem.
+Przed kolejką powstaje niezmienny snapshot treści i wskazań załączników. Od 2026-11-03 `OrderEmailAttachmentFreezer` przygotowuje referencje zamiast kopii: `source_mode=document` wskazuje ID/typ/numer konkretnego dokumentu, a `template_file` wskazuje plik źródłowy wybrany z szablonu. `file_path` dla dokumentu oraz `file_size` i `checksum_sha256` obu nowych trybów są nullable, ponieważ bajty nie są wtedy materializowane. Migracja nie zmienia istniejących rekordów; `source_mode=null` oznacza dotychczasową zamrożoną kopię.
 
-Wynik `unknown` nie jest automatycznie ponawiany. Ręczne UI na karcie zamówienia przygotowuje wiadomość przez centralny `OrderEmailPreparationService`, wymaga jawnie wybranego konta SMTP, a opcjonalny szablon może dostarczyć treść i zamrożone załączniki. Wybrane konto jest częścią fingerprintu intencji. Po zapisie interfejs przez krótki polling odświeża wyłącznie status własnej wiadomości; nie ponawia transportu i nie odczytuje poczty przychodzącej.
+`OrderEmailAttachmentResolver` odczytuje źródło dopiero przy budowie e-maila. Dokument musi nadal być wystawiony i należeć do tego samego zamówienia, mieć ten sam typ i numer; nie jest wyszukiwany ponownie jako najnowszy dokument. Istniejący `InvoicePdfService` odtwarza cache w razie potrzeby, z zachowaniem dotychczasowych blokad prezentacji. Nowy e-mail zawiera aktualny PDF z chwili wykonania, bez blokowania usuwania i bez kopii w `order-email-messages`. Plik szablonu jest odczytywany z zapisanego źródła z limitem 10 MB. Brak źródła, pusty/za duży plik lub błąd PDF zatrzymuje wysyłkę przed SMTP. Po odczycie zawartość jest załączana z pamięci.
+
+Operację nadal chronią `idempotency_key`, fingerprint intencji, sealed manifest oraz HMAC konfiguracji SMTP. Manifest historycznych kopii zachowuje dokładny poprzedni format i kontrolę SHA-256 ich plików. Dla referencji dodatkowo wiąże `source_mode` i pełny `source_snapshot`, kanonizowany względem kolejności kluczy JSON bez zmiany typów wartości. Podmiana ID, źródła, nazwy lub typu załącznika kończy się błędem przed odczytem. Scheduler co pięć minut dispatchuje wyłącznie stare, nietknięte rekordy `queued`, a atomowy claim pozostaje ochroną przed podwójnym transportem. Widok historii pokazuje tylko nazwy; zachowana prywatna trasa pobierania obsługuje wyłącznie historyczne kopie, nie nowe referencje. Nie ma sprzątania starych plików ani backfillu historii.
+
+Wynik `unknown` nie jest automatycznie ponawiany. Ręczne UI na karcie zamówienia przygotowuje wiadomość przez centralny `OrderEmailPreparationService`, wymaga jawnie wybranego konta SMTP, a opcjonalny szablon może dostarczyć treść i źródła załączników. Wybrane konto jest częścią fingerprintu intencji. Po zapisie interfejs przez krótki polling odświeża wyłącznie status własnej wiadomości; nie ponawia transportu i nie odczytuje poczty przychodzącej.
 
 Automation udostępnia akcję `send_email` z obowiązkowym `email_template_id`. Konto SMTP, treść i załączniki pochodzą z szablonu; szablony ukryte na liście ręcznej pozostają dostępne dla reguł. Konfiguracja odbiorców zawiera domyślnie klienta oraz maksymalnie dziesięć dodatkowych, znormalizowanych adresów. Adres klienta jest rozwiązywany z zamówienia w chwili wykonania. Każdy unikalny odbiorca otrzymuje osobny `OrderEmailMessage`, dzięki czemu adresy nie są ujawniane pozostałym odbiorcom, a wynik transportu jest śledzony niezależnie. Brak wymaganego adresu klienta zatrzymuje akcję przed przygotowaniem jakiejkolwiek wiadomości.
 
@@ -3627,7 +3639,7 @@ AllegroInvoiceDocumentService wykorzystuje InvoicePdfRenderer (TCPDF) lub KsefAc
 
 AllegroClient zostal rozszerzony o GET /order/checkout-forms/{id}/invoices i multipart POST /order/{orderId}/billing-documents/files. Wspoldzieli OAuth, kontrolowany timeout i User-Agent z services.allegro.user_agent, takze po 401. Nowe operacje loguja wylacznie bezpieczna liczbe dokumentow, bez PDF, nazw plikow i numerow Faktur. Uzywane sa istniejace orders:read/orders:write, bez nowego scope.
 
-AllegroInvoiceExportService przed pierwszym POST sprawdza tozsamosc, revision (takze dla decyzji manual), dokument, kompletne powiazanie i aktualny checkout-form READY_FOR_PROCESSING/SELLER. Sprawdza liste faktur wylacznie tego zamowienia. Od 2026-11-03 nowo przygotowane pliki korzystaja z InvoicePdfFilenameGenerator::downloadName(), identycznie jak pobieranie PDF: N 3/2026 daje N_3-2026.pdf. Wczesniej zamrozone nazwy i kopie nie sa zmieniane. Dokument o zgodnej nazwie jest przyjmowany jako ten sam dokument wedlug jawnie uzgodnionej reguly biznesowej; inna nazwa nadal blokuje nowa Fakture VAT i nie jest podmieniana.
+AllegroInvoiceExportService przed pierwszym POST sprawdza tozsamosc, revision (takze dla decyzji manual), dokument, kompletne powiazanie i aktualny checkout-form READY_FOR_PROCESSING/SELLER. Sprawdza liste faktur wylacznie tego zamowienia. Nowe nazwy z InvoicePdfFilenameGenerator::downloadName() maja prefiks rodzaju: N 3/2026 daje Faktura N_3-2026.pdf, a Korekta NK 2/2026 daje Korekta NK_2-2026.pdf. Wczesniej zamrozone nazwy i kopie nie sa zmieniane. Przed zamrozeniem nowego eksportu dopuszcza sie tez dokladna poprzednia nazwe z legacyDownloadName(); po rozpoznaniu zostaje zachowana w zleceniu. Kilka pasujacych dokumentow (takze stara i nowa nazwa rownoczesnie) daje uncertain, bez arbitralnego wyboru lub nowego POST. Dokument o zgodnej nazwie jest przyjmowany jako ten sam dokument wedlug jawnie uzgodnionej reguly biznesowej; inne nazwy nadal blokuja nowa Fakture VAT i nie sa podmieniane.
 
 Przed rozpoznaniem istniejacego pliku ponownie sprawdza sie kontekst zadania i zamraza lokalna kopie. upload_started_at jest wtedy znacznikiem wylacznie odczytowych dalszych prob, a nie dowodem wykonania nowego POST. Zapisany ID Allegro i stany wyniku sa takie jak dla normalnej wysylki, bez dodatkowej etykiety w UI. Przed rzeczywistym POST znacznik jest nadal zapisywany jako zamiar uploadu. Timeout, bledy 5xx, 409 lub brak jednoznacznego ID uruchamiaja tylko reconciliation. Jednoznaczne bledy odrzucenia, w tym 429, moga zwolnic zamiar, aby ponowic identyczny plik.
 

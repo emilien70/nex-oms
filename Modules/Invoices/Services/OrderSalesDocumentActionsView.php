@@ -26,6 +26,7 @@ class OrderSalesDocumentActionsView
         private readonly KsefOperationalEnvironmentPolicy $ksefEnvironments,
         private readonly KsefInvoiceVerificationLinkBuilder $ksefVerificationLinks,
         private readonly KsefAutomaticInvoiceSubmissionPolicy $automaticSubmissions,
+        private readonly InvoicePdfFilenameGenerator $filenames,
     ) {}
 
     /**
@@ -227,8 +228,7 @@ class OrderSalesDocumentActionsView
                 );
             }
 
-            $number = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) $invoice->number);
-            $state['pdfFilename'] = 'KSeF_'.trim((string) $number, '_').'.pdf';
+            $state['pdfFilename'] = $this->filenames->downloadName($invoice);
         }
 
         return $state;

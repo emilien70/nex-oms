@@ -198,6 +198,23 @@ class AllegroCorrectionExportTest extends TestCase
         Http::assertNotSent(fn ($request) => $request->method() === 'POST');
     }
 
+    public function test_correction_recognizes_its_previous_filename_without_reuploading(): void
+    {
+        [$root] = $this->source();
+        $correction = $this->finalizeKsefCorrection($this->issueKsefFinancialCorrection($root));
+        $export = $this->correctionExport();
+        $filename = app(InvoicePdfFilenameGenerator::class)->legacyDownloadName($correction);
+        $remote = [$this->remote($export)];
+        $remote[0]['file']['name'] = $filename;
+        $this->fakeApi($remote);
+
+        $this->runExport($export);
+
+        $this->assertSame('synced', $export->fresh()->state);
+        $this->assertSame($filename, $export->fresh()->file_name);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
     public function test_missing_original_confirmation_waits_and_manual_override_does_not_send_original(): void
     {
         [$root] = $this->source(confirmed: false);

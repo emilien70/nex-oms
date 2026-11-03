@@ -126,11 +126,69 @@ class AllegroInvoiceExportTest extends TestCase
         $this->runExport($export);
 
         $filename = app(InvoicePdfFilenameGenerator::class)->downloadName($invoice);
-        $this->assertSame('FV_1-2026.pdf', $filename);
+        $this->assertSame('Faktura FV_1-2026.pdf', $filename);
         $this->assertSame($filename, $export->fresh()->file_name);
         Http::assertSent(fn (Request $request) => $request->method() === 'POST'
             && str_contains($request->body(), 'filename="'.$filename.'"')
             && str_contains($request->body(), $invoice->number));
+    }
+
+    public function test_previous_filename_is_recognized_without_uploading_a_second_document(): void
+    {
+        [$invoice] = $this->invoice();
+        $export = AllegroInvoiceExport::query()->sole();
+        $filename = app(InvoicePdfFilenameGenerator::class)->legacyDownloadName($invoice);
+        $row = $this->remote($export);
+        $row['file']['name'] = $filename;
+        $remote = [$row];
+        $this->fakeApi($remote);
+
+        $this->runExport($export);
+
+        $this->assertSame('synced', $export->fresh()->state);
+        $this->assertSame($filename, $export->fresh()->file_name);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_a_frozen_previous_filename_is_retained_when_its_export_is_checked(): void
+    {
+        [$invoice] = $this->invoice();
+        $export = AllegroInvoiceExport::query()->sole();
+        $filename = app(InvoicePdfFilenameGenerator::class)->legacyDownloadName($invoice);
+        $export->update(['file_name' => $filename]);
+        $remote = [];
+        $this->fakeApi($remote);
+
+        $this->runExport($export);
+
+        $this->assertSame($filename, $export->fresh()->file_name);
+        $remote = [$this->remote($export->fresh())];
+        $this->check($export);
+        $this->assertSame('synced', $export->fresh()->state);
+        $this->assertSame($filename, $export->fresh()->file_name);
+        $this->assertSame(1, Http::recorded(fn ($request) => $request->method() === 'POST')->count());
+    }
+
+    public function test_both_previous_and_new_remote_filenames_require_manual_resolution(): void
+    {
+        [$invoice] = $this->invoice();
+        $export = AllegroInvoiceExport::query()->sole();
+        $row = $this->remote($export);
+        $row['file']['name'] = app(InvoicePdfFilenameGenerator::class)->downloadName($invoice);
+        $oldRow = $row;
+        $oldRow['id'] = (string) Str::uuid();
+        $oldRow['file']['name'] = app(InvoicePdfFilenameGenerator::class)->legacyDownloadName($invoice);
+        $remote = [$oldRow, $row];
+        $this->fakeApi($remote);
+
+        $this->runExport($export);
+
+        $this->assertSame('uncertain', $export->fresh()->state);
+        $this->assertNull($export->fresh()->remote_id);
+        $this->assertNull($export->fresh()->confirmed_at);
+        $this->check($export);
+        $this->assertSame('uncertain', $export->fresh()->state);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
     }
 
     #[DataProvider('existingNamedFileCases')]

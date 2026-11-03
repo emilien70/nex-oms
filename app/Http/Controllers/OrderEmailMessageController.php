@@ -132,6 +132,7 @@ class OrderEmailMessageController extends Controller
             $orderEmailMessageAttachment->order_email_message_id === $orderEmailMessage->getKey(),
             404,
         );
+        abort_unless($orderEmailMessageAttachment->source_mode === null, 404);
 
         $expectedPrefix = "order-email-messages/{$orderEmailMessage->getKey()}/attachments/";
         abort_unless(str_starts_with($orderEmailMessageAttachment->file_path, $expectedPrefix), 404);

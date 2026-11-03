@@ -7,6 +7,7 @@ use App\Enums\EmailAccountEncryption;
 use App\Enums\EmailTemplateAttachmentType;
 use App\Enums\EmailTemplateDocumentType;
 use App\Enums\EmailTemplateFormat;
+use App\Enums\OrderEmailAttachmentSource;
 use App\Enums\OrderEmailMessageSource;
 use App\Enums\OrderEmailMessageStatus;
 use App\Exceptions\OrderEmailException;
@@ -17,6 +18,7 @@ use App\Models\EmailTemplate;
 use App\Models\Order;
 use App\Models\OrderEmailMessage;
 use App\Models\User;
+use App\Services\OrderEmailAttachmentManifest;
 use App\Services\OrderEmailPreparationService;
 use App\Services\OrderEmailSender;
 use App\ValueObjects\OrderEmailPreparationData;
@@ -50,7 +52,7 @@ class OrderEmailDispatchTest extends TestCase
         Queue::fake();
     }
 
-    public function test_preparation_renders_safe_snapshot_freezes_upload_and_queues_once(): void
+    public function test_preparation_renders_safe_snapshot_references_upload_and_queues_once(): void
     {
         $order = $this->order([
             'billing_name' => '<img src=x onerror=alert(1)> Jan Kowalski',
@@ -92,13 +94,16 @@ class OrderEmailDispatchTest extends TestCase
         $this->assertSame(1, $message->attachment_count);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $message->attachment_manifest_sha256);
         $attachment = $message->attachments->sole();
-        $this->assertNotSame($sourcePath, $attachment->file_path);
+        $this->assertSame($sourcePath, $attachment->file_path);
+        $this->assertSame(OrderEmailAttachmentSource::TemplateFile, $attachment->source_mode);
         $this->assertSame('warunki.txt', $attachment->file_name);
-        $this->assertSame(hash('sha256', 'ORIGINAL ATTACHMENT'), $attachment->checksum_sha256);
+        $this->assertNull($attachment->checksum_sha256);
+        $this->assertNull($attachment->file_size);
         Storage::disk('local')->assertExists($attachment->file_path);
 
         Storage::disk('local')->put($sourcePath, 'CHANGED TEMPLATE ATTACHMENT');
-        $this->assertSame('ORIGINAL ATTACHMENT', Storage::disk('local')->get($attachment->file_path));
+        $this->assertSame('CHANGED TEMPLATE ATTACHMENT', Storage::disk('local')->get($attachment->file_path));
+        $this->assertSame([], Storage::disk('local')->allFiles('order-email-messages'));
 
         Queue::assertPushedOn('default', SendOrderEmailJob::class, function (SendOrderEmailJob $job) use ($message): bool {
             return $job->messageId === $message->getKey();
@@ -418,7 +423,7 @@ class OrderEmailDispatchTest extends TestCase
         Queue::assertPushed(SendOrderEmailJob::class, 1);
     }
 
-    public function test_document_attachment_uses_existing_pdf_service_and_freezes_document_identity(): void
+    public function test_document_attachment_references_document_without_generating_a_pdf_during_preparation(): void
     {
         $order = $this->order();
         $series = InvoiceSeries::query()->create([
@@ -444,13 +449,7 @@ class OrderEmailDispatchTest extends TestCase
             'type' => EmailTemplateAttachmentType::Document,
             'document_type' => EmailTemplateDocumentType::InvoicePdf,
         ]);
-        $pdf = '%PDF-1.7 FAKE DOCUMENT';
-        $this->mock(InvoicePdfService::class, function ($mock) use ($invoice, $pdf): void {
-            $mock->shouldReceive('contents')
-                ->once()
-                ->withArgs(fn (Invoice $document): bool => $document->is($invoice))
-                ->andReturn($pdf);
-        });
+        $this->mock(InvoicePdfService::class)->shouldNotReceive('contents');
 
         $message = app(OrderEmailPreparationService::class)->prepareAndQueue(
             $order,
@@ -459,11 +458,15 @@ class OrderEmailDispatchTest extends TestCase
         );
 
         $attachment = $message->attachments->sole();
-        $this->assertSame('TEST_1-2026.pdf', $attachment->file_name);
+        $this->assertSame('Faktura TEST_1-2026.pdf', $attachment->file_name);
         $this->assertSame('application/pdf', $attachment->mime_type);
         $this->assertSame($invoice->getKey(), $attachment->source_snapshot['invoice_id']);
         $this->assertSame('TEST 1/2026', $attachment->source_snapshot['document_number']);
-        $this->assertSame($pdf, Storage::disk('local')->get($attachment->file_path));
+        $this->assertSame(OrderEmailAttachmentSource::Document, $attachment->source_mode);
+        $this->assertNull($attachment->file_path);
+        $this->assertNull($attachment->file_size);
+        $this->assertNull($attachment->checksum_sha256);
+        $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
     public function test_sender_delivers_snapshot_exactly_once_without_serializing_smtp_password(): void
@@ -816,11 +819,29 @@ class OrderEmailDispatchTest extends TestCase
             'file_size' => strlen('FROZEN ATTACHMENT'),
         ]);
 
-        return app(OrderEmailPreparationService::class)->prepareAndQueue(
+        $message = app(OrderEmailPreparationService::class)->prepareAndQueue(
             $order,
             $template,
             $this->data((string) Str::uuid()),
         );
+
+        // Reproduce a queued message created before attachment references existed.
+        $path = "order-email-messages/{$message->id}/attachments/legacy.txt";
+        Storage::disk('local')->put($path, 'FROZEN ATTACHMENT');
+        DB::table('order_email_message_attachments')->where('order_email_message_id', $message->id)->update([
+            'source_mode' => null,
+            'file_path' => $path,
+            'file_size' => strlen('FROZEN ATTACHMENT'),
+            'checksum_sha256' => hash('sha256', 'FROZEN ATTACHMENT'),
+        ]);
+        DB::table('order_email_messages')->where('id', $message->id)->update([
+            'attachment_count' => null,
+            'attachment_manifest_sha256' => null,
+        ]);
+        $message->refresh();
+        app(OrderEmailAttachmentManifest::class)->seal($message);
+
+        return $message->load('attachments');
     }
 
     private function data(string $idempotencyKey): OrderEmailPreparationData

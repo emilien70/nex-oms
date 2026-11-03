@@ -13,6 +13,17 @@ class RestrictCustomerPortalHost
     public function handle(Request $request, Closure $next): Response
     {
         $urls = app(PortalUrlService::class);
+        // Keep the validated value only while handling HTTP, never between queue jobs.
+        $request->attributes->set(PortalUrlService::REQUEST_DOMAIN_ATTRIBUTE, $urls->domain());
+        try {
+            return $this->handleRequest($request, $next, $urls);
+        } finally {
+            $request->attributes->remove(PortalUrlService::REQUEST_DOMAIN_ATTRIBUTE);
+        }
+    }
+
+    private function handleRequest(Request $request, Closure $next, PortalUrlService $urls): Response
+    {
         $name = $request->route()?->getName();
         $customerLanding = $urls->isCustomerLanding($request);
         $publicPortal = $customerLanding || in_array($name, ['customer-portal.show', 'customer-portal.document', 'customer-portal.details',

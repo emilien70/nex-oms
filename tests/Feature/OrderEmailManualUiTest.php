@@ -169,7 +169,7 @@ class OrderEmailManualUiTest extends TestCase
         Queue::assertPushed(SendOrderEmailJob::class, 1);
     }
 
-    public function test_template_attachment_is_frozen_and_download_is_scoped_to_order(): void
+    public function test_template_attachment_is_shown_as_a_name_without_a_download_link(): void
     {
         $order = $this->order();
         $otherOrder = $this->order(['customer_email' => 'inny@example.test']);
@@ -200,9 +200,13 @@ class OrderEmailManualUiTest extends TestCase
         $message = OrderEmailMessage::query()->with('attachments')->sole();
         $attachment = $message->attachments->sole();
 
-        $this->get(route('orders.email-messages.attachments.show', [$order, $message, $attachment]))
+        $this->get(route('orders.show', $order))
             ->assertOk()
-            ->assertDownload('instrukcja.pdf');
+            ->assertSee('instrukcja.pdf')
+            ->assertSee('class="order-email-attachment-name"', false)
+            ->assertDontSee(route('orders.email-messages.attachments.show', [$order, $message, $attachment]), false);
+        $this->get(route('orders.email-messages.attachments.show', [$order, $message, $attachment]))
+            ->assertNotFound();
         $this->get(route('orders.email-messages.attachments.show', [$otherOrder, $message, $attachment]))
             ->assertNotFound();
     }

@@ -9,6 +9,8 @@ use Modules\CustomerPortal\Models\PortalSetting;
 
 class PortalUrlService
 {
+    public const REQUEST_DOMAIN_ATTRIBUTE = '_customer_portal_domain';
+
     public static function validDomain(string $domain): bool
     {
         return strlen($domain) <= 253 && str_contains($domain, '.')
@@ -18,6 +20,10 @@ class PortalUrlService
 
     public function domain(): ?string
     {
+        $request = app()->bound('request') ? app('request') : null;
+        if ($request instanceof Request && $request->attributes->has(self::REQUEST_DOMAIN_ATTRIBUTE)) {
+            return $request->attributes->get(self::REQUEST_DOMAIN_ATTRIBUTE);
+        }
         if (! Schema::hasTable('customer_portal_settings') || ! Schema::hasColumn('customer_portal_settings', 'customer_domain')) {
             return null;
         }

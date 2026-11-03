@@ -5,12 +5,12 @@ namespace App\Services;
 use App\Contracts\OrderEmailTransport;
 use App\Enums\OrderEmailMessageSource;
 use App\Enums\OrderEmailMessageStatus;
+use App\Exceptions\OrderEmailException;
 use App\Exceptions\OrderEmailTransportException;
 use App\Models\EmailAccount;
 use App\Models\Order;
 use App\Models\OrderEmailMessage;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Throwable;
@@ -21,6 +21,7 @@ class OrderEmailSender
         private readonly OrderEmailTransport $transport,
         private readonly OrderEmailAttachmentManifest $attachmentManifests,
         private readonly SmtpAccountFingerprint $smtpAccountFingerprints,
+        private readonly OrderEmailAttachmentResolver $attachments,
     ) {}
 
     public function send(int $messageId): void
@@ -88,6 +89,10 @@ class OrderEmailSender
 
         try {
             $email = $this->buildEmail($message);
+        } catch (OrderEmailException $exception) {
+            $this->markFailed($messageId, $exception->safeCode(), $exception->getMessage());
+
+            return;
         } catch (Throwable) {
             $this->markFailed(
                 $messageId,
@@ -252,14 +257,8 @@ class OrderEmailSender
         $email->getHeaders()->addIdHeader('Message-ID', (string) $message->message_id);
 
         foreach ($message->attachments as $attachment) {
-            $contents = Storage::disk($attachment->disk)->get($attachment->file_path);
-
-            if (strlen($contents) !== $attachment->file_size
-                || ! hash_equals($attachment->checksum_sha256, hash('sha256', $contents))) {
-                throw new \RuntimeException('Attachment snapshot mismatch.');
-            }
-
-            $email->attach($contents, $attachment->file_name, $attachment->mime_type);
+            $resolved = $this->attachments->resolve($message, $attachment);
+            $email->attach($resolved['contents'], $resolved['name'], $resolved['mime']);
         }
 
         return $email;

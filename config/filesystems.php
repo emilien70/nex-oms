@@ -33,6 +33,13 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
+            // Deployment supplies the trusted shared group and default ACLs.
+            'visibility' => 'private',
+            'directory_visibility' => 'private',
+            'permissions' => [
+                'file' => ['private' => 0660],
+                'dir' => ['private' => 0770],
+            ],
             'serve' => true,
             'throw' => false,
             'report' => false,

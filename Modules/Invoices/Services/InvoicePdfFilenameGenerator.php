@@ -36,11 +36,27 @@ class InvoicePdfFilenameGenerator
 
     public function downloadName(Invoice $invoice): string
     {
-        $prefix = $invoice->isProforma() ? 'Proforma_' : '';
+        $prefix = match (true) {
+            $invoice->isInvoice() => 'Faktura ',
+            $invoice->isCorrection() => 'Korekta ',
+            $invoice->isProforma() => 'Proforma ',
+            default => 'Dokument ',
+        };
+
+        return $prefix.$this->safeNumber($invoice).'.pdf';
+    }
+
+    public function legacyDownloadName(Invoice $invoice): string
+    {
+        return ($invoice->isProforma() ? 'Proforma_' : '').$this->safeNumber($invoice).'.pdf';
+    }
+
+    private function safeNumber(Invoice $invoice): string
+    {
         $number = trim((string) $invoice->number);
         $safe = preg_replace('/[^\pL\pN._-]+/u', '-', str_replace(['/', '\\', ' '], ['-', '-', '_'], $number));
         $safe = trim((string) $safe, '.-_');
 
-        return $prefix.($safe !== '' ? $safe : 'dokument-'.$invoice->getKey()).'.pdf';
+        return $safe !== '' ? $safe : 'dokument-'.$invoice->getKey();
     }
 }

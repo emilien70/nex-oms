@@ -35,7 +35,17 @@ Katalogi `storage/` i `bootstrap/cache/` musza byc zapisywalne przez oba konteks
 - PHP-FPM dziala jako `www-data` i obsluguje reczne zlecenia wydruku oraz pobieranie pliku przez NEX Printer;
 - cron i workery Supervisor dzialaja jako `ubuntu`, w tym automatyczne akcje drukowania.
 
-Samo ustawienie wlasciciela na jednego z tych uzytkownikow nie wystarcza. Zalecana konfiguracja uzywa osobnej grupy systemowej `nex-oms`, bitu `setgid` na katalogach oraz domyslnych ACL. Dzieki temu pliki utworzone przez `www-data` sa dostepne dla `ubuntu` i odwrotnie, niezaleznie od `umask` procesu. Kod aplikacji pozostaje wlasnoscia uzytkownika wdrozeniowego; nie nalezy zmieniac wlasciciela calego repozytorium na `www-data`.
+Samo ustawienie wlasciciela na jednego z tych uzytkownikow nie wystarcza. Zalecana konfiguracja uzywa osobnej grupy systemowej `nex-oms`, bitu `setgid` na katalogach oraz domyslnych ACL. Musi byc zgodna z trybami tworzenia plikow i katalogow w aplikacji. Kod aplikacji pozostaje wlasnoscia uzytkownika wdrozeniowego; nie nalezy zmieniac wlasciciela calego repozytorium na `www-data`.
+
+### Zgodnosc prywatnego dysku z uprawnieniami serwera
+
+`config/filesystems.php` ustawia dla dysku `local` widocznosc plikow i katalogow `private`, tryb plikow `0660` oraz tryb nowych katalogow `0770`. Dostep otrzymuje wlasciciel i zaufana grupa aplikacji, bez dostepu dla pozostalych uzytkownikow. Nie zmienia to dysku `public`, tras pobierania dokumentow ani kontroli dostepu w panelu i portalu klienta.
+
+Domyslne ACL pomagaja zachowac wspolny dostep takze przy restrykcyjnym `umask`, ale nie omijaja jawnego trybu `0700` katalogu lub `0600` pliku. Takie tryby moga ograniczyc maske ACL i zablokowac drugiego uzytkownika. Dlatego sama zmiana `umask`, `chown` albo naprawa istniejacych ACL nie wystarcza, jezeli kod nadal tworzy katalogi tylko dla wlasciciela.
+
+`InvoicePdfStorage` zapisuje najpierw plik tymczasowy; dysk tworzy przy tym brakujace katalogi. Przed atomowym przeniesieniem PDF nie wolno ponownie wywolywac `makeDirectory()` na istniejacym katalogu: lokalny adapter Flysystem moze wtedy wykonac `chmod`, ograniczyc ACL i usunac dziedziczenie grupy przez `setgid`.
+
+Konfiguracja aplikacji nie naprawia automatycznie wlascicieli, grup ani ACL istniejacych plikow. Przy wdrozeniu tej poprawki potrzebna jest rowniez kontrolowana konfiguracja serwera opisana ponizej, a nie tylko aktualizacja kodu.
 
 ### Prywatne pliki NEX Printer
 
@@ -46,6 +56,21 @@ storage/app/private/nex-printer/jobs/{uuid}.pdf
 ```
 
 Przy Fakturze VAT albo Korekcie PDF moze zostac najpierw wygenerowany i zapisany w `storage/app/private/invoices/{invoice_id}/`, a nastepnie skopiowany do zadania NEX Printer. Etykieta kurierska jest pobierana do pamieci z integracji przewoznika i jej prywatna kopia zadania trafia do `nex-printer/jobs/`. Katalog `storage/app/private/nex-printer/releases/` zawiera manifest i instalator klienta; aplikacja je odczytuje, a publikuje je operator lub proces wdrozeniowy.
+
+Te same wymagania wspolnego dostepu dotycza:
+
+```text
+storage/app/private/order-email-messages/{message_id}/attachments/
+storage/app/private/email-templates/{template_id}/attachments/
+```
+
+Pierwsza sciezka przechowuje historyczne, zamrozone kopie zalacznikow (`source_mode=null`). Nowe zlecenia e-mail wskazuja konkretny dokument albo plik szablonu i nie tworza w niej kopii. Kolejka korzysta z aktualnego PDF dokumentu lub wskazanego pliku z `email-templates`, dlatego wspolne uprawnienia nadal sa wymagane. W historii widoczne sa tylko nieklikalne nazwy. PDF faktury nadal jest otwierany przez trase `/invoices/{invoice}/pdf`, nie bezposrednia sciezke do pliku.
+
+Przed wczytaniem nowego kodu przez workery nalezy wykonac migracje `2026_11_03_010000_add_sources_to_order_email_attachments` po kopii bazy. Dodaje nullable `source_mode` i dopuszcza brak `file_path`, `file_size`, `checksum_sha256` dla nowych referencji; nie modyfikuje wartosci historycznych rekordow. Nie wykonuje backfillu ani usuwania starych plikow. Cofniecie migracji jest blokowane, gdy istnieja juz referencje. Nowe standardowe nazwy PDF zawieraja rodzaj dokumentu, np. `Faktura N_6-2026.pdf`; stare wiadomosci i zamrozone eksporty Allegro zachowuja swoje nazwy. Nie nalezy ponawiac wysylek w ramach wdrozenia.
+
+Zachowanie, lista plikow, migracja i ograniczenia testow: [raport nazw PDF i referencji e-mail](email-attachment-references-report.md).
+
+Po powstaniu nowych referencji nie cofac samego kodu do wersji, ktora obsluguje wylacznie zamrozone kopie. Stare workery nie potrafia odczytac referencji z nullable metadanymi pliku. Rollback wymaga osobnego planu, nie rollbacku migracji ani odtworzenia starej bazy nad aktualnymi danymi.
 
 Pliki te sa prywatne. Nie wolno wystawiac `storage/app/private` przez serwer WWW ani kierowac do niego publicznego dowiazania `storage`. Agent otrzymuje PDF przez kontrolowany endpoint aplikacji.
 
@@ -72,6 +97,9 @@ sudo install -d -o ubuntu -g nex-oms -m 2770 \
     storage \
     storage/app \
     storage/app/private \
+    storage/app/private/invoices \
+    storage/app/private/order-email-messages \
+    storage/app/private/email-templates \
     storage/app/private/nex-printer \
     storage/app/private/nex-printer/jobs \
     storage/app/private/nex-printer/releases \
@@ -81,12 +109,14 @@ sudo chown -R ubuntu:nex-oms storage bootstrap/cache
 sudo find storage bootstrap/cache -type d -exec chmod 2770 {} +
 sudo find storage bootstrap/cache -type f -exec chmod 0660 {} +
 
-sudo setfacl -R -m u::rwX,g::rwX,m::rwX,o::--- storage bootstrap/cache
+sudo setfacl -R -m u::rwX,g::rwX,g:nex-oms:rwX,m::rwX,o::--- storage bootstrap/cache
 sudo find storage bootstrap/cache -type d \
-    -exec setfacl -m d:u::rwx,d:g::rwx,d:m::rwx,d:o::--- {} +
+    -exec setfacl -m d:u::rwx,d:g::rwx,d:g:nex-oms:rwx,d:m::rwx,d:o::--- {} +
 ```
 
 `setfacl` pochodzi z pakietu `acl`; jezeli polecenia nie ma na serwerze, nalezy zainstalowac ten pakiet przed konfiguracja ACL. Katalogi maja tryb `2770`: cyfra `2` wlacza `setgid`, dlatego nowe podkatalogi dziedzicza grupe `nex-oms`. Pliki maja tryb `0660`. Uzytkownicy spoza wlasciciela i grupy nie otrzymuja dostepu.
+
+Jawny wpis ACL dla grupy `nex-oms` podtrzymuje jej dostep rowniez wtedy, gdy konkretny plik odziedziczy inna grupe wlascicielska. Nie usuwa to wymogu prawidlowej maski ACL i trybow aplikacji. Na istniejacym serwerze przed naprawa zapisac wlascicieli i ACL przez `getfacl -R -p` do prywatnej kopii; powyzsze polecenia nie sa automatycznym krokiem kazdego wdrozenia.
 
 Po pierwszym dodaniu uzytkownikow do grupy trzeba w kontrolowanym oknie przeladowac PHP-FPM i lagodnie wznowic workery, poniewaz juz uruchomione procesy nie pobiora nowej listy grup:
 
@@ -122,12 +152,70 @@ sudo rm -f .permission-test-www-data .permission-test-ubuntu
 
 Kazde polecenie `test` powinno zakonczyc sie kodem `0`. Te kontrole nie tworza zlecenia NEX Printer, nie pobieraja etykiety i nie wysylaja niczego do API przewoznika.
 
+### Kontrola nowych katalogow tworzonych przez Laravel
+
+Samo `test -w storage/app/private` i zapis przez `printf` nie sprawdzaja trybow narzucanych przez Flysystem. Po wdrozeniu konfiguracji, odbudowie istniejacego cache konfiguracji (jezeli jest uzywany) i wczytaniu jej przez procesy aplikacji wykonac ponizszy test na Linuxie. Korzysta z rzeczywistego dysku `local`, nowych zagniezdzonych katalogow i `umask 0077`; sprawdza odczyt w obu kierunkach. Tworzy tylko osobne katalogi kontrolne, bez dokumentow w bazie, wydruku, e-maila, schedulera lub polaczen z KSeF.
+
+```bash
+(
+set -Eeuo pipefail
+cd /var/www/nex-oms
+PROBE=".permission-check-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+CHECK_PHP='
+require "vendor/autoload.php";
+$app = require "bootstrap/app.php";
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+umask(0077);
+[$script, $probe, $actor, $action] = $argv;
+if (!preg_match("/\\A\\.permission-check-[0-9]{8}T[0-9]{6}Z-[0-9]+\\z/", $probe)
+    || !in_array($actor, ["ubuntu", "www-data"], true)
+    || !in_array($action, ["write", "read", "cleanup"], true)) {
+    throw new RuntimeException("Niepoprawny zakres kontroli.");
+}
+$disk = Illuminate\Support\Facades\Storage::disk("local");
+foreach (["invoices", "order-email-messages", "nex-printer/jobs"] as $prefix) {
+    $directory = "$prefix/$probe";
+    if ($action === "write") {
+        if ($disk->directoryExists("$directory/$actor")
+            || !$disk->put("$directory/$actor/nested/check.pdf", "permission-check:$actor")) {
+            throw new RuntimeException("Blad zapisu: $prefix / $actor");
+        }
+    } elseif ($action === "read") {
+        foreach (["ubuntu", "www-data"] as $writer) {
+            if ($disk->get("$directory/$writer/nested/check.pdf") !== "permission-check:$writer") {
+                throw new RuntimeException("Blad odczytu: $prefix / $actor");
+            }
+        }
+    } elseif (!$disk->deleteDirectory($directory)) {
+        throw new RuntimeException("Nie usunieto katalogu kontrolnego: $directory");
+    }
+}
+echo "$action $actor: OK", PHP_EOL;
+'
+sudo -u ubuntu /usr/bin/php -r "$CHECK_PHP" "$PROBE" ubuntu write
+sudo -u www-data /usr/bin/php -r "$CHECK_PHP" "$PROBE" www-data write
+sudo -u ubuntu /usr/bin/php -r "$CHECK_PHP" "$PROBE" ubuntu read
+sudo -u www-data /usr/bin/php -r "$CHECK_PHP" "$PROBE" www-data read
+sudo -u ubuntu /usr/bin/php -r "$CHECK_PHP" "$PROBE" ubuntu cleanup
+)
+```
+
+Kazdy etap musi pokazac `OK`. Po bledzie zachowac wynik i wskazane katalogi kontrolne do diagnozy; nie naprawiac praw przez `chmod 777`. Test jednostkowy/feature na Windows nie potwierdza rzeczywistych uprawnien POSIX ani grup uruchomionych procesow na VPS.
+
+### Objawy i naprawa istniejacych plikow
+
+Gdy e-mail i Allegro maja poprawny PDF, ale panel nie otwiera Faktury, sprawdzic dostep PHP-FPM do kazdego katalogu sciezki. Kolejka `ubuntu` moze poprawnie odczytac wlasny plik, ktorego `www-data` nie widzi. Pobieranie zalacznika e-mail moze wtedy zwracac `404`, poniewaz kontroler nie moze potwierdzic istnienia pliku; sam rekord wiadomosci nie oznacza braku zalacznika.
+
+Potwierdzony incydent z 2026-11-03: zamowienie 184, Faktura `N 7/2026` (ID 22) i zalacznik 4 wiadomosci 21. Naprawiono wylacznie ACL istniejacych katalogow Faktur i wiadomosci dla `ubuntu` oraz `www-data`. Kopia praw znajduje sie w `/root/nex-oms-backups/pdf-access-20261103T135301Z/`. Oba adresy zwrocily PDF `200`, bez logowania `401`; sumy kontrolne plikow pozostaly niezmienne. Nie zmieniono danych dokumentu ani KSeF i nie ponawiano wysylek. Ta naprawa nie dodala domyslnych ACL dla przyszlych katalogow i nie zastapila wdrozenia trwalej konfiguracji.
+
 ### Ponowne wdrozenie i odtworzenie
 
 - Nie uruchamiac `composer`, Artisan ani budowania cache jako `root`, bo utworzy to pliki niedostepne dla procesow aplikacji. Uzywac `ubuntu` albo jawnie naprawic prawa przed przeladowaniem uslug.
 - Jezeli wdrozenie podmienia katalog `storage`, `bootstrap/cache` lub ich dowiazania symboliczne, ponownie wykonac konfiguracje wlasciciela, grupy, trybow i ACL na rzeczywistym katalogu docelowym.
 - Po odtworzeniu kopii zapasowej ponownie zastosowac `chown`, `chmod` i ACL. Archiwum moze zachowac numery UID/GID z innego serwera albo nie zachowac ACL.
 - Kontrole `namei`, `getfacl` i zapisu obu uzytkownikow wykonac przed wznowieniem workerow i przed testowym zleceniem wydruku.
+- Wykonac tez powyzsza kontrole nowych katalogow przez Laravel. Sam pozytywny test katalogu nadrzednego w skrypcie wdrozeniowym nie potwierdza dziedziczenia praw Faktur i zalacznikow.
+- Zmiana `config/filesystems.php` wymaga odswiezenia cache konfiguracji, jesli byl uzywany, i wczytania nowej konfiguracji przez dlugo dzialajace workery. Zrobic to w zatwierdzonym oknie wdrozenia; nie restartowac automatycznie wszystkich procesow ani nie zmieniac ustawien KSeF.
 - Katalog `storage/app/private/nex-printer/jobs` nalezy tworzyc jawnie podczas wdrozenia. Laravel potrafi utworzyc brakujacy podkatalog, ale tylko wtedy, gdy proces ma prawo zapisu do wszystkich katalogow nadrzednych.
 - Nie stosowac `chmod -R 777`, nie przenosic prywatnych PDF do `public/` i nie rozwiazywac problemu przez uruchamianie workerow jako `root` albo `www-data`.
 

@@ -1258,7 +1258,7 @@ class InvoicePdfTest extends TestCase
         $proforma->document_type = InvoiceDocumentType::Proforma;
         $proforma->number = 'PF 2/2026';
         $this->assertStringStartsWith(
-            'Proforma_',
+            'Proforma ',
             app(InvoicePdfFilenameGenerator::class)->downloadName($proforma),
         );
     }

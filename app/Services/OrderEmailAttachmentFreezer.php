@@ -5,24 +5,20 @@ namespace App\Services;
 use App\Enums\EmailTemplateAttachmentType;
 use App\Enums\EmailTemplateDocumentType;
 use App\Enums\OrderEmailAttachmentKind;
+use App\Enums\OrderEmailAttachmentSource;
 use App\Exceptions\OrderEmailException;
 use App\Models\EmailTemplateAttachment;
 use App\Models\Order;
 use App\Models\OrderEmailMessage;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Modules\Invoices\Enums\InvoiceDocumentStatus;
 use Modules\Invoices\Enums\InvoiceDocumentType;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
-use Modules\Invoices\Services\InvoicePdfService;
 
 class OrderEmailAttachmentFreezer
 {
-    private const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
     public function __construct(
-        private readonly InvoicePdfService $invoicePdfs,
         private readonly InvoicePdfFilenameGenerator $invoicePdfFilenames,
     ) {}
 
@@ -58,19 +54,22 @@ class OrderEmailAttachmentFreezer
             );
         }
 
-        $contents = Storage::disk('local')->get($sourcePath);
-        $this->store(
-            message: $message,
-            position: $attachment->slot,
-            kind: OrderEmailAttachmentKind::Upload,
-            contents: $contents,
-            fileName: $this->safeFileName($attachment->original_name, 'zalacznik'),
-            sourceSnapshot: [
+        $message->attachments()->create([
+            'position' => $attachment->slot,
+            'kind' => OrderEmailAttachmentKind::Upload,
+            'source_mode' => OrderEmailAttachmentSource::TemplateFile,
+            'disk' => 'local',
+            'file_path' => $sourcePath,
+            'file_name' => $this->safeFileName($attachment->original_name, 'zalacznik'),
+            'mime_type' => $attachment->mime_type ?: 'application/octet-stream',
+            'file_size' => null,
+            'checksum_sha256' => null,
+            'source_snapshot' => [
                 'email_template_attachment_id' => $attachment->getKey(),
                 'email_template_id' => $attachment->email_template_id,
                 'source_file_name' => $attachment->original_name,
             ],
-        );
+        ]);
     }
 
     private function freezeDocument(
@@ -110,71 +109,29 @@ class OrderEmailAttachmentFreezer
             ->latest('id')
             ->first();
 
-        if (! $invoice instanceof Invoice) {
+        if (! $invoice instanceof Invoice || blank($invoice->number)) {
             throw new OrderEmailException(
                 'document_attachment_missing',
                 'Nie można przygotować wiadomości, ponieważ wybrany dokument nie istnieje.',
             );
         }
 
-        $contents = $this->invoicePdfs->contents($invoice);
-        $this->store(
-            message: $message,
-            position: $attachment->slot,
-            kind: $kind,
-            contents: $contents,
-            fileName: $this->invoicePdfFilenames->downloadName($invoice),
-            sourceSnapshot: [
+        $message->attachments()->create([
+            'position' => $attachment->slot,
+            'kind' => $kind,
+            'source_mode' => OrderEmailAttachmentSource::Document,
+            'disk' => 'local',
+            'file_path' => null,
+            'file_name' => $this->invoicePdfFilenames->downloadName($invoice),
+            'mime_type' => 'application/pdf',
+            'file_size' => null,
+            'checksum_sha256' => null,
+            'source_snapshot' => [
                 'invoice_id' => $invoice->getKey(),
                 'document_type' => $invoice->document_type->value,
                 'document_number' => $invoice->number,
                 'issued_at' => $invoice->issued_at?->toIso8601String(),
             ],
-        );
-    }
-
-    /** @param array<string, mixed> $sourceSnapshot */
-    private function store(
-        OrderEmailMessage $message,
-        int $position,
-        OrderEmailAttachmentKind $kind,
-        string $contents,
-        string $fileName,
-        array $sourceSnapshot,
-    ): void {
-        $size = strlen($contents);
-
-        if ($size === 0 || $size > self::MAX_FILE_SIZE) {
-            throw new OrderEmailException(
-                'attachment_size_invalid',
-                'Załącznik wiadomości jest pusty albo przekracza limit 10 MB.',
-            );
-        }
-
-        $extension = pathinfo($fileName, PATHINFO_EXTENSION);
-        $storedName = (string) Str::uuid().($extension === '' ? '' : '.'.mb_strtolower($extension));
-        $path = "order-email-messages/{$message->getKey()}/attachments/{$storedName}";
-
-        if (! Storage::disk('local')->put($path, $contents)) {
-            throw new OrderEmailException(
-                'attachment_storage_failed',
-                'Nie udało się bezpiecznie zapisać załącznika wiadomości.',
-            );
-        }
-
-        $detectedMime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($contents);
-        $message->attachments()->create([
-            'position' => $position,
-            'kind' => $kind,
-            'disk' => 'local',
-            'file_path' => $path,
-            'file_name' => $fileName,
-            'mime_type' => is_string($detectedMime) && $detectedMime !== ''
-                ? $detectedMime
-                : 'application/octet-stream',
-            'file_size' => $size,
-            'checksum_sha256' => hash('sha256', $contents),
-            'source_snapshot' => $sourceSnapshot,
         ]);
     }
 

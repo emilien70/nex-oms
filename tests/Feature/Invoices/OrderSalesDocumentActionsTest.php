@@ -331,6 +331,7 @@ class OrderSalesDocumentActionsTest extends TestCase
             ->assertSee('data-order-ksef-invoice-pdf', false)
             ->assertSee('data-ksef-invoice-source-url="'.$downloadRoute.'"', false)
             ->assertSee('data-ksef-number="'.$submission->ksef_number.'"', false)
+            ->assertSee('data-ksef-pdf-filename="Faktura FV_1-2026.pdf"', false)
             ->assertSee('KSeF: '.$invoice->number)
             ->assertSee('Pobierz PDF Faktury z KSeF')
             ->assertSee('ksef-fe-invoice-converter.umd.js', false)

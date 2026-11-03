@@ -44,7 +44,6 @@ class InvoicePdfStorage
                 return (string) $disk->get($path);
             }
 
-            $disk->makeDirectory(dirname($path));
             if (! @rename($disk->path($temporary), $disk->path($path))) {
                 if ($disk->exists($path)) {
                     $disk->delete($temporary);

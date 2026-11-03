@@ -36,9 +36,9 @@
         <div class="order-email-message-attachments">
             <strong>Wysłane załączniki:</strong>
             @foreach ($message->attachments as $attachment)
-                <a href="{{ route('orders.email-messages.attachments.show', [$order, $message, $attachment]) }}">
+                <span class="order-email-attachment-name">
                     <i class="bi bi-paperclip" aria-hidden="true"></i>{{ $attachment->file_name }}
-                </a>
+                </span>
             @endforeach
         </div>
     @endif

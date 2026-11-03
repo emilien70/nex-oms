@@ -24,6 +24,28 @@ Uzupełnienie operacyjne 2026-10-24: bieżący staging OVHcloud/Ubuntu, jeden cr
 
 ---
 
+# PDF i e-mail - nazwy i zalaczniki bez kopii
+
+Uzgodnienie 2026-11-03: standardowe PDF maja wspolne nazwy przy pobieraniu,
+w portalu klienta, e-mailu i eksporcie do Allegro: `Faktura N_6-2026.pdf`,
+`Korekta NK_2-2026.pdf`, `Proforma PF_1-2026.pdf`. Numer dokumentu, tresc
+PDF i adresy pobierania nie zmieniaja sie. Nazwy XML/UPO i specjalnych
+prezentacji Offline pozostaja poza tym etapem.
+
+Nowa wiadomosc przechowuje wskazanie konkretnego dokumentu albo pliku
+z szablonu, bez dodatkowej kopii zalacznika. Kolejka odczytuje aktualny
+PDF wskazanego dokumentu w chwili wysylki i moze odtworzyc brakujacy cache.
+Nie blokuje jego usuniecia. Po wczytaniu zalacznik pozostaje w pamieci
+do zakonczenia SMTP. Brak dokumentu/pliku lub blad PDF zatrzymuje wiadomosc;
+nie wystawia sie nowej Faktury ani nie podstawia innego dokumentu.
+
+Historia pokazuje tylko nazwy zalacznikow, bez linkow i archiwalnej kopii
+nowych wyslan. Dotychczasowe wiadomosci zachowuja zamrozone kopie i nazwy.
+Nie usuwa sie starych plikow automatycznie. Kwestie rozbieznosci wersji PDF
+przed kolejka i przy wysylce rozstrzyga zaakceptowana zasada: wysylana jest
+wersja aktualna w chwili wykonania. Kopie techniczne i zabezpieczenia
+transmisji Allegro pozostaja; poprzednie nazwy nie wywoluja reuploadu.
+
 # HALSKY.1 - polaczenie i podglad Von Halsky
 
 InPost Von Halsky posiada osobna konfiguracje w Integracjach: Polaczenie

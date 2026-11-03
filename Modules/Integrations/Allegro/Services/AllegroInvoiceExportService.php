@@ -177,15 +177,31 @@ class AllegroInvoiceExportService
             return;
         }
         $filename = $export->file_name ?? $this->filenames->downloadName($export->invoice);
-        $matches = array_filter($remote, fn (array $row): bool => $this->remoteFileMatches($row, $filename, $export->invoice_number));
+        $candidates = $export->file_name !== null
+            ? [$filename]
+            : [$filename, $this->filenames->legacyDownloadName($export->invoice)];
+        $matches = array_filter($remote, function (array $row) use ($candidates, $export): bool {
+            foreach ($candidates as $candidate) {
+                if ($this->remoteFileMatches($row, $candidate, $export->invoice_number)) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
         if ($matches !== []) {
-            $this->freezePdf($export);
+            $this->freezePdf($export, count($matches) === 1 ? data_get(reset($matches), 'file.name') : null);
             $export = $this->context($job);
             if (! $export) {
                 return;
             }
             // A matching remote file is treated as this export; all further attempts must be read-only.
             $export->update(['state' => 'uploading', 'upload_started_at' => now()]);
+            if (count($matches) !== 1) {
+                $this->unresolved($job, 'Nie znaleziono jednoznacznego potwierdzenia tej faktury w Allegro. Nie wysłano kolejnej kopii.');
+
+                return;
+            }
             $this->reconcile($job, $export, $remote);
 
             return;
@@ -258,6 +274,17 @@ class AllegroInvoiceExportService
 
             return;
         }
+        if (! $export->remote_id && $export->invoice
+            && $export->file_name === $this->filenames->downloadName($export->invoice)) {
+            $legacyFilename = $this->filenames->legacyDownloadName($export->invoice);
+            $aliases = array_filter($invoices, fn (array $row): bool => $this->remoteFileMatches($row, $export->file_name, $export->invoice_number)
+                || $this->remoteFileMatches($row, $legacyFilename, $export->invoice_number));
+            if (count($aliases) > 1) {
+                $this->unresolved($job, 'Nie znaleziono jednoznacznego potwierdzenia tej faktury w Allegro. Nie wysłano kolejnej kopii.');
+
+                return;
+            }
+        }
         $matches = array_values(array_filter($invoices, fn ($row) => $export->remote_id
             ? $row['id'] === $export->remote_id
             : $this->remoteFileMatches($row, $export->file_name, $export->invoice_number)));
@@ -324,7 +351,7 @@ class AllegroInvoiceExportService
         return $response['invoices'];
     }
 
-    private function freezePdf(AllegroInvoiceExport $export): string
+    private function freezePdf(AllegroInvoiceExport $export, ?string $matchedFilename = null): string
     {
         if ($export->pdf_path !== null) {
             $contents = Storage::disk('local')->get($export->pdf_path);
@@ -345,7 +372,7 @@ class AllegroInvoiceExportService
             throw new AllegroApiException('Nie udało się zapisać prywatnej kopii faktury.', 422);
         }
         $export->update(['document_hash' => $hash, 'pdf_checksum' => $checksum, 'pdf_path' => $path,
-            'file_name' => $this->filenames->downloadName($export->invoice), 'file_size' => strlen($contents)]);
+            'file_name' => $export->file_name ?? $matchedFilename ?? $this->filenames->downloadName($export->invoice), 'file_size' => strlen($contents)]);
 
         return $contents;
     }
