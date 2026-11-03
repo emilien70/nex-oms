@@ -57,11 +57,11 @@ class OrderEmailPreparationService
                 if (Schema::hasTable('customer_portal_settings')) {
                     PortalSetting::query()->where('singleton_key', PortalSetting::KEY)->lockForUpdate()->first();
                 }
+                $order = Order::query()->whereKey($order->getKey())->lockForUpdate()->first();
+                if (! $order instanceof Order) {
+                    throw new OrderEmailException('email_context_invalid', 'Zamowienie juz nie istnieje.');
+                }
                 if ($data->recipientCustomer) {
-                    $order = Order::query()->whereKey($order->getKey())->lockForUpdate()->first();
-                    if (! $order instanceof Order) {
-                        throw new OrderEmailException('email_context_invalid', 'Zamowienie juz nie istnieje.');
-                    }
                     $order->assertPurchaseReady();
                     $this->validate($order, $template, $data);
                     if ($data->source === OrderEmailMessageSource::Automation
@@ -120,14 +120,11 @@ class OrderEmailPreparationService
 
                 $usesPortal = str_contains($subjectTemplate.$bodyTemplate.($managedTemplate?->subject_template ?? '').($managedTemplate?->body_template ?? ''), '[link_zamowienia]');
                 if ($usesPortal) {
-                    if (mb_strtolower(trim($data->recipientEmail($order))) !== mb_strtolower(trim((string) $order->customer_email))) {
-                        throw new OrderEmailException('portal_recipient_mismatch', 'Link strony klienta może zostać przygotowany tylko dla adresu e-mail kupującego.');
-                    }
                     try {
                         $portalAccess = app(PortalAccessService::class);
-                        $portalUrl = $portalAccess->issue($order, recipientEmail: $data->recipientEmail($order));
+                        $portalUrl = $portalAccess->existingUrl($order);
                     } catch (ValidationException) {
-                        throw new OrderEmailException('portal_unavailable', 'Nie można przygotować linku strony klienta. Sprawdź ustawienia i stan linku.');
+                        throw new OrderEmailException('portal_unavailable', 'Nie można użyć istniejącego linku strony klienta. Sprawdź, czy link został przygotowany i jest aktywny.');
                     }
                     if ($data->contentIsRendered) {
                         preg_match_all('~https?://[a-zA-Z0-9.\[\]:-]+/(?:[1-9][0-9]{0,17}/[A-Za-z0-9]{10}|zamowienie/[A-Za-z0-9_-]{32})(?![A-Za-z0-9_/-])~', $subjectTemplate.$bodyTemplate, $renderedPortalLinks);

@@ -60,6 +60,7 @@ class OrderStatusController extends Controller
                 ->whereNotNull('tracking_number')
                 ->orderByDesc('created_at'),
             'shipments.courierAccount',
+            'returns.parcels',
             'events' => fn ($query) => $query->orderByDesc('created_at'),
             'payNowPayments' => fn ($query) => $query
                 ->where('status', PayNowPaymentStatus::Confirmed->value)
@@ -69,7 +70,7 @@ class OrderStatusController extends Controller
 
         $statusChangedAt = $order->status_changed_at ?? $order->created_at;
         $latestEventId = (int) ($order->events->max('id') ?? 0);
-        $shipmentsSignature = $this->shipmentsSignature($order->shipments);
+        $shipmentsSignature = $this->shipmentsSignature($order);
         $requestedFragments = collect(explode(',', (string) $request?->query('fragments', '')))
             ->filter()
             ->unique();
@@ -118,7 +119,7 @@ class OrderStatusController extends Controller
             'buyer_comments_signature' => $buyerCommentsSignature,
             'von_halsky_status_signature' => $halskySignature,
             'shipments_signature' => $shipmentsSignature,
-            'shipments_count' => $order->shipments->count(),
+            'shipments_count' => $order->shipments->count() + $order->returns->sum(fn ($record) => $record->parcels->count()),
             'header_customer' => $order->shipping_name ?: $order->customer_login,
             'star_color' => $order->star_color,
             'fields' => $this->editableFields($order),
@@ -189,6 +190,12 @@ class OrderStatusController extends Controller
             $fragments['shipments'] = $order->shipments
                 ->map(fn ($shipment): string => view('orders.partials.shipment-row', compact('shipment'))->render())
                 ->implode('');
+            foreach ($order->returns as $record) {
+                foreach ($record->parcels as $parcel) {
+                    $parcel->setRelation('orderReturn', $record);
+                    $fragments['shipments'] .= view('returns._parcel-row', compact('parcel'))->render();
+                }
+            }
         }
 
         if ($requested->contains('history')) {
@@ -245,15 +252,15 @@ class OrderStatusController extends Controller
         ];
     }
 
-    private function shipmentsSignature(Collection $shipments): string
+    private function shipmentsSignature(Order $order): string
     {
-        return sha1($shipments->map(fn ($shipment): array => [
+        return sha1($order->shipments->map(fn ($shipment): array => [
             $shipment->id,
             $shipment->status,
             $shipment->oms_status,
             $shipment->tracking_number,
             $shipment->error_message,
             $shipment->updated_at?->toIso8601String(),
-        ])->values()->toJson());
+        ])->values()->toJson().$order->returns->flatMap(fn ($record) => $record->parcels)->map(fn ($parcel) => $parcel->getAttributes())->toJson());
     }
 }

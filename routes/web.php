@@ -14,6 +14,7 @@ use App\Http\Controllers\OrderMessageRecipientController;
 use App\Http\Controllers\OrderMetaController;
 use App\Http\Controllers\OrderProductController;
 use App\Http\Controllers\OrderReturnController;
+use App\Http\Controllers\OrderReturnParcelController;
 use App\Http\Controllers\OrderReturnRefundController;
 use App\Http\Controllers\OrderSavedViewController;
 use App\Http\Controllers\OrderScanController;
@@ -506,6 +507,10 @@ Route::post('/orders/returns/settings/statuses', [ReturnStatusSettingsController
 Route::patch('/orders/returns/settings/statuses/{returnStatusSetting}', [ReturnStatusSettingsController::class, 'update'])->name('settings.return-statuses.update');
 Route::delete('/orders/returns/settings/statuses/{returnStatusSetting}', [ReturnStatusSettingsController::class, 'destroy'])->name('settings.return-statuses.destroy');
 Route::get('/orders/returns/{orderReturn}', [OrderReturnController::class, 'show'])->name('returns.show');
+Route::post('/orders/returns/{orderReturn}/parcels', [OrderReturnParcelController::class, 'store'])->name('returns.parcels.store');
+Route::patch('/orders/returns/{orderReturn}/parcels/{parcel}', [OrderReturnParcelController::class, 'update'])->name('returns.parcels.update');
+Route::get('/orders/returns/{orderReturn}/parcels/{parcel}/history', [OrderReturnParcelController::class, 'history'])->name('returns.parcels.history');
+Route::post('/orders/returns/{orderReturn}/parcels/{parcel}/refresh', [OrderReturnParcelController::class, 'refresh'])->middleware('throttle:20,1')->name('returns.parcels.refresh');
 Route::get('/orders/{order}', [OrdersController::class, 'show'])->name('orders.show');
 Route::put('/integrations/allegro/returns/settings', [AllegroReturnSettingsController::class, 'update'])->name('integrations.allegro.returns.settings');
 Route::put('/integrations/allegro/refunds/settings', [AllegroRefundSettingsController::class, 'update'])->name('integrations.allegro.refunds.settings');

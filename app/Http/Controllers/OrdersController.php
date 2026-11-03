@@ -737,6 +737,7 @@ class OrdersController extends Controller
         $order->load([
             'items.product',
             'returns.localStatus',
+            'returns.parcels',
             'items.prestashopItemLink.orderLink.account',
             'prestashopOrderLinks.account',
             'prestashopBuyerMessages',

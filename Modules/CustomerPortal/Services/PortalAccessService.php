@@ -124,6 +124,24 @@ class PortalAccessService
         }, 3);
     }
 
+    public function existingUrl(Order $order): string
+    {
+        if (! $this->ready()) {
+            $this->deny();
+        }
+
+        return DB::transaction(function () use ($order): string {
+            $settings = PortalSetting::query()->where('singleton_key', PortalSetting::KEY)->lockForUpdate()->first();
+            $order = Order::query()->whereKey($order->id)->lockForUpdate()->first();
+            $link = $order ? PortalLink::query()->where('order_id', $order->id)->lockForUpdate()->first() : null;
+            if (! $settings?->is_enabled || ! $order || ! $link || ! $this->valid($link, $order, $settings)) {
+                $this->deny();
+            }
+
+            return $this->urls->link($link);
+        }, 3);
+    }
+
     public function activate(Order $order, int $expectedGeneration): string
     {
         if (! $this->bindingsReady()) {
@@ -205,7 +223,7 @@ class PortalAccessService
         }
         $link = PortalLink::query()->where('order_id', $order->id)->first();
         if (! $link) {
-            // A template preview is read-only; actual email preparation issues the link.
+            // Previews are read-only; sending requires a link provisioned for the order.
             return $this->previewPlaceholder();
         }
         if (! $this->valid($link, $order, $settings)) {

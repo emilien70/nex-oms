@@ -15,6 +15,7 @@ use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Models\Invoice;
 use Modules\Invoices\Services\CorrectionSourceStateService;
+use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Throwable;
 
 class AllegroInvoiceExportService
@@ -23,6 +24,7 @@ class AllegroInvoiceExportService
         private readonly AllegroClient $client,
         private readonly AllegroInvoiceDocumentService $documents,
         private readonly CorrectionSourceStateService $corrections,
+        private readonly InvoicePdfFilenameGenerator $filenames,
     ) {}
 
     public function enqueue(int $invoiceId, bool $manual = false, bool $fromStatusChange = false): ?AllegroInvoiceExport
@@ -170,6 +172,24 @@ class AllegroInvoiceExportService
             throw new AllegroApiException('Zamówienie Allegro nie jest gotowe do przekazania faktury.', 422);
         }
         $remote = $this->remoteInvoices($export);
+        $export = $this->context($job);
+        if (! $export) {
+            return;
+        }
+        $filename = $export->file_name ?? $this->filenames->downloadName($export->invoice);
+        $matches = array_filter($remote, fn (array $row): bool => $this->remoteFileMatches($row, $filename, $export->invoice_number));
+        if ($matches !== []) {
+            $this->freezePdf($export);
+            $export = $this->context($job);
+            if (! $export) {
+                return;
+            }
+            // A matching remote file is treated as this export; all further attempts must be read-only.
+            $export->update(['state' => 'uploading', 'upload_started_at' => now()]);
+            $this->reconcile($job, $export, $remote);
+
+            return;
+        }
         if (! $isCorrection && $remote !== []) {
             throw new AllegroApiException('Do zamówienia Allegro dodano już dokument. Sprawdź go przed przekazaniem faktury z OMS.', 422);
         }
@@ -230,9 +250,9 @@ class AllegroInvoiceExportService
         }, 3);
     }
 
-    private function reconcile(ExportAllegroInvoiceJob $job, AllegroInvoiceExport $export): void
+    private function reconcile(ExportAllegroInvoiceJob $job, AllegroInvoiceExport $export, ?array $invoices = null): void
     {
-        $invoices = $this->remoteInvoices($export);
+        $invoices ??= $this->remoteInvoices($export);
         if (blank($export->file_name) || blank($export->pdf_checksum) || blank($export->document_hash)) {
             $this->unresolved($job, 'Brakuje tożsamości zapisanej kopii PDF. Wymagane jest ręczne sprawdzenie w Allegro.');
 
@@ -240,14 +260,14 @@ class AllegroInvoiceExportService
         }
         $matches = array_values(array_filter($invoices, fn ($row) => $export->remote_id
             ? $row['id'] === $export->remote_id
-            : (data_get($row, 'file.name') === $export->file_name && ($row['invoiceNumber'] ?? null) === $export->invoice_number)));
+            : $this->remoteFileMatches($row, $export->file_name, $export->invoice_number)));
         if (count($matches) !== 1) {
             $this->unresolved($job, 'Nie znaleziono jednoznacznego potwierdzenia tej faktury w Allegro. Nie wysłano kolejnej kopii.');
 
             return;
         }
         $remote = $matches[0];
-        if (data_get($remote, 'file.name') !== $export->file_name || ($remote['invoiceNumber'] ?? null) !== $export->invoice_number
+        if (! $this->remoteFileMatches($remote, $export->file_name, $export->invoice_number)
             || ! is_string(data_get($remote, 'file.uploadedAt')) || trim(data_get($remote, 'file.uploadedAt')) === '') {
             $this->unresolved($job, 'Dane pliku w Allegro nie odpowiadają zgłoszeniu OMS. Wymagane jest sprawdzenie.');
 
@@ -278,6 +298,15 @@ class AllegroInvoiceExportService
                 $this->unresolved($job, 'Allegro nie potwierdziło jeszcze wyniku weryfikacji bezpieczeństwa pliku.');
             }
         }, 3);
+    }
+
+    private function remoteFileMatches(array $remote, string $filename, string $number): bool
+    {
+        // Previously frozen UUID filenames retain their original number check.
+        $legacy = preg_match('/\Anex-oms-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}-[0-9a-f]{16}\.pdf\z/', $filename) === 1;
+
+        return data_get($remote, 'file.name') === $filename
+            && (! $legacy || ($remote['invoiceNumber'] ?? null) === $number);
     }
 
     private function remoteInvoices(AllegroInvoiceExport $export): array
@@ -316,7 +345,7 @@ class AllegroInvoiceExportService
             throw new AllegroApiException('Nie udało się zapisać prywatnej kopii faktury.', 422);
         }
         $export->update(['document_hash' => $hash, 'pdf_checksum' => $checksum, 'pdf_path' => $path,
-            'file_name' => 'nex-oms-'.Str::uuid().'-'.substr($checksum, 0, 16).'.pdf', 'file_size' => strlen($contents)]);
+            'file_name' => $this->filenames->downloadName($export->invoice), 'file_size' => strlen($contents)]);
 
         return $contents;
     }

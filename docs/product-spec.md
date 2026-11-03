@@ -336,6 +336,17 @@ przeniesiono do ustawien stron informacyjnych. Zmienna [link_zamowienia]
 korzysta z tego samego adresu. Platnosci i ich ustawienia pozostaja bez zmian.
 Szczegoly: [automatyczne linki](portal-auto-links-report.md).
 
+Od 2026-11-03 e-mail reczny lub automatyczny moze zawierac [link_zamowienia]
+takze dla jawnie wskazanego adresu innego niz e-mail kupujacego. Kazdy odbiorca
+otrzymuje juz przygotowany adres tego samego zamowienia. Przygotowanie e-maila
+nie tworzy ani nie zmienia linku; brak, wylaczenie, wygasniecie lub niespojne
+przypisanie zatrzymuja nowa wiadomosc. Maskowanie danych, weryfikacja dokumentow,
+ustawienia platnosci oraz kontrola aktualnego adresu odbiorcy-klienta pozostaja.
+Ponowienie tego samego kroku automatyzacji zachowuje dotychczasowe wiadomosci
+i moze uzupelnic brakujacego odbiorce bez duplikowania kopii juz wyslanej.
+Nowe wykonanie reguly pozostaje odrebna operacja. Historyczne wykonania nie
+sa samoczynnie ponawiane; zmiana dotyczy e-maili, nie SMS.
+
 # PORTAL.2 - platnosci na stronie klienta
 
 W ustawieniach stron informacyjnych dodano osobne przelaczniki platnosci
@@ -2747,6 +2758,8 @@ Jeżeli PrestaShop zwraca dokładnie `current_state = 0`, zamówienie nie posiad
 
 Wewnętrzne `order_items.product_id` pozostaje `null`. Import nie dopasowuje katalogu po nazwie, SKU ani EAN; zewnętrzne ID produktu i wariantu są przechowywane wyłącznie w tabelach integracji. Adres `address1/address2` jest zachowywany jako pełna ulica bez heurystycznego rozdzielania numeru budynku i lokalu. Kwoty są przetwarzane dziesiętnie, a niezgodność sumy pozycji, dostawy, płatności lub wartości zamówienia blokuje zapis.
 
+Przy ustalaniu VAT nowej pozycji jawna stawka zwrocona przy pozycji ma pierwszenstwo przed wyliczeniem jej z cen. Gdy sklep nie udostepnia jej wprost, OMS uzywa oryginalnej precyzji cen brutto i netto, bez wczesniejszego zaokraglania netto do groszy. Przykladowo brutto 84,84 i netto zrodla 68,975610 daje VAT 23%, nie 22,99%. Netto dokumentu jest nastepnie obliczane z brutto i ustalonej stawki dotychczasowym mechanizmem faktur. Ustawienia VAT katalogowego i domyslnego sa zachowane; brak danych nie oznacza stawki 0. Nie przelicza sie istniejacych zamowien ani wystawionych dokumentow.
+
 PRESTASHOP.2A jest jednokierunkowy i uruchamiany ręcznie. Nie synchronizuje ponownie danych biznesowych zaimportowanego zamówienia, nie mapuje statusu sklepu na status OMS, nie wysyła statusów do PrestaShop, nie synchronizuje stanów magazynowych i nie uruchamia harmonogramu. Powtórny import może jedynie bezpiecznie uzupełnić brakujący telefon lub dane punktu odbioru oraz usunąć błędnie zapisany login PrestaShop. Te funkcje należą do kolejnych etapów.
 
 ---
@@ -2969,9 +2982,9 @@ Zakladka Integracje -> Allegro -> Faktury ma domyslnie wylaczony automat: Nie pr
 
 Zapis i wlaczenie konfiguracji nie wysylaja historycznych dokumentow. Przyszla zmiana statusu moze zakwalifikowac istniejaca Fakture; obslugiwane sa Faktura przed statusem i Faktura wystawiona juz w danym statusie. Reczne przekazanie wymaga potwierdzenia i aktualnej wersji Faktury. Jest mozliwe przy wylaczonym automacie, omija jego filtr i status, ale nie omija ochrony dokumentow, konta ani KSeF.
 
-OMS przesyla numer i prywatny PDF istniejacej Faktury VAT, bez wystawiania drugiego dokumentu i bez publicznego linku. Przed pierwszym zapisem sprawdza aktualne zamowienie i dokumenty Allegro. Zakupy niepelne, wymagajace sprawdzenia, anulowane, obce lub usuniete nie sa przekazywane. Wczesniej dodany dokument wymaga sprawdzenia zamiast automatycznej podmiany.
+OMS przesyla numer i prywatny PDF istniejacej Faktury VAT, bez wystawiania drugiego dokumentu i bez publicznego linku. Przed pierwszym zapisem sprawdza aktualne zamowienie i dokumenty Allegro. Zakupy niepelne, wymagajace sprawdzenia, anulowane, obce lub usuniete nie sa przekazywane. Nowy PDF ma te sama nazwe co pobierany dokument, np. N_3-2026.pdf dla N 3/2026. Dokument o dokladnie tej nazwie przy tym samym zamowieniu Allegro jest traktowany jako ten sam dokument, bez ponownego uploadu. Inny plik wymaga sprawdzenia zamiast automatycznej podmiany.
 
-Przekazywany PDF jest zamrozona kopia z suma SHA-256 i unikatowa nazwa pliku. Rozpoczeta, niejednoznaczna wysylka jest wylacznie sprawdzana w Allegro, bez slepego ponownego uploadu. Sam numer Faktury nie potwierdza tozsamosci pliku. Po jednoznacznym odrzuceniu mozna ponowic te sama kopie. Kazda sciezka API i OAuth, rowniez multipart po 401, zachowuje wymagany User-Agent.
+Przekazywany PDF jest zamrozona kopia z suma SHA-256 i niezmienna nazwa pliku. Zgodnie z decyzja wlasciciela zgodnosc czytelnej nazwy oznacza zalozenie identycznej tresci, bez technicznego porownania zdalnego PDF i bez wymagania zgodnego invoiceNumber z Allegro. Po pozytywnej weryfikacji pliku przez Allegro stan jest taki sam jak po wysylce OMS, bez dodatkowej etykiety o odnalezieniu pliku. WAITING i REJECTED nie sa potwierdzeniem. Rozpoczeta, niejednoznaczna wysylka lub rozpoznany plik sa dalej wylacznie sprawdzane w Allegro, bez slepego ponownego uploadu. Sam numer Faktury nie wystarcza. Wczesniej zamrozone losowe nazwy oraz ich dotychczasowa kontrola numeru sa zachowane. Po jednoznacznym odrzuceniu rzeczywistego POST mozna ponowic te sama kopie. Kazda sciezka API i OAuth, rowniez multipart po 401, zachowuje wymagany User-Agent.
 
 Przy Fakturze widac brak przekazania, oczekiwanie na status/KSeF/wysylke, przeslanie z trwajaca weryfikacja, pozytywne potwierdzenie bezpieczenstwa albo blad/wynik wymagajacy sprawdzenia. Po maksymalnie 10 automatycznych kontrolach mozna jawnie zlecic kolejne sprawdzenie. Historia zamowienia pokazuje fakty przeslania i weryfikacji; ikona wystawionej Faktury na liscie nadal oznacza wystawienie, a nie eksport.
 
@@ -2987,7 +3000,7 @@ Zakladka Faktury zawiera niezalezna sekcje Korekty: Nie przekazuj (domyslnie), P
 
 Numerowana, lecz nadal edytowalna Korekta nie jest przekazywana. Wymagane sa status issued, numer, finalized_at, prawidlowa Faktura zrodlowa i spojny liniowy lancuch Korekt tego samego zamowienia. Obslugiwane sa obie kolejnosci: zamkniecie przed statusem oraz zamkniecie juz w docelowym statusie. Zamkniecie pozostaje idempotentne; nie zmienia numeracji, kwot ani snapshotow.
 
-Kazda zamknieta Korekta ma w karcie zamowienia wlasny stan eksportu i jawna operacje reczna z potwierdzeniem. Reczne przekazanie jest mozliwe przy wylaczonym automacie. Istniejaca Faktura i poprzednie Korekty w Allegro nie blokuja dodania kolejnej Korekty; nie sa adoptowane, podmieniane ani usuwane. Jesli OMS nie potwierdzil Faktury zrodlowej w tym samym Allegro, automat oczekuje, a operator moze sprawdzic dokument i jawnie przekazac Korekte. Nie powoduje to automatycznej wysylki Faktury zrodlowej.
+Kazda zamknieta Korekta ma w karcie zamowienia wlasny stan eksportu i jawna operacje reczna z potwierdzeniem. Reczne przekazanie jest mozliwe przy wylaczonym automacie. Istniejaca Faktura i poprzednie Korekty w Allegro nie blokuja dodania kolejnej Korekty; nie sa podmieniane ani usuwane. Plik o dokladnie tej samej nazwie co pobierana biezaca Korekta jest rozpoznawany wedlug tej samej reguly co Faktura VAT, bez ponownego uploadu. Jesli OMS nie potwierdzil Faktury zrodlowej w tym samym Allegro, automat oczekuje, a operator moze sprawdzic dokument i jawnie przekazac Korekte. Nie powoduje to automatycznej wysylki Faktury zrodlowej.
 
 Anulowanie zamowienia w OMS lub Allegro nie blokuje Korekty. Powiazanie Allegro musi jednak pochodzic z zakonczonego importu, nalezec do aktualnego sprzedawcy i srodowiska i nie moze byc zastapione, niepelne ani usuniete. Odmowa API, np. limit dokumentow, jest widoczna przy Korekcie; nie zmienia statusu zamowienia ani finansow.
 
@@ -3066,6 +3079,18 @@ Klikniecie otwiera formularz z produktami i ilosciami. Operator potwierdza zazna
 OMS sprawdza aktualny zakup i istniejace wnioski przed potwierdzeniem oraz przed wyslaniem. Uwzglednia wnioski automatyczne Allegro i wnioski z innych kart tego samego zakupu. Podwojne klikniecie i powtorzone zadanie nie tworza kolejnego POST. Niepewny wynik jest uzgadniany tylko odczytem po oryginalnym ID pozycji; samo podobienstwo oferty, nazwy lub kwoty nie wystarcza. Ponowne potwierdzenie jest mozliwe tylko wtedy, gdy lokalny rekord ma not_sent i wysylka nie zostala rozpoczeta.
 
 Historia Zwroty prowizji Allegro pokazuje lokalne zlecenia, ilosci, wynik i bezpieczny komunikat bledu, po 20 wpisow. Zaobserwowane zmiany trafiaja rowniez do historii karty. Wyniki sa sprawdzane w tle co okolo 5 minut; otwarcie samej karty nie wywoluje API. Przyznano zwrot prowizji nie oznacza zwrotu wplaty kupujacemu. Funkcja nie zmienia kwot zaplaty zamowienia, dokumentow, statusow ani magazynu. Nie dodaje anulowania wnioskow lub odwolan. Raport: docs/allegro-commission-refunds-report.md.
+
+# Przesylki zwrotne i automatyzacja statusu lokalnego (2026-11-02)
+
+Karta zwrotu pokazuje w tabeli Przesylki (zamowienie) paczki wyslane klientowi oraz paczki zwrotne. Paczki zwrotne sa widoczne takze na karcie powiazanego zamowienia, maja strzalke z podpowiedzia Przesylka zwrotna, odnosnik do wlasciwego zwrotu, pasek postepu i historie statusow. Reczny numer mozna dodac lub poprawic na karcie dowolnego zwrotu, nie tylko Allegro. Nie jest to nadanie etykiety.
+
+Status paczki jest niezalezny od statusu zgloszenia Allegro, lokalnego statusu zwrotu i statusu zamowienia. Odczyt wykorzystuje publiczne sledzenie InPost albo API sledzenia Allegro z konta zgodnego z tozsamoscia importowanego zwrotu. Pozostali przewoznicy bez dostepnego zrodla pozostaja bez danych sledzenia; OMS nie zgaduje doreczenia. Wraca do klienta / Zwrocona klientowi nie oznacza przyjecia zwrotu przez sprzedawce. Czas dostawy jest pokazywany tylko przy znanych czasach rozpoczecia transportu i doreczenia.
+
+Harmonogram co minute kolejkuje nalezne kontrole, maksymalnie 100 paczek w partii; kazda aktywna paczka jest sprawdzana co okolo godzine na shipments-sync. Automatyczny odczyt obejmuje ostatnie 60 dni. Statusy koncowe zatrzymuja dalszy odczyt. Widoki nie odpytuja kuriera; przycisk odswiezenia tylko zleca odczyt w kolejce. Niedostepne API nie kasuje ostatniego poprawnego statusu.
+
+Automatyczna akcja Zmien status zwrotu jest dostepna dla zdarzenia Zmieniono status przesylki zwrotnej u kuriera. Warunki obejmuja status paczki zwrotnej i lokalny status zwrotu. Lista docelowych statusow jest pobierana z konfiguracji OMS. Domyslny zakres czeka na doreczenie wszystkich znanych paczek konkretnego zwrotu; mozna wybrac dowolna paczke zdarzenia. Brak statusu choc jednej paczki blokuje wariant wszystkich. Akcja dotyczy tylko zwrotu wskazanego przez zweryfikowane zdarzenie, nie zmienia innych zwrotow ani statusu zamowienia i nie otwiera ponownie Zakonczonych/Odrzuconych. Historia jest widoczna przy zamowieniu i zwrocie, po 10 wykonan na strone. Samodzielne zwroty bez zamowienia sa sledzone, lecz nie uruchamiaja obecnego silnika automatyzacji opartego na zamowieniach.
+
+Funkcja nie tworzy i nie wlacza reguly, nie wykonuje refundacji, korekt, zmian magazynowych ani wysylki wiadomosci. Raport i instrukcja: docs/return-parcel-tracking-report.md.
 
 # ALLEGRO.4C - Korekta z karty zwrotu
 

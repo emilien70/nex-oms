@@ -265,6 +265,7 @@
             const orderFields = {{ Illuminate\Support\Js::from($catalog->orderFields()) }};
             const countries = {{ Illuminate\Support\Js::from(app(\App\Support\CountryCatalog::class)->all()) }};
             const statuses = {{ Illuminate\Support\Js::from($statuses) }};
+            const returnStatuses = {{ Illuminate\Support\Js::from($catalog->conditionDefinitions()['return_status']['options']) }};
             const shipmentDefinitions = {{ Illuminate\Support\Js::from($shipmentActionDefinitions) }};
             const invoiceSeries = {{ Illuminate\Support\Js::from($invoiceSeries) }};
             const emailTemplates = {{ Illuminate\Support\Js::from($emailTemplates) }};
@@ -506,6 +507,9 @@
                     if (action.type === 'change_order_status') {
                         return `<label class="automation-block-label">STATUS DOCELOWY</label><select class="form-select form-select-sm action-config" data-key="status" name="actions[${index}][configuration][status]">${optionsHtml(statuses, configuration.status)}</select>`;
                     }
+                    if (action.type === 'change_return_status') {
+                        return `<div class="row g-2"><div class="col-md-6"><label class="automation-block-label">STATUS ZWROTU</label><select class="form-select form-select-sm action-config" data-key="return_status_id" name="actions[${index}][configuration][return_status_id]" required><option value="">Wybierz status</option>${optionsHtml(returnStatuses, configuration.return_status_id)}</select></div><div class="col-md-6"><label class="automation-block-label">PACZKI ZWROTNE</label><select class="form-select form-select-sm action-config" data-key="parcel_scope" name="actions[${index}][configuration][parcel_scope]">${optionsHtml({all: 'Wszystkie paczki doręczone', any: 'Dowolna paczka zdarzenia'}, configuration.parcel_scope || 'all')}</select></div></div>`;
+                    }
                     if (action.type === 'create_inpost_shipment') {
                         return shipmentActionConfiguration(action, index);
                     }
@@ -581,6 +585,7 @@
                 };
 
                 const defaultActionConfiguration = type => {
+                    if (type === 'change_return_status') return {return_status_id: '', parcel_scope: 'all'};
                     if (type === 'modify_order') return {field: 'notes', value: ''};
                     if (type === 'change_order_status') return {status: Object.keys(statuses)[0]};
                     if (type === 'create_inpost_shipment') return defaultShipmentConfiguration();

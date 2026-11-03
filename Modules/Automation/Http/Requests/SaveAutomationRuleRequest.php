@@ -4,6 +4,7 @@ namespace Modules\Automation\Http\Requests;
 
 use App\Models\EmailTemplate;
 use App\Models\OrderStatusSetting;
+use App\Models\ReturnStatusSetting;
 use App\Services\OrderVariableService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -58,6 +59,11 @@ class SaveAutomationRuleRequest extends FormRequest
                     continue;
                 }
 
+                if (in_array($condition['field'] ?? '', ['return_status', 'return_parcel_status'], true)
+                    && $this->input('trigger') !== 'return.parcel_status_changed') {
+                    $validator->errors()->add("conditions.$index.field", 'Ten warunek wymaga zdarzenia przesyłki zwrotnej.');
+                }
+
                 if (! in_array($condition['operator'] ?? '', $definition['operators'], true)) {
                     $validator->errors()->add("conditions.$index.operator", 'Operator nie pasuje do wybranego warunku.');
                 }
@@ -93,6 +99,16 @@ class SaveAutomationRuleRequest extends FormRequest
                     continue;
                 }
 
+                if ($type === AutomationCatalog::ACTION_CHANGE_RETURN_STATUS) {
+                    $id = filter_var($configuration['return_status_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                    if ($this->input('trigger') !== 'return.parcel_status_changed' || $id === false
+                        || ! ReturnStatusSetting::query()->whereKey($id)->exists()
+                        || ! in_array($configuration['parcel_scope'] ?? 'all', ['all', 'any'], true)
+                        || array_diff(array_keys($configuration), ['return_status_id', 'parcel_scope']) !== []) {
+                        $validator->errors()->add("actions.$index.configuration.return_status_id", 'Wybierz status zwrotu i zakres paczek dla zdarzenia przesyłki zwrotnej.');
+                    }
+                }
+
                 if ($type === AutomationCatalog::ACTION_MODIFY_ORDER) {
                     try {
                         app(AutomationOrderFields::class)->validateConfiguration($configuration);
@@ -111,7 +127,7 @@ class SaveAutomationRuleRequest extends FormRequest
                 }
 
                 if ($type === AutomationCatalog::ACTION_CREATE_SHIPMENT) {
-                    if (str_starts_with((string) $this->input('trigger'), 'shipment.')) {
+                    if (str_starts_with((string) $this->input('trigger'), 'shipment.') || $this->input('trigger') === 'return.parcel_status_changed') {
                         $validator->errors()->add("actions.$index.type", 'Akcja tworzenia przesylki nie moze reagowac na zdarzenie przesylki.');
                     }
 

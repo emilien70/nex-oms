@@ -26,6 +26,7 @@ class AutomationRun extends Model
     protected $fillable = [
         'automation_rule_id',
         'order_id',
+        'order_return_id',
         'event_id',
         'event_name',
         'chain_id',

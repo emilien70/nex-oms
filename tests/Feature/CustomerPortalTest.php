@@ -400,10 +400,11 @@ class CustomerPortalTest extends TestCase
         $this->assertFalse($documents->available($proforma->fresh(), $settings));
     }
 
-    public function test_email_failure_rolls_back_new_link_and_stale_preview_or_wrong_recipient_is_rejected(): void
+    public function test_invalid_email_and_stale_preview_leave_the_existing_link_unchanged(): void
     {
         $this->settings();
-        $order = Order::withoutEvents(fn () => $this->order());
+        $order = $this->order();
+        $linkBefore = PortalLink::query()->sole()->getAttributes();
         $account = EmailAccount::query()->create(['name' => 'Test', 'email' => 'shop@example.test', 'smtp_host' => 'smtp.example.test',
             'smtp_port' => 587, 'smtp_username' => 'shop@example.test', 'smtp_password' => 'test', 'encryption' => EmailAccountEncryption::StartTls]);
         $template = EmailTemplate::query()->create(['email_account_id' => $account->id, 'name' => 'Portal', 'subject_template' => 'Zamówienie',
@@ -416,28 +417,12 @@ class CustomerPortalTest extends TestCase
         );
         try {
             $service->prepareAndQueue($order, $template, $data('', '[link_zamowienia]'));
-            $this->fail('An invalid message must roll back the link.');
+            $this->fail('An invalid message must not be queued.');
         } catch (OrderEmailException $exception) {
             $this->assertSame('subject_invalid', $exception->safeCode());
         }
-        $this->assertDatabaseCount('customer_portal_links', 0);
+        $this->assertSame($linkBefore, PortalLink::query()->sole()->getAttributes());
         $this->assertDatabaseCount('order_email_messages', 0);
-        try {
-            $service->prepareAndQueue($order, $template, $data('Zamówienie', '[link_zamowienia]', 'foreign@example.test'));
-            $this->fail('Customer access must not be issued to another recipient.');
-        } catch (OrderEmailException $exception) {
-            $this->assertSame('portal_recipient_mismatch', $exception->safeCode());
-        }
-        $this->assertDatabaseCount('customer_portal_links', 0);
-        Order::query()->whereKey($order->id)->update(['customer_email' => 'new-buyer@example.test']);
-        try {
-            $service->prepareAndQueue($order, $template, $data('Zamówienie', '[link_zamowienia]'));
-            $this->fail('A stale order must not issue current buyer access to the previous recipient.');
-        } catch (OrderEmailException $exception) {
-            $this->assertSame('portal_unavailable', $exception->safeCode());
-        }
-        $this->assertDatabaseCount('customer_portal_links', 0);
-        $order->refresh();
         $oldUrl = dirname($this->url($order)).'/'.Str::random(10);
         try {
             $service->prepareAndQueue($order, $template, $data('Zamówienie', $oldUrl));
@@ -446,8 +431,70 @@ class CustomerPortalTest extends TestCase
             $this->assertSame('portal_preview_expired', $exception->safeCode());
         }
         $this->assertDatabaseCount('order_email_messages', 0);
+        $this->assertSame($linkBefore, PortalLink::query()->sole()->getAttributes());
         Queue::assertNothingPushed();
         Http::assertNothingSent();
+    }
+
+    public function test_manual_email_to_an_explicit_recipient_uses_the_existing_portal_link(): void
+    {
+        $this->settings();
+        $order = $this->order();
+        $link = PortalLink::query()->sole();
+        $before = $link->getAttributes();
+        $url = $this->url($order);
+        $account = EmailAccount::query()->create(['name' => 'Test', 'email' => 'shop@example.test', 'smtp_host' => 'smtp.example.test',
+            'smtp_port' => 587, 'smtp_username' => 'shop@example.test', 'smtp_password' => 'test', 'encryption' => EmailAccountEncryption::StartTls]);
+        $message = app(OrderEmailPreparationService::class)->prepareAndQueue($order, null, new OrderEmailPreparationData(
+            toEmail: 'archive@example.test', toName: null, source: OrderEmailMessageSource::Manual,
+            idempotencyKey: (string) Str::uuid(), emailAccount: $account, actorName: 'Operator',
+            subjectTemplate: 'Zamowienie', bodyTemplate: '[link_zamowienia]', format: EmailTemplateFormat::PlainText,
+        ));
+        $this->assertSame('archive@example.test', $message->to_email);
+        $this->assertSame($url, $message->body_text);
+        $this->assertSame($before, $link->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('unavailableEmailLinkCases')]
+    public function test_email_never_creates_or_reactivates_an_unavailable_portal_link(string $state): void
+    {
+        $settings = $this->settings();
+        $order = $this->order();
+        $link = PortalLink::query()->sole();
+        match ($state) {
+            'missing' => $link->delete(),
+            'revoked' => $link->update(['revoked_at' => now()]),
+            'expired' => $link->update(['expires_at' => now()->subMinute()]),
+            'disabled' => $settings->update(['is_enabled' => false]),
+            'invalid binding' => PortalLink::query()->whereKey($link->id)->update(['binding_hash' => str_repeat('0', 64)]),
+            'invalid token' => PortalLink::query()->whereKey($link->id)->update(['token_hash' => str_repeat('0', 64)]),
+            'deleted order' => $order->delete(),
+        };
+        $beforeLinks = DB::table('customer_portal_links')->get()->toJson();
+        $beforeSettings = $settings->fresh()->getAttributes();
+        $account = EmailAccount::query()->create(['name' => 'Test', 'email' => 'shop@example.test', 'smtp_host' => 'smtp.example.test',
+            'smtp_port' => 587, 'smtp_username' => 'shop@example.test', 'smtp_password' => 'test', 'encryption' => EmailAccountEncryption::StartTls]);
+        try {
+            app(OrderEmailPreparationService::class)->prepareAndQueue($order, null, new OrderEmailPreparationData(
+                toEmail: 'archive@example.test', toName: null, source: OrderEmailMessageSource::Manual,
+                idempotencyKey: (string) Str::uuid(), emailAccount: $account, actorName: 'Operator',
+                subjectTemplate: 'Zamowienie', bodyTemplate: '[link_zamowienia]', format: EmailTemplateFormat::PlainText,
+            ));
+            $this->fail('An unavailable link must not be sent or replaced.');
+        } catch (OrderEmailException $exception) {
+            $this->assertSame($state === 'deleted order' ? 'email_context_invalid' : 'portal_unavailable', $exception->safeCode());
+        }
+        $this->assertSame($beforeLinks, DB::table('customer_portal_links')->get()->toJson());
+        $this->assertSame($beforeSettings, $settings->fresh()->getAttributes());
+        $this->assertDatabaseCount('order_email_messages', 0);
+        Queue::assertNothingPushed();
+        Http::assertNothingSent();
+    }
+
+    public static function unavailableEmailLinkCases(): array
+    {
+        return array_map(fn ($state) => [$state], ['missing', 'revoked', 'expired', 'disabled', 'invalid binding', 'invalid token', 'deleted order']);
     }
 
     public function test_old_orders_and_expired_links_cannot_be_reactivated_by_copy_or_policy_extension(): void

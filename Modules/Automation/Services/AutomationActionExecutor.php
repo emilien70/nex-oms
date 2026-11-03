@@ -20,6 +20,7 @@ class AutomationActionExecutor
         private readonly AutomationStockActionService $stockActionService,
         private readonly AutomationNexPrinterActionService $nexPrinterActionService,
         private readonly AutomationOrderModificationService $orderModificationService,
+        private readonly AutomationReturnStatusService $returnStatusService,
     ) {}
 
     public function execute(
@@ -29,6 +30,9 @@ class AutomationActionExecutor
         array $configuration,
     ): array {
         $run->load('order');
+        if ($type === AutomationCatalog::ACTION_CHANGE_RETURN_STATUS) {
+            return $this->returnStatusService->execute($run, $step, $configuration);
+        }
         $run->order->assertPurchaseReady();
 
         return match ($type) {

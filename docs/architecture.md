@@ -443,6 +443,19 @@ i finalnych PDF KSeF, bez zmiany lifecycle. Przygotowanie zmiennej
 [link_zamowienia] jest transakcyjne z wiadomoscia; podglady sa bez zapisu.
 Szczegoly i ograniczenia: [PORTAL.1](portal-1-report.md).
 
+Uzupelnienie 2026-11-03: przygotowanie e-maila nie wywoluje juz issue().
+PortalAccessService::existingUrl() odczytuje wylacznie istniejacy aktywny link,
+z blokadami settings -> order -> link i pelna kontrola jego przypisania,
+tokena, odwolania i terminu. Nie tworzy ustawien, nie wydaje nowego kodu ani
+nie odnawia dostepu. Brak lub nieaktywny link konczy przygotowanie e-maila
+kodem portal_unavailable. Odbiorca nie musi byc kupujacym: jawnie wskazany
+adres dodatkowy otrzymuje ten sam URL, bez zmiany tozsamosci portalu.
+OrderEmailPreparationService odczytuje aktualne Order pod blokada rowniez
+dla adresow stalych; ochrona recipientCustomer przed zmiana kontaktu oraz
+idempotency_key/fingerprint pozostaja aktywne. Ponowienie tego samego kroku
+nie nadpisuje wyslanej kopii i nie zleca jej drugi raz. Nie uruchomiono
+ponownie historycznych regul ani nie zmieniono zasad SMS.
+
 ## Status dokumentu
 
 Ten dokument opisuje:
@@ -3340,6 +3353,10 @@ Etap nie instaluje modułu w PrestaShop, nie wymaga dodatkowej biblioteki Compos
 
 `PrestashopOrderPreviewService` jest granicą normalizacji danych zewnętrznych. Pobiera zamówienie, pozycje, klienta, adresy, przewoźnika, walutę i płatności za pośrednictwem wspólnego `PrestashopClient`. Używa dokładnej arytmetyki dziesiętnej do kwot, wyznacza stawkę VAT z zapisanych wartości brutto i netto oraz odrzuca niekompletne lub niespójne odpowiedzi. Podgląd nie zapisuje danych.
 
+Przy pozycji pierwszenstwo ma jawne `tax_rate`, jesli odpowiedz sklepu je zawiera i przejdzie walidacje `OrderImportVatResolver::source()`. Brak lub pusty tekst pozwala wyznaczyc stawke z cen jednostkowych brutto/netto, a przy braku tej mozliwosci z wartosci calej pozycji. `sourceMoney()` zachowuje pelna precyzje zrodla po sprawdzeniu formatu, znaku i zakresu kwoty; dopiero wynikowa stawka jest zaokraglana half-up do dwoch miejsc. Kwoty zapisywane w zamowieniu nadal maja skale 2. Nie wyznacza sie VAT ponownie z netto zaokraglonego do groszy ani nie dopasowuje wyniku do listy typowych stawek. Bledne jawne VAT lub netto blokuja import, zamiast uruchamiac stawke domyslna. Nie pobiera sie obecnej konfiguracji podatkowej produktu jako historycznej stawki zamowienia.
+
+Konfigurowalne pierwszenstwo VAT z katalogu OMS, kanalu i stawki domyslnej pozostaje bez zmian. Dokumenty nadal wyliczaja netto i kwote podatku z zapisanego brutto oraz rozstrzygnietej stawki przez istniejacy `InvoiceTotalsCalculator`. Poprawka precyzji nie przelicza historycznych zamowien, dokumentow ani ich snapshotow i nie wymaga migracji.
+
 `PrestashopOrderImportService` ponownie pobiera podgląd i zapisuje w jednej transakcji `orders`, `order_items`, `prestashop_order_links`, `prestashop_order_item_links`, `prestashop_order_payments` oraz `order_events`. Zewnętrzne ID produktu i wariantu nie są wpisywane do `order_items.product_id`. Tabele powiązań posiadają unikalności zapobiegające ponownemu importowi tego samego zamówienia, a relacje do historycznych rekordów używają `nullOnDelete` tam, gdzie usunięcie źródła nie powinno niszczyć śladu integracji.
 
 Stan PrestaShop jest zachowany w powiązaniu importu, lecz nowe zamówienie OMS zawsze otrzymuje `new`. Etap nie synchronizuje istniejącego zamówienia przy kolejnym odczycie, poza kontrolowanym uzupełnieniem brakującego telefonu i punktu odbioru oraz wyczyszczeniem błędnego loginu PrestaShop. Nie publikuje zadań cyklicznych i nie wywołuje metod zapisu API sklepu. Moduł PrestaShop nadal korzysta z centralnych tras i migracji projektu, bez własnego providera.
@@ -3602,7 +3619,7 @@ Nie istnieje atomowa transakcja z Allegro: wylaczenie konfiguracji nie cofa POST
 
 Addytywna migracja 2026_10_21_030000_add_allegro_invoice_exports dodaje na allegro_accounts invoice_sync_mode (disabled/immediate/status), nullable invoice_sync_status_setting_id z nullOnDelete, invoice_sync_only_required (false), invoice_sync_identity i invoice_sync_revision. AllegroInvoiceSettingsService waliduje aktualne statusy oraz optimistic lock konfiguracji i nie zleca pracy historycznej. Rozlaczenie, zmiana sprzedawcy lub danych autoryzacji wylaczaja automat i zwiekszaja revision.
 
-allegro_invoice_exports przechowuje nullable FK do konta, powiazania Allegro, zamowienia i Faktury (nullOnDelete), trwala tozsamosc sprzedawcy/srodowiska/checkout-form, numer dokumentu, unikalny fingerprint, decyzje manual, revision, token i stan. Zachowuje document_hash snapshotow i pozycji, pdf_checksum, prywatny pdf_path, unikatowy file_name, rozmiar, remote_id, zamiar uploadu, daty wysylki/potwierdzenia i licznik oraz termin kontroli. Usuwanie dokumentu nie kasuje tej historii ani kopii pliku.
+allegro_invoice_exports przechowuje nullable FK do konta, powiazania Allegro, zamowienia i Faktury (nullOnDelete), trwala tozsamosc sprzedawcy/srodowiska/checkout-form, numer dokumentu, unikalny fingerprint, decyzje manual, revision, token i stan. Zachowuje document_hash snapshotow i pozycji, pdf_checksum, prywatny pdf_path, zamrozony file_name, rozmiar, remote_id, zamiar uploadu, daty wysylki/potwierdzenia i licznik oraz termin kontroli. Usuwanie dokumentu nie kasuje tej historii ani kopii pliku.
 
 DispatchAllegroInvoiceExports reaguje na istniejace InvoiceIssued, OrderStatusChanged i KsefInvoiceAccepted. Outbox oraz dispatch po commit korzystaja z istniejacej kolejki integrations. Zmiana statusu kwalifikuje dokument wedlug aktualnych ustawien; moze wznowic pominiete, jeszcze niewyslane zgodne zgloszenie dopiero jako nowe zdarzenie, nie na skutek zapisu ustawien. Akceptacja KSeF wznawia tylko znane zgloszenia oczekujace, bez skanowania wszystkich dawnych Faktur. Reczna decyzja posiada potwierdzenie i kontrole wersji dokumentu; automat pozostaje niezaleznie wylaczony.
 
@@ -3610,11 +3627,13 @@ AllegroInvoiceDocumentService wykorzystuje InvoicePdfRenderer (TCPDF) lub KsefAc
 
 AllegroClient zostal rozszerzony o GET /order/checkout-forms/{id}/invoices i multipart POST /order/{orderId}/billing-documents/files. Wspoldzieli OAuth, kontrolowany timeout i User-Agent z services.allegro.user_agent, takze po 401. Nowe operacje loguja wylacznie bezpieczna liczbe dokumentow, bez PDF, nazw plikow i numerow Faktur. Uzywane sa istniejace orders:read/orders:write, bez nowego scope.
 
-AllegroInvoiceExportService przed pierwszym POST sprawdza tozsamosc, revision (takze dla decyzji manual), dokument, kompletne powiazanie i aktualny checkout-form READY_FOR_PROCESSING/SELLER. Sprawdza liste faktur; obcy istniejacy dokument nie jest automatycznie adoptowany. Po przygotowaniu prywatnej kopii zapisuje upload_started_at przed HTTP. Timeout, bledy 5xx, 409 lub brak jednoznacznego ID uruchamiaja tylko reconciliation. Jednoznaczne bledy odrzucenia, w tym 429, moga zwolnic zamiar, aby ponowic identyczny plik.
+AllegroInvoiceExportService przed pierwszym POST sprawdza tozsamosc, revision (takze dla decyzji manual), dokument, kompletne powiazanie i aktualny checkout-form READY_FOR_PROCESSING/SELLER. Sprawdza liste faktur wylacznie tego zamowienia. Od 2026-11-03 nowo przygotowane pliki korzystaja z InvoicePdfFilenameGenerator::downloadName(), identycznie jak pobieranie PDF: N 3/2026 daje N_3-2026.pdf. Wczesniej zamrozone nazwy i kopie nie sa zmieniane. Dokument o zgodnej nazwie jest przyjmowany jako ten sam dokument wedlug jawnie uzgodnionej reguly biznesowej; inna nazwa nadal blokuje nowa Fakture VAT i nie jest podmieniana.
+
+Przed rozpoznaniem istniejacego pliku ponownie sprawdza sie kontekst zadania i zamraza lokalna kopie. upload_started_at jest wtedy znacznikiem wylacznie odczytowych dalszych prob, a nie dowodem wykonania nowego POST. Zapisany ID Allegro i stany wyniku sa takie jak dla normalnej wysylki, bez dodatkowej etykiety w UI. Przed rzeczywistym POST znacznik jest nadal zapisywany jako zamiar uploadu. Timeout, bledy 5xx, 409 lub brak jednoznacznego ID uruchamiaja tylko reconciliation. Jednoznaczne bledy odrzucenia, w tym 429, moga zwolnic zamiar, aby ponowic identyczny plik.
 
 ExportAllegroInvoiceJob ma 4 proby, timeout 80 s, uniqueFor 600 s oraz backoff 15/60/180 s. Uzywa wspolnego WithoutOverlapping allegro-order:environment:seller:checkout z blokada 180 s. Recovery co minute przeglada do 100 znanych zgloszen, nie wszystkie Faktury. Pending/uploading starsze niz 15 minut mozna wznowic; zachowany upload_started_at wymusza odczyt zamiast kolejnego POST. Stan verifying/uncertain ma ograniczone do 10 automatycznych odczytow i mozliwosc recznego sprawdzenia. Utrata polaczenia/tozsamosci nie pozwala sprawdzac obcego konta.
 
-Reconciliation wymaga zgodnego ID (jesli znane), numeru, unikatowej nazwy i danych uploadu. Po timeoutach nazwa z losowym UUID i fragmentem SHA-256 laczy rekord z plikiem; samo invoiceNumber nie wystarcza. file.securityVerification.status=WAITING pozostaje verifying, ACCEPTED daje synced i confirmed_at, REJECTED daje failed bez nowego uploadu. API nie udostepnia sumy PDF w tej liscie, wiec nie jest to kryptograficzny dowod zgodnosci zdalnych bajtow. Nie ma wspolnej transakcji pliku, SQLite i Allegro; rzeczywiste pozne potwierdzenia sa zachowywane.
+Reconciliation wymaga zgodnego ID (jesli znane), nazwy i danych uploadu. Czytelna nazwa nowego pliku jest kluczem zgodnosci rowniez przy pustym lub innym invoiceNumber w Allegro. Historyczne nazwy nex-oms-UUID-fragmentSHA256.pdf zachowuja dodatkowa kontrole numeru. Kilka zgodnych rekordow albo brak uploadedAt daje uncertain bez kolejnego POST. file.securityVerification.status=WAITING pozostaje verifying, ACCEPTED daje synced i confirmed_at, REJECTED daje failed bez nowego uploadu. Zgodnosc nazwy oznacza przyjete przez wlasciciela zalozenie zgodnosci tresci, nie porownanie bajtow; SHA-256 nadal chroni tylko lokalna zamrozona kopie. Nie ma wspolnej transakcji pliku, SQLite i Allegro; rzeczywiste pozne potwierdzenia sa zachowywane. Zmiana nie wymaga migracji ani przeliczenia historycznych eksportow.
 
 AllegroInvoiceExportView rozszerza OrderSalesDocumentActionsView, dzieki czemu stan jest spojny na karcie i po istniejacych odswiezeniach AJAX. Kontrolery sa w module Allegro, trasy pozostaja centralnie w routes/web.php, z CSRF, kontrola relacji, tozsamosci i jawnym potwierdzeniem. Nie zmieniono regul edycji/usuwania Faktur ani ikony ich wystawienia. Uwierzytelnianie calego OMS pozostaje osobnym etapem.
 
@@ -3713,6 +3732,18 @@ AllegroCommissionRefundController udostepnia centralne GET/POST returns.commissi
 ProcessAllegroCommissionRefundJob korzysta z integrations, tries=1, timeout=120 i uniqueFor=180. Trwale przejscie queued -> sending ze started_at nastepuje przed HTTP. Scheduler co minute kolejkuje nalezne rekordy; stare sending przechodzi po 5 minutach w uncertain. HTTP 201 z prawidlowym ID daje submitted, a wynik jest sprawdzany odczytem co okolo 5 minut. Timeout, 5xx, 429 i niepelna odpowiedz nie powoduja ponownego POST; odrzucenia 4xx rowniez nie sa automatycznie ponawiane. Uzgadnianie po linii zakupu moze odnalezc pozne potwierdzenie. Wczesniejszy poprawny wynik nie jest zerowany po bledzie odczytu. Zapis zdarzenia i obserwacji jest transakcyjny, bez duplikatu historii przy identycznym wyniku.
 
 Przycisk i historia sa rozszerzeniem istniejacej karty zwrotu; historia czyta baze i ma paginacje po 20 rekordow. Formularz ma private, no-store. Dostep nadal opiera sie na potwierdzonym Basic Auth reverse proxy, HTTPS i braku publicznego obejscia. Nie dodano drugiego systemu auth, nowego providera, zaleznosci, automatycznych refundacji, Korekt ani zmian magazynu. Raport wdrozenia i testow: docs/allegro-commission-refunds-report.md.
+
+## Tracking przesylek zwrotnych (2026-11-02)
+
+ReturnParcelTrackingClient odczytuje publiczny GET /v1/tracking/{number} InPost lub GET /order/carriers/{carrierId}/tracking Allegro. Allegro korzysta z dotychczasowego klienta, OAuth i obowiazkowego User-Agent. Nie tworzono sztucznych Shipment: powrot paczki nie uruchamia obserwatorow przesylek wychodzacych. Para carrier_id/waybill i transporting_carrier_id/transporting_waybill pozostaja niezalezne; numeru jednej pary nie laczymy z przewoznikiem drugiej.
+
+Migracja 2026_11_02_010000_add_return_parcel_tracking dodaje nullable cache/status/czasy UTC i flage is_manual w order_return_parcels, historie order_return_parcel_events oraz nullable automation_runs.order_return_id (nullOnDelete). Historia ma FK do paczki z nullOnDelete; usuniecie/zmiana numeru nie nadpisuje starych faktow. Usuniecie calej karty usuwa nalezaca do niej historie paczek. Down odmawia usuniecia uzywanych danych. Istniejace paczki sa traktowane jako importowane. Import aktualizuje je po pelnej tozsamosci numerow, nie po zmiennej kolejnosci API, i nie kasuje numerow recznych.
+
+ReturnParcelTrackingService zapisuje historie i cache pod blokada zwrotu/paczki, po ponownej kontroli tozsamosci oraz konta. HTTP jest poza transakcja. Starszy odczyt nie cofa nowszego statusu. Event key obejmuje zwrot, pelna tozsamosc numerow, status i czas UTC z mikrosekundami. UtcDateTime dotyczy tylko nowych technicznych czasow. Znacznik automation_pending pozwala ponowic przekazanie zdarzenia po awarii kolejki, z tym samym event_id i deduplikacja silnika. Harmonogram wybiera nalezne paczki co minute; RefreshReturnParcelJob jest unikalny i wykonuje odczyt na istniejacej kolejce shipments-sync.
+
+ReturnParcelStatusChanged i AutomationReturnContext weryfikuja order_id, order_return_id, return_parcel_id, tozsamosc numerow oraz dokladny aktualny fakt historii. AutomationReturnStatusService pod blokada wykonania/kroku/zwrotu zapisuje atomowy receipt i korzysta z istniejacego OrderReturnService::changeStatuses. Ponowienie tego samego kroku nie nadpisuje pozniejszej decyzji operatora. Statusy i ich nazwy sa dynamiczne. Wariant all ponownie sprawdza wszystkie paczki tego zwrotu; wariant any dotyczy paczki zdarzenia. Completed/rejected nie sa automatycznie otwierane ponownie.
+
+Wspolne partiale returns/_parcel-* sa uzywane w zamowieniu, zwrocie i fragmencie live refresh. Zmiana cache paczki wchodzi do shipments_signature/count, dlatego odswiezanie karty nie usuwa wierszy zwrotnych. Historia ma kontrolowana trase centralna, paginacje po 20 i modal z pelnostronicowym fallbackiem. Reczny zapis numeru wymaga CSRF i expected_lock_version, nie nadpisuje paczek importowanych i nie wykonuje HTTP. Nie ma nowego providera, osobnej kolejki ani zaleznosci.
 
 ## ALLEGRO.4C - powiazanie Korekty ze zwrotem
 

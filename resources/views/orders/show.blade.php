@@ -3950,6 +3950,7 @@
         </div>
     @endif
     <div class="nex-card shipments-card">
+        @include('returns._parcel-assets')
         <div class="nex-card-header">
             <h2 class="nex-card-title shipments-card-title">Przesy&#322;ki</h2>
         </div>
@@ -3958,8 +3959,9 @@
                 <div class="shipments-empty-copy">Przesy&#322;ki nie s&#261; dost&#281;pne dla zam&oacute;wienia w koszu.</div>
             @else
                 <div class="alert alert-info py-2 px-3 small d-none" role="status" data-shipment-ajax-notice></div>
-                <div class="shipments-empty-copy {{ $order->shipments->isNotEmpty() ? 'd-none' : '' }}" data-shipments-empty>Nie nadano &#380;adnych paczek - skorzystaj z przycisk&oacute;w poni&#380;ej, aby wygenerowa&#263; przesy&#322;k&#281;.</div>
-                <div class="shipments-table-wrap {{ $order->shipments->isEmpty() ? 'd-none' : '' }}" data-shipments-table-wrap>
+                @php($hasParcels = $order->shipments->isNotEmpty() || $order->returns->contains(fn ($record) => $record->parcels->isNotEmpty()))
+                <div class="shipments-empty-copy {{ $hasParcels ? 'd-none' : '' }}" data-shipments-empty>Nie nadano &#380;adnych paczek - skorzystaj z przycisk&oacute;w poni&#380;ej, aby wygenerowa&#263; przesy&#322;k&#281;.</div>
+                <div class="shipments-table-wrap {{ ! $hasParcels ? 'd-none' : '' }}" data-shipments-table-wrap>
                     <table class="table shipments-table">
                         <thead>
                             <tr>
@@ -3974,6 +3976,12 @@
                         <tbody data-shipments-table-body>
                             @foreach ($order->shipments as $shipment)
                                 @include('orders.partials.shipment-row', ['shipment' => $shipment])
+                            @endforeach
+                            @foreach ($order->returns as $record)
+                                @foreach ($record->parcels as $parcel)
+                                    @php($parcel->setRelation('orderReturn', $record))
+                                    @include('returns._parcel-row', ['parcel' => $parcel])
+                                @endforeach
                             @endforeach
                         </tbody>
                     </table>

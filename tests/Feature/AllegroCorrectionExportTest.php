@@ -24,6 +24,7 @@ use Modules\Integrations\Allegro\Services\AllegroInvoiceSettingsService;
 use Modules\Invoices\Events\CorrectionFinalized;
 use Modules\Invoices\Services\InvoiceFinalizationService;
 use Modules\Invoices\Services\InvoiceIssuingService;
+use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\Services\InvoicePdfRenderer;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -169,11 +170,32 @@ class AllegroCorrectionExportTest extends TestCase
         $exports = AllegroInvoiceExport::query()->where('document_type', 'correction')->get();
         foreach ($exports as $export) {
             $this->runExport($export);
+            $this->assertSame(app(InvoicePdfFilenameGenerator::class)->downloadName($export->invoice), $export->fresh()->file_name);
         }
         $this->assertCount(2, $exports);
         $this->assertNotSame($exports[0]->fresh()->file_name, $exports[1]->fresh()->file_name);
         $this->assertNotSame($exports[0]->fresh()->pdf_path, $exports[1]->fresh()->pdf_path);
         $this->assertSame([$first->id, $second->id], $exports->pluck('invoice_id')->all());
+    }
+
+    public function test_correction_uses_download_filename_and_recognizes_an_existing_file_without_upload(): void
+    {
+        [$root] = $this->source();
+        $correction = $this->finalizeKsefCorrection($this->issueKsefFinancialCorrection($root));
+        $before = $correction->getAttributes();
+        $export = $this->correctionExport();
+        $filename = app(InvoicePdfFilenameGenerator::class)->downloadName($correction);
+        $remote = [$this->remote($export)];
+        $remote[0]['file']['name'] = $filename;
+        unset($remote[0]['invoiceNumber']);
+        $this->fakeApi($remote);
+        $this->runExport($export);
+
+        $this->assertSame('synced', $export->fresh()->state);
+        $this->assertSame($filename, $export->fresh()->file_name);
+        $this->assertSame($before, $correction->fresh()->getAttributes());
+        $this->assertSame(1, $root->order->events()->where('event_type', 'allegro_correction_confirmed')->count());
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
     }
 
     public function test_missing_original_confirmation_waits_and_manual_override_does_not_send_original(): void

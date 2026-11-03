@@ -20,11 +20,13 @@ use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroInvoiceExport;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\Allegro\Services\AllegroAccountService;
+use Modules\Integrations\Allegro\Services\AllegroInvoiceDocumentService;
 use Modules\Integrations\Allegro\Services\AllegroInvoiceExportService;
 use Modules\Integrations\Allegro\Services\AllegroInvoiceExportView;
 use Modules\Integrations\Allegro\Services\AllegroInvoiceSettingsService;
 use Modules\Invoices\Events\InvoiceIssued;
 use Modules\Invoices\Services\InvoiceIssuingService;
+use Modules\Invoices\Services\InvoicePdfFilenameGenerator;
 use Modules\Invoices\Services\InvoicePdfRenderer;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Ksef\Enums\KsefEnvironment;
@@ -34,6 +36,7 @@ use Modules\Ksef\Events\KsefInvoiceAccepted;
 use Modules\Ksef\Models\KsefInvoiceSubmission;
 use Modules\Ksef\Models\KsefSeriesSetting;
 use Modules\Ksef\Models\KsefSetting;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\Support\AllegroOrderFixture as Fixture;
 use Tests\Support\KsefUpoFixture;
@@ -112,6 +115,220 @@ class AllegroInvoiceExportTest extends TestCase
         $this->assertSame(1, $invoice->order->events()->where('event_type', 'allegro_invoice_confirmed')->count());
         $this->assertSame(1, Http::recorded(fn ($request) => $request->method() === 'POST')->count());
         $this->assertStringNotContainsString('private-invoice-content', DB::table('integration_api_logs')->get()->toJson());
+    }
+
+    public function test_new_upload_uses_the_same_filename_as_downloading_the_invoice(): void
+    {
+        [$invoice] = $this->invoice();
+        $remote = [];
+        $this->fakeApi($remote);
+        $export = AllegroInvoiceExport::query()->sole();
+        $this->runExport($export);
+
+        $filename = app(InvoicePdfFilenameGenerator::class)->downloadName($invoice);
+        $this->assertSame('FV_1-2026.pdf', $filename);
+        $this->assertSame($filename, $export->fresh()->file_name);
+        Http::assertSent(fn (Request $request) => $request->method() === 'POST'
+            && str_contains($request->body(), 'filename="'.$filename.'"')
+            && str_contains($request->body(), $invoice->number));
+    }
+
+    #[DataProvider('existingNamedFileCases')]
+    public function test_matching_filename_is_recognized_without_upload_and_keeps_security_states(
+        string $security,
+        bool $uploaded,
+        string $expectedState,
+    ): void {
+        [$invoice] = $this->invoice();
+        $before = $invoice->getAttributes();
+        $export = AllegroInvoiceExport::query()->sole();
+        $filename = app(InvoicePdfFilenameGenerator::class)->downloadName($invoice);
+        $remote = [$this->remote($export, $security)];
+        $remote[0]['file']['name'] = $filename;
+        $remote[0]['invoiceNumber'] = 'different-number-is-not-the-match-key';
+        if (! $uploaded) {
+            unset($remote[0]['file']['uploadedAt']);
+        }
+        $this->fakeApi($remote);
+        $this->runExport($export);
+
+        $export->refresh();
+        $this->assertSame($expectedState, $export->state);
+        $this->assertSame($filename, $export->file_name);
+        $this->assertNotNull($export->upload_started_at);
+        $this->assertSame($expectedState === 'synced', $export->confirmed_at !== null);
+        $this->assertSame($before, $invoice->fresh()->getAttributes());
+        Storage::disk('local')->assertExists($export->pdf_path);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+
+        if ($expectedState === 'synced') {
+            $this->assertSame(self::REMOTE_ID, $export->remote_id);
+            $html = app(OrderSalesDocumentActionsView::class)->render($invoice->order);
+            $this->assertSame('Potwierdzono w Allegro', $export->label());
+            $this->assertStringNotContainsString('Dokument znajduje', $html);
+            $this->assertFalse(app(AllegroInvoiceExportService::class)->retry($export->id));
+            $this->runExport($export);
+            $this->assertSame(1, $invoice->order->events()->where('event_type', 'allegro_invoice_confirmed')->count());
+        } else {
+            $this->check($export);
+            $this->assertSame($expectedState, $export->fresh()->state);
+        }
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public static function existingNamedFileCases(): array
+    {
+        return [
+            'accepted' => ['ACCEPTED', true, 'synced'],
+            'scanning' => ['WAITING', true, 'verifying'],
+            'rejected' => ['REJECTED', true, 'failed'],
+            'missing upload' => ['ACCEPTED', false, 'uncertain'],
+            'unknown security result' => ['UNKNOWN', true, 'uncertain'],
+        ];
+    }
+
+    public function test_named_document_waiting_for_security_can_be_confirmed_later_without_upload(): void
+    {
+        [$invoice] = $this->invoice();
+        $export = AllegroInvoiceExport::query()->sole();
+        $remote = [$this->remote($export, 'WAITING')];
+        $remote[0]['file']['name'] = app(InvoicePdfFilenameGenerator::class)->downloadName($invoice);
+        unset($remote[0]['invoiceNumber']);
+        $this->fakeApi($remote);
+        $this->runExport($export);
+        $this->assertSame('verifying', $export->fresh()->state);
+        $remote[0]['file']['securityVerification']['status'] = 'ACCEPTED';
+        $this->check($export);
+        $this->assertSame('synced', $export->fresh()->state);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_multiple_documents_with_the_same_filename_are_not_uploaded_or_arbitrarily_selected(): void
+    {
+        [$invoice] = $this->invoice();
+        $export = AllegroInvoiceExport::query()->sole();
+        $row = $this->remote($export);
+        $row['file']['name'] = app(InvoicePdfFilenameGenerator::class)->downloadName($invoice);
+        $remote = [$row, array_replace($row, ['id' => (string) Str::uuid()])];
+        $this->fakeApi($remote);
+        $this->runExport($export);
+        $this->assertSame('uncertain', $export->fresh()->state);
+        $this->assertNull($export->fresh()->remote_id);
+        $this->check($export);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_a_document_with_the_same_number_but_different_filename_is_not_adopted(): void
+    {
+        [$invoice] = $this->invoice();
+        $export = AllegroInvoiceExport::query()->sole();
+        $remote = [$this->remote($export)];
+        $remote[0]['file']['name'] = 'another.pdf';
+        $this->fakeApi($remote);
+        $this->runExport($export);
+        $this->assertSame('failed', $export->fresh()->state);
+        $this->assertNull($export->fresh()->upload_started_at);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_matching_filenames_are_only_looked_up_in_the_linked_allegro_order(): void
+    {
+        [$invoice, , $link] = $this->invoice();
+        $export = AllegroInvoiceExport::query()->sole();
+        $otherOrder = (string) Str::uuid();
+        $otherFile = $this->remote($export);
+        $otherFile['file']['name'] = app(InvoicePdfFilenameGenerator::class)->downloadName($invoice);
+        Http::fake(function (Request $request) use ($otherOrder, $otherFile) {
+            if ($request->method() === 'POST') {
+                return Http::response(['id' => self::REMOTE_ID], 201);
+            }
+            if (str_ends_with($request->url(), '/invoices')) {
+                return Http::response(['invoices' => str_contains($request->url(), $otherOrder) ? [$otherFile] : []]);
+            }
+
+            return Http::response(Fixture::payload());
+        });
+        $this->runExport($export);
+        $this->assertSame('verifying', $export->fresh()->state);
+        Http::assertSent(fn (Request $request) => $request->method() === 'GET'
+            && str_ends_with($request->url(), '/order/checkout-forms/'.$link->external_order_id.'/invoices'));
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), $otherOrder));
+        $this->assertSame(1, Http::recorded(fn ($request) => $request->method() === 'POST')->count());
+    }
+
+    public function test_configuration_is_rechecked_before_adopting_a_matching_remote_file(): void
+    {
+        [$invoice, $account] = $this->invoice();
+        $export = AllegroInvoiceExport::query()->sole();
+        $remote = $this->remote($export);
+        $remote['file']['name'] = app(InvoicePdfFilenameGenerator::class)->downloadName($invoice);
+        Http::fake(function (Request $request) use ($account, $remote) {
+            if (str_ends_with($request->url(), '/invoices')) {
+                $account->increment('invoice_sync_revision');
+
+                return Http::response(['invoices' => [$remote]]);
+            }
+
+            return Http::response(Fixture::payload());
+        });
+        $this->runExport($export);
+        $this->assertSame('skipped', $export->fresh()->state);
+        $this->assertNull($export->fresh()->confirmed_at);
+        $this->assertNull($export->fresh()->upload_started_at);
+        $this->assertNull($export->fresh()->pdf_path);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_filename_recovery_after_a_timeout_does_not_require_remote_invoice_number(): void
+    {
+        $this->invoice();
+        $remote = [];
+        $posts = 0;
+        Http::fake(function (Request $request) use (&$remote, &$posts) {
+            if ($request->method() === 'POST') {
+                $posts++;
+                throw new ConnectionException('Response lost');
+            }
+
+            return Http::response(str_ends_with($request->url(), '/invoices') ? ['invoices' => $remote] : Fixture::payload());
+        });
+        $export = AllegroInvoiceExport::query()->sole();
+        $this->runExport($export);
+        $this->assertSame('uncertain', $export->fresh()->state);
+        $remote = [$this->remote($export->fresh())];
+        unset($remote[0]['invoiceNumber']);
+        $this->check($export);
+        $this->assertSame('synced', $export->fresh()->state);
+        $this->assertSame(1, $posts);
+    }
+
+    public function test_a_frozen_legacy_filename_and_its_stricter_reconciliation_are_preserved(): void
+    {
+        $this->invoice();
+        $remote = [];
+        $this->fakeApi($remote);
+        $export = AllegroInvoiceExport::query()->sole();
+        $contents = '%PDF-1.7 legacy-content';
+        $checksum = hash('sha256', $contents);
+        $filename = 'nex-oms-7471ad7f-47d2-4b0c-9ef1-33102e913b5a-'.substr($checksum, 0, 16).'.pdf';
+        $path = 'allegro/invoice-exports/'.$export->fingerprint.'.pdf';
+        Storage::disk('local')->put($path, $contents);
+        $export->update(['pdf_path' => $path, 'pdf_checksum' => $checksum, 'file_name' => $filename,
+            'file_size' => strlen($contents), 'document_hash' => app(AllegroInvoiceDocumentService::class)->hash($export->invoice)]);
+        $this->runExport($export);
+        $this->assertSame($filename, $export->fresh()->file_name);
+        Http::assertSent(fn (Request $request) => $request->method() === 'POST'
+            && str_contains($request->body(), 'filename="'.$filename.'"') && str_contains($request->body(), 'legacy-content'));
+        $remote = [$this->remote($export->fresh())];
+        $remote[0]['invoiceNumber'] = 'different';
+        $this->check($export);
+        $this->assertSame('uncertain', $export->fresh()->state);
+        $remote[0]['invoiceNumber'] = $export->invoice_number;
+        $this->check($export);
+        $this->assertSame('synced', $export->fresh()->state);
+        $this->assertSame($filename, $export->fresh()->file_name);
+        $this->assertSame($checksum, $export->fresh()->pdf_checksum);
+        $this->assertSame(1, Http::recorded(fn ($request) => $request->method() === 'POST')->count());
     }
 
     public function test_status_gate_works_in_both_orders(): void

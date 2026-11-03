@@ -13,6 +13,7 @@ use Modules\Integrations\Prestashop\Enums\PrestashopConnectionTestStatus;
 use Modules\Integrations\Prestashop\Exceptions\PrestashopImportException;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderLink;
+use Modules\Integrations\Services\OrderImportVatResolver;
 use Modules\Invoices\Exceptions\InvoiceDomainException;
 use Modules\Invoices\Services\InvoiceDecimalCalculator;
 use Modules\Invoices\Services\InvoiceFinancialValueValidator;
@@ -26,6 +27,7 @@ class PrestashopOrderPreviewService
         private readonly InvoiceFinancialValueValidator $financial,
         private readonly OrderPaymentStateService $paymentState,
         private readonly PrestashopPaymentStatusService $paymentStatuses,
+        private readonly OrderImportVatResolver $vat,
     ) {}
 
     /** @return array<string, mixed> */
@@ -206,17 +208,26 @@ class PrestashopOrderPreviewService
     private function item(array $detail, string $currency): array
     {
         $quantity = $this->positiveInt($detail['product_quantity'] ?? null, 'ilości produktu');
-        $unitGross = $this->money($detail['unit_price_tax_incl'] ?? null, 'ceny produktu');
-        $totalGross = $this->money(
+        $sourceUnitGross = $this->sourceMoney($detail['unit_price_tax_incl'] ?? null, 'ceny produktu');
+        $unitGross = $this->decimal->normalize($sourceUnitGross, 2);
+        $sourceTotalGross = $this->sourceMoney(
             $detail['total_price_tax_incl'] ?? $this->decimal->multiply($unitGross, $quantity),
             'wartości pozycji',
         );
+        $totalGross = $this->decimal->normalize($sourceTotalGross, 2);
         $rawNet = $detail['unit_price_tax_excl'] ?? null;
-        $unitNet = $rawNet === null || $rawNet === '' ? null : $this->money($rawNet, 'ceny netto produktu');
-        $vatRate = $unitNet === null ? null : $this->vatRate($unitGross, $unitNet);
+        $unitNet = $rawNet === null || $rawNet === '' ? null : $this->sourceMoney($rawNet, 'ceny netto produktu');
+        $explicitVat = $this->vat->source($detail['tax_rate'] ?? null);
+
+        if (! in_array($explicitVat['status'], ['missing', 'valid'], true)) {
+            throw new PrestashopImportException('PrestaShop zwrócił nieprawidłową stawkę VAT pozycji.');
+        }
+
+        // Infer VAT only from unrounded source amounts, never from the stored grosz values.
+        $vatRate = $explicitVat['rate'] ?? ($unitNet === null ? null : $this->vatRate($sourceUnitGross, $unitNet));
         $rawTotalNet = $detail['total_price_tax_excl'] ?? null;
         if ($vatRate === null && $rawTotalNet !== null && $rawTotalNet !== '') {
-            $vatRate = $this->vatRate($totalGross, $this->money($rawTotalNet, 'wartości netto pozycji'));
+            $vatRate = $this->vatRate($sourceTotalGross, $this->sourceMoney($rawTotalNet, 'wartości netto pozycji'));
         }
 
         return [
@@ -439,6 +450,18 @@ class PrestashopOrderPreviewService
         } catch (InvoiceDomainException $exception) {
             throw new PrestashopImportException($exception->getMessage(), previous: $exception);
         }
+    }
+
+    private function sourceMoney(mixed $value, string $field): string
+    {
+        $this->money($value, $field);
+        $normalized = str_replace(',', '.', trim((string) $value));
+
+        if (BigDecimal::of($normalized)->isNegative()) {
+            throw new PrestashopImportException("PrestaShop zwrócił ujemną wartość {$field}.");
+        }
+
+        return $normalized;
     }
 
     private function vatRate(string $gross, string $net): ?string

@@ -5,12 +5,14 @@ namespace Tests\Feature;
 use App\Enums\EmailAccountEncryption;
 use App\Enums\EmailTemplateFormat;
 use App\Enums\OrderEmailMessageSource;
+use App\Enums\OrderEmailMessageStatus;
 use App\Jobs\SendOrderEmailJob;
 use App\Models\EmailAccount;
 use App\Models\EmailTemplate;
 use App\Models\Order;
 use App\Models\OrderEmailMessage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Modules\Automation\Models\AutomationRule;
@@ -18,6 +20,8 @@ use Modules\Automation\Models\AutomationRun;
 use Modules\Automation\Services\AutomationCatalog;
 use Modules\Automation\Services\AutomationEmailActionService;
 use Modules\Automation\Services\AutomationEngine;
+use Modules\CustomerPortal\Models\PortalLink;
+use Modules\CustomerPortal\Services\PortalAccessService;
 use Tests\TestCase;
 
 class AutomationEmailActionTest extends TestCase
@@ -220,6 +224,79 @@ class AutomationEmailActionTest extends TestCase
         $this->assertSame('faktury@example.test', $message->to_email);
         $this->assertNull($message->to_name);
         Queue::assertPushed(SendOrderEmailJob::class, 1);
+    }
+
+    public function test_customer_and_additional_recipient_receive_the_existing_portal_url_without_changing_it(): void
+    {
+        Queue::fake([SendOrderEmailJob::class]);
+        Http::preventStrayRequests();
+        $order = $this->order();
+        $template = $this->template();
+        $template->update(['body_template' => '<a href="[link_zamowienia]">Zamowienie</a>']);
+        $link = PortalLink::query()->sole();
+        $before = $link->getAttributes();
+        $url = app(PortalAccessService::class)->orderLink($order)['url'];
+        $rule = $this->rule($template, ['recipient_customer' => true, 'recipient_emails' => ['archive@example.test']]);
+
+        $this->evaluate($order);
+
+        $run = $rule->runs()->sole();
+        $this->assertSame(AutomationRun::STATUS_COMPLETED, $run->status);
+        $messages = OrderEmailMessage::query()->orderBy('id')->get();
+        $this->assertCount(2, $messages);
+        $this->assertSame(['klient@example.test', 'archive@example.test'], $messages->pluck('to_email')->all());
+        foreach ($messages as $message) {
+            $this->assertStringContainsString($url, $message->body_html);
+            $this->assertStringNotContainsString('[link_zamowienia]', $message->body_html);
+        }
+        $this->assertSame($before, $link->fresh()->getAttributes());
+        $this->assertDatabaseCount('customer_portal_links', 1);
+        Queue::assertPushed(SendOrderEmailJob::class, 2);
+        Http::assertNothingSent();
+    }
+
+    public function test_existing_portal_link_can_be_sent_only_to_an_additional_recipient_without_customer_email(): void
+    {
+        Queue::fake([SendOrderEmailJob::class]);
+        $order = $this->order(['customer_email' => null]);
+        $template = $this->template();
+        $template->update(['body_template' => '[link_zamowienia]']);
+        $url = app(PortalAccessService::class)->orderLink($order)['url'];
+        $rule = $this->rule($template, ['recipient_customer' => false, 'recipient_emails' => ['archive@example.test']]);
+        $this->evaluate($order);
+        $this->assertSame(AutomationRun::STATUS_COMPLETED, $rule->runs()->sole()->status);
+        $message = OrderEmailMessage::query()->sole();
+        $this->assertSame('archive@example.test', $message->to_email);
+        $this->assertStringContainsString($url, $message->body_html);
+        $this->assertFalse($message->actor_snapshot['recipient_customer']);
+        $this->assertDatabaseCount('customer_portal_links', 1);
+    }
+
+    public function test_replaying_a_partial_step_keeps_sent_customer_email_and_queues_only_missing_portal_copy(): void
+    {
+        Queue::fake();
+        $order = $this->order();
+        $template = $this->template();
+        $template->update(['body_template' => '[link_zamowienia]']);
+        $run = $this->automationRun($order);
+        $step = $run->steps()->create(['position' => 0, 'action_type' => 'send_email', 'status' => 'running', 'configuration' => []]);
+        $service = app(AutomationEmailActionService::class);
+        $service->execute($run, $step, ['email_template_id' => $template->id, 'recipient_customer' => true]);
+        $sent = OrderEmailMessage::query()->sole();
+        $sent->update(['status' => OrderEmailMessageStatus::Sent, 'sent_at' => now()]);
+        $before = $sent->fresh()->getAttributes();
+        $linkBefore = PortalLink::query()->sole()->getAttributes();
+        Queue::fake();
+        $configuration = ['email_template_id' => $template->id, 'recipient_customer' => true, 'recipient_emails' => ['archive@example.test']];
+        $result = $service->execute($run, $step, $configuration);
+        $again = $service->execute($run, $step, $configuration);
+        $this->assertSame($result['message_ids'], $again['message_ids']);
+        $this->assertSame($sent->id, $result['message_ids'][0]);
+        $this->assertDatabaseCount('order_email_messages', 2);
+        $this->assertSame($before, $sent->fresh()->getAttributes());
+        $this->assertSame($linkBefore, PortalLink::query()->sole()->getAttributes());
+        Queue::assertPushed(SendOrderEmailJob::class, 1);
+        Queue::assertPushed(SendOrderEmailJob::class, fn ($job) => $job->messageId !== $sent->id);
     }
 
     public function test_repeating_same_automation_step_does_not_queue_duplicate_message(): void

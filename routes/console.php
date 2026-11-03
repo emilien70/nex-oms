@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\OrderEmailQueuedRecoveryService;
+use App\Services\ReturnParcelTrackingService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -123,6 +124,9 @@ Schedule::call(fn () => app(PrestashopOrderImportDispatcher::class)->dispatchDue
     ->name('prestashop-import-new-orders')
     ->everyMinute()
     ->withoutOverlapping();
+
+Schedule::call(fn () => app(ReturnParcelTrackingService::class)->dispatchDue())
+    ->name('return-parcels-refresh-status')->everyMinute()->withoutOverlapping();
 
 Schedule::call(fn () => app(VonHalskyOrderImportDispatcher::class)->dispatchDue())
     ->name('von-halsky-import-orders')->everyMinute()->withoutOverlapping();

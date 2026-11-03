@@ -4,6 +4,7 @@ namespace Modules\Automation\Services;
 
 use App\Models\EmailTemplate;
 use App\Models\OrderStatusSetting;
+use App\Models\ReturnStatusSetting;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Modules\Integrations\DPD\Services\DpdServiceResolver;
@@ -42,6 +43,8 @@ class AutomationCatalog
 
     public const ACTION_MODIFY_ORDER = 'modify_order';
 
+    public const ACTION_CHANGE_RETURN_STATUS = 'change_return_status';
+
     public const PRINT_DOCUMENT_INVOICE = 'invoice';
 
     public const PRINT_DOCUMENT_LATEST_SHIPMENT_LABEL = 'latest_shipment_label';
@@ -67,6 +70,7 @@ class AutomationCatalog
             'invoice.issued' => 'Wystawiono Fakturę VAT',
             'shipment.created' => $this->decode('Utworzono przesy&#322;k&#281;'),
             'shipment.status_changed' => $this->decode('Zmieniono status przesy&#322;ki'),
+            'return.parcel_status_changed' => 'Zmieniono status przesyłki zwrotnej u kuriera',
             'shipment.creation_failed' => $this->decode('Wyst&#261;pi&#322; b&#322;&#261;d tworzenia przesy&#322;ki'),
             'ksef.invoice_accepted' => 'Faktura zaakceptowana w KSeF',
         ];
@@ -155,6 +159,14 @@ class AutomationCatalog
                 'operators' => ['equals', 'not_equals'],
                 'options' => Shipment::omsStatuses(),
             ],
+            'return_status' => [
+                'label' => 'Status zwrotu', 'type' => 'select', 'operators' => ['equals', 'not_equals'],
+                'options' => ReturnStatusSetting::query()->orderBy('sort_order')->orderBy('id')->pluck('name', 'id')->all(),
+            ],
+            'return_parcel_status' => [
+                'label' => 'Status przesyłki zwrotnej', 'type' => 'select', 'operators' => ['equals', 'not_equals'],
+                'options' => Shipment::omsStatuses(),
+            ],
             'total_gross' => [
                 'label' => $this->decode('&#321;&#261;czna kwota'),
                 'type' => 'number',
@@ -181,6 +193,7 @@ class AutomationCatalog
         return [
             self::ACTION_CHANGE_STATUS => $this->decode('Zmie&#324; status'),
             self::ACTION_MODIFY_ORDER => 'Zmodyfikuj zamówienie',
+            self::ACTION_CHANGE_RETURN_STATUS => 'Zmień status zwrotu',
             self::ACTION_CREATE_SHIPMENT => $this->decode('Utw&oacute;rz przesy&#322;k&#281;'),
             self::ACTION_DELAY => 'Poczekaj przez',
             self::ACTION_CALL_URL => $this->decode('Wywo&#322;aj URL'),
@@ -227,6 +240,8 @@ class AutomationCatalog
     public function actionSummary(string $type, array $configuration): string
     {
         return match ($type) {
+            self::ACTION_CHANGE_RETURN_STATUS => $this->actionLabel($type).': '
+                .(ReturnStatusSetting::query()->find($configuration['return_status_id'] ?? 0)?->name ?? 'Status niedostępny'),
             self::ACTION_MODIFY_ORDER => $this->actionLabel($type).': '
                 .($this->orderFields()[$configuration['field'] ?? '']['label'] ?? 'Pole niedostępne'),
             self::ACTION_CHANGE_STATUS => $this->actionLabel($type).': '

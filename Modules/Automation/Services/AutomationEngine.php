@@ -22,6 +22,11 @@ class AutomationEngine
             return;
         }
 
+        $returnParcel = $eventName === 'return.parcel_status_changed' ? app(AutomationReturnContext::class)->parcel($order, $eventPayload) : null;
+        if ($eventName === 'return.parcel_status_changed' && $returnParcel === null) {
+            return;
+        }
+
         [$chainId, $depth] = $this->chainContext($eventPayload);
         $eventId = (string) ($eventPayload['event_id'] ?? Str::uuid());
 
@@ -54,6 +59,7 @@ class AutomationEngine
                 ],
                 [
                     'order_id' => $order->id,
+                    'order_return_id' => $returnParcel?->order_return_id,
                     'event_name' => $eventName,
                     'chain_id' => $chainId,
                     'depth' => $depth,

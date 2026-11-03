@@ -7,6 +7,7 @@ use App\Events\OrderCreated;
 use App\Events\OrderDataCompleted;
 use App\Events\OrderPaymentRegistered;
 use App\Events\OrderStatusChanged;
+use App\Events\ReturnParcelStatusChanged;
 use App\Models\Order;
 use App\Models\OrderStatusSetting;
 use App\Services\SmtpOrderEmailTransport;
@@ -139,6 +140,7 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(CorrectionFinalized::class, DispatchAllegroInvoiceExports::class);
         Event::listen(ShipmentCreated::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentStatusChanged::class, DispatchAutomationEvent::class);
+        Event::listen(ReturnParcelStatusChanged::class, DispatchAutomationEvent::class);
         Event::listen(ShipmentCreationFailed::class, DispatchAutomationEvent::class);
         Event::listen(KsefInvoiceAccepted::class, DispatchAutomationEvent::class);
         Event::listen(KsefInvoiceAccepted::class, DispatchAllegroInvoiceExports::class);

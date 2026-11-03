@@ -37,6 +37,12 @@ class AutomationConditionEvaluator
 
     private function value(Order $order, array $eventPayload, string $field): mixed
     {
+        if (in_array($field, ['return_status', 'return_parcel_status'], true)) {
+            $parcel = app(AutomationReturnContext::class)->parcel($order, $eventPayload);
+
+            return $field === 'return_status' ? $parcel?->orderReturn?->local_status_id : $parcel?->statusCode();
+        }
+
         return match ($field) {
             'order_status' => $order->status,
             'source' => $order->source,

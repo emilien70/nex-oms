@@ -15,12 +15,16 @@ use Modules\Integrations\Prestashop\Enums\PrestashopConnectionTestStatus;
 use Modules\Integrations\Prestashop\Jobs\FetchPrestashopOrderMessagesJob;
 use Modules\Integrations\Prestashop\Models\PrestashopAccount;
 use Modules\Integrations\Prestashop\Models\PrestashopOrderPayment;
+use Modules\Integrations\Prestashop\Services\PrestashopOrderPreviewService;
+use Modules\Invoices\Services\InvoiceIssuingService;
 use Modules\Products\Models\Product;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Feature\Invoices\Concerns\CreatesInvoiceStage2CDocuments;
 use Tests\TestCase;
 
 class PrestashopOrderImportTest extends TestCase
 {
+    use CreatesInvoiceStage2CDocuments;
     use RefreshDatabase;
 
     public function test_completed_data_event_includes_full_unpaid_order_and_is_not_repeated_by_reimport(): void
@@ -614,6 +618,175 @@ class PrestashopOrderImportTest extends TestCase
         $order = Order::query()->sole();
         $this->assertSame('23.00', $order->items()->sole()->vat_rate);
         $this->assertSame('channel', $order->events()->where('event_type', 'prestashop_order_imported')->sole()->payload['vat_sources'][0]['source']);
+    }
+
+    #[DataProvider('preciseVatCases')]
+    public function test_preview_and_import_preserve_source_precision_when_resolving_vat(
+        array $detail,
+        string $expectedRate,
+        string $unitGross,
+        string $totalGross,
+        int $quantity = 1,
+    ): void {
+        Queue::fake();
+        $account = $this->account(['default_vat_rate' => '5.00']);
+        $this->fakePrestashop(
+            orderOverrides: [
+                'total_paid' => $totalGross,
+                'total_paid_tax_incl' => $totalGross,
+                'total_paid_real' => $totalGross,
+                'total_shipping_tax_incl' => '0.00',
+            ],
+            detailOverrides: $detail,
+            paymentOverrides: ['amount' => $totalGross],
+        );
+
+        $preview = app(PrestashopOrderPreviewService::class)->preview($account, '13581');
+        $this->assertSame($expectedRate, $preview['items'][0]['vat_rate']);
+        $this->assertDatabaseCount('orders', 0);
+
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertSessionHasNoErrors();
+
+        $order = Order::query()->sole();
+        $item = $order->items()->sole();
+        $this->assertSame($expectedRate, $item->vat_rate);
+        $this->assertSame($unitGross, $item->unit_price_gross);
+        $this->assertSame($totalGross, $item->total_price_gross);
+        $this->assertSame($quantity, $item->quantity);
+        $this->assertSame($totalGross, $order->total_gross);
+        $this->assertSame($totalGross, $order->paid_amount);
+        $event = $order->events()->where('event_type', 'prestashop_order_imported')->sole();
+        $this->assertSame('channel', $event->payload['vat_sources'][0]['source']);
+        $this->assertSame($expectedRate, $event->payload['vat_sources'][0]['channel_rate']);
+    }
+
+    public static function preciseVatCases(): array
+    {
+        $detail = [
+            'unit_price_tax_incl' => '84.840000',
+            'unit_price_tax_excl' => '68.975610',
+            'total_price_tax_incl' => '84.840000',
+            'total_price_tax_excl' => '68.980000',
+        ];
+
+        return [
+            '23 percent instead of 22.99' => [$detail, '23.00', '84.84', '84.84'],
+            '8 percent instead of 7.99' => [array_replace($detail, [
+                'unit_price_tax_incl' => '10.000000', 'unit_price_tax_excl' => '9.259259',
+                'total_price_tax_incl' => '10.000000', 'total_price_tax_excl' => '9.260000',
+            ]), '8.00', '10.00', '10.00'],
+            '5 percent' => [array_replace($detail, [
+                'unit_price_tax_incl' => '0.210000', 'unit_price_tax_excl' => '0.200000',
+                'total_price_tax_incl' => '0.210000', 'total_price_tax_excl' => '0.200000',
+            ]), '5.00', '0.21', '0.21'],
+            'zero percent' => [array_replace($detail, [
+                'unit_price_tax_excl' => '84.840000', 'total_price_tax_excl' => '84.840000',
+            ]), '0.00', '84.84', '84.84'],
+            'fractional rate is not snapped to a standard rate' => [array_replace($detail, [
+                'unit_price_tax_incl' => '10.770000', 'unit_price_tax_excl' => '10.000000',
+                'total_price_tax_incl' => '10.770000', 'total_price_tax_excl' => '10.000000',
+            ]), '7.70', '10.77', '10.77'],
+            'gross precision is also preserved' => [array_replace($detail, [
+                'unit_price_tax_incl' => '1.234500', 'unit_price_tax_excl' => '1.000000',
+                'total_price_tax_incl' => '1.234500', 'total_price_tax_excl' => '1.000000',
+            ]), '23.45', '1.23', '1.23'],
+            'sub-cent net does not become zero VAT' => [array_replace($detail, [
+                'unit_price_tax_incl' => '0.010000', 'unit_price_tax_excl' => '0.008130',
+                'total_price_tax_incl' => '0.010000', 'total_price_tax_excl' => '0.010000',
+            ]), '23.00', '0.01', '0.01'],
+            'several units keep the unit rate' => [array_replace($detail, [
+                'product_quantity' => '3', 'total_price_tax_incl' => '254.520000',
+                'total_price_tax_excl' => '206.930000',
+            ]), '23.00', '84.84', '254.52', 3],
+            'total precision when unit net is missing' => [array_replace($detail, [
+                'unit_price_tax_excl' => null, 'total_price_tax_excl' => '68.975610',
+            ]), '23.00', '84.84', '84.84'],
+            'explicit historical rate takes priority over rounded net' => [array_replace($detail, [
+                'tax_rate' => '23.000000', 'unit_price_tax_excl' => '68.980000',
+            ]), '23.00', '84.84', '84.84'],
+            'explicit zero without net is retained' => [array_replace($detail, [
+                'tax_rate' => '0.000000', 'unit_price_tax_excl' => null, 'total_price_tax_excl' => null,
+            ]), '0.00', '84.84', '84.84'],
+            'explicit rate for a free item' => [array_replace($detail, [
+                'tax_rate' => '23.00', 'unit_price_tax_incl' => '0.00', 'unit_price_tax_excl' => '0.00',
+                'total_price_tax_incl' => '0.00', 'total_price_tax_excl' => '0.00',
+            ]), '23.00', '0.00', '0.00'],
+            'empty explicit rate falls back to precise amounts' => [array_replace($detail, [
+                'tax_rate' => '',
+            ]), '23.00', '84.84', '84.84'],
+        ];
+    }
+
+    #[DataProvider('invalidVatDataCases')]
+    public function test_invalid_source_vat_data_cannot_be_masked_by_catalog_or_default(array $detail): void
+    {
+        Queue::fake();
+        $account = $this->account(['default_vat_rate' => '23.00', 'catalog_vat_mode' => 'catalog']);
+        $this->product()->prestashopProductLinks()->create([
+            'prestashop_account_id' => $account->id, 'external_product_id' => 96, 'external_product_attribute_id' => 0,
+        ]);
+        $this->fakePrestashop(detailOverrides: $detail);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertSessionHas('error');
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('prestashop_order_links', 0);
+        $this->assertDatabaseCount('prestashop_order_payments', 0);
+    }
+
+    public static function invalidVatDataCases(): array
+    {
+        return [
+            'malformed rate' => [['tax_rate' => 'wrong']],
+            'special code is not zero' => [['tax_rate' => 'ZW']],
+            'negative rate' => [['tax_rate' => '-0.01']],
+            'excessive rate' => [['tax_rate' => '100.01']],
+            'rate precision is not silently rounded' => [['tax_rate' => '23.001']],
+            'structured rate' => [['tax_rate' => ['value' => '23']]],
+            'boolean rate' => [['tax_rate' => true]],
+            'negative net below one cent' => [['unit_price_tax_excl' => '-0.000001']],
+            'excessive net' => [['unit_price_tax_excl' => '999999999999999999.00']],
+            'positive gross with zero net' => [['unit_price_tax_excl' => '0.00']],
+            'malformed total net fallback' => [['unit_price_tax_excl' => null, 'total_price_tax_excl' => 'wrong']],
+            'invalid net with explicit rate' => [['tax_rate' => '23.00', 'unit_price_tax_excl' => 'wrong']],
+        ];
+    }
+
+    public function test_invoice_uses_imported_gross_and_vat_and_reimport_preserves_existing_snapshots(): void
+    {
+        Queue::fake();
+        $this->account();
+        $this->fakePrestashop(
+            orderOverrides: ['total_paid' => '84.84', 'total_paid_tax_incl' => '84.84', 'total_paid_real' => '84.84', 'total_shipping_tax_incl' => '0.00'],
+            detailOverrides: ['unit_price_tax_incl' => '84.840000', 'unit_price_tax_excl' => '68.975610', 'total_price_tax_incl' => '84.840000', 'total_price_tax_excl' => '68.980000'],
+            paymentOverrides: ['amount' => '84.84'],
+        );
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertSessionHasNoErrors();
+        $order = Order::query()->sole();
+        $invoice = app(InvoiceIssuingService::class)->issue(
+            $order, $this->createDocumentSeries(attributes: ['include_shipping' => false]), $this->documentContext(),
+        );
+        $line = $invoice->items()->sole();
+        $this->assertSame('23.00', $line->vat_rate);
+        $this->assertSame('68.9756', $line->unit_price_net);
+        $this->assertSame('68.98', $line->total_net);
+        $this->assertSame('15.86', $line->total_vat);
+        $this->assertSame('84.84', $line->total_gross);
+        $beforeOrder = $order->fresh()->getAttributes();
+        $beforeItem = $order->items()->sole()->getAttributes();
+        $beforeInvoice = $invoice->fresh()->getAttributes();
+        $beforeLine = $line->getAttributes();
+
+        $this->fakePrestashop(detailOverrides: ['tax_rate' => '8.00']);
+        $this->post(route('integrations.prestashop.orders.import'), ['order_identifier' => '13581'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame($beforeOrder, $order->fresh()->getAttributes());
+        $this->assertSame($beforeItem, $order->items()->sole()->getAttributes());
+        $this->assertSame($beforeInvoice, $invoice->fresh()->getAttributes());
+        $this->assertSame($beforeLine, $line->fresh()->getAttributes());
+        $this->assertSame(1, $order->events()->where('event_type', 'prestashop_order_imported')->count());
     }
 
     private function account(array $overrides = []): PrestashopAccount

@@ -43,6 +43,16 @@ class AllegroClient
         return $this->get($account, 'get_order', '/order/checkout-forms/'.rawurlencode($identifier));
     }
 
+    public function returnParcelTracking(AllegroAccount $account, string $carrier, string $waybill): array
+    {
+        if (! $account->isOperational()) {
+            throw new AllegroApiException('Połącz konto Allegro przed sprawdzeniem przesyłki zwrotnej.');
+        }
+
+        return $this->get($account, 'get_return_tracking', '/order/carriers/'.rawurlencode($carrier)
+            .'/tracking?waybill='.rawurlencode($waybill));
+    }
+
     public function billingEntries(AllegroAccount $account, string $identifier, string $marketplace, int $offset): array
     {
         if (! $account->isOperational() || ! $account->hasBillingScope()) {
@@ -389,6 +399,10 @@ class AllegroClient
 
         if ($operation === 'get_order') {
             return collect($payload)->only(['id', 'status', 'revision', 'updatedAt'])->all();
+        }
+
+        if ($operation === 'get_return_tracking') {
+            return ['carrierId' => $payload['carrierId'] ?? null, 'waybills_count' => count((array) ($payload['waybills'] ?? []))];
         }
 
         if ($operation !== 'test_profile') {

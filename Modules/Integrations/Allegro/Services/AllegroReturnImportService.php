@@ -4,6 +4,7 @@ namespace Modules\Integrations\Allegro\Services;
 
 use App\Models\OrderReturn;
 use App\Models\ReturnStatusSetting;
+use App\Services\OrderReturnParcelService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
@@ -11,6 +12,8 @@ use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 
 class AllegroReturnImportService
 {
+    public function __construct(private readonly OrderReturnParcelService $parcels) {}
+
     public function store(AllegroAccount $account, array $data): OrderReturn
     {
         return DB::transaction(function () use ($account, $data): OrderReturn {
@@ -61,10 +64,7 @@ class AllegroReturnImportService
                 ]);
             }
             $record->items()->where('position', '>=', count($data['items']))->delete();
-            foreach ($data['parcels'] as $parcel) {
-                $record->parcels()->updateOrCreate(['position' => $parcel['position']], $parcel);
-            }
-            $record->parcels()->where('position', '>=', count($data['parcels']))->delete();
+            $this->parcels->syncImported($record, $data['parcels']);
             if ($created || $changed) {
                 $record->events()->create([
                     'type' => $created ? 'imported' : ($previousStatus !== $record->status ? 'status_changed' : 'updated'),

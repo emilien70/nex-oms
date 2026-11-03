@@ -4,7 +4,9 @@ namespace Modules\Automation\Services;
 
 use App\Models\Order;
 use App\Models\OrderEmailMessage;
+use App\Models\OrderReturn;
 use App\Models\OrderStatusSetting;
+use App\Models\ReturnStatusSetting;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Automation\Models\AutomationRun;
 use Modules\Automation\Models\AutomationRunStep;
@@ -25,6 +27,13 @@ class OrderAutomationHistory
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate(10, ['*'], 'automation_page', max(1, $page))
+            ->through(fn (AutomationRun $run): array => $this->present($run));
+    }
+
+    public function forReturn(OrderReturn $record): LengthAwarePaginator
+    {
+        return AutomationRun::query()->where('order_return_id', $record->id)->with('steps')
+            ->orderByDesc('id')->paginate(10, ['*'], 'automation_page')->withQueryString()
             ->through(fn (AutomationRun $run): array => $this->present($run));
     }
 
@@ -64,6 +73,9 @@ class OrderAutomationHistory
         $output = $step?->output ?? [];
 
         return match ($type) {
+            AutomationCatalog::ACTION_CHANGE_RETURN_STATUS => 'Zwrot #'.($output['return_id'] ?? '...').': '
+                .($output['return_status_label'] ?? ReturnStatusSetting::query()->find($configuration['return_status_id'] ?? 0)?->name ?? 'Status niedostępny')
+                .(($output['skipped'] ?? false) ? ' (pominięto)' : ''),
             AutomationCatalog::ACTION_MODIFY_ORDER => (string) ($output['field_label']
                 ?? $this->catalog->orderFields()[$configuration['field'] ?? '']['label'] ?? 'Pole niedostępne'),
             AutomationCatalog::ACTION_CHANGE_STATUS => OrderStatusSetting::labelFor(

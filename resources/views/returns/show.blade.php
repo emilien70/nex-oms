@@ -4,6 +4,7 @@
 
 @section('content')
 @include('returns._styles')
+@include('returns._parcel-assets')
 <div class="returns-page">
     <header class="returns-header">
         <div class="returns-heading">
@@ -143,24 +144,18 @@
     <section class="returns-card returns-section">
         <h2>Przesyłki (zamówienie)</h2>
         <div class="returns-body returns-table-wrap"><table class="returns-small-table">
-            <thead><tr><th>DATA UTWORZENIA</th><th>PRZEWOŹNIK</th><th>NAZWA KONTA</th><th>NUMER NADAWCZY</th><th>STATUS</th></tr></thead>
+            <thead><tr><th>DATA UTWORZENIA</th><th>PRZEWOŹNIK</th><th>NAZWA KONTA</th><th>NUMER NADAWCZY</th><th>STATUS</th><th></th></tr></thead>
             <tbody>
             @forelse ($orderShipments as $row)
-                <tr><td>{{ $row['shipment']->created_at?->timezone(config('app.timezone'))->format('d.m.Y H:i') }}</td><td>{{ $row['carrier'] ?: '...' }}</td><td>{{ $row['shipment']->courierAccount?->name ?: '...' }}</td><td class="text-primary">{{ $row['waybill'] }}</td><td>{{ $row['shipment']->statusLabel() }}</td></tr>
-            @empty <tr><td colspan="5" class="returns-empty">Brak przesyłek zamówienia.</td></tr> @endforelse
+                <tr><td>{{ $row['shipment']->created_at?->timezone(config('app.timezone'))->format('d.m.Y H:i') }}</td><td>{{ $row['carrier'] ?: '...' }}</td><td>{{ $row['shipment']->courierAccount?->name ?: '...' }}</td><td class="text-primary">{{ $row['waybill'] }}</td><td><div class="return-shipment-status"><span class="return-parcel-track" aria-hidden="true"><span class="return-parcel-fill {{ $row['shipment']->oms_status === 'delivered' ? 'is-delivered' : (in_array($row['shipment']->oms_status, ['problem', 'returned'], true) ? 'is-problem' : '') }}" style="width:{{ $row['shipment']->omsStatusProgress() }}%"></span></span>{{ $row['shipment']->statusLabel() }}</div></td><td></td></tr>
+            @empty @if($orderReturn->parcels->isEmpty())<tr><td colspan="6" class="returns-empty">Brak przesyłek.</td></tr>@endif @endforelse
+            @foreach ($orderReturn->parcels as $parcel)
+                @php($parcel->setRelation('orderReturn', $orderReturn))
+                @include('returns._parcel-row', ['parcel' => $parcel, 'canEditParcel' => true])
+            @endforeach
             </tbody>
         </table></div>
-    </section>
-    <section class="returns-card returns-section">
-        <h2>Przesyłki zwrotne</h2>
-        <div class="returns-body returns-table-wrap"><table class="returns-small-table">
-            <thead><tr><th>DATA UTWORZENIA</th><th>PRZEWOŹNIK</th><th>NUMER NADAWCZY</th><th>PRZEWOŹNIK DORĘCZAJĄCY</th><th>NUMER DORĘCZAJĄCY</th></tr></thead>
-            <tbody>
-            @forelse ($orderReturn->parcels as $parcel)
-                <tr><td>{{ $parcel->submitted_at?->timezone(config('app.timezone'))->format('d.m.Y H:i') ?: '...' }}</td><td>{{ $parcel->carrier_id ?: '...' }}</td><td>{{ $parcel->waybill ?: '...' }}</td><td>{{ $parcel->transporting_carrier_id ?: '...' }}</td><td>{{ $parcel->transporting_waybill ?: '...' }}</td></tr>
-            @empty <tr><td colspan="5" class="returns-empty">Brak przesyłek zwrotnych.</td></tr> @endforelse
-            </tbody>
-        </table></div>
+        <div class="returns-body">@include('returns._parcel-form')</div>
     </section>
 
     <div class="returns-grid">
@@ -181,6 +176,9 @@
                 <details @if(request()->hasAny(['refund_page', 'refund_event_page']) || $errors->has('refund_allocation')) open @endif><summary>Historia płatności zwrotu</summary>
                     @include('returns._refunds')
                 </details>
+                <details @if(request()->has('automation_page')) open @endif><summary>Historia automatycznych akcji zwrotu</summary>
+                    @include('returns._automation-history')
+                </details>
                 <details open><summary>Historia zmian zwrotu</summary>
                     <ul>
                     @foreach ($events as $event)
@@ -199,6 +197,8 @@
                                 Zmieniono przypisanie refundacji:
                             @elseif ($event->type === 'allegro_commission_claim')
                                 Zwrot prowizji:
+                            @elseif ($event->type === 'parcel_status_changed')
+                                Status przesyłki zwrotnej:
                             @elseif (in_array($event->type, ['status_changed', 'local_status_changed'], true))
                                 Zmieniono status:
                             @else
