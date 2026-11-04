@@ -5,6 +5,7 @@ namespace Modules\Integrations\AllegroShipping\Services;
 use DomainException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Str;
+use Modules\Integrations\AllegroShipping\Exceptions\AllegroShippingApiException;
 use Modules\Integrations\AllegroShipping\Jobs\CancelAllegroShipmentJob;
 use Modules\Integrations\AllegroShipping\Jobs\CreateAllegroShipmentJob;
 use Modules\Integrations\AllegroShipping\Jobs\RefreshAllegroShipmentJob;
@@ -12,6 +13,8 @@ use Modules\Integrations\AllegroShipping\Jobs\ResolveAllegroCancellationJob;
 use Modules\Integrations\AllegroShipping\Jobs\ResolveAllegroShipmentCommandJob;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\ShipmentDeletionService;
+use Modules\Shipments\Support\ShipmentConfirmationResult;
+use Modules\Shipments\Support\ShipmentConfirmationSchedule;
 
 class AllegroShippingOperations
 {
@@ -34,10 +37,21 @@ class AllegroShippingOperations
         }
 
         $shipment->loadMissing(['order', 'courierAccount', 'parcels']);
-        $this->client->createCommand($shipment->courierAccount, $shipment, $this->payloadFactory->make($shipment));
+        $response = $this->client->createCommandResponse($shipment->courierAccount, $shipment, $this->payloadFactory->make($shipment));
+        $retryAfter = ShipmentConfirmationSchedule::retryAfter($response->header('Retry-After'));
+        $result = new ShipmentConfirmationResult(false, $retryAfter);
 
-        if (! $this->resolveCreation($shipment)) {
-            ResolveAllegroShipmentCommandJob::dispatch($shipment)->delay(now()->addSeconds(5));
+        if ($retryAfter === null) {
+            try {
+                $result = $this->confirmCreation($shipment);
+            } catch (AllegroShippingApiException $exception) {
+                // The POST was accepted. Only its GET confirmation may be retried.
+                $result = new ShipmentConfirmationResult(false, max(10, $exception->retryAfterSeconds ?? 0));
+            }
+        }
+
+        if (! $result->completed) {
+            ResolveAllegroShipmentCommandJob::dispatch($shipment)->delay(now()->addSeconds(max(1, $result->retryAfter ?? 1)));
         }
 
         return $shipment->fresh();
@@ -45,18 +59,29 @@ class AllegroShippingOperations
 
     public function resolveCreation(Shipment $shipment): bool
     {
-        $shipment->loadMissing('courierAccount');
-        $command = $this->client->createCommandStatus($shipment->courierAccount, $shipment);
+        return $this->confirmCreation($shipment)->completed;
+    }
 
-        if (! $this->synchronizer->applyCommand($shipment, $command)) {
-            return false;
+    public function confirmCreation(Shipment $shipment): ShipmentConfirmationResult
+    {
+        if (filled($shipment->tracking_number)) {
+            return new ShipmentConfirmationResult(true);
         }
 
-        $shipment->refresh()->loadMissing('courierAccount');
-        $details = $this->client->shipment($shipment->courierAccount, $shipment);
-        $this->synchronizer->applyDetails($shipment, $details);
+        $shipment->loadMissing('courierAccount');
+        if (blank($shipment->external_id)) {
+            $response = $this->client->createCommandStatusResponse($shipment->courierAccount, $shipment);
+            if (! $this->synchronizer->applyCommand($shipment, (array) $response->json())) {
+                return new ShipmentConfirmationResult(false, ShipmentConfirmationSchedule::retryAfter($response->header('Retry-After')));
+            }
 
-        return true;
+            $shipment->refresh()->loadMissing('courierAccount');
+        }
+
+        $response = $this->client->shipmentResponse($shipment->courierAccount, $shipment);
+        $this->synchronizer->applyDetails($shipment, (array) $response->json());
+
+        return new ShipmentConfirmationResult(filled($shipment->tracking_number), ShipmentConfirmationSchedule::retryAfter($response->header('Retry-After')));
     }
 
     public function dispatchRefresh(Shipment $shipment): void

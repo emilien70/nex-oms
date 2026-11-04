@@ -10,6 +10,7 @@ class InPostApiException extends RuntimeException
         string $message,
         public readonly ?int $statusCode = null,
         public readonly ?array $responsePayload = null,
+        public readonly ?int $retryAfterSeconds = null,
     ) {
         parent::__construct($message);
     }

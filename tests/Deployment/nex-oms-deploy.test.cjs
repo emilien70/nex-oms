@@ -139,6 +139,47 @@ test('curl configuration escaping preserves special characters without putting p
     assert(source.includes('curl --config "$TEMP_DIR/http.conf"'));
 });
 
+test('production requires the explicit flag and preserves the actual automatic submission setting', () => fixture((directory) => {
+    fs.mkdirSync(`${directory}/vendor`);
+    fs.mkdirSync(`${directory}/bootstrap`);
+    const runtime = slash(path.resolve(__dirname, 'fixtures/runtime.php')).replaceAll("'", "\\'");
+    fs.writeFileSync(`${directory}/vendor/autoload.php`, `<?php require '${runtime}';`);
+    fs.writeFileSync(`${directory}/bootstrap/app.php`, '<?php return new DeployTestApp;');
+    const check = (profile, production = true, mode = 'snapshot') => shell(`
+APP="$TEST_DIR"
+${production ? 'main --production --help >/dev/null' : ':'}
+php_tool "$TEST_MODE"
+`, '', { TEST_DIR: directory, TEST_MODE: mode, DEPLOY_PROFILE: JSON.stringify(profile) });
+    for (const environment of ['staging', 'production']) {
+        for (const automatic_submission of [true, false]) {
+            const profile = { environment, ksef_environment: 'production', automatic_submission };
+            assert.notEqual(check(profile, false).status, 0);
+            const result = check(profile);
+            assert.equal(result.status, 0, result.stderr);
+            assert.deepEqual(JSON.parse(result.stdout).profile, {
+                deployment_mode: 'production', app_environment: environment,
+                ksef_environment: 'production', automatic_submission,
+            });
+            assert.equal(check(profile, true, 'quiet').status, 0);
+        }
+    }
+    for (const profile of [
+        { environment: 'testing', ksef_environment: 'production' },
+        { ksef_environment: 'demo' },
+        { driver: 'sqlite', ksef_environment: 'production' },
+        { database: 'other', ksef_environment: 'production' },
+        { ksef_environment: 'production', jobs: true },
+        { ksef_environment: 'production', active_automations: true },
+    ]) assert.notEqual(check(profile, true, profile.jobs || profile.active_automations ? 'quiet' : 'snapshot').status, 0);
+}));
+
+test('snapshot summary reports the real profile instead of hard-coded DEMO', () => {
+    const profile = { deployment_mode: 'production', app_environment: 'staging', ksef_environment: 'production', automatic_submission: true };
+    const result = shell('php_tool summary snapshot', JSON.stringify({ profile, applied: ['old'], pending: [], maintenance: false, route_cached: true }));
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).profile, profile);
+});
+
 test('presentation-only releases get rollback; business changes do not', () => {
     assert.equal(JSON.parse(policy().stdout).rollback_allowed, true);
     assert.equal(JSON.parse(policy('no').stdout).rollback_allowed, false);

@@ -12,10 +12,10 @@ class OrderNavigationTest extends TestCase
 
     public function test_order_navigation_uses_selected_status_and_list_order(): void
     {
-        $newer = $this->order(Order::STATUS_PENDING, '2026-10-15 12:00:00');
-        $differentStatus = $this->order(Order::STATUS_NEW, '2026-10-15 11:30:00');
-        $current = $this->order(Order::STATUS_PENDING, '2026-10-15 11:00:00');
         $older = $this->order(Order::STATUS_PENDING, '2026-10-15 10:00:00');
+        $current = $this->order(Order::STATUS_PENDING, '2026-10-15 11:00:00');
+        $differentStatus = $this->order(Order::STATUS_NEW, '2026-10-15 11:30:00');
+        $newer = $this->order(Order::STATUS_PENDING, '2026-10-15 12:00:00');
 
         $this->get(route('orders.index', ['status' => Order::STATUS_PENDING]))
             ->assertOk()

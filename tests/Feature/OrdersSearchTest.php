@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Support\OrderListNavigationContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Modules\Shipments\Models\Shipment;
@@ -123,7 +124,7 @@ class OrdersSearchTest extends TestCase
         }
 
         $this->get(route('orders.index', ['q' => $trackingNumber]))
-            ->assertRedirect(route('orders.show', $order));
+            ->assertRedirect($this->trackingSearchOrderUrl($order, $trackingNumber));
 
         $this->getJson(route('orders.scan', ['code' => $trackingNumber]))
             ->assertOk()
@@ -217,10 +218,10 @@ class OrdersSearchTest extends TestCase
         ]);
 
         $this->get(route('orders.index', ['q' => 'EXACT-MAIN-123']))
-            ->assertRedirect(route('orders.show', $order));
+            ->assertRedirect($this->trackingSearchOrderUrl($order, 'EXACT-MAIN-123'));
 
         $this->get(route('orders.index', ['q' => 'EXACT-PARCEL-456']))
-            ->assertRedirect(route('orders.show', $order));
+            ->assertRedirect($this->trackingSearchOrderUrl($order, 'EXACT-PARCEL-456'));
     }
 
     public function test_search_switches_from_a_status_to_all_orders(): void
@@ -319,5 +320,12 @@ class OrdersSearchTest extends TestCase
             'shipping_name' => $shippingName,
             'currency' => 'PLN',
         ]);
+    }
+
+    private function trackingSearchOrderUrl(Order $order, string $trackingNumber): string
+    {
+        return route('orders.show', OrderListNavigationContext::orderParameters($order->id, [
+            'q' => $trackingNumber, 'status' => 'all', 'page' => 1, 'per_page' => 20,
+        ]));
     }
 }

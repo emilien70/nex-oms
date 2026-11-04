@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'NEX-OMS')</title>
+    <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=nex-1">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
@@ -1429,6 +1430,11 @@
         $currentLayoutStatus = request()->query('status');
         $currentLayoutStatus = is_string($currentLayoutStatus) ? $currentLayoutStatus : null;
         $layoutShowsTrash = request()->boolean('trash');
+        $ordersContextBackUrl = request()->routeIs('orders.show') ? ($ordersListUrl ?? null) : null;
+        if ($ordersContextBackUrl !== null) {
+            $currentLayoutStatus = $orderNavigationStatus;
+            $layoutShowsTrash = $orderNavigationTrash;
+        }
         $globalOrderSearchQuery = request()->routeIs('orders.index', 'returns.index')
             ? trim((string) request()->query('q', ''))
             : '';
@@ -1562,12 +1568,12 @@
                         </button>
                     </div>
                     <nav class="orders-context-list" id="orderStatusNavigation" aria-label="Statusy zam&#243;wie&#324;">
-                        <a class="orders-context-link orders-context-link-all {{ ! $layoutShowsTrash && $currentLayoutStatus === null && request()->routeIs('orders.index') ? 'active' : '' }}" href="{{ route('orders.index') }}">
+                        <a class="orders-context-link orders-context-link-all {{ ! $layoutShowsTrash && $currentLayoutStatus === null && request()->routeIs('orders.index') ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === null ? $ordersContextBackUrl : route('orders.index') }}">
                             <span class="orders-context-all-icon" aria-hidden="true"></span>
                             <span class="orders-context-link-label">Wszystkie</span>
                         </a>
                         @foreach ($layoutOrderStatuses ?? [] as $status)
-                            <a class="orders-context-link {{ ! $layoutShowsTrash && $currentLayoutStatus === $status['code'] ? 'active' : '' }}" href="{{ route('orders.index', ['status' => $status['code']]) }}">
+                            <a class="orders-context-link {{ ! $layoutShowsTrash && $currentLayoutStatus === $status['code'] ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === $status['code'] ? $ordersContextBackUrl : route('orders.index', ['status' => $status['code']]) }}">
                                 <span class="orders-context-count" style="background: {{ $status['color'] }}; color: {{ $status['code'] === 'new' ? '#ffffff' : ($status['text_color'] ?? '#ffffff') }};">{{ $layoutOrderStatusCounts[$status['code']] ?? 0 }}</span>
                                 <span class="orders-context-link-label">{{ $status['name'] }}</span>
                             </a>
@@ -1578,7 +1584,7 @@
                                 <i class="bi bi-file-earmark-text orders-context-action-icon" aria-hidden="true"></i>
                                 <span class="orders-context-link-label">Archiwum</span>
                             </a>
-                            <a class="orders-context-link {{ $layoutShowsTrash ? 'active' : '' }}" href="{{ route('orders.index', ['trash' => 1]) }}">
+                            <a class="orders-context-link {{ $layoutShowsTrash ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && $layoutShowsTrash ? $ordersContextBackUrl : route('orders.index', ['trash' => 1]) }}">
                                 <i class="bi bi-trash3 orders-context-action-icon" aria-hidden="true"></i>
                                 <span class="orders-context-link-label">Kosz</span>
                                 @if (($layoutTrashOrdersCount ?? 0) > 0)

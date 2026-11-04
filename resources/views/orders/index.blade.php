@@ -17,11 +17,12 @@
     $activeFilters = array_filter($filters ?? [], fn ($value) => $value !== null && $value !== '');
     $filterQueryBase = array_filter(array_merge($activeFilters, ['q' => $searchQuery, 'per_page' => $perPage]), fn ($value) => $value !== null && $value !== '');
     $filterValue = fn ($key) => $filters[$key] ?? '';
+    $sortingDirectionLabel = html_entity_decode($orderSorting->direction === 'desc' ? 'Malej&#261;co' : 'Rosn&#261;co', ENT_QUOTES, 'UTF-8');
     $headerStatus = $currentStatus ? ($statusSettings[$currentStatus] ?? null) : null;
     $headerTitle = $showTrash ? 'Kosz' : ($headerStatus['name'] ?? 'Wszystkie zam&oacute;wienia');
     $headerColor = $showTrash ? '#64748b' : ($headerStatus['color'] ?? '#64748b');
     $showHeaderColor = $showTrash || $headerStatus !== null;
-    $selectionScope = request()->except(['page', 'per_page']);
+    $selectionScope = request()->except(['page', 'per_page', 'list_return', 'sort', 'direction']);
     ksort($selectionScope);
     $selectionScopeKey = md5(json_encode($selectionScope));
 @endphp
@@ -76,6 +77,8 @@
                     <input type="hidden" name="trash" value="1">
                 @endif
                 <input type="hidden" name="per_page" value="{{ $perPage }}">
+                <input type="hidden" name="sort" value="{{ $orderSorting->key }}">
+                <input type="hidden" name="direction" value="{{ $orderSorting->direction }}">
 
                 <div class="orders-filters-grid">
                     <div class="orders-filter-field"><label for="filter_number">Numer</label><input id="filter_number" class="form-control form-control-sm" type="text" name="number" value="{{ $filterValue('number') }}"></div>
@@ -150,7 +153,7 @@
                             </button>
                         </div>
                     </div>
-                    <a class="btn btn-outline-secondary orders-filter-action-button" href="{{ route('orders.index', array_filter(['q' => $searchQuery, 'status' => $currentStatus, 'trash' => $showTrash ? 1 : null, 'per_page' => $perPage], fn ($value) => $value !== null && $value !== '')) }}">Wyczy&#347;&#263; filtry</a>
+                    <a class="btn btn-outline-secondary orders-filter-action-button" href="{{ route('orders.index', array_filter(['q' => $searchQuery, 'status' => $currentStatus, 'trash' => $showTrash ? 1 : null, 'per_page' => $perPage] + $orderSorting->parameters(), fn ($value) => $value !== null && $value !== '')) }}">Wyczy&#347;&#263; filtry</a>
                     <button class="btn btn-primary orders-filter-action-button" type="submit">Ustaw filtry</button>
                 </div>
             </form>
@@ -214,6 +217,22 @@
                     </ul>
                 </div>
             @endif
+            <div class="dropdown orders-sort-dropdown">
+                <button class="btn btn-sm btn-outline-secondary orders-sort-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Sortowanie zam&oacute;wie&#324;" title="Sortowanie: {{ $orderSortOptions[$orderSorting->key] }} ({{ $sortingDirectionLabel }})" data-order-sort-toggle>
+                    <i class="bi {{ $orderSorting->direction === 'desc' ? 'bi-sort-down' : 'bi-sort-up' }}" aria-hidden="true"></i>
+                </button>
+                <ul class="dropdown-menu orders-sort-menu" aria-label="Opcje sortowania zam&oacute;wie&#324;">
+                    <li><h6 class="dropdown-header">Sortuj wed&#322;ug</h6></li>
+                    @foreach ($orderSortOptions as $sortKey => $sortLabel)
+                        <li><a class="dropdown-item {{ $orderSorting->key === $sortKey ? 'active' : '' }}" href="{{ request()->fullUrlWithQuery(['sort' => $sortKey, 'direction' => $orderSorting->direction, 'page' => 1]) }}" data-order-sort-key="{{ $sortKey }}" @if ($orderSorting->key === $sortKey) aria-current="true" @endif>{{ $sortLabel }}</a></li>
+                    @endforeach
+                    <li><hr class="dropdown-divider"></li>
+                    <li><h6 class="dropdown-header">Sortowanie i wy&#347;wietlanie</h6></li>
+                    @foreach (['desc' => 'Malej&#261;co', 'asc' => 'Rosn&#261;co'] as $sortDirection => $directionLabel)
+                        <li><a class="dropdown-item orders-sort-direction {{ $orderSorting->direction === $sortDirection ? 'active' : '' }}" href="{{ request()->fullUrlWithQuery(['sort' => $orderSorting->key, 'direction' => $sortDirection, 'page' => 1]) }}" data-order-sort-direction="{{ $sortDirection }}" @if ($orderSorting->direction === $sortDirection) aria-current="true" @endif><i class="bi {{ $sortDirection === 'desc' ? 'bi-sort-down' : 'bi-sort-up' }}" aria-hidden="true"></i><span>{!! $directionLabel !!}</span></a></li>
+                    @endforeach
+                </ul>
+            </div>
             <x-pagination-toolbar
                 :paginator="$orders"
                 :per-page-options="$perPageOptions"
@@ -324,7 +343,7 @@
                                     @if ($showTrash)
                                         <span class="fw-bold text-secondary">{{ $order->id }}</span>
                                     @else
-                                        <a class="order-number-link" href="{{ route('orders.show', ['order' => $order, 'status' => $currentStatus ?? 'all']) }}" data-page-navigation-loading>{{ $order->id }}</a>
+                                        <a class="order-number-link" href="{{ route('orders.show', \App\Support\OrderListNavigationContext::orderParameters($order->id, $orderListContext)) }}" data-page-navigation-loading>{{ $order->id }}</a>
                                     @endif
                                     @if ($storeOrderNumber)
                                         <div class="order-subline">({{ $storeOrderNumber }})</div>
@@ -487,6 +506,21 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const fitOrderSortMenu = (dropdown) => {
+                const button = dropdown?.querySelector('[data-order-sort-toggle]');
+                if (!button) return;
+                const rect = button.getBoundingClientRect();
+                const available = Math.max(rect.top - 12, window.innerHeight - rect.bottom - 12);
+                dropdown.style.setProperty('--orders-sort-max-height', `${Math.max(80, Math.floor(available))}px`);
+            };
+            document.addEventListener('show.bs.dropdown', (event) => {
+                const dropdown = event.target.closest('.orders-sort-dropdown');
+                if (dropdown) fitOrderSortMenu(dropdown);
+            });
+            window.addEventListener('resize', () => {
+                document.querySelectorAll('.orders-sort-toggle[aria-expanded="true"]').forEach((button) => fitOrderSortMenu(button.closest('.orders-sort-dropdown')));
+            });
+
             const initializeOrdersList = () => {
             const ordersPage = document.querySelector('[data-orders-page]');
 
@@ -1149,7 +1183,7 @@
             };
 
             const loadOrdersPage = async (url, { pushHistory = true } = {}) => {
-                const targetUrl = new URL(url, window.location.href);
+                let targetUrl = new URL(url, window.location.href);
                 const currentPage = currentOrdersPage();
                 const requestSequence = ++navigationSequence;
 
@@ -1178,6 +1212,8 @@
                             window.location.assign(responseUrl.toString());
                             return true;
                         }
+
+                        targetUrl = responseUrl;
                     }
 
                     const nextDocument = new DOMParser().parseFromString(await response.text(), 'text/html');
@@ -1204,6 +1240,8 @@
 
                     if (pushHistory && targetUrl.toString() !== window.location.href) {
                         window.history.pushState({ ordersList: true }, '', targetUrl.toString());
+                    } else if (response.redirected && targetUrl.toString() !== window.location.href) {
+                        window.history.replaceState({ ordersList: true }, '', targetUrl.toString());
                     }
 
                     initializeOrdersList();

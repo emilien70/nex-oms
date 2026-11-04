@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# NEX-OMS staging only. Run a copy OUTSIDE the application checkout as ubuntu.
+# Run a copy OUTSIDE the application checkout as ubuntu. Production needs --production.
 set -Eeuo pipefail
 umask 022
+export NEX_OMS_DEPLOY_PROFILE=staging
 
 APP="/var/www/nex-oms"
 ROOT="/root/nex-oms-backups"
@@ -45,9 +46,9 @@ try {
     if ($mode === "summary") {
         $data = $json(stream_get_contents(STDIN));
         if (($args[0] ?? "") === "snapshot") {
-            $emit(["profile" => "STAGING / KSEF DEMO / AUTO OFF", "maintenance" => $data["maintenance"], "migrations_count" => count($data["applied"]), "pending" => $data["pending"], "route_cached" => $data["route_cached"]]);
+            $emit(["profile" => $data["profile"], "maintenance" => $data["maintenance"], "migrations_count" => count($data["applied"]), "pending" => $data["pending"], "route_cached" => $data["route_cached"]]);
         } else {
-            $emit(array_intersect_key($data, array_flip(["action", "status", "phase", "from", "to", "backup", "record_path", "paused_cron"])));
+            $emit(array_intersect_key($data, array_flip(["action", "status", "phase", "from", "to", "backup", "record_path", "paused_cron", "profile"])));
         }
         exit(0);
     }
@@ -117,7 +118,13 @@ try {
     $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
     $db = DB::connection();
     $settings = KsefSetting::query()->where("singleton_key", KsefSetting::SINGLETON_KEY)->firstOrFail();
-    if (!app()->environment("staging") || $db->getDriverName() !== "mysql" || $db->getDatabaseName() !== "nex_oms" || $settings->environment !== KsefEnvironment::Demo || $settings->automatic_submission) throw new RuntimeException("Wymagane staging, MySQL nex_oms, KSeF DEMO, autowysylka OFF.");
+    $profile = getenv("NEX_OMS_DEPLOY_PROFILE") ?: "staging";
+    if ($db->getDriverName() !== "mysql" || $db->getDatabaseName() !== "nex_oms") throw new RuntimeException("Wymagane MySQL nex_oms.");
+    if ($profile === "production") {
+        if ((!app()->environment("staging") && !app()->environment("production")) || $settings->environment !== KsefEnvironment::Production) throw new RuntimeException("Tryb production wymaga APP_ENV staging/production oraz KSeF Production. Nie zmieniaj ustawien, aby ominac kontrole.");
+    } elseif ($profile !== "staging" || !app()->environment("staging") || $settings->environment !== KsefEnvironment::Demo || $settings->automatic_submission) {
+        throw new RuntimeException("Domyslnie wymagane staging, KSeF DEMO, autowysylka OFF. Dla KSeF Production uzyj --production.");
+    }
     $identity = $db->selectOne("SELECT @@server_uuid AS id, VERSION() AS version");
     if (!str_starts_with($identity->version, "8.0.")) throw new RuntimeException("Profil skryptu wymaga MySQL 8.0.");
     if ($mode === "quiet") {
@@ -141,6 +148,7 @@ try {
     $pending = array_values(array_diff(array_keys($files), $applied)); sort($pending);
     $critical = [config("app.key"), config("app.env"), config("app.url"), config("cache"), config("queue"), config("ksef"), $settings->getRawOriginal()];
     $emit([
+        "profile" => ["deployment_mode" => $profile, "app_environment" => config("app.env"), "ksef_environment" => $settings->environment->value, "automatic_submission" => (bool) $settings->automatic_submission],
         "server_uuid" => $identity->id,
         "fingerprint" => hash("sha256", serialize($critical)),
         "applied" => $applied,
@@ -271,6 +279,7 @@ prepare() {
         for u in ubuntu www-data; do sudo -u "$u" test -w "$d" || fail "Brak zapisu $u do $d"; done
     done
     php_tool snapshot > "$TEMP_DIR/before.json"
+    php_tool summary snapshot < "$TEMP_DIR/before.json"
     [[ "$(field maintenance < "$TEMP_DIR/before.json")" == no ]] || fail "Aplikacja juz jest w konserwacji."
     [[ "$(field pending < "$TEMP_DIR/before.json")" == '[]' ]] || fail "Istnieja zalegle migracje. Wymagana osobna analiza."
     [[ "$(sudo mysql -NBe 'SELECT @@server_uuid')" == "$(field server_uuid < "$TEMP_DIR/before.json")" ]] || fail "Backup wskazuje inny serwer MySQL niz aplikacja."
@@ -336,7 +345,7 @@ start_record() {
     BACKUP="$ROOT/nex-oms-$stamp.sql.gz"
     PAUSED="$ROOT/scheduler-paused-$stamp"
     RECORD="$HISTORY/$stamp.json"
-    data="$(printf '{}\n' | php_tool patch version 1 record_path "$RECORD" action "$ACTION" from "$FROM" to "$TO" status preparing phase "$PHASE" backup "$BACKUP" paused_cron "$PAUSED" env_hash "$env_hash" config_hash "$config_hash" fingerprint "$(field fingerprint < "$TEMP_DIR/before.json")" ledger_before "$(field applied < "$TEMP_DIR/before.json")" policy "$(cat "$TEMP_DIR/policy.json")")"
+    data="$(printf '{}\n' | php_tool patch version 1 record_path "$RECORD" action "$ACTION" from "$FROM" to "$TO" status preparing phase "$PHASE" backup "$BACKUP" paused_cron "$PAUSED" env_hash "$env_hash" config_hash "$config_hash" profile "$(field profile < "$TEMP_DIR/before.json")" fingerprint "$(field fingerprint < "$TEMP_DIR/before.json")" ledger_before "$(field applied < "$TEMP_DIR/before.json")" policy "$(cat "$TEMP_DIR/policy.json")")"
     printf '%s\n' "$data" | private_write "$RECORD"
     printf '%s\n' "$data" | private_write "$ACTIVE"
 }
@@ -523,15 +532,19 @@ main() {
     trap finish EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM HUP
+    if [[ "${1:-}" == --production ]]; then
+        export NEX_OMS_DEPLOY_PROFILE=production
+        shift
+    fi
     case "${1:-}" in
-        --help) echo 'bash nex-oms-deploy.sh [--status | --help]'; return ;;
+        --help) echo 'bash nex-oms-deploy.sh [--production] [--status | --help]'; return ;;
         --status) status; return ;;
         '') ;;
         *) fail "Nieznany argument." ;;
     esac
     [[ -t 0 ]] || fail "Uruchom plik w interaktywnym terminalu PuTTY."
     local option
-    printf '\nNEX-OMS STAGING\n1) Aktualizuj z main\n2) Cofnij ostatnia zgodna wersje KODU\n3) Status / przerwane wdrozenie\n0) Wyjdz\n> '
+    printf '\nNEX-OMS (%s)\n1) Aktualizuj z main\n2) Cofnij ostatnia zgodna wersje KODU\n3) Status / przerwane wdrozenie\n0) Wyjdz\n> ' "$NEX_OMS_DEPLOY_PROFILE"
     read -r option
     case "$option" in
         1) update_main ;;

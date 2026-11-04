@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 
 final class OrderListFilterState
 {
+    public const PER_PAGE_OPTIONS = [20, 30, 50, 75, 100, 150, 200, 300, 500, 1000];
+
     public const FILTER_KEYS = [
         'number',
         'store_number',
@@ -38,6 +40,8 @@ final class OrderListFilterState
         'q',
         'status',
         ...self::FILTER_KEYS,
+        'sort',
+        'direction',
     ];
 
     public static function filtersFromRequest(Request $request): array
@@ -47,12 +51,15 @@ final class OrderListFilterState
 
     public static function savedFromRequest(Request $request): array
     {
-        return self::normalize($request->only(self::SAVED_KEYS), self::SAVED_KEYS);
+        return self::normalizeSaved($request->only(self::SAVED_KEYS));
     }
 
     public static function normalizeSaved(array $values): array
     {
-        return self::normalize($values, self::SAVED_KEYS);
+        $normalized = self::normalize($values, self::SAVED_KEYS);
+        unset($normalized['sort'], $normalized['direction']);
+
+        return $normalized + OrderListSort::fromArray($values)->parameters();
     }
 
     private static function normalize(array $values, array $keys, bool $removeEmpty = true): array

@@ -9,6 +9,7 @@ use Modules\Integrations\InPost\Exceptions\InPostApiException;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\IntegrationApiLog;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Support\ShipmentConfirmationSchedule;
 use Throwable;
 
 class InPostClient
@@ -139,7 +140,8 @@ class InPostClient
             );
 
             if (! $response->successful()) {
-                throw new InPostApiException($errorMessage, $response->status(), $responsePayload);
+                throw new InPostApiException($errorMessage, $response->status(), $responsePayload,
+                    ShipmentConfirmationSchedule::retryAfter($response->header('Retry-After')));
             }
 
             return $response;

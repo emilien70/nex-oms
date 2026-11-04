@@ -5661,13 +5661,13 @@
                 closeCourierForm();
             };
 
-            const pollShipment = async (statusUrl, attempt = 0, form = null) => {
-                if (!statusUrl || attempt >= 120) {
-                    showShipmentNotice('Przesy\u0142ka nadal oczekuje na obs\u0142ug\u0119 kolejki. Sprawd\u017a, czy worker kolejki jest uruchomiony.', 'warning');
+            const pollShipment = async (statusUrl, attempt = 0, form = null, startedAt = Date.now()) => {
+                if (!statusUrl || Date.now() - startedAt >= 240000) {
+                    showShipmentNotice('Nadal oczekujemy na numer nadawczy od przewo\u017anika. Sprawdzanie trwa w tle. Nie nadawaj ponownie tej samej przesy\u0142ki.', 'warning');
                     return false;
                 }
 
-                await new Promise((resolve) => window.setTimeout(resolve, 2000));
+                await new Promise((resolve) => window.setTimeout(resolve, 1000));
 
                 try {
                     const response = await fetch(statusUrl, {
@@ -5701,10 +5701,10 @@
                         return shipmentCreationSucceeded(payload);
                     }
 
-                    return pollShipment(payload.status_url || statusUrl, attempt + 1, form);
+                    return pollShipment(payload.status_url || statusUrl, attempt + 1, form, startedAt);
                 } catch (error) {
                     showShipmentNotice(error.message || 'Oczekiwanie na aktualizacj\u0119 przesy\u0142ki...', 'warning');
-                    return pollShipment(statusUrl, attempt + 1, form);
+                    return pollShipment(statusUrl, attempt + 1, form, startedAt);
                 }
             };
 

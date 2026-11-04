@@ -54,6 +54,7 @@ namespace {
             'queue.connections.database' => $queue + ['retry_after' => $profile['retry_after'] ?? 300],
             'queue.connections.ksef_submit' => $queue + ['retry_after' => 240],
             'app.key' => 'FAKE-NOT-A-SECRET',
+            'app.env' => $profile['environment'] ?? 'staging',
             default => [],
         };
     }

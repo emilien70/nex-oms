@@ -3129,3 +3129,45 @@ Powiazanie pozycji wymaga order_item_id i jednoznacznej pozycji dokumentu; brak,
 Korekta zachowuje snapshot numeru i limitow zwrotu. Pozniejsza aktualizacja/import karty nie zmienia dokumentu ani tych limitow. Usuniecie karty zeruje relacje, ale zachowuje snapshot i PDF; dopuszczone przez dotychczasowe zasady usuniecie niezfinalizowanej Korekty zwalnia powiazanie i pozostawia zdarzenie w historii zwrotu. Wystawienie i zamkniecie rowniez trafiaja do tej historii. Ustawienie serii Pokaz identyfikator zwrotu w naglowku korzysta z numeru zapisanego na dokumencie, nie z odczytu zywej karty.
 
 Obecne reguly numeracji, liniowego lancucha, jednej niezfinalizowanej Korekty, finalizacji i KSeF pozostaja aktywne. Zamkniety dokument Allegro moze korzystac z istniejacego ALLEGRO.3D zgodnie z ustawieniami; etap nie zmienia ich wlaczenia. Nie wykonuje automatycznej refundacji, wniosku o prowizje, zmiany statusu ani operacji magazynowej. Raport: docs/allegro-4c-report.md.
+
+# PRZESYLKI.OPT.1 - oczekiwanie na numer nadawczy
+
+Nowe przesylki InPost Paczkomaty, InPost Kurier i Wysylam z Allegro sa
+potwierdzane oddzielnie od zwyklego sledzenia paczek. OMS nie konczy
+potwierdzania po samym otrzymaniu identyfikatora przewoznika; czeka na numer
+nadawczy, respektuje limity i Retry-After, bez ponawiania nadania.
+Szybkie odczyty zwalniaja po pierwszej minucie i koncza sie po 15 minutach.
+Brak wyniku wymaga sprawdzenia przesylki u przewoznika, nie slepego nadania
+kolejnej paczki. Widok zamowienia odczytuje lokalny wynik co sekunde,
+konczy po potwierdzeniu, a po 4 minutach informuje o dalszej pracy w tle.
+Lokalne kolejki przesylek maja osobne workery pod dotychczasowym Main Queues;
+importy nie musza juz skonczyc sie przed obsluga nadania. KSeF i normalne
+sledzenie zachowuja dotychczasowe zasady. Zmiana nie wymaga migracji.
+
+# Lista zamowien - zachowanie filtrow przy powrocie
+
+Otwarcie zamowienia z listy zachowuje status, zastosowane filtry,
+wyszukiwanie, numer strony i liczbe pozycji. Powrot do listy lub klikniecie
+statusu pochodzenia w bocznym menu odtwarza ten widok. Inny status otwiera
+liste bez odziedziczonych filtrow. Strzalki przechodza po wynikach filtrow,
+takze miedzy stronami, z zachowaniem pierwotnej strony powrotu.
+Zmiana danych/statusu zamowienia nie zmienia kontekstu. Pusta ostatnia
+strona powoduje powrot do ostatniej dostepnej bez usuwania filtrow.
+Wyczysc filtry pozostaje jawna operacja; zwijanie panelu ich nie wylacza.
+Rozne karty przegladarki sa niezalezne. Nie jest to trwale zapamietywanie
+filtrow konta ani nowy system zapisanych widokow. Bez kontekstu zachowany
+jest dotychczasowy powrot. Szczegoly: docs/order-list-navigation-report.md.
+
+# Sortowanie zamowien
+
+Ikona za Zmien status otwiera wybor pola i kierunku. Dostepne sa ID OMS,
+numer w sklepie, data zlozenia, data w statusie, laczna kwota, koszt i sposob
+wysylki, status, stan platnosci, imie/nazwisko, login kupujacego, numer
+transakcji Allegro i ostatni numer nadawczy. Domyslnie ID OMS malejaco.
+Sortowanie obejmuje wszystkie wyniki przed paginacja. Puste dane sa
+na koncu, remisy rozstrzyga ID. Zmiana sortowania zachowuje filtry i liczbe
+pozycji, ale wraca na pierwsza strone. Powrot i strzalki zachowuja wybor.
+Zapisane widoki pamietaja sortowanie; Wyczysc filtry go nie resetuje.
+Zaznaczenie zamowien nie zalezy od kolejnosci. Menu przewija sie wewnetrznie
+na mniejszych ekranach. Nie dodano pol dodatkowych, ktorych OMS nie posiada.
+Szczegoly i testy: docs/order-list-sorting-report.md.

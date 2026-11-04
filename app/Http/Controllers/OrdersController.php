@@ -21,6 +21,8 @@ use App\Support\CountryCatalog;
 use App\Support\CurrencyCatalog;
 use App\Support\LiteralLike;
 use App\Support\OrderListFilterState;
+use App\Support\OrderListNavigationContext;
+use App\Support\OrderListSort;
 use App\Support\PhoneNumberFormatter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -70,15 +72,17 @@ class OrdersController extends Controller
         }
 
         $filters = $this->orderFilters($request);
-        $perPageOptions = [20, 30, 50, 75, 100, 150, 200, 300, 500, 1000];
+        $sorting = OrderListSort::fromArray($request->query());
+        $perPageOptions = OrderListFilterState::PER_PAGE_OPTIONS;
         $requestedPerPage = $request->integer('per_page', 20);
         $perPage = in_array($requestedPerPage, $perPageOptions, true) ? $requestedPerPage : 20;
         $statusSettings = OrderStatusSetting::orderedSettings()->keyBy('code');
         $statuses = $statusSettings
             ->mapWithKeys(fn (array $status): array => [$status['code'] => $status['name']])
             ->all();
+        $listContext = OrderListNavigationContext::fromList($request, $statuses);
 
-        if (! $showTrash && $searchQuery !== '') {
+        if (! $showTrash && $searchQuery !== '' && ! $request->boolean('list_return')) {
             $trackingOrderIds = $this->trackingLookup->matchingOrderIds(
                 $this->ordersListQuery(
                     false,
@@ -91,7 +95,7 @@ class OrdersController extends Controller
             );
 
             if ($trackingOrderIds->count() === 1) {
-                return redirect()->route('orders.show', $trackingOrderIds->first());
+                return redirect()->route('orders.show', OrderListNavigationContext::orderParameters($trackingOrderIds->first(), $listContext));
             }
         }
 
@@ -103,7 +107,8 @@ class OrdersController extends Controller
             $statuses,
             $searchQuery,
             $filters,
-            true
+            true,
+            $sorting,
         );
         $listSignature = $this->ordersListSignature($ordersQuery, $statusCounts, $trashCount);
 
@@ -122,6 +127,11 @@ class OrdersController extends Controller
         $orders = $ordersQuery
             ->paginate($perPage)
             ->appends(array_merge($request->except(['page', 'per_page']), ['per_page' => $perPage]));
+        if ($request->boolean('list_return') && $orders->currentPage() > $orders->lastPage()) {
+            return redirect()->route('orders.index', OrderListNavigationContext::listParameters(
+                array_replace($listContext, ['page' => $orders->lastPage()]),
+            ));
+        }
         $savedViews = OrderSavedView::query()->ordered()->get();
         $currentSavedState = OrderListFilterState::savedFromRequest($request);
         $activeSavedViewId = $savedViews
@@ -146,6 +156,9 @@ class OrdersController extends Controller
             'allMatchingOrderIds' => $allMatchingOrderIds,
             'starredMatchingOrderIds' => $starredMatchingOrderIds,
             'listSignature' => $listSignature,
+            'orderListContext' => $listContext,
+            'orderSorting' => $sorting,
+            'orderSortOptions' => OrderListSort::options(),
         ]);
     }
 
@@ -164,7 +177,9 @@ class OrdersController extends Controller
             $currentStatus,
             $statuses,
             $searchQuery,
-            $filters
+            $filters,
+            false,
+            OrderListSort::fromArray($request->query()),
         );
 
         return response()->json([
@@ -512,9 +527,10 @@ class OrdersController extends Controller
         array $statuses,
         string $searchQuery,
         array $filters,
-        bool $withItems = false
+        bool $withItems = false,
+        ?OrderListSort $sorting = null,
     ): Builder {
-        return Order::query()
+        $query = Order::query()
             ->when($withItems, fn (Builder $query) => $query
                 ->with('items')
                 ->with(['prestashopOrderLinks.account', 'allegroOrderLink.account', 'vonHalskyOrderLink.account'])
@@ -553,9 +569,9 @@ class OrdersController extends Controller
                     }
                 });
             })
-            ->when($this->hasActiveFilters($filters), fn (Builder $query) => $this->applyOrderFilters($query, $filters))
-            ->orderByDesc('created_at')
-            ->orderByDesc('id');
+            ->when($this->hasActiveFilters($filters), fn (Builder $query) => $this->applyOrderFilters($query, $filters));
+
+        return ($sorting ?? OrderListSort::fromArray([]))->apply($query, $statuses);
     }
 
     private function ordersListSignature(Builder $query, array $statusCounts, int $trashCount): string
@@ -727,9 +743,25 @@ class OrdersController extends Controller
     public function show(Request $request, Order $order, OrderAutomationHistory $automationHistory): View
     {
         $statuses = OrderStatusSetting::orderedStatuses();
-        $navigationStatus = $this->resolveOrderNavigationStatus($request, $order, $statuses);
-        $adjacentOrderIds = $this->adjacentOrderIds($order, $navigationStatus);
+        $listContext = OrderListNavigationContext::fromOrder($request, $statuses);
+        $sorting = OrderListSort::fromArray($listContext ?? $request->query());
+        $navigationStatus = $listContext === null
+            ? $this->resolveOrderNavigationStatus($request, $order, $statuses)
+            : ($listContext['status'] === 'all' ? null : $listContext['status']);
+        $navigationOrders = $this->ordersListQuery(
+            (bool) ($listContext['trash'] ?? false),
+            $navigationStatus,
+            $statuses,
+            $listContext['q'] ?? '',
+            array_intersect_key($listContext ?? [], array_flip(OrderListFilterState::FILTER_KEYS)),
+            false,
+            $sorting,
+        );
+        $adjacentOrderIds = $sorting->adjacentIds($order, $navigationOrders, $statuses);
         $navigationStatusQuery = $navigationStatus ?? 'all';
+        $orderNavigationParameters = fn (int $id): array => $listContext === null
+            ? ['order' => $id, 'status' => $navigationStatusQuery] + $sorting->parameters()
+            : OrderListNavigationContext::orderParameters($id, $listContext);
         $activeCourierAccounts = CourierAccount::query()
             ->where('is_active', true)
             ->get();
@@ -769,11 +801,15 @@ class OrdersController extends Controller
             'activeCourierAccounts' => $activeCourierAccounts,
             'previousOrderUrl' => $adjacentOrderIds['previous'] === null
                 ? null
-                : route('orders.show', ['order' => $adjacentOrderIds['previous'], 'status' => $navigationStatusQuery]),
+                : route('orders.show', $orderNavigationParameters($adjacentOrderIds['previous'])),
             'nextOrderUrl' => $adjacentOrderIds['next'] === null
                 ? null
-                : route('orders.show', ['order' => $adjacentOrderIds['next'], 'status' => $navigationStatusQuery]),
-            'ordersListUrl' => route('orders.index', $navigationStatus === null ? [] : ['status' => $navigationStatus]),
+                : route('orders.show', $orderNavigationParameters($adjacentOrderIds['next'])),
+            'ordersListUrl' => route('orders.index', $listContext === null
+                ? ($navigationStatus === null ? [] : ['status' => $navigationStatus]) + $sorting->parameters()
+                : OrderListNavigationContext::listParameters($listContext)),
+            'orderNavigationStatus' => $navigationStatus,
+            'orderNavigationTrash' => (bool) ($listContext['trash'] ?? false),
             'quickStatusActions' => [
                 Order::STATUS_PENDING => [
                     'label' => html_entity_decode('Oznacz jako oczekuj&#261;ce', ENT_QUOTES, 'UTF-8'),
@@ -826,48 +862,6 @@ class OrdersController extends Controller
         }
 
         return array_key_exists((string) $order->status, $statuses) ? $order->status : null;
-    }
-
-    /**
-     * @return array{previous: int|null, next: int|null}
-     */
-    private function adjacentOrderIds(Order $order, ?string $status): array
-    {
-        $orders = Order::query()
-            ->when($status !== null, fn (Builder $query) => $query->where('status', $status));
-
-        $previousOrderId = (clone $orders)
-            ->where(function (Builder $query) use ($order): void {
-                $query
-                    ->where('created_at', '>', $order->created_at)
-                    ->orWhere(function (Builder $query) use ($order): void {
-                        $query
-                            ->where('created_at', $order->created_at)
-                            ->where('id', '>', $order->getKey());
-                    });
-            })
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->value('id');
-
-        $nextOrderId = (clone $orders)
-            ->where(function (Builder $query) use ($order): void {
-                $query
-                    ->where('created_at', '<', $order->created_at)
-                    ->orWhere(function (Builder $query) use ($order): void {
-                        $query
-                            ->where('created_at', $order->created_at)
-                            ->where('id', '<', $order->getKey());
-                    });
-            })
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->value('id');
-
-        return [
-            'previous' => $previousOrderId === null ? null : (int) $previousOrderId,
-            'next' => $nextOrderId === null ? null : (int) $nextOrderId,
-        ];
     }
 
     public function edit(Order $order): View

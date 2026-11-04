@@ -3774,3 +3774,47 @@ Dotychczasowe kontrolery i centralne trasy obsluguja nowe parametry; nie dodano 
 Wystawienie, finalizacja i dozwolone usuniecie zapisuja skrocone order_return_events w tej samej transakcji. Nie dodano historii zwyklych edycji dokumentu. Usuniecie karty zeruje FK i zachowuje snapshot. Dopuszczone usuniecie Korekty usuwa jej relacje razem z dokumentem, lecz pozostawia numer w zdarzeniu zwrotu. PdfViewModel odczytuje return_id tylko ze snapshotu i respektuje zamrozona flage show_return_id_in_header; layout Korekty ma wersje v47. Nie zmieniono layoutu Faktury/Pro formy ani plikow dokumentow zewnetrznych.
 
 InvoiceFinalizationService nadal emituje istniejace CorrectionFinalized po commit, wiec ALLEGRO.3D i KSeF zachowuja swoje bramki. Nowy kod nie wywoluje API ani nie zmienia konfiguracji automatycznych wysylek, refundacji lub stanow. Kopia, migracja, testy, ograniczenia i reczna weryfikacja: docs/allegro-4c-report.md.
+
+## PRZESYLKI.OPT.1 - potwierdzanie nowego nadania
+
+ResolveInPostShipmentJob na shipments-actions odczytuje nowa przesylke po 1 s,
+a nastepnie stosuje interwaly 1/2/5/30 s w ograniczonym oknie 15 minut.
+ResolveAllegroShipmentCommandJob respektuje Retry-After i po uzyskaniu
+shipmentId kontynuuje odczyt szczegolow do otrzymania numeru nadawczego.
+Oba zadania zachowuja wspolne blokady przesylki i limitery, ponawiaja tylko
+GET, a przekroczenie terminu zapisuje niepewny wynik bez nowego POST.
+Normalne Refresh*Job pozostaja na shipments-sync z niezmienionym harmonogramem.
+Lokalny Main Queues zarzadza trzema workerami (main, shipments-actions,
+shipments-sync) przez scripts/run-main-queues.ps1, bez zmian workerow KSeF.
+Przegladarka odczytuje tylko lokalny status co 1 s przez maksymalnie 4 minuty.
+Szczegoly i wczytanie zmiany: docs/shipment-confirmation-optimization-report.md.
+
+## Kontekst listy zamowien
+
+OrderListNavigationContext przenosi do karty zamowienia znormalizowana
+tablice list: filtry OrderListFilterState, status, q, page i per_page.
+Powrot i boczny link statusu pochodzenia odtwarzaja ja przez orders.index;
+inny status nie dziedziczy filtrow. Bez list pozostaje stara nawigacja.
+Sasiedzi korzystaja z ordersListQuery i OrderListSort (wybrane pole oraz ID),
+bez pelnej materializacji wynikow. Zmiana statusu otwartego zamowienia nie zmienia
+zrodlowego kontekstu. Powrot z pustej strony koryguje page do lastPage.
+Marker list_return zapobiega petli przekierowania wyszukiwania po numerze
+paczki i nie wchodzi do filtrow, zapisanych widokow ani zakresu zaznaczenia.
+AJAX zachowuje kanoniczny URL po przekierowaniu na dostepna strone.
+Nie dodano sesji, pamieci wspoldzielonej kart, routingu ani migracji.
+Raport i testy: docs/order-list-navigation-report.md.
+
+## Sortowanie listy zamowien
+
+OrderListSort definiuje 13 dozwolonych pol i kierunki asc/desc. Lista jest
+sortowana w SQL przed paginacja, domyslnie po ID DESC. Puste wartosci sa
+na koncu, a ID rozstrzyga remisy. Ten sam serwis wybiera sasiadow w dwoch
+zapytaniach, porownujac wartosci i null-rank w SQL bez konwersji DECIMAL
+na PHP float. Status korzysta z kolejnosci aktualnych ustawien OMS,
+a numer nadawczy z ostatniej przesylki z numerem.
+sort/direction przechodza przez OrderListFilterState, kontekst list
+i istniejacy JSON zapisanych widokow. Nie zmieniaja zakresu zaznaczenia.
+Brak parametrow odpowiada id/desc i zachowuje zgodnosc starszych widokow.
+Menu Bootstrap ma dynamicznie ograniczona wysokosc i wlasne przewijanie.
+Nie dodano migracji, routingu ani nowych zaleznosci.
+Raport i ograniczenia: docs/order-list-sorting-report.md.

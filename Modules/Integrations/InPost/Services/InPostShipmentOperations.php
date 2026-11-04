@@ -7,6 +7,7 @@ use Illuminate\Http\Client\Response;
 use Modules\Integrations\InPost\Jobs\CancelInPostShipmentJob;
 use Modules\Integrations\InPost\Jobs\CreateInPostShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
+use Modules\Integrations\InPost\Jobs\ResolveInPostShipmentJob;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Services\ShipmentDeletionService;
 
@@ -45,7 +46,7 @@ class InPostShipmentOperations
         $this->synchronizer->apply($shipment, $response, 'shipment_created');
 
         if (! $shipment->tracking_number) {
-            RefreshInPostShipmentJob::dispatch($shipment)->delay(now()->addSeconds(8));
+            ResolveInPostShipmentJob::dispatch($shipment)->delay(now()->addSecond());
         }
 
         return $shipment;

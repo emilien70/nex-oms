@@ -4,19 +4,20 @@
     $invoiceExport = $allegroInvoice['export'] ?? null;
     $isUnsentAllegroInvoice = $allegroDocument?->isInvoice()
         && ($invoiceExport === null || ($invoiceExport->state === 'skipped' && $invoiceExport->upload_started_at === null));
-    $isConfirmedAllegroInvoice = $allegroDocument?->isInvoice() && $invoiceExport?->state === 'synced';
+    $isConfirmedAllegroDocument = ($allegroDocument?->isInvoice() || $isAllegroCorrection) && $invoiceExport?->state === 'synced';
     $hasAllegroNotice = ! empty($allegroInvoice['changed'])
         || ! empty($allegroInvoice['historical'])
         || filled($invoiceExport?->error)
+        || (! empty($allegroInvoice['sourceWarning']) && $invoiceExport?->state !== 'waiting')
         || (isset($errors) && $errors->has('allegro_invoice_export'));
     $allegroConfirm = $isAllegroCorrection
         ? 'Przekazać zamkniętą korektę do Allegro jako osobny dokument?'.(! empty($allegroInvoice['sourceWarning']) ? ' OMS nie potwierdził faktury źródłowej w Allegro. Sprawdź, czy znajduje się już przy zamówieniu.' : '')
         : 'Przekazać fakturę do Allegro?';
 @endphp
-@if ($allegroInvoice && (($allegroDocument && ! $isConfirmedAllegroInvoice) || $hasAllegroNotice))
+@if ($allegroInvoice && (($allegroDocument && ! $isConfirmedAllegroDocument) || $hasAllegroNotice))
     <div class="{{ $isUnsentAllegroInvoice ? 'management-allegro-invoice-row' : 'small mt-2' }}" style="grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere;" data-allegro-invoice-export data-allegro-document-id="{{ $allegroDocument?->id }}">
         @if (isset($errors) && $errors->has('allegro_invoice_export'))<div class="text-danger mb-1" role="alert">{{ $errors->first('allegro_invoice_export') }}</div>@endif
-        @if ($allegroDocument && ! $isConfirmedAllegroInvoice)
+        @if ($allegroDocument && ! $isConfirmedAllegroDocument)
             @if ($isUnsentAllegroInvoice)
                 <div class="management-meta-label">Faktura Allegro:</div>
             @endif

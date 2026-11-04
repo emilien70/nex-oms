@@ -4,6 +4,35 @@
 
 Staging dziala na VPS OVHcloud z Ubuntu, bez Dockera, w `/var/www/nex-oms`. Migawka operatora z 2026-10-24: PHP 8.3.6, Laravel 12.63.0, `APP_ENV=staging`, `APP_DEBUG=false`. Szczegolowa konfiguracja i granice jej weryfikacji: [Kolejki, harmonogram i Supervisor na VPS](007-Queues-Scheduler-VPS.md).
 
+## Aktualizacje z KSeF Production
+
+`APP_ENV=staging` nie oznacza, ze integracje dzialaja testowo. O rzeczywistym
+trybie KSeF decyduje konfiguracja KSeF; ustawienie Production i aktywny automat
+oznaczaja rzeczywiste wysylki. Nie przelaczac ich na DEMO ani nie wylaczac
+automatu tylko po to, aby przejsc kontrole skryptu.
+
+Skrypt `scripts/nex-oms-deploy.sh` nalezy uruchamiac jako `ubuntu` z kopii
+poza katalogiem aplikacji. Domyslny profil nadal dopuszcza tylko staging,
+KSeF DEMO i automat OFF. Dla KSeF Production wymagany jest jawny argument:
+
+```bash
+bash /home/ubuntu/nex-oms-deploy.sh --production --status
+bash /home/ubuntu/nex-oms-deploy.sh --production
+```
+
+Tryb ten dopuszcza `APP_ENV=staging` albo `production`, wymaga KSeF Production
+i zachowuje zastany stan automatycznej wysylki. Wyswietla rzeczywisty profil,
+zapisuje go w historii i kontroluje niezmiennosc konfiguracji przed wznowieniem.
+Nie zmienia `.env`, credentiali ani ustawien KSeF i nie inicjuje recznej wysylki.
+Po wznowieniu workerow i harmonogramu istniejace automatyzacje dzialaja normalnie.
+
+Blokady zmian chronionych plikow, zatwierdzanie migracji przez commit i SHA256,
+kopia MySQL, kontrola kolejek oraz ograniczenia rollbacku nadal obowiazuja.
+Zmiana `config/filesystems.php` lub aktywnego cache konfiguracji wymaga osobno
+przejrzanej procedury konkretnego wydania; `--production` nie omija tej blokady.
+Nie przywracac automatycznie starego kodu po utworzeniu nowych referencji
+zalacznikow ani nie cofac migracji na bazie produkcyjnej.
+
 ## Katalog publiczny
 
 Document root domeny lub subdomeny musi wskazywac na katalog:

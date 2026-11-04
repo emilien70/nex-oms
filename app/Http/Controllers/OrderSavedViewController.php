@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OrderSavedView;
 use App\Models\OrderStatusSetting;
 use App\Support\OrderListFilterState;
+use App\Support\OrderListSort;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -124,6 +125,8 @@ class OrderSavedViewController extends Controller
         $rules['filters.source'][] = Rule::in(['allegro', 'prestashop']);
         $rules['filters.cash_on_delivery'][] = Rule::in(['0', '1']);
         $rules['filters.payment'][] = Rule::in(['unpaid', 'partial', 'paid']);
+        $rules['filters.sort'][] = Rule::in(array_keys(OrderListSort::options()));
+        $rules['filters.direction'][] = Rule::in(['asc', 'desc']);
 
         foreach (['ordered_from', 'ordered_to', 'status_from', 'status_to'] as $key) {
             $rules['filters.'.$key][] = 'date_format:Y-m-d';

@@ -12,6 +12,7 @@ use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Integrations\InPost\Jobs\CancelInPostShipmentJob;
 use Modules\Integrations\InPost\Jobs\CreateInPostShipmentJob;
 use Modules\Integrations\InPost\Jobs\RefreshInPostShipmentJob;
+use Modules\Integrations\InPost\Jobs\ResolveInPostShipmentJob;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Support\ShipmentQueue;
 use PHPUnit\Framework\TestCase;
@@ -24,6 +25,7 @@ class ShipmentQueueTest extends TestCase
         $jobs = [
             new CreateInPostShipmentJob($shipment),
             new CancelInPostShipmentJob($shipment),
+            new ResolveInPostShipmentJob($shipment),
             new CreateDpdShipmentJob($shipment),
             new CreateAllegroShipmentJob($shipment),
             new CancelAllegroShipmentJob($shipment),

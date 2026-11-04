@@ -10,6 +10,7 @@ class AllegroShippingApiException extends RuntimeException
         string $message,
         public readonly ?int $statusCode = null,
         public readonly array $responsePayload = [],
+        public readonly ?int $retryAfterSeconds = null,
     ) {
         parent::__construct($message, $statusCode ?? 0);
     }

@@ -11,6 +11,7 @@ use Modules\Integrations\AllegroShipping\Exceptions\AllegroShippingApiException;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\IntegrationApiLog;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Support\ShipmentConfirmationSchedule;
 use Throwable;
 
 class AllegroShippingClient
@@ -34,30 +35,47 @@ class AllegroShippingClient
 
     public function createCommand(CourierAccount $account, Shipment $shipment, array $payload): array
     {
-        return $this->json($account, 'create_shipment', 'POST', '/shipment-management/shipments/create-commands', $payload, $shipment);
+        return (array) $this->createCommandResponse($account, $shipment, $payload)->json();
+    }
+
+    public function createCommandResponse(CourierAccount $account, Shipment $shipment, array $payload): Response
+    {
+        return $this->send($account, 'create_shipment', 'POST', '/shipment-management/shipments/create-commands', $payload, $shipment, self::MEDIA_TYPE);
     }
 
     public function createCommandStatus(CourierAccount $account, Shipment $shipment): array
     {
-        return $this->json(
+        return (array) $this->createCommandStatusResponse($account, $shipment)->json();
+    }
+
+    public function createCommandStatusResponse(CourierAccount $account, Shipment $shipment): Response
+    {
+        return $this->send(
             $account,
             'create_shipment_status',
             'GET',
             '/shipment-management/shipments/create-commands/'.rawurlencode($shipment->request_uuid),
             [],
             $shipment,
+            self::MEDIA_TYPE,
         );
     }
 
     public function shipment(CourierAccount $account, Shipment $shipment): array
     {
-        return $this->json(
+        return (array) $this->shipmentResponse($account, $shipment)->json();
+    }
+
+    public function shipmentResponse(CourierAccount $account, Shipment $shipment): Response
+    {
+        return $this->send(
             $account,
             'get_shipment',
             'GET',
             '/shipment-management/shipments/'.rawurlencode((string) $shipment->external_id),
             [],
             $shipment,
+            self::MEDIA_TYPE,
         );
     }
 
@@ -167,7 +185,8 @@ class AllegroShippingClient
             $this->log($operation, $shipment, $requestId, $method, $url, $payload, $response->status(), $responsePayload, $startedAt, $successful, $error);
 
             if (! $successful) {
-                throw new AllegroShippingApiException($error, $response->status(), $responsePayload);
+                throw new AllegroShippingApiException($error, $response->status(), $responsePayload,
+                    ShipmentConfirmationSchedule::retryAfter($response->header('Retry-After')));
             }
 
             return $response;

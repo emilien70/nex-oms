@@ -20,7 +20,7 @@ class OrdersAjaxListTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertSee('Szablony E-Mail')
+            ->assertSee('Szablony E-mail/SMS')
             ->assertSee('data-orders-page', false)
             ->assertSee('data-list-signature=', false)
             ->assertSee('data-all-matching-order-ids=', false);
