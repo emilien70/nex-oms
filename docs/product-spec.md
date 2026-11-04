@@ -3197,3 +3197,18 @@ alias wystarcza do potwierdzenia jego paczki, ale nie innych paczek.
 Ponowienie pozostaje w menu przesylki. Klikniecie ikony nie wysyla danych.
 Zmiany potwierdzenia odswiezaja sie istniejacym mechanizmem stanu karty.
 Raport i ograniczenia: docs/allegro-shipment-confirmation-report.md.
+
+# Allegro - diagnostyka techniczna API (2026-11-04)
+
+Historia API zachowuje takze pierwsza nieautoryzowana odpowiedz HTTP 401,
+wynik odswiezenia tokenu i wynik jednego dotychczasowego ponowienia.
+Wpisy laczy identyfikator operacji OMS; numer proby i Trace-Id Allegro
+ulatwiaja powiazanie zdarzen oraz zgloszenie problemu do Allegro.
+Brak Trace-Id lub jego niepoprawny format nie blokuje integracji.
+
+Diagnostyka nie dodaje tokenow, hasel, plikow PDF, danych klienta ani pelnych
+naglowkow do logow. Nie zmienia importow, synchronizacji, ustawien konta,
+refundacji, numeracji i wysylki dokumentow. Powodzenie po odswiezeniu tokenu
+nadal jest powodzeniem operacji, bez dodatkowego alarmu w panelu OMS.
+Retencja logow pozostaje bez zmian. Nie usuwa sie historycznych bledow
+ze statystyk Allegro i nie dodaje agresywnych ponowien przy 500/503.

@@ -386,7 +386,9 @@ class OrderAjaxUpdatesTest extends TestCase
         $this->assertSame(1, $xpath->query($toolbar.'//button[@class="btn product-add-button"][@data-bs-toggle="modal"][@data-bs-target="#catalogProductModal"]')->length);
         $this->assertSame(1, $xpath->query($toolbar.'//button[@class="btn product-add-options"][@data-bs-toggle="dropdown"]')->length);
         $this->assertSame(1, $xpath->query($toolbar.'//button[@class="btn product-operations-button"]/i[contains(@class, "bi-wrench")]')->length);
-        $this->assertSame(1, $xpath->query($toolbar.'/following-sibling::div[1][@id="productAddPanel"]//form[@data-order-ajax-form]')->length);
+        $returns = $toolbar.'/following-sibling::div[1][@data-order-returns]';
+        $this->assertSame(1, $xpath->query($returns)->length);
+        $this->assertSame(1, $xpath->query($returns.'/following-sibling::div[1][@id="productAddPanel"]//form[@data-order-ajax-form]')->length);
         $response->assertSee('Dodaj produkty do zam&oacute;wienia...', false)
             ->assertSee('Dodaj produkty z magazynu...')
             ->assertSee('Dodaj produkt ręcznie...');

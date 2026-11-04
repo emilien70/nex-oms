@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
+use Modules\Integrations\Allegro\Support\AllegroApiDiagnostics;
 use Modules\Shipments\Models\IntegrationApiLog;
 use Throwable;
 
@@ -84,21 +85,21 @@ class AllegroOAuthService
         return ['status' => 'authorized'];
     }
 
-    public function accessToken(AllegroAccount $account): string
+    public function accessToken(AllegroAccount $account, ?string $requestId = null): string
     {
         if (! $account->hasOAuthTokens()) {
             throw new AllegroApiException('Konto Allegro nie jest połączone.', 401);
         }
 
         if ($account->access_token_expires_at?->lessThanOrEqualTo(now()->addMinutes(5))) {
-            $this->refresh($account);
+            $this->refresh($account, $requestId);
             $account->refresh();
         }
 
         return (string) $account->access_token;
     }
 
-    public function refresh(AllegroAccount $account): void
+    public function refresh(AllegroAccount $account, ?string $requestId = null): void
     {
         $this->assertApplicationCredentials($account);
 
@@ -109,7 +110,7 @@ class AllegroOAuthService
         $response = $this->oauthRequest($account, 'refresh_token', $account->authUrl(), [
             'grant_type' => 'refresh_token',
             'refresh_token' => $account->refresh_token,
-        ]);
+        ], [], $requestId);
         $payload = (array) $response->json();
 
         if (blank($payload['access_token'] ?? null)) {
@@ -132,8 +133,9 @@ class AllegroOAuthService
         string $url,
         array $data,
         array $acceptedErrors = [],
+        ?string $requestId = null,
     ): Response {
-        $requestId = (string) Str::uuid();
+        $requestId ??= (string) Str::uuid();
         $startedAt = hrtime(true);
 
         try {
@@ -161,6 +163,7 @@ class AllegroOAuthService
                 $startedAt,
                 $successful,
                 $error,
+                $response,
             );
 
             if (! $successful) {
@@ -208,11 +211,14 @@ class AllegroOAuthService
         int $startedAt,
         bool $successful,
         ?string $error,
+        ?Response $httpResponse = null,
     ): void {
         IntegrationApiLog::query()->create([
             'integration' => 'allegro',
             'operation' => $operation,
             'request_id' => $requestId,
+            'response_trace_id' => AllegroApiDiagnostics::traceId($httpResponse),
+            'attempt_number' => 1,
             'method' => 'POST',
             'url' => $url,
             'request_payload' => $request,

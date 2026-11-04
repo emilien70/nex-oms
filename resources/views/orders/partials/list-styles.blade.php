@@ -289,6 +289,10 @@
             text-align: left;
         }
 
+        .order-login-edge {
+            white-space: nowrap;
+        }
+
         .order-login-copy:focus-visible {
             outline: 2px solid #0864b1;
             outline-offset: 2px;
@@ -515,6 +519,7 @@
         .order-indicator.inactive { background: #9ba3ad; }
         .order-indicator-delivery.inactive { background: #ccd0d5; }
         .order-indicator.cod { background: #eb840f; }
+        .order-indicator.return { background: #eb840f; }
         .order-indicator.shipping, .order-indicator.invoice { background: #499fd8; }
         .order-indicator.attention { background: #d54b49; }
         .order-indicator.cancelled { background: #d54839; border-radius: 3px; font-size: 20px; }
@@ -1089,6 +1094,7 @@
             [data-orders-page] .orders-table .order-login-copy {
                 max-width: 100%;
                 overflow-wrap: anywhere;
+                white-space: normal;
             }
 
             [data-orders-page] .orders-table .order-extra-content {

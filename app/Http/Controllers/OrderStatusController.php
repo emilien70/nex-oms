@@ -63,6 +63,8 @@ class OrderStatusController extends Controller
             'shipments.courierAccount',
             'shipments.parcels',
             'shipments.allegroExports',
+            'returns' => fn ($query) => $query->withCount('items')->orderByDesc('id'),
+            'returns.localStatus',
             'returns.parcels',
             'events' => fn ($query) => $query->orderByDesc('created_at'),
             'payNowPayments' => fn ($query) => $query
@@ -80,6 +82,8 @@ class OrderStatusController extends Controller
         $paymentIdWarning = app(PrestashopPaymentStatusService::class)->hasMissingTransactionId($order);
         $buyerCommentsHtml = view('orders.partials.buyer-comments', compact('order'))->render();
         $buyerCommentsSignature = hash('sha256', $buyerCommentsHtml);
+        $returnsHtml = view('orders.partials.returns-card', compact('order'))->render();
+        $returnsSignature = hash('sha256', $returnsHtml);
         $halskyStatusHtml = $order->source === 'von_halsky' && $order->vonHalskyOrderLink
             ? view('orders.partials.von-halsky-status', compact('order'))->render() : '';
         $halskyWarningHtml = $order->source === 'von_halsky' && $order->vonHalskyOrderLink
@@ -89,6 +93,9 @@ class OrderStatusController extends Controller
             && $order->source === 'von_halsky' ? ['von-halsky-status' => $halskyStatusHtml, 'von-halsky-warning' => $halskyWarningHtml] : [];
         if ($request?->query('buyer_comments_signature') !== $buyerCommentsSignature) {
             $requestedFragments->push('buyer-comments');
+        }
+        if ($request?->query('returns_signature') !== $returnsSignature) {
+            $requestedFragments->push('returns');
         }
         if ($request?->has('payment_id_warning') && $request->boolean('payment_id_warning') !== $paymentIdWarning) {
             $requestedFragments->push('order-info');
@@ -120,6 +127,7 @@ class OrderStatusController extends Controller
             'latest_event_id' => $latestEventId,
             'payment_id_warning' => $paymentIdWarning,
             'buyer_comments_signature' => $buyerCommentsSignature,
+            'returns_signature' => $returnsSignature,
             'von_halsky_status_signature' => $halskySignature,
             'shipments_signature' => $shipmentsSignature,
             'shipments_count' => $order->shipments->count() + $order->returns->sum(fn ($record) => $record->parcels->count()),
@@ -127,7 +135,8 @@ class OrderStatusController extends Controller
             'star_color' => $order->star_color,
             'fields' => $this->editableFields($order),
             'fragments' => $this->renderFragments($order, $requestedFragments->unique(), $request?->integer('automation_page', 1) ?? 1)
-                + ($requestedFragments->contains('buyer-comments') ? ['buyer-comments' => $buyerCommentsHtml] : []) + $halskyFragments,
+                + ($requestedFragments->contains('buyer-comments') ? ['buyer-comments' => $buyerCommentsHtml] : [])
+                + ($requestedFragments->contains('returns') ? ['returns' => $returnsHtml] : []) + $halskyFragments,
         ])->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 

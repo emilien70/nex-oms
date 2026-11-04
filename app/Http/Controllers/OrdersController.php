@@ -8,6 +8,7 @@ use App\Exceptions\OrderPaymentStateException;
 use App\Http\Controllers\Concerns\NormalizesDecimalInput;
 use App\Http\Controllers\Concerns\RespondsToOrderAjax;
 use App\Models\Order;
+use App\Models\OrderReturn;
 use App\Models\OrderSavedView;
 use App\Models\OrderStatusSetting;
 use App\Rules\ValidCurrencyCode;
@@ -534,7 +535,7 @@ class OrdersController extends Controller
             ->when($withItems, fn (Builder $query) => $query
                 ->with('items')
                 ->with(['prestashopOrderLinks.account', 'allegroOrderLink.account', 'vonHalskyOrderLink.account'])
-                ->withExists(['prestashopBuyerMessages', 'visibleShipments as shipments_exists', 'invoices as issued_invoice_exists' => fn ($query) => $query->where('document_type', 'invoice')->where('status', 'issued')]))
+                ->withExists(['returns', 'prestashopBuyerMessages', 'visibleShipments as shipments_exists', 'invoices as issued_invoice_exists' => fn ($query) => $query->where('document_type', 'invoice')->where('status', 'issued')]))
             ->when($showTrash, fn (Builder $query) => $query->onlyTrashed())
             ->when(
                 ! $showTrash && array_key_exists((string) $currentStatus, $statuses),
@@ -581,6 +582,10 @@ class OrdersController extends Controller
         $matchingShipments = Shipment::query()
             ->whereNotNull('tracking_number')
             ->whereIn('order_id', $matchingOrderIds);
+        $matchingReturns = OrderReturn::query()
+            ->whereIn('order_id', $matchingOrderIds)
+            ->selectRaw('COUNT(*) as return_count, MAX(id) as last_id, MAX(updated_at) as last_update')
+            ->toBase()->first();
 
         return hash('sha256', json_encode([
             'matching_count' => (clone $matchingOrders)->count(),
@@ -589,6 +594,9 @@ class OrdersController extends Controller
             'matching_shipments_last_update' => (clone $matchingShipments)->max('updated_at'),
             'matching_invoices_count' => Invoice::query()->whereIn('order_id', $matchingOrderIds)->count(),
             'matching_invoices_last_update' => Invoice::query()->whereIn('order_id', $matchingOrderIds)->max('updated_at'),
+            'matching_returns_count' => (int) $matchingReturns->return_count,
+            'matching_returns_last_id' => $matchingReturns->last_id,
+            'matching_returns_last_update' => $matchingReturns->last_update,
             'matching_allegro_update' => AllegroOrderLink::query()->whereIn('order_id', $matchingOrderIds)->max('updated_at'),
             'matching_prestashop_comments_count' => PrestashopOrderMessage::query()->whereHas('orderLink', fn ($links) => $links->whereIn('order_id', $matchingOrderIds))->count(),
             'matching_prestashop_comments_update' => PrestashopOrderMessage::query()->whereHas('orderLink', fn ($links) => $links->whereIn('order_id', $matchingOrderIds))->max('updated_at'),
@@ -768,6 +776,7 @@ class OrdersController extends Controller
 
         $order->load([
             'items.product',
+            'returns' => fn ($query) => $query->withCount('items')->orderByDesc('id'),
             'returns.localStatus',
             'returns.parcels',
             'items.prestashopItemLink.orderLink.account',

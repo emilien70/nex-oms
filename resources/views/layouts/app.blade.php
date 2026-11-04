@@ -2167,6 +2167,8 @@
             };
 
             const rememberDismissed = (token) => {
+                window.clearTimeout(autoHideTimers.get(token));
+                autoHideTimers.delete(token);
                 dismissed.add(token);
 
                 try {
@@ -2323,12 +2325,18 @@
                     item.appendChild(content);
                     center.appendChild(item);
 
-                    if (activity.tone === 'success' && !autoHideTimers.has(token)) {
+                    const autoHideDelay = activity.tone === 'success' ? 7000 : (activity.tone === 'error' ? 20000 : null);
+
+                    if (
+                        autoHideDelay !== null
+                        && activity.is_terminal
+                        && activity.can_dismiss
+                        && !autoHideTimers.has(token)
+                    ) {
                         const timer = window.setTimeout(() => {
                             rememberDismissed(token);
-                            autoHideTimers.delete(token);
                             render();
-                        }, 7000);
+                        }, autoHideDelay);
 
                         autoHideTimers.set(token, timer);
                     }

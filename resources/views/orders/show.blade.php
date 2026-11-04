@@ -303,6 +303,25 @@
             padding: 12px 14px;
         }
 
+        .order-returns-card { border-radius: 8px; }
+        .order-returns-card .nex-card-header { border-bottom: 0; padding: 12px 14px; }
+        .order-returns-card .nex-card-title { display: flex; align-items: center; gap: 4px; }
+        .order-returns-card .nex-card-body { padding: 28px 12px 8px; }
+        .order-returns-table-wrap { overflow-x: auto; }
+        .order-returns-table { width: 100%; min-width: 900px; table-layout: fixed; margin: 0; }
+        .order-returns-table thead th { padding: 10px 4px; border-bottom: 1px solid #cfd5df; color: #111827; font-size: 10px; font-weight: 600; line-height: 14px; text-transform: uppercase; vertical-align: bottom; }
+        .order-returns-table tbody td { padding: 8px 6px; border-bottom: 1px solid #eef0f3; color: #4b5563; font-size: 12px; line-height: 18px; vertical-align: middle; overflow-wrap: anywhere; }
+        .order-returns-table tbody td:first-child { padding-left: 16px; }
+        .order-returns-table tbody tr:last-child td { border-bottom: 0; }
+        .order-return-number { color: #0876d0; text-decoration: none; }
+        .order-return-number:hover { text-decoration: underline; }
+        .order-return-reference { margin-left: 2px; }
+        .order-return-source { display: inline-flex; align-items: center; gap: 4px; }
+        .order-return-source-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 14px; width: 14px; height: 14px; border-radius: 2px; background: #9ba3ad; color: #ffffff; font: 700 10px/1 Arial, sans-serif; }
+        .order-return-source-icon .bi { font-size: 10px; }
+        .order-returns-table .order-return-amount { white-space: nowrap; }
+        .order-return-status { display: inline-block; max-width: 100%; padding: 3px 5px; border-radius: 2px; font-size: 10px; line-height: 14px; overflow-wrap: anywhere; }
+
         .billing-invoice-request {
             align-items: center;
             background: #fef5eb;
@@ -3421,6 +3440,10 @@
         </div>
     </div>
 
+    <div data-order-returns>
+        @include('orders.partials.returns-card', ['order' => $order])
+    </div>
+
     <div class="collapse product-add-panel" id="productAddPanel">
         <h3 class="h6 mb-3">Dodaj produkt ręcznie</h3>
         <form method="POST" action="{{ route('orders.products.store', $order) }}" data-order-ajax-form>
@@ -3969,16 +3992,6 @@
         $shipmentFormHasErrors = $errors->hasAny(['shipment', 'parcel_template', 'target_point_id', 'sending_method', 'content_description', 'cod_amount', 'insurance_amount', 'additional_services', 'service', 'parcels']);
         $initialShipmentProvider = $shipmentFormHasErrors ? $selectedShipmentProvider : null;
     @endphp
-    @if ($order->returns->isNotEmpty())
-        <div class="nex-card mb-3">
-            <div class="nex-card-header"><h2 class="nex-card-title">Zwroty</h2></div>
-            <div class="nex-card-body d-flex flex-wrap gap-3">
-                @foreach ($order->returns as $orderReturn)
-                    <a href="{{ route('returns.show', $orderReturn) }}">Zwrot {{ $orderReturn->id }}@if($orderReturn->reference_number) ({{ $orderReturn->reference_number }})@endif &middot; {{ $orderReturn->localStatusLabel() }}</a>
-                @endforeach
-            </div>
-        </div>
-    @endif
     <div class="nex-card shipments-card">
         @include('returns._parcel-assets')
         <div class="nex-card-header">
@@ -5415,6 +5428,7 @@
             let currentLatestEventId = null;
             let currentShipmentsSignature = null;
             let currentBuyerCommentsSignature = null;
+            let currentReturnsSignature = null;
             let currentVonHalskyStatusSignature = null;
             let payNowRefreshTimer = null;
 
@@ -5885,6 +5899,7 @@
                 'automation-history': '[data-order-automation-history-body]',
                 payments: '[data-order-payments-body]',
                 'buyer-comments': '[data-order-buyer-comments]',
+                returns: '[data-order-returns]',
                 'von-halsky-status': '[data-von-halsky-status-body]',
                 'von-halsky-warning': '[data-von-halsky-warning-body]',
             };
@@ -6084,6 +6099,7 @@
                 currentLatestEventId = Number(state.latest_event_id || 0);
                 currentShipmentsSignature = state.shipments_signature || '';
                 currentBuyerCommentsSignature = state.buyer_comments_signature || '';
+                currentReturnsSignature = state.returns_signature || '';
                 currentVonHalskyStatusSignature = state.von_halsky_status_signature || '';
             };
 
@@ -6109,6 +6125,9 @@
                 }
                 if (currentBuyerCommentsSignature !== null) {
                     url.searchParams.set('buyer_comments_signature', currentBuyerCommentsSignature);
+                }
+                if (currentReturnsSignature !== null) {
+                    url.searchParams.set('returns_signature', currentReturnsSignature);
                 }
                 if (currentVonHalskyStatusSignature !== null) {
                     url.searchParams.set('von_halsky_status_signature', currentVonHalskyStatusSignature);

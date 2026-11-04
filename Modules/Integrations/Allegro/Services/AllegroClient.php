@@ -10,6 +10,7 @@ use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroCommissionRefundClaim;
 use Modules\Integrations\Allegro\Models\AllegroRefundCommand;
+use Modules\Integrations\Allegro\Support\AllegroApiDiagnostics;
 use Modules\Shipments\Models\IntegrationApiLog;
 use Throwable;
 
@@ -201,12 +202,15 @@ class AllegroClient
         $requestId = (string) Str::uuid();
         $url = $account->apiBaseUrl().$path;
         $startedAt = hrtime(true);
+        $attemptNumber = 1;
 
         try {
-            $response = $this->perform($account, $url, $method, $data, $file);
+            $response = $this->perform($account, $url, $method, $data, $file, $requestId);
 
             if ($response->status() === 401) {
-                $this->oauth->refresh($account);
+                $this->log($operation, $requestId, $url, 401, null, $startedAt, false,
+                    'Pierwsza proba zwrocila HTTP 401; rozpoczeto odswiezanie autoryzacji.', $method, $response, $attemptNumber);
+                $this->oauth->refresh($account, $requestId);
                 $freshAccount = $account->fresh();
                 if ($operation === 'initiate_payment_refund' && ($freshAccount->orderImportIdentity() !== $account->orderImportIdentity()
                     || $freshAccount->refund_write_revision !== $account->refund_write_revision || ! $freshAccount->refund_write_enabled
@@ -217,7 +221,8 @@ class AllegroClient
                     || AllegroCommissionRefundService::accountIdentity($freshAccount) !== AllegroCommissionRefundService::accountIdentity($account))) {
                     throw new AllegroApiException('Konto zmieniło się podczas autoryzacji wniosku o prowizję.');
                 }
-                $response = $this->perform($freshAccount, $url, $method, $data, $file);
+                $attemptNumber = 2;
+                $response = $this->perform($freshAccount, $url, $method, $data, $file, $requestId);
             }
 
             $payload = is_array($response->json()) ? $response->json() : [];
@@ -244,6 +249,8 @@ class AllegroClient
                 $successful,
                 $error,
                 $method,
+                $response,
+                $attemptNumber,
             );
 
             if (! $successful) {
@@ -255,20 +262,20 @@ class AllegroClient
             throw $exception;
         } catch (Throwable $exception) {
             if (in_array($operation, ['create_commission_refund_claim', 'get_commission_refund_claim', 'get_commission_refund_claims'], true)) {
-                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Nie potwierdzono wyniku obsługi wniosku o zwrot prowizji.', $method);
+                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Nie potwierdzono wyniku obsługi wniosku o zwrot prowizji.', $method, null, $attemptNumber);
                 throw new AllegroApiException('Nie potwierdzono wyniku obsługi wniosku o zwrot prowizji.');
             }
             if (in_array($operation, ['initiate_payment_refund', 'get_payment_refunds'], true)) {
-                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Nie potwierdzono wyniku połączenia dotyczącego refundacji.', $method);
+                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Nie potwierdzono wyniku połączenia dotyczącego refundacji.', $method, null, $attemptNumber);
                 throw new AllegroApiException('Nie potwierdzono wyniku połączenia dotyczącego refundacji.');
             }
             if (in_array($operation, ['get_customer_returns', 'get_customer_return'], true)) {
-                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Błąd połączenia podczas pobierania zwrotów.', $method);
+                $this->log($operation, $requestId, $url, null, null, $startedAt, false, 'Błąd połączenia podczas pobierania zwrotów.', $method, null, $attemptNumber);
                 throw new AllegroApiException('Nie udało się połączyć z Allegro podczas pobierania zwrotów.');
             }
             $invoiceOperation = in_array($operation, ['get_order_invoices', 'upload_order_invoice'], true);
             $this->log($operation, $requestId, $url, null, null, $startedAt, false,
-                $invoiceOperation ? 'Błąd połączenia podczas obsługi faktury Allegro.' : $exception->getMessage(), $method);
+                $invoiceOperation ? 'Błąd połączenia podczas obsługi faktury Allegro.' : $exception->getMessage(), $method, null, $attemptNumber);
 
             if ($invoiceOperation) {
                 throw new AllegroApiException('Nie udało się potwierdzić wyniku obsługi faktury w Allegro.');
@@ -280,9 +287,9 @@ class AllegroClient
         }
     }
 
-    private function perform(AllegroAccount $account, string $url, string $method = 'GET', array $data = [], array $file = []): Response
+    private function perform(AllegroAccount $account, string $url, string $method = 'GET', array $data = [], array $file = [], ?string $requestId = null): Response
     {
-        $request = Http::withToken($this->oauth->accessToken($account))
+        $request = Http::withToken($this->oauth->accessToken($account, $requestId))
             ->withUserAgent((string) config('services.allegro.user_agent'))
             ->withHeaders(['Accept' => str_starts_with((string) parse_url($url, PHP_URL_PATH), '/order/customer-returns')
                 ? 'application/vnd.allegro.beta.v1+json' : self::MEDIA_TYPE, 'Accept-Language' => $file === [] ? 'pl-PL' : 'en-US'])
@@ -426,11 +433,15 @@ class AllegroClient
         bool $successful,
         ?string $error,
         string $method = 'GET',
+        ?Response $httpResponse = null,
+        int $attemptNumber = 1,
     ): void {
         IntegrationApiLog::query()->create([
             'integration' => 'allegro',
             'operation' => $operation,
             'request_id' => $requestId,
+            'response_trace_id' => AllegroApiDiagnostics::traceId($httpResponse),
+            'attempt_number' => $attemptNumber,
             'method' => $method,
             'url' => $url,
             'response_status' => $status,

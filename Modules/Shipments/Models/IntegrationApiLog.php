@@ -15,6 +15,8 @@ class IntegrationApiLog extends Model
         'shipment_id',
         'shipment_creation_attempt_id',
         'request_id',
+        'response_trace_id',
+        'attempt_number',
         'method',
         'url',
         'request_payload',
@@ -29,6 +31,7 @@ class IntegrationApiLog extends Model
         'request_payload' => 'array',
         'response_payload' => 'array',
         'successful' => 'boolean',
+        'attempt_number' => 'integer',
     ];
 
     public function order(): BelongsTo

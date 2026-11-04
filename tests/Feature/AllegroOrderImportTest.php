@@ -6,12 +6,15 @@ use App\Events\OrderPaymentRegistered;
 use App\Events\OrderStatusChanged;
 use App\Models\Order;
 use App\Models\OrderItem;
+use DOMDocument;
+use DOMXPath;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Testing\TestResponse;
 use Modules\Integrations\Allegro\Exceptions\AllegroImportException;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
@@ -496,22 +499,19 @@ class AllegroOrderImportTest extends TestCase
         $order = $this->import($account);
         $attributes = $order->getAttributes();
 
-        $this->get(route('orders.index'))->assertOk()
+        $this->assertOrdersListSource('test-kupujacy', 'multi-click')
             ->assertSee('order-source-icon source-allegro', false)
             ->assertSee('data-order-copy-login="test-kupujacy"', false)
             ->assertSee('title="Kopiuj do schowka"', false)
             ->assertSee("trigger: 'hover',", false)
             ->assertDontSee("trigger: 'hover focus',", false)
-            ->assertSee('<span>(<button type="button" class="order-login-copy"', false)
-            ->assertSee('>test-kupujacy</button>) z multi-click</span>', false);
+            ->assertSee('<span><button type="button" class="order-login-copy"', false);
 
         $account->update(['name' => 'Nowa nazwa integracji']);
-        $this->get(route('orders.index'))->assertOk()
-            ->assertSee('>test-kupujacy</button>) z Nowa nazwa integracji</span>', false);
+        $this->assertOrdersListSource('test-kupujacy', 'Nowa nazwa integracji');
 
         $account->delete();
-        $this->get(route('orders.index'))->assertOk()
-            ->assertSee('>test-kupujacy</button>) z multi-click</span>', false);
+        $this->assertOrdersListSource('test-kupujacy', 'multi-click');
         $this->assertSame($attributes, $order->fresh()->getAttributes());
     }
 
@@ -537,9 +537,9 @@ class AllegroOrderImportTest extends TestCase
         $login = '"><img src=x onerror=alert(1)>';
         $order->update(['customer_login' => $login]);
 
-        $this->get(route('orders.index'))->assertOk()
+        $this->assertOrdersListSource($login, $account->name)
             ->assertSee('data-order-copy-login="'.e($login).'"', false)
-            ->assertSee('>'.e($login).'</button>) z '.e($account->name).'</span>', false)
+            ->assertSee('</button> z '.e($account->name).'</span>', false)
             ->assertDontSee('<img src=x onerror=alert(1)>', false);
     }
 
@@ -642,6 +642,22 @@ class AllegroOrderImportTest extends TestCase
         $this->assertSame($snapshot, $prepared->invoiceAttributes);
         $this->assertStringNotContainsString('-changed', $snapshot['payment_snapshot']['payment_identifier']);
         $this->assertSame($invoiceSnapshot, $invoice->fresh()->payment_snapshot);
+    }
+
+    private function assertOrdersListSource(string $login, string $accountName): TestResponse
+    {
+        $response = $this->get(route('orders.index'))->assertOk();
+        $document = new DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new DOMXPath($document);
+        $button = $xpath->query('//button[@data-order-copy-login]')->item(0);
+
+        $this->assertNotNull($button);
+        $this->assertSame($login, $button->getAttribute('data-order-copy-login'));
+        $this->assertSame('('.$login.')', $button->textContent);
+        $this->assertSame('('.$login.') z '.$accountName, $button->parentNode->textContent);
+
+        return $response;
     }
 
     private function account(): AllegroAccount

@@ -18,6 +18,9 @@
     @if ($order->issued_invoice_exists)
         <span class="order-indicator invoice" title="Wystawiono fakturę VAT" aria-label="Wystawiono fakturę VAT"><i class="bi bi-file-earmark-fill" aria-hidden="true"></i><span class="invoice-lines" aria-hidden="true"></span><span class="invoice-currency" aria-hidden="true">$</span></span>
     @endif
+    @if ($order->returns_exists)
+        <span class="order-indicator return" tabindex="0" title="Utworzono zwrot do zamówienia" aria-label="Utworzono zwrot do zamówienia"><i class="bi bi-arrow-return-left" aria-hidden="true"></i></span>
+    @endif
     @if (filled($link?->buyer_message) || $order->prestashop_buyer_messages_exists || filled($order->vonHalskyOrderLink?->buyer_message))
         <span class="order-indicator inactive" title="Komentarz kupującego do zamówienia" aria-label="Komentarz kupującego"><i class="bi bi-envelope" aria-hidden="true"></i></span>
     @endif

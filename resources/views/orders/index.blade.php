@@ -354,7 +354,11 @@
                                     <div class="order-subline order-source-line">
                                         <span class="order-source-icon {{ $sourceIconClass }}" aria-hidden="true">{!! $sourceIcon !!}</span>
                                         @if ($order->source === 'allegro' && filled($order->customer_login))
-                                            <span>(<button type="button" class="order-login-copy" data-order-copy-login="{{ $order->customer_login }}" title="Kopiuj do schowka" aria-label="Kopiuj login {{ $order->customer_login }} do schowka">{{ $order->customer_login }}</button>){{ $allegroSourceName !== '' ? ' z '.$allegroSourceName : '' }}</span>
+                                            @php
+                                                $buyerLogin = (string) $order->customer_login;
+                                                $buyerLoginLength = mb_strlen($buyerLogin);
+                                            @endphp
+                                            <span><button type="button" class="order-login-copy" data-order-copy-login="{{ $buyerLogin }}" title="Kopiuj do schowka" aria-label="Kopiuj login {{ $buyerLogin }} do schowka">@if ($buyerLoginLength === 1)<span class="order-login-edge">({{ $buyerLogin }})</span>@else<span class="order-login-edge">({{ mb_substr($buyerLogin, 0, 1) }}</span>{{ mb_substr($buyerLogin, 1, -1) }}<span class="order-login-edge">{{ mb_substr($buyerLogin, -1) }})</span>@endif</button>{{ $allegroSourceName !== '' ? ' z '.$allegroSourceName : '' }}</span>
                                         @else
                                             <span>{{ $sourceDisplayLabel }}</span>
                                         @endif

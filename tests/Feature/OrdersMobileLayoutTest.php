@@ -7,6 +7,7 @@ use App\Models\OrderStatusSetting;
 use DOMDocument;
 use DOMXPath;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class OrdersMobileLayoutTest extends TestCase
@@ -94,5 +95,52 @@ class OrdersMobileLayoutTest extends TestCase
             ->assertSee('<td class="order-date-column">', false)
             ->assertSee('<td class="order-amount-column">', false)
             ->assertSee('data-orders-page', false);
+    }
+
+    #[DataProvider('buyerLogins')]
+    public function test_buyer_login_keeps_parentheses_with_edge_characters_without_changing_the_copy_value(string $login, array $expectedEdges): void
+    {
+        $order = Order::query()->create([
+            'source' => 'allegro',
+            'status' => Order::STATUS_NEW,
+            'currency' => 'PLN',
+            'customer_login' => $login,
+        ]);
+        $before = $order->fresh()->getAttributes();
+
+        $response = $this->get(route('orders.index'))->assertOk();
+        $document = new DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new DOMXPath($document);
+        $buttons = $xpath->query('//button[@data-order-copy-login]');
+        $this->assertCount(1, $buttons);
+        $button = $buttons->item(0);
+
+        $this->assertSame($login, $button->getAttribute('data-order-copy-login'));
+        $this->assertSame('('.$login.')', $button->textContent);
+        $this->assertSame('Kopiuj login '.$login.' do schowka', $button->getAttribute('aria-label'));
+        $this->assertSame($expectedEdges, array_map(
+            fn ($edge) => $edge->textContent,
+            iterator_to_array($xpath->query('./span[@class="order-login-edge"]', $button)),
+        ));
+        $this->assertSame('('.$login.')', $button->parentNode->textContent);
+        $this->assertSame(0, $xpath->query('//button[@data-order-copy-login]//img')->length);
+        $this->assertMatchesRegularExpression('/\.order-login-edge\s*\{\s*white-space:\s*nowrap;\s*\}/', $response->getContent());
+        $this->assertSame($before, $order->fresh()->getAttributes());
+    }
+
+    public static function buyerLogins(): array
+    {
+        return [
+            'one character' => ['a', ['(a)']],
+            'zero' => ['0', ['(0)']],
+            'two characters' => ['ab', ['(a', 'b)']],
+            'short login' => ['m_tomek', ['(m', 'k)']],
+            'long numeric login' => ['Client:147718530', ['(C', '0)']],
+            'long named login' => ['przewoznyKobylin', ['(p', 'n)']],
+            'very long login' => [str_repeat('X', 180), ['(X', 'X)']],
+            'unicode login' => ['ŁukaszŻółć', ['(Ł', 'ć)']],
+            'html input' => ['<img src=x onerror=alert(1)>', ['(<', '>)']],
+        ];
     }
 }

@@ -3852,3 +3852,31 @@ i calego fragmentu usuwa stare tooltipy i inicjuje nowe. Nie dodano nowego
 pollingu ani bezposrednich wywolan Allegro w przegladarce. Ustawienia konta,
 reguly nadania, statusy zamowienia i KSeF pozostaja bez zmian.
 Raport: docs/allegro-shipment-confirmation-report.md.
+
+## Allegro - diagnostyka odpowiedzi API i OAuth (2026-11-04)
+
+Migracja 2026_11_04_020000_add_allegro_diagnostics_to_integration_api_logs
+dodaje nullable response_trace_id (varchar 255) i attempt_number (unsigned
+smallint), bez indeksow, backfillu i zmian dotychczasowych wpisow.
+Pozostale integracje zachowuja NULL. Istniejacy nieunikalny indeks request_id
+pozwala grupowac proby bez nowej tabeli lub zmiany relacji.
+
+AllegroClient zapisuje pierwsze 401 przed dotychczasowym odswiezeniem OAuth;
+nie zapisuje tresci tej odpowiedzi ani naglowkow uwierzytelnienia. Ponowienie
+ma attempt_number=2. OAuth ma numer 1 w ramach wlasnej operacji refresh_token,
+ale ten sam request_id co proby API. Opcjonalny requestId w accessToken/refresh
+zachowuje zgodnosc dotychczasowych wywolan z jednym argumentem, w tym wspolnej
+autoryzacji Wysylam z Allegro. Samodzielne wywolania OAuth otrzymuja wlasny UUID.
+
+AllegroApiDiagnostics odczytuje tylko Trace-Id; dopuszcza pojedynczy ASCII
+identyfikator do 255 znakow (litery, cyfry, kropka, podkreslenie, dwukropek,
+myslnik). Brak, wiele wartosci lub niepoprawny naglowek daje NULL bez bledu
+zadania. Logowanie pozostaje w istniejacym mechanizmie retencji. duration_ms
+API zachowuje dotychczasowy czas od rozpoczecia operacji; drugi wpis obejmuje
+rowniez odswiezenie OAuth. Log OAuth mierzy oddzielnie jego zadanie.
+
+Nie zmieniono progow waznosci tokenu, liczby ponowien, blokad finansowych,
+request body, plikow, User-Agent, kolejek, harmonogramow ani wynikow serwisow.
+500/503 nie otrzymuja nowego automatycznego retry. Pierwszy wpis 401 pozostaje
+nieudana proba HTTP, ale nie powoduje dodatkowego powiadomienia, gdy ponowienie
+sie powiedzie. Stare logi i statystyki Developer Apps nie sa przepisywane.
