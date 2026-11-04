@@ -3818,3 +3818,37 @@ Brak parametrow odpowiada id/desc i zachowuje zgodnosc starszych widokow.
 Menu Bootstrap ma dynamicznie ograniczona wysokosc i wlasne przewijanie.
 Nie dodano migracji, routingu ani nowych zaleznosci.
 Raport i ograniczenia: docs/order-list-sorting-report.md.
+
+## Wysylam z Allegro - tozsamosc paczki i prezentacja (2026-11-04)
+
+AllegroShipmentNumbers deduplikuje pelne pary carrier_id/waybill, a nie sam
+numer. Zachowuje carrier/packages.waybill oraz transportingInfo z tej samej
+paczki. Synchronizer wybiera pare glowna zgodna z carrier; przy jej braku
+pozostaje kompatybilny fallback do ALLEGRO albo pierwszego dostepnego numeru.
+Observer uzupelnia aliasy znanych rekordow verification_only takze wtedy,
+gdy zmiana listy aliasow nie tworzy nowej pary po normalizacji. Nie ponawia
+automatycznie failed ani nie skanuje dawnych przesylek.
+
+Migracja 2026_11_04_010000_add_delivery_method_snapshot_to_shipments dodaje
+nullable delivery_method_id i delivery_method_name, bez indeksow i backfillu.
+Driver zapisuje nazwe przy kolejkowaniu z powiazanego zamowienia Allegro.
+Odczyt szczegolow moze uzupelnic starszy pusty snapshot tylko przy zgodnym
+deliveryMethodId oraz tozsamosci zakupu. Zmiana rzeczywistego ID metody
+zeruje niepasujaca nazwe; zwykla edycja zamowienia jej nie nadpisuje.
+Down odmawia usuniecia wykorzystywanych snapshotow.
+
+AllegroShipmentExportPresentation jest prezentacja tylko do odczytu:
+grupuje aktualne pary wedlug paczek, wylicza kolor/opis jednej ikony al
+oraz rekordy dostepne do recznego ponowienia. Nie wywoluje API ani nie zapisuje
+stanu. Wystarcza sukces jednego aliasu danej paczki, ale kazda znana paczka
+musi miec potwierdzenie. Bledy sa escapowane, a Tooltip
+ma html=false. Retry zachowuje dotychczasowa trase POST, CSRF i kontrole
+backendu; zostal przeniesiony do menu przesylki.
+
+OrderStatusController uwzglednia prezentacje eksportow, carrier i snapshot
+uslugi w shipments_signature. Istniejace odczyty stanu karty wykrywaja zmiane
+samego eksportu bez dotykania Shipment.updated_at. Wymiana pojedynczego wiersza
+i calego fragmentu usuwa stare tooltipy i inicjuje nowe. Nie dodano nowego
+pollingu ani bezposrednich wywolan Allegro w przegladarce. Ustawienia konta,
+reguly nadania, statusy zamowienia i KSeF pozostaja bez zmian.
+Raport: docs/allegro-shipment-confirmation-report.md.

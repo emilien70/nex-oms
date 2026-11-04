@@ -3171,3 +3171,29 @@ Zapisane widoki pamietaja sortowanie; Wyczysc filtry go nie resetuje.
 Zaznaczenie zamowien nie zalezy od kolejnosci. Menu przewija sie wewnetrznie
 na mniejszych ekranach. Nie dodano pol dodatkowych, ktorych OMS nie posiada.
 Szczegoly i testy: docs/order-list-sorting-report.md.
+
+# Wysylam z Allegro - oznaczenia paczki i potwierdzenie (2026-11-04)
+
+Numer glowny jest para carrier/packages.waybill ze szczegolow przesylki.
+TransportingInfo zachowuje wszystkie dodatkowe pary przewoznik/numer,
+takze gdy ten sam numer wystepuje pod dwoma oznaczeniami przewoznika.
+Nie utozsamiamy globalnie ALLEGRO i ALLEGRO_ONE_KURIER. Powiazanie dotyczy
+wylacznie konkretnej paczki odczytanej z API. Weryfikacja przypisania nadal
+kontroluje konto, zakup i wszystkie pozycje oraz nigdy nie dodaje numeru
+ponownie dla Wysylam z Allegro.
+
+W kolumnie Przewoznik widoczny jest link Allegro.pl i zapamietana nazwa
+metody dostawy w nawiasie, np. Allegro One Kurier. Brak pewnej nazwy nie
+powoduje zgadywania po przewozniku. Pozniejsza edycja zamowienia nie zmienia
+nazwy istniejacej przesylki. Zmieniony przez API identyfikator metody usuwa
+nieaktualna nazwe zamiast przypisywac ja innej usludze.
+
+Tekstowe komunikaty Allegro pod numerem zastepuje jedna ikona al 16x16 px
+po jego prawej stronie. Zielona oznacza potwierdzenie wszystkich znanych
+paczek, szara oczekiwanie/bramke statusowa/pominiecie/brak sprawdzenia,
+a czerwona blad niepotwierdzonej paczki. Podpowiedz podaje rzeczywisty stan,
+nie tylko kolor, i jest dostepna takze z klawiatury i po dotknieciu. Udany
+alias wystarcza do potwierdzenia jego paczki, ale nie innych paczek.
+Ponowienie pozostaje w menu przesylki. Klikniecie ikony nie wysyla danych.
+Zmiany potwierdzenia odswiezaja sie istniejacym mechanizmem stanu karty.
+Raport i ograniczenia: docs/allegro-shipment-confirmation-report.md.

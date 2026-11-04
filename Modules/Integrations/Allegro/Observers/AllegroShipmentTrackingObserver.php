@@ -4,6 +4,7 @@ namespace Modules\Integrations\Allegro\Observers;
 
 use Modules\Integrations\Allegro\Services\AllegroShipmentExportService;
 use Modules\Integrations\Allegro\Support\AllegroShipmentNumbers;
+use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
 use Modules\Shipments\Models\ShipmentParcel;
 
@@ -24,7 +25,8 @@ class AllegroShipmentTrackingObserver
         $current = AllegroShipmentNumbers::fromValues($shipment, $model->getAttributes());
         $previous = $created ? [] : AllegroShipmentNumbers::fromValues($shipment, $model->getRawOriginal());
         $new = array_diff_key($current, $previous);
-        if ($new !== []) {
+        if ($new !== [] || ($shipment->provider === CourierAccount::PROVIDER_ALLEGRO_SHIPPING
+            && $model->wasChanged(['tracking_numbers', 'carrier_code']))) {
             $this->exports->observeNumbers($shipment->id, $new, $current);
         }
     }

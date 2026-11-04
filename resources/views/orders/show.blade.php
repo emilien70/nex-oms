@@ -2517,6 +2517,36 @@
             text-decoration: none;
         }
 
+        .shipment-tracking-with-confirmation {
+            align-items: center;
+            display: inline-flex;
+            gap: 5px;
+            white-space: nowrap;
+        }
+
+        .allegro-shipment-badge {
+            align-items: center;
+            background: #9ca3af;
+            border: 0;
+            border-radius: 3px;
+            color: #ffffff;
+            cursor: help;
+            display: inline-flex;
+            flex: 0 0 16px;
+            font-size: 9px;
+            font-weight: 700;
+            height: 16px;
+            justify-content: center;
+            line-height: 1;
+            padding: 0;
+            width: 16px;
+        }
+
+        .allegro-shipment-badge.is-success { background: #16834b; }
+        .allegro-shipment-badge.is-danger { background: #dc3545; }
+        .allegro-shipment-badge:focus-visible { outline: 2px solid #0877c9; outline-offset: 2px; }
+        .allegro-shipment-tooltip .tooltip-inner { max-width: 360px; white-space: pre-line; }
+
         a.shipment-tracking-number:hover {
             color: #005f9f;
             text-decoration: underline;
@@ -4530,6 +4560,21 @@
 
             syncSalesDocumentNumberWidths();
             initializeOrderKsefTooltips();
+            const initializeAllegroShipmentTooltips = (root = document) => {
+                root.querySelectorAll('[data-allegro-shipment-tooltip]').forEach((element) => {
+                    window.bootstrap?.Tooltip.getOrCreateInstance(element, {
+                        container: 'body',
+                        customClass: 'allegro-shipment-tooltip',
+                        html: false,
+                    });
+                });
+            };
+            const disposeAllegroShipmentTooltips = (root) => {
+                root.querySelectorAll('[data-allegro-shipment-tooltip]').forEach((element) => {
+                    window.bootstrap?.Tooltip.getInstance(element)?.dispose();
+                });
+            };
+            initializeAllegroShipmentTooltips();
             document.querySelectorAll('[data-customer-portal-help]').forEach(element => {
                 window.bootstrap?.Tooltip.getOrCreateInstance(element, {container: 'body', customClass: 'customer-portal-tooltip'});
             });
@@ -5635,6 +5680,7 @@
                 const currentRow = shipmentsTableBody.querySelector(`[data-shipment-id="${payload.id}"]`);
 
                 if (currentRow) {
+                    disposeAllegroShipmentTooltips(currentRow);
                     window.nexOmsDisposePrinterControls?.(currentRow);
                     currentRow.replaceWith(newRow);
                 } else {
@@ -5642,6 +5688,7 @@
                 }
 
                 window.nexOmsInitializePrinterControls?.(newRow);
+                initializeAllegroShipmentTooltips(newRow);
                 shipmentsEmpty?.classList.add('d-none');
                 shipmentsTableWrap?.classList.remove('d-none');
             };
@@ -5960,6 +6007,7 @@
                     const target = document.querySelector(fragmentTargets[name]);
                     if (target) {
                         if (name === 'shipments') {
+                            disposeAllegroShipmentTooltips(target);
                             window.nexOmsDisposePrinterControls?.(target);
                         }
 
@@ -5977,6 +6025,7 @@
 
                         if (name === 'shipments') {
                             window.nexOmsInitializePrinterControls?.(target);
+                            initializeAllegroShipmentTooltips(target);
                         }
 
                         if (name === 'order-info') {

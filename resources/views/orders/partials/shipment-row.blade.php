@@ -1,3 +1,4 @@
+@php($allegroShipmentStatus = \Modules\Integrations\Allegro\Support\AllegroShipmentExportPresentation::forShipment($shipment))
 <tr data-shipment-id="{{ $shipment->id }}">
     <td>{{ $shipment->created_at?->format('d.m H:i') ?: '...' }}</td>
     <td @if ($shipment->provider === \Modules\Shipments\Models\CourierAccount::PROVIDER_INPOST_LOCKERS) title="Gabaryt {{ ['small' => 'A', 'medium' => 'B', 'large' => 'C'][$shipment->parcel_template] ?? '...' }}, punkt {{ $shipment->target_point_id ?: '...' }}" @endif>
@@ -28,13 +29,14 @@
                 href="{{ route('integrations.couriers.allegro-shipping.edit') }}"
                 title="Przejd&#378; do konfiguracji Wysy&#322;am z Allegro"
                 aria-label="Przejd&#378; do konfiguracji Wysy&#322;am z Allegro"
-            ><span class="shipment-provider-check">&#10003;</span>Wysy&#322;am z Allegro</a>
+            ><span class="shipment-provider-check">&#10003;</span>Allegro.pl</a>@if (filled($shipment->delivery_method_name)) <span>({{ $shipment->delivery_method_name }})</span>@endif
         @else
             <span class="shipment-provider"><span class="shipment-provider-check">&#10003;</span>{{ $shipment->courierAccount?->name ?: $shipment->provider }}</span>
         @endif
     </td>
     <td>{{ $shipment->courierAccount?->name ?: '...' }}</td>
     <td>
+        <span class="shipment-tracking-with-confirmation">
         @if ($trackingUrl = $shipment->trackingUrl())
             <a
                 class="shipment-tracking-number"
@@ -48,6 +50,7 @@
             <span class="shipment-tracking-number">{{ $shipment->tracking_number ?: '...' }}</span>
         @endif
         @include('orders.partials.allegro-shipment-exports', ['shipment' => $shipment])
+        </span>
     </td>
     <td>
         <div class="shipment-status-line">
@@ -81,6 +84,14 @@
             <div class="dropdown">
                 <button class="shipment-menu-button" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Operacje na przesy&#322;ce">&#8942;</button>
                 <ul class="dropdown-menu dropdown-menu-end">
+                    @foreach ($allegroShipmentStatus['retry_exports'] ?? [] as $export)
+                        <li>
+                            <form method="POST" action="{{ route('orders.allegro.shipments.retry', ['order' => $shipment->order_id, 'export' => $export]) }}">
+                                @csrf
+                                <button class="dropdown-item" type="submit">{{ $export->verification_only ? 'Ponów potwierdzenie w Allegro' : 'Ponów przekazanie numeru do Allegro' }}</button>
+                            </form>
+                        </li>
+                    @endforeach
                     @if ($shipment->canRetryCreation())
                         <li>
                             <form method="POST" action="{{ route('shipments.retry', $shipment) }}" data-order-ajax-form>

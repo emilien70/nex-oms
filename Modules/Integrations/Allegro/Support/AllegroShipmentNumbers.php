@@ -35,7 +35,10 @@ class AllegroShipmentNumbers
             $aliases = json_decode($aliases, true);
         }
         if ($shipment->provider === CourierAccount::PROVIDER_ALLEGRO_SHIPPING && is_array($aliases) && $aliases !== []) {
-            return self::normalize($aliases);
+            return self::normalize($aliases) + self::normalize([[
+                'carrier_id' => $values['carrier_code'] ?? $shipment->carrier_code,
+                'waybill' => $values['tracking_number'] ?? null,
+            ]]);
         }
         $carrier = match ($shipment->provider) {
             CourierAccount::PROVIDER_INPOST_LOCKERS, CourierAccount::PROVIDER_INPOST_COURIER => 'INPOST',
@@ -50,34 +53,25 @@ class AllegroShipmentNumbers
     public static function current(Shipment $shipment): array
     {
         $result = [];
-        $shipment->loadMissing('parcels');
+        if (! $shipment->relationLoaded('parcels')) {
+            $shipment->loadMissing('parcels');
+        }
         foreach ($shipment->parcels as $parcel) {
             $result += self::fromValues($shipment, $parcel->getAttributes());
         }
-        $main = self::fromValues($shipment, $shipment->getAttributes());
-        foreach ($main as $key => $pair) {
-            if (! in_array($pair['waybill'], array_column($result, 'waybill'), true)) {
-                $result[$key] = $pair;
-            }
-        }
 
-        return $result;
+        return $result + self::fromValues($shipment, $shipment->getAttributes());
     }
 
     public static function fromAllegroPackage(array $package, ?string $legacyCarrier): array
     {
-        $pairs = [];
+        $pairs = [['carrier_id' => $legacyCarrier, 'waybill' => $package['waybill'] ?? null]];
         foreach ((array) ($package['transportingInfo'] ?? []) as $info) {
             if (is_array($info)) {
                 $pairs[] = ['carrier_id' => $info['carrierId'] ?? null, 'waybill' => $info['carrierWaybill'] ?? null];
             }
         }
-        $pairs = self::normalize($pairs);
-        $legacy = $package['waybill'] ?? null;
-        if (is_string($legacy) && ! in_array($legacy, array_column($pairs, 'waybill'), true)) {
-            $pairs += self::normalize([['carrier_id' => $legacyCarrier, 'waybill' => $legacy]]);
-        }
 
-        return $pairs;
+        return self::normalize($pairs);
     }
 }

@@ -51,10 +51,14 @@ class AllegroShippingDriver implements CourierDriver
 
         return DB::transaction(function () use ($order, $account, $data, $parcels): ShipmentCreationAttempt {
             $attempt = $this->attempts->begin($order, $account, $data);
+            $link = $order->allegroOrderLink()->first();
+            $methodId = $link?->external_order_id === $order->external_id ? $link?->delivery_method_id : null;
             $shipment = $order->shipments()->create([
                 'courier_account_id' => $account->id,
                 'provider' => $this->provider(),
                 'service' => Shipment::SERVICE_ALLEGRO_DELIVERY,
+                'delivery_method_id' => $methodId,
+                'delivery_method_name' => filled($methodId) ? (mb_substr(trim((string) $order->shipping_method), 0, 255) ?: null) : null,
                 'status' => Shipment::STATUS_QUEUED,
                 'oms_status' => Shipment::OMS_STATUS_CREATED,
                 'status_changed_at' => now(),

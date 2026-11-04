@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Modules\Automation\Services\OrderAutomationHistory;
+use Modules\Integrations\Allegro\Support\AllegroShipmentExportPresentation;
 use Modules\Integrations\PayNow\Enums\PayNowPaymentStatus;
 use Modules\Integrations\Prestashop\Services\PrestashopPaymentStatusService;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
@@ -60,6 +61,8 @@ class OrderStatusController extends Controller
                 ->whereNotNull('tracking_number')
                 ->orderByDesc('created_at'),
             'shipments.courierAccount',
+            'shipments.parcels',
+            'shipments.allegroExports',
             'returns.parcels',
             'events' => fn ($query) => $query->orderByDesc('created_at'),
             'payNowPayments' => fn ($query) => $query
@@ -259,8 +262,12 @@ class OrderStatusController extends Controller
             $shipment->status,
             $shipment->oms_status,
             $shipment->tracking_number,
+            $shipment->carrier_code,
+            $shipment->delivery_method_id,
+            $shipment->delivery_method_name,
             $shipment->error_message,
             $shipment->updated_at?->toIso8601String(),
+            AllegroShipmentExportPresentation::forShipment($shipment),
         ])->values()->toJson().$order->returns->flatMap(fn ($record) => $record->parcels)->map(fn ($parcel) => $parcel->getAttributes())->toJson());
     }
 }

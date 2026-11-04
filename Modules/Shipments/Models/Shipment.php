@@ -81,6 +81,8 @@ class Shipment extends Model
         'creation_attempt_id',
         'provider',
         'carrier_code',
+        'delivery_method_id',
+        'delivery_method_name',
         'external_id',
         'tracking_number',
         'service',

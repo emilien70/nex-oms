@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Modules\Integrations\Allegro\Exceptions\AllegroApiException;
 use Modules\Integrations\Allegro\Jobs\ExportAllegroShipmentJob;
@@ -19,6 +20,8 @@ use Modules\Integrations\Allegro\Models\AllegroShipmentExport;
 use Modules\Integrations\Allegro\Services\AllegroAccountService;
 use Modules\Integrations\Allegro\Services\AllegroShipmentExportService;
 use Modules\Integrations\Allegro\Services\AllegroShipmentSettingsService;
+use Modules\Integrations\Allegro\Support\AllegroShipmentExportPresentation;
+use Modules\Integrations\AllegroShipping\Drivers\AllegroShippingDriver;
 use Modules\Integrations\AllegroShipping\Services\AllegroShippingSynchronizer;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
@@ -320,6 +323,186 @@ class AllegroShipmentExportTest extends TestCase
             $this->assertSame(409, $exception->statusCode);
         }
         Http::assertNotSent(fn (Request $request) => $request->method() === 'POST');
+    }
+
+    public function test_same_waybill_with_different_carrier_ids_is_confirmed_without_post(): void
+    {
+        [$order, , , $shipment] = $this->linkedOrder('immediate', CourierAccount::PROVIDER_ALLEGRO_SHIPPING);
+        $shipment->parcels()->create(['position' => 1] + $this->dimensions());
+        app(AllegroShippingSynchronizer::class)->applyDetails($shipment, [
+            'id' => 'remote', 'carrier' => 'ALLEGRO', 'packages' => [[
+                'waybill' => 'A-SAME', 'transportingInfo' => [['carrierId' => 'ALLEGRO_ONE_KURIER', 'carrierWaybill' => 'A-SAME']],
+            ]],
+        ]);
+        $this->assertSame('ALLEGRO', $shipment->fresh()->carrier_code);
+        $this->assertFalse($shipment->fresh()->canCancelViaCourier());
+        $this->assertStringContainsString('allegrodelivery/sledzenie-paczki', $shipment->fresh()->trackingUrl());
+        $this->assertCount(2, $shipment->parcels()->first()->tracking_numbers);
+        $this->fakeApi([$this->remoteNumber('ALLEGRO', 'A-SAME')]);
+        foreach (AllegroShipmentExport::query()->get() as $export) {
+            $this->runExport($export);
+            $this->assertSame('synced', $export->fresh()->state);
+        }
+        $html = view('orders.partials.shipment-row', ['shipment' => $shipment->fresh()])->render();
+        $this->assertSame(1, substr_count($html, 'data-allegro-shipment-tooltip'));
+        $this->assertStringContainsString('is-success', $html);
+        $this->assertStringContainsString('title="Potwierdzono w Allegro"', $html);
+        $this->assertStringNotContainsString('Allegro: Potwierdzono', $html);
+        $this->assertSame('new', $order->fresh()->status);
+        Http::assertNotSent(fn (Request $request) => $request->method() !== 'GET');
+    }
+
+    public function test_refresh_updates_aliases_of_existing_failed_verification(): void
+    {
+        [, , , $shipment] = $this->linkedOrder('immediate', CourierAccount::PROVIDER_ALLEGRO_SHIPPING);
+        $shipment->update(['carrier_code' => 'ALLEGRO_ONE_KURIER', 'tracking_number' => 'A-OLD']);
+        $parcel = $shipment->parcels()->create(['position' => 1, 'tracking_number' => 'A-OLD',
+            'tracking_numbers' => [['carrier_id' => 'ALLEGRO_ONE_KURIER', 'waybill' => 'A-OLD']]] + $this->dimensions());
+        $export = AllegroShipmentExport::query()->sole();
+        $export->update(['state' => 'failed', 'error' => 'Previous mismatch']);
+        app(AllegroShippingSynchronizer::class)->applyDetails($shipment, ['id' => 'remote', 'carrier' => 'ALLEGRO',
+            'packages' => [['waybill' => 'A-OLD', 'transportingInfo' => [['carrierId' => 'ALLEGRO_ONE_KURIER', 'carrierWaybill' => 'A-OLD']]]]]);
+        $this->assertContains(['carrier_id' => 'ALLEGRO', 'waybill' => 'A-OLD'], $export->fresh()->aliases);
+        $this->assertSame('failed', $export->fresh()->state);
+        $this->assertTrue(app(AllegroShipmentExportService::class)->retry($export->id));
+        $this->fakeApi([$this->remoteNumber('ALLEGRO', 'A-OLD')]);
+        $this->runExport($export->fresh());
+        $this->assertSame('synced', $export->fresh()->state);
+        $this->assertCount(2, $parcel->fresh()->tracking_numbers);
+        Http::assertNotSent(fn (Request $request) => $request->method() !== 'GET');
+    }
+
+    public function test_carrier_mismatch_is_not_accepted_without_an_alias_from_the_same_package(): void
+    {
+        [, , , $shipment] = $this->linkedOrder('immediate', CourierAccount::PROVIDER_ALLEGRO_SHIPPING);
+        $shipment->update(['carrier_code' => 'INPOST', 'tracking_number' => 'A-NUMBER']);
+        $this->fakeApi([$this->remoteNumber('ALLEGRO', 'A-NUMBER')]);
+        try {
+            $this->runExport(AllegroShipmentExport::query()->sole());
+            $this->fail('Unproven aliases must not confirm a shipment.');
+        } catch (AllegroApiException $e) {
+            $this->assertSame(409, $e->statusCode);
+        }
+        $this->assertNull(AllegroShipmentExport::query()->sole()->confirmed_at);
+        Http::assertNotSent(fn (Request $request) => $request->method() !== 'GET');
+    }
+
+    public function test_badge_states_are_inline_and_errors_are_escaped_in_tooltips(): void
+    {
+        [, , , $shipment] = $this->linkedOrder();
+        $shipment->update(['tracking_number' => 'NUMBER-1']);
+        $export = AllegroShipmentExport::query()->sole();
+        foreach (['pending' => 'secondary', 'waiting' => 'secondary', 'skipped' => 'secondary', 'failed' => 'danger', 'synced' => 'success'] as $state => $tone) {
+            $export->update(['state' => $state, 'error' => $state === 'failed' ? '<img src=x onerror=alert(1)>' : null]);
+            $html = view('orders.partials.shipment-row', ['shipment' => $shipment->fresh()])->render();
+            $this->assertStringContainsString('allegro-shipment-badge is-'.$tone, $html);
+            $this->assertStringContainsString('shipment-tracking-with-confirmation', $html);
+            $this->assertStringNotContainsString('Allegro: brak potwierdzenia', $html);
+            $this->assertStringNotContainsString('<img src=x', $html);
+            if ($state === 'failed') {
+                $this->assertStringContainsString('&lt;img src=x', $html);
+                $this->assertStringContainsString('Ponów przekazanie numeru do Allegro', $html);
+                $this->assertStringContainsString('orders/'.$shipment->order_id.'/allegro/shipments/'.$export->id.'/retry', $html);
+            }
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_disabled_and_never_checked_states_do_not_pretend_to_be_pending(): void
+    {
+        [, $account, , $shipment] = $this->linkedOrder('disabled');
+        $shipment->update(['tracking_number' => 'OLD-NUMBER']);
+        $status = AllegroShipmentExportPresentation::forShipment($shipment->fresh());
+        $this->assertSame('secondary', $status['tone']);
+        $this->assertStringContainsString('wyłączone', $status['message']);
+        $account->update(['shipment_sync_mode' => 'immediate']);
+        $status = AllegroShipmentExportPresentation::forShipment($shipment->fresh());
+        $this->assertStringContainsString('Nie sprawdzono', $status['message']);
+        $this->assertDatabaseCount('allegro_shipment_exports', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_confirmation_of_one_package_does_not_hide_another_package_failure(): void
+    {
+        [, , , $shipment] = $this->linkedOrder('immediate', CourierAccount::PROVIDER_ALLEGRO_SHIPPING);
+        foreach ([1, 2] as $position) {
+            $shipment->parcels()->create(['position' => $position] + $this->dimensions());
+        }
+        app(AllegroShippingSynchronizer::class)->applyDetails($shipment, ['id' => 'remote', 'carrier' => 'ALLEGRO',
+            'packages' => [['waybill' => 'A-1'], ['waybill' => 'A-2']]]);
+        AllegroShipmentExport::query()->where('waybill', 'A-1')->update(['state' => 'synced']);
+        AllegroShipmentExport::query()->where('waybill', 'A-2')->update(['state' => 'failed', 'error' => 'Second package not confirmed']);
+        $status = AllegroShipmentExportPresentation::forShipment($shipment->fresh());
+        $this->assertSame('danger', $status['tone']);
+        $this->assertCount(1, $status['retry_exports']);
+        AllegroShipmentExport::query()->where('waybill', 'A-2')->update(['state' => 'synced']);
+        $this->assertSame('success', AllegroShipmentExportPresentation::forShipment($shipment->fresh())['tone']);
+    }
+
+    public function test_state_refresh_includes_badge_changes_without_touching_shipment(): void
+    {
+        [$order, , , $shipment] = $this->linkedOrder();
+        $shipment->update(['tracking_number' => 'NUMBER-1']);
+        $beforeUpdated = $shipment->fresh()->updated_at->toJSON();
+        $before = $this->getJson(route('orders.state', $order))->assertOk()->json('shipments_signature');
+        AllegroShipmentExport::query()->sole()->update(['state' => 'synced', 'confirmed_at' => now()]);
+        $response = $this->getJson(route('orders.state', ['order' => $order, 'shipments_signature' => $before]))->assertOk();
+        $this->assertNotSame($before, $response->json('shipments_signature'));
+        $this->assertStringContainsString('allegro-shipment-badge is-success', $response->json('fragments.shipments'));
+        $this->assertSame($beforeUpdated, $shipment->fresh()->updated_at->toJSON());
+        Http::assertNothingSent();
+    }
+
+    public function test_delivery_method_name_is_snapshotted_and_not_taken_from_future_order_edits(): void
+    {
+        [$order, , $link, $existing] = $this->linkedOrder('disabled', CourierAccount::PROVIDER_ALLEGRO_SHIPPING);
+        $order->update(['shipping_method' => 'Allegro One Kurier']);
+        $link->update(['delivery_method_id' => 'method-one']);
+        $attempt = app(AllegroShippingDriver::class)->queueShipment($order, $existing->courierAccount, ['parcels' => [$this->dimensions()]]);
+        $shipment = $attempt->shipment;
+        $this->assertSame('method-one', $shipment->delivery_method_id);
+        $this->assertSame('Allegro One Kurier', $shipment->delivery_method_name);
+        $order->update(['shipping_method' => 'Changed later']);
+        app(AllegroShippingSynchronizer::class)->applyDetails($shipment, ['id' => 'remote', 'carrier' => 'ALLEGRO', 'deliveryMethodId' => 'method-one', 'packages' => [['waybill' => 'A-1']]]);
+        $html = view('orders.partials.shipment-row', ['shipment' => $shipment->fresh()])->render();
+        $this->assertStringContainsString('Allegro.pl', $html);
+        $this->assertStringContainsString('(Allegro One Kurier)', $html);
+        $this->assertStringNotContainsString('Changed later', $html);
+        app(AllegroShippingSynchronizer::class)->applyDetails($shipment, ['id' => 'remote', 'carrier' => 'ALLEGRO', 'deliveryMethodId' => 'different-method', 'packages' => [['waybill' => 'A-1']]]);
+        $this->assertNull($shipment->fresh()->delivery_method_name);
+        Http::assertNothingSent();
+    }
+
+    public function test_historical_name_is_only_filled_when_delivery_method_matches(): void
+    {
+        [$order, , $link, $shipment] = $this->linkedOrder('disabled', CourierAccount::PROVIDER_ALLEGRO_SHIPPING);
+        $order->update(['shipping_method' => 'Allegro One Kurier']);
+        $link->update(['delivery_method_id' => 'method-one']);
+        app(AllegroShippingSynchronizer::class)->applyDetails($shipment, ['id' => 'remote', 'deliveryMethodId' => 'other', 'carrier' => 'ALLEGRO', 'packages' => [['waybill' => 'A-1']]]);
+        $this->assertNull($shipment->fresh()->delivery_method_name);
+        $shipment->update(['delivery_method_id' => null]);
+        app(AllegroShippingSynchronizer::class)->applyDetails($shipment, ['id' => 'remote', 'deliveryMethodId' => 'method-one', 'carrier' => 'ALLEGRO', 'packages' => [['waybill' => 'A-1']]]);
+        $this->assertSame('Allegro One Kurier', $shipment->fresh()->delivery_method_name);
+        $order->update(['shipping_method' => 'Later edit']);
+        app(AllegroShippingSynchronizer::class)->applyDetails($shipment, ['id' => 'remote', 'deliveryMethodId' => 'method-one', 'carrier' => 'ALLEGRO', 'packages' => [['waybill' => 'A-1']]]);
+        $this->assertSame('Allegro One Kurier', $shipment->fresh()->delivery_method_name);
+    }
+
+    public function test_delivery_method_migration_keeps_old_rows_nullable_and_protects_used_snapshots(): void
+    {
+        [, , , $shipment] = $this->linkedOrder('disabled');
+        $this->assertTrue(Schema::hasColumns('shipments', ['delivery_method_id', 'delivery_method_name']));
+        $this->assertNull($shipment->delivery_method_id);
+        $this->assertNull($shipment->delivery_method_name);
+        $migration = require database_path('migrations/2026_11_04_010000_add_delivery_method_snapshot_to_shipments.php');
+        $shipment->update(['delivery_method_id' => 'method-1', 'delivery_method_name' => 'Saved service']);
+        try {
+            $migration->down();
+            $this->fail('A used delivery method snapshot must not be discarded.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Cannot remove', $e->getMessage());
+        }
+        $this->assertSame('Saved service', $shipment->fresh()->delivery_method_name);
     }
 
     public function test_removing_shipment_preserves_export_and_history_and_stops_pending_job(): void

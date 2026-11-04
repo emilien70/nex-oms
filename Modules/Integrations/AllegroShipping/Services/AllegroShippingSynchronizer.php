@@ -50,7 +50,8 @@ class AllegroShippingSynchronizer
         $apiPackages = collect((array) ($details['packages'] ?? []))->values();
         $packageNumbers = $apiPackages->map(fn (array $package): array => AllegroShipmentNumbers::fromAllegroPackage($package, $details['carrier'] ?? null));
         $firstNumbers = collect($packageNumbers->first() ?? []);
-        $primary = $firstNumbers->firstWhere('carrier_id', 'ALLEGRO') ?: $firstNumbers->first();
+        $carrier = strtoupper(trim((string) ($details['carrier'] ?? '')));
+        $primary = $firstNumbers->firstWhere('carrier_id', $carrier) ?: $firstNumbers->firstWhere('carrier_id', 'ALLEGRO') ?: $firstNumbers->first();
         $tracking = $primary['waybill'] ?? null;
         $cancelled = filled($details['canceledDate'] ?? null);
         $previousStatus = $shipment->status;
@@ -58,7 +59,7 @@ class AllegroShippingSynchronizer
         $nextStatus = $cancelled ? Shipment::STATUS_CANCELLED : $this->detailsStatus($previousStatus);
         $nextOmsStatus = $this->statusMapper->map($shipment->provider, $nextStatus);
 
-        $shipment->update([
+        $shipment->update($this->deliveryMethodSnapshot($shipment, $details) + [
             'external_id' => (string) ($details['id'] ?? $shipment->external_id),
             'carrier_code' => $primary['carrier_id'] ?? $shipment->carrier_code,
             'tracking_number' => $tracking ?: $shipment->tracking_number,
@@ -73,7 +74,7 @@ class AllegroShippingSynchronizer
 
         foreach ($shipment->parcels->values() as $index => $parcel) {
             $numbers = collect($packageNumbers->get($index, []));
-            $parcelPrimary = $numbers->firstWhere('carrier_id', 'ALLEGRO') ?: $numbers->first();
+            $parcelPrimary = $numbers->firstWhere('carrier_id', $carrier) ?: $numbers->firstWhere('carrier_id', 'ALLEGRO') ?: $numbers->first();
             if ($parcelPrimary) {
                 $parcel->update(['external_id' => $parcelPrimary['waybill'], 'tracking_number' => $parcelPrimary['waybill'], 'tracking_numbers' => $numbers->values()->all()]);
             }
@@ -176,6 +177,25 @@ class AllegroShippingSynchronizer
             Shipment::STATUS_CONFIRMED,
             'allegro_command_pending',
         ], true) ? Shipment::STATUS_CONFIRMED : (string) $currentStatus;
+    }
+
+    private function deliveryMethodSnapshot(Shipment $shipment, array $details): array
+    {
+        $methodId = $details['deliveryMethodId'] ?? null;
+        if (! is_string($methodId) || trim($methodId) === '' || strlen($methodId) > 255) {
+            return [];
+        }
+        if (filled($shipment->delivery_method_id)) {
+            return $shipment->delivery_method_id === $methodId ? []
+                : ['delivery_method_id' => $methodId, 'delivery_method_name' => null];
+        }
+
+        $order = $shipment->order;
+        $link = $order?->allegroOrderLink;
+        $name = $order?->source === 'allegro' && $link?->external_order_id === $order?->external_id
+            && $link?->delivery_method_id === $methodId ? trim((string) $order?->shipping_method) : '';
+
+        return ['delivery_method_id' => $methodId, 'delivery_method_name' => $name !== '' ? mb_substr($name, 0, 255) : null];
     }
 
     private function occurredAt(mixed $value): Carbon
