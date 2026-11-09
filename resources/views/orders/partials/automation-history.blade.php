@@ -6,6 +6,9 @@
                 <span>{{ $run['actor'] }}, {{ $run['occurred_at'] ?? '...' }}</span>
                 <strong title="{{ $run['rule_name'] }}">{{ $run['trigger'] }}</strong>
             </div>
+            @if ($run['gus_result'] ?? null)
+                <div class="small text-secondary mb-1">{{ $run['gus_result'] }}</div>
+            @endif
             <table class="order-automation-steps" aria-label="{{ $run['rule_name'] }}">
                 <colgroup><col class="order-automation-status-column"><col class="order-automation-action-column"><col></colgroup>
                 <tbody>

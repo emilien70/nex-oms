@@ -12,7 +12,10 @@ class AutomationEngine
 {
     private const MAX_CHAIN_DEPTH = 10;
 
-    public function __construct(private readonly AutomationConditionEvaluator $evaluator) {}
+    public function __construct(
+        private readonly AutomationConditionEvaluator $evaluator,
+        private readonly AutomationGusNipCheck $gus,
+    ) {}
 
     public function evaluate(string $eventName, array $eventPayload): void
     {
@@ -40,14 +43,30 @@ class AutomationEngine
             ->where('trigger', $eventName)
             ->orderBy('sort_order')
             ->orderBy('id')
-            ->get()
-            ->filter(fn (AutomationRule $rule): bool => $this->evaluator->matches(
-                $order,
-                $eventPayload,
-                $rule->conditions ?? [],
-            ));
+            ->get();
 
+        $matching = [];
+        $gusCheck = null;
+        $gusChecked = false;
         foreach ($rules as $rule) {
+            [$gusConditions, $localConditions] = collect($rule->conditions ?? [])
+                ->partition(AutomationGusNipCheck::isCondition(...));
+            if (! $this->evaluator->matches($order, $eventPayload, $localConditions->all())) {
+                continue;
+            }
+            if ($gusConditions->isNotEmpty()) {
+                if (! $gusChecked) {
+                    $gusCheck = $this->gus->check($order);
+                    $gusChecked = true;
+                }
+                if (! $this->evaluator->matches($order, $eventPayload, $gusConditions->all(), $gusCheck)) {
+                    continue;
+                }
+            }
+            $matching[] = [$rule, $gusConditions->isEmpty() ? null : $gusCheck];
+        }
+
+        foreach ($matching as [$rule, $check]) {
             if (AutomationRun::query()->where('chain_id', $chainId)->where('automation_rule_id', $rule->id)->exists()) {
                 continue;
             }
@@ -70,6 +89,7 @@ class AutomationEngine
                         'description' => $rule->description,
                         'trigger' => $rule->trigger,
                         'conditions' => $rule->conditions ?? [],
+                        ...($check !== null ? ['gus_nip_check' => $check] : []),
                         'actions' => $rule->actions->map(fn ($action): array => [
                             'type' => $action->action_type,
                             'configuration' => $action->configuration ?? [],

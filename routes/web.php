@@ -403,6 +403,7 @@ Route::get('/automation/activity', [AutomationActivityController::class, 'index'
 Route::get('/orders/automatic-actions', [AutomationRuleController::class, 'index'])->name('orders.automatic-actions.index');
 Route::get('/orders/automatic-actions/create', [AutomationRuleController::class, 'create'])->name('orders.automatic-actions.create');
 Route::post('/orders/automatic-actions', [AutomationRuleController::class, 'store'])->name('orders.automatic-actions.store');
+Route::patch('/orders/automatic-actions/order', [AutomationRuleController::class, 'reorder'])->name('orders.automatic-actions.order');
 Route::get('/orders/automatic-actions/{automationRule}/edit', [AutomationRuleController::class, 'edit'])->name('orders.automatic-actions.edit');
 Route::put('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'update'])->name('orders.automatic-actions.update');
 Route::patch('/orders/automatic-actions/{automationRule}/toggle', [AutomationRuleController::class, 'toggle'])->name('orders.automatic-actions.toggle');

@@ -6,6 +6,7 @@ use App\Models\EmailTemplate;
 use App\Models\OrderStatusSetting;
 use App\Models\ReturnStatusSetting;
 use App\Services\OrderVariableService;
+use App\Support\PolishNip;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -52,8 +53,10 @@ class SaveAutomationRuleRequest extends FormRequest
             $catalog = app(AutomationCatalog::class);
             $definitions = $catalog->conditionDefinitions();
 
-            foreach ($this->input('conditions', []) as $index => $condition) {
-                $definition = $definitions[$condition['field'] ?? ''] ?? null;
+            foreach ((array) $this->input('conditions', []) as $index => $condition) {
+                $field = $condition['field'] ?? '';
+                $operator = $condition['operator'] ?? '';
+                $definition = is_string($field) ? ($definitions[$field] ?? null) : null;
 
                 if (! $definition) {
                     continue;
@@ -64,11 +67,33 @@ class SaveAutomationRuleRequest extends FormRequest
                     $validator->errors()->add("conditions.$index.field", 'Ten warunek wymaga zdarzenia przesyłki zwrotnej.');
                 }
 
-                if (! in_array($condition['operator'] ?? '', $definition['operators'], true)) {
+                if (! in_array($operator, $definition['operators'], true)) {
                     $validator->errors()->add("conditions.$index.operator", 'Operator nie pasuje do wybranego warunku.');
+
+                    continue;
                 }
 
                 $value = $condition['value'] ?? null;
+                if (in_array($operator, AutomationCatalog::VALUELESS_OPERATORS, true)) {
+                    if ($value !== null && $value !== '') {
+                        $validator->errors()->add("conditions.$index.value", 'Ten operator nie wymaga podania wartości.');
+                    }
+
+                    continue;
+                }
+                if (isset($definition['max_length'])) {
+                    if (! is_string($value) || preg_match('/\S/u', $value) !== 1 || mb_strlen($value) > $definition['max_length']) {
+                        $validator->errors()->add("conditions.$index.value", 'Podaj wartość warunku o dozwolonej długości.');
+                    } elseif ($field === 'billing_tax_id' && ! ($operator === 'equals' && isset($definition['options'][$value]))) {
+                        $compact = PolishNip::withoutSeparators($value);
+                        $whole = in_array($operator, ['equals', 'not_equals'], true);
+                        if (preg_match('/^[A-Za-z0-9.+*]+$/D', $compact) !== 1 || ($whole && preg_match('/[0-9]/', $compact) !== 1)) {
+                            $validator->errors()->add("conditions.$index.value", 'Wpisz numer NIP lub jego fragment odpowiedni dla operatora.');
+                        }
+                    }
+
+                    continue;
+                }
 
                 if ($definition['type'] === 'multiselect') {
                     if (! is_array($value) || ! array_is_list($value) || $value === [] || count($value) > 100

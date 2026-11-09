@@ -3,13 +3,14 @@
 namespace Modules\Automation\Services;
 
 use App\Models\Order;
+use App\Support\PolishNip;
 
 class AutomationConditionEvaluator
 {
-    public function matches(Order $order, array $eventPayload, array $conditions): bool
+    public function matches(Order $order, array $eventPayload, array $conditions, ?array $gusCheck = null): bool
     {
         foreach ($conditions as $condition) {
-            if (! $this->matchesCondition($order, $eventPayload, $condition)) {
+            if (! $this->matchesCondition($order, $eventPayload, $condition, $gusCheck)) {
                 return false;
             }
         }
@@ -17,21 +18,67 @@ class AutomationConditionEvaluator
         return true;
     }
 
-    private function matchesCondition(Order $order, array $eventPayload, array $condition): bool
+    private function matchesCondition(Order $order, array $eventPayload, array $condition, ?array $gusCheck): bool
     {
-        if (($condition['field'] ?? '') === 'integration_source') {
+        $field = $condition['field'] ?? '';
+        if ($field === 'integration_source') {
             return ($condition['operator'] ?? '') === 'in' && is_array($condition['value'] ?? null)
                 && app(AutomationOrderSources::class)->matches($order, $eventPayload, $condition['value']);
         }
-        $actual = $this->value($order, $eventPayload, (string) ($condition['field'] ?? ''));
         $expected = $condition['value'] ?? null;
+        $operator = $condition['operator'] ?? 'equals';
 
-        return match ($condition['operator'] ?? 'equals') {
+        if (AutomationGusNipCheck::isCondition($condition)) {
+            return AutomationGusNipCheck::matches($order, $expected, $gusCheck);
+        }
+
+        if (in_array($field, ['billing_company_name', 'shipping_company_name', 'billing_tax_id'], true)) {
+            $actual = trim((string) $order->{$field});
+            $isNip = $field === 'billing_tax_id';
+            if ($isNip && $operator === 'equals' && in_array($expected, ['empty', 'not_empty'], true)) {
+                return ($expected === 'empty') === ($actual === '');
+            }
+
+            return $this->matchesText($actual, $operator, $expected, $isNip);
+        }
+
+        $actual = $this->value($order, $eventPayload, (string) $field);
+
+        return match ($operator) {
             'not_equals' => ! $this->equals($actual, $expected),
             'contains' => str_contains(mb_strtolower((string) $actual), mb_strtolower((string) $expected)),
             'greater_or_equal' => is_numeric($actual) && is_numeric($expected) && (float) $actual >= (float) $expected,
             'less_or_equal' => is_numeric($actual) && is_numeric($expected) && (float) $actual <= (float) $expected,
             default => is_scalar($expected) && $this->equals($actual, $expected),
+        };
+    }
+
+    private function matchesText(string $actual, string $operator, mixed $expected, bool $isNip): bool
+    {
+        if ($operator === 'is_empty' || $operator === 'is_not_empty') {
+            return ($operator === 'is_empty') === ($actual === '');
+        }
+        if ($actual === '' || ! is_string($expected)) {
+            return false;
+        }
+        if ($isNip) {
+            $actual = PolishNip::withoutSeparators($actual);
+            $expected = PolishNip::withoutSeparators($expected);
+        }
+        $actual = mb_strtolower($actual);
+        $expected = mb_strtolower(trim($expected));
+        if ($actual === '' || $expected === '') {
+            return false;
+        }
+
+        return match ($operator) {
+            'contains' => str_contains($actual, $expected),
+            'not_contains' => ! str_contains($actual, $expected),
+            'equals' => $actual === $expected,
+            'not_equals' => $actual !== $expected,
+            'starts_with' => str_starts_with($actual, $expected),
+            'ends_with' => str_ends_with($actual, $expected),
+            default => false,
         };
     }
 
@@ -46,7 +93,6 @@ class AutomationConditionEvaluator
         return match ($field) {
             'order_status' => $order->status,
             'source' => $order->source,
-            'billing_tax_id' => trim((string) $order->billing_tax_id) === '' ? 'empty' : 'not_empty',
             'cash_on_delivery' => $order->cash_on_delivery ? '1' : '0',
             'payment_state' => $eventPayload['payment_state'] ?? $this->paymentState($order),
             'payment_source' => $eventPayload['payment_source'] ?? null,

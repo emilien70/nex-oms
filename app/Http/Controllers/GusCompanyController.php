@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\GusRegonException;
 use App\Services\GusRegonService;
+use App\Support\PolishNip;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -11,9 +12,9 @@ class GusCompanyController extends Controller
 {
     public function show(Request $request, GusRegonService $gus): JsonResponse
     {
-        $nip = preg_replace('/[\s-]+/u', '', trim((string) $request->input('nip')));
+        $nip = PolishNip::withoutSeparators(trim((string) $request->input('nip')));
 
-        if (! $this->isValidNip($nip)) {
+        if (! PolishNip::isValid($nip)) {
             return response()->json([
                 'message' => 'Wpisz prawidłowy polski NIP.',
                 'errors' => [
@@ -45,23 +46,5 @@ class GusCompanyController extends Controller
         }
 
         return response()->json(['companies' => $companies]);
-    }
-
-    private function isValidNip(string $nip): bool
-    {
-        if (preg_match('/^\d{10}$/', $nip) !== 1 || $nip === '0000000000') {
-            return false;
-        }
-
-        $weights = [6, 5, 7, 2, 3, 4, 5, 6, 7];
-        $sum = 0;
-
-        foreach ($weights as $index => $weight) {
-            $sum += ((int) $nip[$index]) * $weight;
-        }
-
-        $checksum = $sum % 11;
-
-        return $checksum !== 10 && $checksum === (int) $nip[9];
     }
 }

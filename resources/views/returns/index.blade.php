@@ -43,7 +43,7 @@
         </form>
     </div>
     <form id="bulkReturnsForm" method="POST" action="{{ route('returns.bulk-status') }}">@csrf</form>
-    <div class="orders-list-toolbar mb-3">
+    <x-docked-list-toolbar id="return-list-toolbar">
         <div class="selection-menu dropdown">
             <button class="selection-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Menu zaznaczania zwrotów"><i class="bi bi-check-square selection-checkbox-icon" aria-hidden="true"></i><i class="bi bi-chevron-down selection-caret" aria-hidden="true"></i></button>
             <div class="dropdown-menu selection-dropdown-menu">
@@ -59,7 +59,7 @@
         </div>
         <span class="return-bulk-selected" data-return-selected></span>
         <x-pagination-toolbar :paginator="$returns" :per-page-options="[20,30,50,75,100,150,200]" :per-page="$perPage" aria-label="Paginacja zwrotów" />
-    </div>
+    </x-docked-list-toolbar>
     <div class="orders-table-card"><div class="table-responsive"><table class="table orders-table align-middle" aria-label="Wszystkie zwroty">
         <colgroup><col style="width:22px"><col style="width:18px"><col style="width:96px"><col style="width:152px"><col><col style="width:104px"><col style="width:220px"><col style="width:118px"></colgroup>
         <thead><tr><th class="order-select-column"></th><th class="order-star-column"></th><th>Numer<br><span class="orders-th-subtitle fw-normal text-secondary">(Nr ref.)</span></th><th class="order-customer-column">Imię i nazwisko<br><span class="orders-th-subtitle fw-normal text-secondary">(źródło)</span></th><th>Przedmioty</th><th>Kwota</th><th class="order-extra-column">Informacje dodatkowe</th><th>Data utworzenia<br><span class="orders-th-subtitle fw-normal text-secondary">(w statusie)</span></th></tr></thead>
@@ -107,11 +107,19 @@
         @empty <tr><td colspan="8" class="text-center text-secondary py-4">Brak zwrotów do wyświetlenia.</td></tr> @endforelse
         </tbody>
     </table></div></div>
+    <div data-list-toolbar-spacer aria-hidden="true"></div>
 </div>
+@include('orders.partials.docked-list-toolbar-script')
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const boxes = [...document.querySelectorAll('[data-return-checkbox]')];
-    const update = () => { const count = boxes.filter(box => box.checked).length; document.querySelector('[data-return-bulk]').disabled = !count; document.querySelector('[data-return-selected]').textContent = count ? 'Zaznaczono: ' + count : ''; };
+    const bulkButtons = document.querySelectorAll('[data-return-bulk]');
+    const selectionCounts = document.querySelectorAll('[data-return-selected]');
+    const update = () => {
+        const count = boxes.filter(box => box.checked).length;
+        bulkButtons.forEach(button => { button.disabled = !count; });
+        selectionCounts.forEach(label => { label.textContent = count ? 'Zaznaczono: ' + count : ''; });
+    };
     boxes.forEach(box => box.addEventListener('change', update));
     document.querySelectorAll('[data-return-select]').forEach(button => button.addEventListener('click', () => {
         boxes.forEach(box => { box.checked = button.dataset.returnSelect === 'all' || (button.dataset.returnSelect === 'starred' && box.dataset.starred === '1') || (button.dataset.returnSelect === 'invert' && !box.checked); }); update();

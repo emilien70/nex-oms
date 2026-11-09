@@ -112,13 +112,17 @@ class OrderSortingTest extends TestCase
         $document = new DOMDocument;
         @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
         $xpath = new DOMXPath($document);
-        $menu = '//ul[contains(@class,"orders-sort-menu")]';
-        $this->assertSame(13, $xpath->query($menu.'//a[@data-order-sort-key]')->length);
-        $this->assertSame('total', $xpath->query($menu.'//a[@data-order-sort-key and contains(@class,"active")]')->item(0)->getAttribute('data-order-sort-key'));
-        $target = $xpath->query($menu.'//a[@data-order-sort-key="customer"]')->item(0)->getAttribute('href');
-        parse_str(parse_url($target, PHP_URL_QUERY), $query);
-        $this->assertSame(['status' => 'new', 'source' => 'allegro', 'sort' => 'customer', 'direction' => 'asc', 'page' => '1', 'per_page' => '50'], $query);
-        $this->assertGreaterThan(0, $xpath->query('//*[@data-order-sort-toggle]/parent::div/preceding-sibling::div[1]//button[@data-bulk-status-submit]')->length);
+        $toolbars = $xpath->query('//*[@data-list-toolbar-slot or @data-list-toolbar-dock]');
+        $this->assertSame(2, $toolbars->length);
+        foreach ($toolbars as $toolbar) {
+            $menu = './/ul[contains(@class,"orders-sort-menu")]';
+            $this->assertSame(13, $xpath->query($menu.'//a[@data-order-sort-key]', $toolbar)->length);
+            $this->assertSame('total', $xpath->query($menu.'//a[@data-order-sort-key and contains(@class,"active")]', $toolbar)->item(0)->getAttribute('data-order-sort-key'));
+            $target = $xpath->query($menu.'//a[@data-order-sort-key="customer"]', $toolbar)->item(0)->getAttribute('href');
+            parse_str(parse_url($target, PHP_URL_QUERY), $query);
+            $this->assertSame(['status' => 'new', 'source' => 'allegro', 'sort' => 'customer', 'direction' => 'asc', 'page' => '1', 'per_page' => '50'], $query);
+            $this->assertGreaterThan(0, $xpath->query('.//*[@data-order-sort-toggle]/parent::div/preceding-sibling::div[1]//button[@data-bulk-status-submit]', $toolbar)->length);
+        }
         $clear = $xpath->query('//a[contains(@class,"orders-filter-action-button")]')->item(0)->getAttribute('href');
         parse_str(parse_url($clear, PHP_URL_QUERY), $clearQuery);
         $this->assertSame('total', $clearQuery['sort']);

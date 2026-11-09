@@ -15,19 +15,19 @@ class GusRegonService
     private const PUBLIC_ACTION_BASE = 'http://CIS/BIR/PUBL/2014/07/IUslugaBIRzewnPubl/';
 
     /** @return list<array<string, string>> */
-    public function findCompaniesByNip(string $nip): array
+    public function findCompaniesByNip(string $nip, ?int $requestTimeout = null): array
     {
         $nip = preg_replace('/\D+/', '', $nip);
-        $sid = $this->login();
+        $sid = $this->login($requestTimeout);
 
         try {
-            return $this->searchByNip($sid, $nip);
+            return $this->searchByNip($sid, $nip, $requestTimeout);
         } finally {
-            $this->logout($sid);
+            $this->logout($sid, $requestTimeout);
         }
     }
 
-    private function login(): string
+    private function login(?int $requestTimeout): string
     {
         $apiKey = (string) config('services.gus.key');
 
@@ -46,7 +46,7 @@ class GusRegonService
         ), $actionUri);
 
         $sid = $this->extractSoapValue(
-            $this->request($actionUri, $body),
+            $this->request($actionUri, $body, requestTimeout: $requestTimeout),
             'ZalogujResult',
         );
 
@@ -61,7 +61,7 @@ class GusRegonService
     }
 
     /** @return list<array<string, string>> */
-    private function searchByNip(string $sid, string $nip): array
+    private function searchByNip(string $sid, string $nip, ?int $requestTimeout): array
     {
         $actionUri = self::PUBLIC_ACTION_BASE.'DaneSzukajPodmioty';
         $body = $this->envelope(sprintf(
@@ -70,12 +70,12 @@ class GusRegonService
         ), $actionUri);
 
         $result = $this->extractSoapValue(
-            $this->request($actionUri, $body, $sid),
+            $this->request($actionUri, $body, $sid, $requestTimeout),
             'DaneSzukajPodmiotyResult',
         );
 
         if (trim($result) === '') {
-            return $this->emptySearchResult($sid);
+            return $this->emptySearchResult($sid, $requestTimeout);
         }
 
         $dataXml = @simplexml_load_string($result, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOCDATA);
@@ -145,7 +145,7 @@ class GusRegonService
         return array_values(array_unique($companies, SORT_REGULAR));
     }
 
-    private function logout(string $sid): void
+    private function logout(string $sid, ?int $requestTimeout): void
     {
         if ($sid === '') {
             return;
@@ -158,13 +158,13 @@ class GusRegonService
         ), $actionUri);
 
         try {
-            $this->request($actionUri, $body, $sid);
+            $this->request($actionUri, $body, $sid, $requestTimeout);
         } catch (\Throwable) {
             // Wylogowanie z GUS nie powinno blokowac odpowiedzi dla uzytkownika.
         }
     }
 
-    private function request(string $actionUri, string $body, ?string $sid = null): string
+    private function request(string $actionUri, string $body, ?string $sid = null, ?int $requestTimeout = null): string
     {
         $headers = [
             'Content-Type' => 'application/soap+xml; charset=utf-8; action="'.$actionUri.'"',
@@ -176,7 +176,7 @@ class GusRegonService
         }
 
         try {
-            $response = Http::timeout((int) config('services.gus.timeout', 10))
+            $response = Http::timeout($requestTimeout ?? (int) config('services.gus.timeout', 10))
                 ->withHeaders($headers)
                 ->withBody($body, 'application/soap+xml; charset=utf-8; action="'.$actionUri.'"')
                 ->post((string) config('services.gus.url'));
@@ -305,7 +305,7 @@ XML;
     }
 
     /** @return list<array<string, string>> */
-    private function emptySearchResult(string $sid): array
+    private function emptySearchResult(string $sid, ?int $requestTimeout): array
     {
         $actionUri = self::DIAGNOSTIC_ACTION_BASE.'GetValue';
         $body = $this->envelope(
@@ -313,7 +313,7 @@ XML;
             $actionUri,
         );
         $code = $this->extractSoapValue(
-            $this->request($actionUri, $body, $sid),
+            $this->request($actionUri, $body, $sid, $requestTimeout),
             'GetValueResult',
         );
 

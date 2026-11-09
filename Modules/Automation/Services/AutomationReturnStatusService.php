@@ -35,7 +35,12 @@ class AutomationReturnStatusService
             $parcel = $this->context->parcel($order, $managedRun->event_payload);
             if (! $target || ! $record || ! $parcel || $parcel->order_return_id !== $record->id
                 || ! in_array($configuration['parcel_scope'] ?? 'all', ['all', 'any'], true)
-                || ! $this->conditions->matches($order, $managedRun->event_payload, $managedRun->rule_snapshot['conditions'] ?? [])) {
+                || ! $this->conditions->matches(
+                    $order,
+                    $managedRun->event_payload,
+                    $managedRun->rule_snapshot['conditions'] ?? [],
+                    $managedRun->rule_snapshot['gus_nip_check'] ?? null,
+                )) {
                 throw new DomainException('Dane lub warunki zwrotu zmieniły się. Akcja nie została wykonana.');
             }
             $allRequired = ($configuration['parcel_scope'] ?? 'all') === 'all';

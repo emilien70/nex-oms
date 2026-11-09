@@ -17,6 +17,8 @@ class AutomationRuleController extends Controller
 {
     public function index(Request $request, AutomationCatalog $catalog): View
     {
+        $hasFilters = $request->filled('search') || $request->filled('trigger') || $request->filled('active');
+
         $rules = AutomationRule::query()
             ->with('actions')
             ->when($request->filled('search'), function ($query) use ($request): void {
@@ -36,6 +38,7 @@ class AutomationRuleController extends Controller
 
         return view('orders.automatic-actions', [
             'rules' => $rules,
+            'canReorder' => ! $hasFilters && $rules->count() > 1,
             'catalog' => $catalog,
             'statuses' => OrderStatusSetting::orderedStatuses(),
             'shipmentActionDefinitions' => $catalog->shipmentActionDefinitions(),
@@ -45,6 +48,20 @@ class AutomationRuleController extends Controller
             'nexPrinters' => $catalog->nexPrinters(),
             'printDocumentTypes' => $catalog->printDocumentTypes(),
         ]);
+    }
+
+    public function reorder(Request $request, AutomationRuleService $rules): JsonResponse
+    {
+        $data = $request->validate([
+            'rule_ids' => ['required', 'array', 'list', 'min:2'],
+            'rule_ids.*' => ['required', 'integer', 'min:1', 'distinct'],
+            'previous_rule_ids' => ['required', 'array', 'list', 'min:2'],
+            'previous_rule_ids.*' => ['required', 'integer', 'min:1', 'distinct'],
+        ]);
+
+        $rules->reorder(array_map('intval', $data['rule_ids']), array_map('intval', $data['previous_rule_ids']));
+
+        return response()->json(['saved' => true]);
     }
 
     public function create(): RedirectResponse

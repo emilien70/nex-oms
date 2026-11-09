@@ -31,11 +31,21 @@ class OrderReturnsTest extends TestCase
 
     public function test_list_uses_order_list_styles_sidebar_and_real_controls(): void
     {
-        $this->get(route('returns.index'))->assertOk()->assertSee('Stwórz zwrot')->assertSee('Menu zwrotów')
+        $response = $this->get(route('returns.index'))->assertOk()->assertSee('Stwórz zwrot')->assertSee('Menu zwrotów')
             ->assertSee('orders-table')->assertSee('orders-context-sidebar')->assertSee('Filtrowanie zwrotów')
             ->assertSee('Nowe')->assertSee('Odebrane')->assertSee('W trakcie')->assertSee('Zakończone')->assertSee('Odrzucone')
             ->assertSee('class="orders-context-add orders-context-add--return"', false)
             ->assertSee('class="bi bi-plus-circle orders-context-plus" aria-hidden="true"', false);
+        $this->assertSame(2, substr_count($response->getContent(), 'class="nex-pagination-toolbar"'));
+        $this->assertSame(2, substr_count($response->getContent(), 'data-return-bulk disabled'));
+        $response->assertSeeInOrder([
+            'id="return-list-toolbar"',
+            'class="nex-pagination-toolbar"',
+            'data-list-toolbar-dock role="group" aria-label="Dolny pasek listy" hidden inert>',
+            'class="nex-pagination-toolbar"',
+            'aria-label="Wszystkie zwroty"',
+            'data-list-toolbar-spacer aria-hidden="true"',
+        ], false);
         $this->get(route('returns.create'))->assertOk()->assertSee('Bez zamówienia')->assertSee('Z zamówienia');
         Http::assertNothingSent();
     }

@@ -20,6 +20,10 @@ use Modules\Shipments\Services\InPostCourierParcelTemplateService;
 
 class AutomationCatalog
 {
+    public const VALUELESS_OPERATORS = ['is_empty', 'is_not_empty'];
+
+    private const TEXT_OPERATORS = ['equals', 'not_equals', 'contains', 'not_contains', 'starts_with', 'ends_with', ...self::VALUELESS_OPERATORS];
+
     public const ACTION_CHANGE_STATUS = 'change_order_status';
 
     /** The stored value stays unchanged for compatibility with existing rules. */
@@ -102,13 +106,30 @@ class AutomationCatalog
                     'von_halsky' => 'InPost Von Halsky',
                 ],
             ],
+            'billing_company_name' => [
+                'label' => 'Nazwa firmy (faktura)',
+                'type' => 'text',
+                'operators' => self::TEXT_OPERATORS,
+                'max_length' => 255,
+                'options' => [],
+            ],
+            'shipping_company_name' => [
+                'label' => 'Nazwa firmy (adres dostawy)',
+                'type' => 'text',
+                'operators' => self::TEXT_OPERATORS,
+                'max_length' => 255,
+                'options' => [],
+            ],
             'billing_tax_id' => [
                 'label' => 'NIP',
-                'type' => 'select',
-                'operators' => ['equals'],
+                'type' => 'text',
+                'operators' => self::TEXT_OPERATORS,
+                'max_length' => 32,
                 'options' => [
-                    'empty' => $this->decode('Warto&#347;&#263; pusta'),
-                    'not_empty' => $this->decode('Warto&#347;&#263; niepusta'),
+                    'empty' => 'Brak numeru NIP',
+                    'not_empty' => 'Podano numer NIP',
+                    AutomationGusNipCheck::POSITIVE => 'Poprawny NIP (GUS)',
+                    AutomationGusNipCheck::NEGATIVE => 'Niepoprawny NIP (GUS)',
                 ],
             ],
             'cash_on_delivery' => [
@@ -183,6 +204,11 @@ class AutomationCatalog
             'equals' => $this->decode('R&oacute;wne'),
             'not_equals' => $this->decode('R&oacute;&#380;ne'),
             'contains' => $this->decode('Zawiera fraz&#281;'),
+            'not_contains' => 'Nie zawiera frazy',
+            'starts_with' => $this->decode('Zaczyna si&#281; od'),
+            'ends_with' => $this->decode('Ko&#324;czy si&#281; na'),
+            'is_empty' => $this->decode('Warto&#347;&#263; pusta'),
+            'is_not_empty' => $this->decode('Warto&#347;&#263; niepusta'),
             'greater_or_equal' => $this->decode('Wi&#281;ksze lub r&oacute;wne'),
             'less_or_equal' => $this->decode('Mniejsze lub r&oacute;wne'),
         ];
@@ -220,6 +246,9 @@ class AutomationCatalog
         $definition = $this->conditionDefinitions()[$condition['field'] ?? ''] ?? null;
         $operator = $this->operators()[$condition['operator'] ?? ''] ?? ($condition['operator'] ?? '');
         $value = $condition['value'] ?? '';
+        if (in_array($condition['operator'] ?? '', self::VALUELESS_OPERATORS, true)) {
+            return trim(($definition['label'] ?? ($condition['field'] ?? '')).' '.$operator);
+        }
 
         if (is_array($value)) {
             $value = implode(', ', array_map(

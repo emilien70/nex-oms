@@ -10,7 +10,7 @@ const end = page.indexOf('const submitMutation =', start);
 assert.ok(start > 0 && end > start);
 
 function harness({ initial, redirected = false, responseUrl = initial, ok = true }) {
-    const events = { requests: [], pushes: [], replacements: [], assignments: [], rendered: 0, errors: [] };
+    const events = { requests: [], pushes: [], replacements: [], assignments: [], rendered: 0, errors: [], scrolls: [] };
     const classes = { add: () => {}, remove: () => {} };
     const activePage = { classList: classes, querySelectorAll: () => [], replaceWith: () => events.rendered++ };
     const location = { href: initial, assign: url => events.assignments.push(url) };
@@ -25,7 +25,13 @@ function harness({ initial, redirected = false, responseUrl = initial, ok = true
         },
         document: { querySelector: () => null, querySelectorAll: () => [], title: 'Orders', body: { classList: classes, style: { removeProperty: () => {} } } },
         DOMParser: class {
-            parseFromString() { return { querySelector: selector => selector === '[data-orders-page]' ? {} : null, title: 'Orders' }; }
+            parseFromString() {
+                const nextPage = {
+                    querySelector: selector => selector === '[data-list-toolbar-slot]'
+                        ? { scrollIntoView: options => events.scrolls.push(options.block) } : null,
+                };
+                return { querySelector: selector => selector === '[data-orders-page]' ? nextPage : null, title: 'Orders' };
+            }
         },
         currentOrdersPage: () => activePage,
         replaceOrdersContext: () => {}, initializeOrdersList: () => {},
@@ -64,6 +70,15 @@ test('ordinary background refresh keeps current filter URL and history', async (
     assert.deepEqual(h.events.pushes, []);
     assert.deepEqual(h.events.replacements, []);
     assert.equal(h.location.href, original);
+    assert.deepEqual(h.events.scrolls, []);
+});
+
+test('pagination from the docked toolbar returns to the top of the new table', async () => {
+    const h = harness({ initial: original });
+    const next = original.replace('page=2', 'page=3');
+    assert.equal(await h.load(next, { scrollToToolbar: true }), true);
+    assert.deepEqual(h.events.pushes, [next]);
+    assert.deepEqual(h.events.scrolls, ['start']);
 });
 
 test('tracking lookup redirect retains the full order navigation context', async () => {

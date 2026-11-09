@@ -3,6 +3,7 @@
 namespace Modules\Automation\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Modules\Automation\Models\AutomationRule;
 
 class AutomationRuleService
@@ -17,6 +18,28 @@ class AutomationRuleService
     public function update(AutomationRule $rule, array $data): AutomationRule
     {
         return $this->save($rule, $data);
+    }
+
+    public function reorder(array $ids, array $previousIds): void
+    {
+        if (count($ids) !== count($previousIds) || array_diff($ids, $previousIds) !== []) {
+            throw ValidationException::withMessages(['rule_ids' => 'Przekazana lista regul jest niekompletna lub nieprawidlowa.']);
+        }
+
+        DB::transaction(function () use ($ids, $previousIds): void {
+            $rules = AutomationRule::query()->orderBy('id')->lockForUpdate()->get(['id', 'sort_order']);
+            $currentIds = $rules->sortBy([['sort_order', 'asc'], ['id', 'asc']])->pluck('id')->all();
+
+            abort_if($currentIds !== $previousIds, 409, 'Lista regul zmienila sie. Odswiez strone i sprobuj ponownie.');
+
+            $byId = $rules->keyBy('id');
+            foreach ($ids as $index => $id) {
+                $rule = $byId->get($id);
+                if ($rule->sort_order !== $index + 1) {
+                    $rule->update(['sort_order' => $index + 1]);
+                }
+            }
+        }, attempts: 3);
     }
 
     private function save(AutomationRule $rule, array $data): AutomationRule

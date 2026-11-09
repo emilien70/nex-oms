@@ -16,6 +16,13 @@
         .automation-table tbody tr:hover { background: #fbfdff; }
         .automation-summary-row { cursor: pointer; }
         .automation-summary-row.is-open { background: #f6fbff; }
+        .automation-rule-heading { align-items: flex-start; display: flex; gap: 6px; }
+        .automation-rule-heading > div { min-width: 0; overflow-wrap: anywhere; }
+        .automation-rule-grip { cursor: grab; flex: 0 0 27px; font-size: 16px; touch-action: none; user-select: none; }
+        .automation-sort-dragging > td { opacity: .5; }
+        .automation-sort-before > td { box-shadow: inset 0 2px #2586d4; }
+        .automation-sort-after > td { box-shadow: inset 0 -2px #2586d4; }
+        [data-automation-sort-list][aria-busy="true"] .automation-rule-grip { cursor: progress; }
         .automation-rule-name { color: #172033; font-size: 13px; font-weight: 700; margin-bottom: 3px; }
         .automation-rule-meta { color: #738094; font-size: 11.5px; }
         .automation-event { align-items: flex-start; display: flex; gap: 9px; }
@@ -43,7 +50,8 @@
         .automation-event-box { align-items: center; border: 1px solid #cfd7e1; border-radius: 5px; display: flex; gap: 8px; padding: 4px 8px; }
         .automation-event-box .form-select { border: 0; box-shadow: none; padding-left: 0; }
         .automation-section-separator { border-top: 1px solid #e8ecf0; margin: 13px 0; }
-        .automation-condition-row { align-items: center; background: #fbfcfd; border: 1px solid #e0e5ea; border-radius: 5px; display: grid; gap: 5px; grid-template-columns: 1.1fr .8fr 1fr 28px; margin-bottom: 6px; padding: 6px; }
+        .automation-condition-row { align-items: center; background: #fbfcfd; border: 1px solid #e0e5ea; border-radius: 5px; display: grid; gap: 5px; grid-template-columns: minmax(0, 1.1fr) minmax(0, .8fr) minmax(0, 1fr) 28px; margin-bottom: 6px; padding: 6px; }
+        .automation-condition-nip { display: grid; gap: 4px; min-width: 0; }
         .automation-action-card { border: 1px solid #dce2e8; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
         .automation-action-head { align-items: center; background: #f8fafc; border-bottom: 1px solid #e6eaee; display: flex; gap: 7px; padding: 7px; }
         .automation-action-choice { align-items: center; background: #fff; border: 1px solid #cfd7e1; border-radius: 5px; display: flex; flex: 1 1 auto; gap: 7px; min-width: 0; padding: 2px 7px; }
@@ -147,6 +155,9 @@
         </section>
 
         <section class="automation-panel">
+            @if ($canReorder)
+                <div class="visually-hidden" role="status" data-automation-order-feedback></div>
+            @endif
             <div class="automation-table-wrap">
                 <table class="table automation-table">
                         <thead>
@@ -157,7 +168,7 @@
                                 <th class="text-end" style="width: 10%">Stan</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody @if ($canReorder) data-automation-sort-list="{{ route('orders.automatic-actions.order') }}" @endif>
                             <tr id="automation-rule-draft" class="automation-summary-row automation-draft-row d-none is-open" data-open-automation-editor="draft">
                                 <td>
                                     <div class="automation-rule-name">Nowa automatyczna akcja</div>
@@ -183,10 +194,21 @@
                             @include('orders._automatic-action-inline-editor', ['rule' => null, 'isDraft' => true])
 
                             @foreach ($rules as $rule)
-                                <tr id="automation-rule-{{ $rule->id }}" class="automation-summary-row {{ (int) request('edit') === $rule->id ? 'is-open' : '' }}" data-open-automation-editor="{{ $rule->id }}">
+                                <tr id="automation-rule-{{ $rule->id }}" class="automation-summary-row {{ (int) request('edit') === $rule->id ? 'is-open' : '' }}" data-open-automation-editor="{{ $rule->id }}" @if ($canReorder) data-automation-sort-row="{{ $rule->id }}" @endif>
                                     <td>
-                                        <div class="automation-rule-name">{{ $rule->name }}</div>
-                                        <div class="automation-rule-meta">{{ $rule->description ?: 'Bez opisu' }}</div>
+                                        <div class="automation-rule-heading">
+                                            @if ($canReorder)
+                                                <button class="automation-icon-btn automation-rule-grip" type="button" data-automation-sort-handle
+                                                    title="Przeci&#261;gnij lub u&#380;yj strza&#322;ek g&oacute;ra/d&oacute;&#322;"
+                                                    aria-label="Zmie&#324; kolejno&#347;&#263; regu&#322;y: {{ $rule->name }}">
+                                                    <i class="bi bi-grip-vertical" aria-hidden="true"></i>
+                                                </button>
+                                            @endif
+                                            <div>
+                                                <div class="automation-rule-name">{{ $rule->name }}</div>
+                                                <div class="automation-rule-meta">{{ $rule->description ?: 'Bez opisu' }}</div>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td>
                                         <div class="automation-event">
@@ -261,6 +283,7 @@
         (() => {
             const definitions = {{ Illuminate\Support\Js::from($catalog->conditionDefinitions()) }};
             const operatorLabels = {{ Illuminate\Support\Js::from($catalog->operators()) }};
+            const valuelessOperators = @json(\Modules\Automation\Services\AutomationCatalog::VALUELESS_OPERATORS);
             const actionLabels = {{ Illuminate\Support\Js::from($catalog->actions()) }};
             const orderFields = {{ Illuminate\Support\Js::from($catalog->orderFields()) }};
             const countries = {{ Illuminate\Support\Js::from(app(\App\Support\CountryCatalog::class)->all()) }};
@@ -442,9 +465,20 @@
                             sourcesRoot.innerHTML += `<label class="automation-block-label">ŹRÓDŁA ZAMÓWIENIA</label><div data-source-condition-index="${index}"><input type="hidden" name="conditions[${index}][field]" value="integration_source"><input type="hidden" name="conditions[${index}][operator]" value="in"><details class="automation-source-options"><summary>${escapeHtml(summary)}</summary><div class="source-options">${Object.entries(sourceOptions).map(([value, label]) => `<label><input type="checkbox" class="form-check-input source-option" name="conditions[${index}][value][]" value="${escapeHtml(value)}" ${selected.includes(value) ? 'checked' : ''}><span>${escapeHtml(label)}</span></label>`).join('')}</div></details></div>`;
                             return '';
                         }
-                        const valueControl = definition.type === 'select'
-                            ? `<select class="form-select form-select-sm condition-value" name="conditions[${index}][value]">${optionsHtml(definition.options, condition.value)}</select>`
-                            : `<input class="form-control form-control-sm condition-value" type="${definition.type === 'number' ? 'number' : 'text'}" ${definition.type === 'number' ? 'step="0.01"' : ''} name="conditions[${index}][value]" value="${escapeHtml(condition.value)}">`;
+                        const valueName = `conditions[${index}][value]`;
+                        const textInput = `<input class="form-control form-control-sm condition-value" aria-label="Wartość warunku" type="${definition.type === 'number' ? 'number' : 'text'}" ${definition.type === 'number' ? 'step="0.01"' : ''} ${definition.max_length ? `maxlength="${definition.max_length}" required` : ''} name="${valueName}" value="${escapeHtml(condition.value)}">`;
+                        let valueControl = textInput;
+                        if (valuelessOperators.includes(operator)) {
+                            valueControl = '<span></span>';
+                        } else if (definition.type === 'select') {
+                            valueControl = `<select class="form-select form-select-sm condition-value" name="${valueName}">${optionsHtml(definition.options, condition.value)}</select>`;
+                        } else if (field === 'billing_tax_id' && operator === 'equals') {
+                            const preset = Object.hasOwn(definition.options, condition.value) ? condition.value : '';
+                            valueControl = `<div class="automation-condition-nip">
+                                <select class="form-select form-select-sm condition-preset" aria-label="Sposób porównania NIP" ${preset ? `name="${valueName}"` : ''}>${optionsHtml({'': 'Wpisz NIP', ...definition.options}, preset)}</select>
+                                ${preset ? '' : textInput}
+                            </div>`;
+                        }
 
                         return `<div class="automation-condition-row" data-condition-index="${index}">
                             <select class="form-select form-select-sm condition-field" name="conditions[${index}][field]">${optionsHtml(Object.fromEntries(Object.entries(definitions).filter(([key]) => key !== 'integration_source').map(([key, item]) => [key, item.label])), field)}</select>
@@ -475,9 +509,24 @@
                             conditions[index] = {field, operator: definitions[field].operators[0], value: ''};
                             renderConditions();
                         });
-                        row.querySelector('.condition-operator').addEventListener('change', event => conditions[index].operator = event.target.value);
-                        row.querySelector('.condition-value').addEventListener('input', event => conditions[index].value = event.target.value);
-                        row.querySelector('.condition-value').addEventListener('change', event => conditions[index].value = event.target.value);
+                        row.querySelector('.condition-operator').addEventListener('change', event => {
+                            const condition = conditions[index];
+                            if (valuelessOperators.includes(event.target.value)
+                                || (condition.field === 'billing_tax_id' && Object.hasOwn(definitions.billing_tax_id.options, condition.value))) {
+                                condition.value = '';
+                            }
+                            condition.operator = event.target.value;
+                            renderConditions();
+                            conditionsRoot.querySelector(`[data-condition-index="${index}"] .condition-operator`)?.focus();
+                        });
+                        row.querySelector('.condition-preset')?.addEventListener('change', event => {
+                            conditions[index].value = event.target.value;
+                            renderConditions();
+                            const updated = conditionsRoot.querySelector(`[data-condition-index="${index}"]`);
+                            updated?.querySelector(event.target.value ? '.condition-preset' : '.condition-value')?.focus();
+                        });
+                        row.querySelector('.condition-value')?.addEventListener('input', event => conditions[index].value = event.target.value);
+                        row.querySelector('.condition-value')?.addEventListener('change', event => conditions[index].value = event.target.value);
                         row.querySelector('.condition-remove').addEventListener('click', () => {
                             conditions.splice(index, 1);
                             renderConditions();
@@ -797,4 +846,7 @@
             });
         })();
     </script>
+    @if ($canReorder)
+        @include('orders.partials.automation-rule-order-script')
+    @endif
 @endsection

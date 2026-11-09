@@ -49,6 +49,12 @@ class OrderAutomationHistory
             'occurred_at' => $run->created_at?->timezone(config('app.timezone'))->format('d.m.Y H:i:s'),
             'trigger' => $this->catalog->triggerLabel($run->event_name),
             'rule_name' => $activity['title'],
+            'gus_result' => match (data_get($run->rule_snapshot, 'gus_nip_check.result')) {
+                'found' => 'Znaleziono podmiot w GUS.',
+                'not_found' => 'Nie znaleziono podmiotu w GUS.',
+                'unavailable' => 'Nie udało się sprawdzić NIP-u w GUS.',
+                default => null,
+            },
             'error' => $activity['details'],
             'steps' => collect($activity['steps'])->map(function (array $step) use ($run, $storedSteps, $actions): array {
                 $position = $step['position'] - 1;

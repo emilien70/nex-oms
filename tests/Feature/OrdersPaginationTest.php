@@ -21,7 +21,7 @@ class OrdersPaginationTest extends TestCase
             ]);
         }
 
-        $this->get(route('orders.index'))
+        $response = $this->get(route('orders.index'))
             ->assertOk()
             ->assertSee('class="nex-pagination-toolbar"', false)
             ->assertSee('class="nex-page-range dropdown-toggle"', false)
@@ -32,6 +32,16 @@ class OrdersPaginationTest extends TestCase
                     && $orders->count() === 20
                     && $orders->total() === 25;
             });
+        $this->assertSame(2, substr_count($response->getContent(), 'class="nex-pagination-toolbar"'));
+        $this->assertSame(2, substr_count($response->getContent(), 'data-bulk-trash-submit>'));
+        $response->assertSeeInOrder([
+            'data-list-toolbar-slot>',
+            'class="nex-pagination-toolbar"',
+            'data-list-toolbar-dock role="group" aria-label="Dolny pasek listy" hidden inert>',
+            'class="nex-pagination-toolbar"',
+            'class="orders-table-card"',
+            'data-list-toolbar-spacer aria-hidden="true"',
+        ], false);
 
         $this->get(route('orders.index', ['per_page' => 30]))
             ->assertOk()

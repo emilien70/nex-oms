@@ -42,20 +42,18 @@ class AutomaticActionsPageTest extends TestCase
             ->assertDontSee('value="refunded"', false);
     }
 
-    public function test_billing_tax_id_condition_offers_only_empty_and_not_empty_values(): void
+    public function test_billing_tax_id_condition_preserves_saved_presence_options(): void
     {
         $catalog = app(AutomationCatalog::class);
         $definition = $catalog->conditionDefinitions()['billing_tax_id'];
 
         $this->assertSame('NIP', $definition['label']);
-        $this->assertSame('select', $definition['type']);
-        $this->assertSame(['equals'], $definition['operators']);
-        $this->assertSame([
-            'empty' => 'Wartość pusta',
-            'not_empty' => 'Wartość niepusta',
-        ], $definition['options']);
+        $this->assertSame('text', $definition['type']);
+        $this->assertContains('equals', $definition['operators']);
+        $this->assertSame('Brak numeru NIP', $definition['options']['empty']);
+        $this->assertSame('Podano numer NIP', $definition['options']['not_empty']);
         $this->assertSame(
-            'NIP Równe Wartość niepusta',
+            'NIP Równe Podano numer NIP',
             $catalog->conditionSummary([
                 'field' => 'billing_tax_id',
                 'operator' => 'equals',

@@ -159,7 +159,7 @@
             </form>
         </div>
 
-        <div class="orders-list-toolbar mb-3">
+        <x-docked-list-toolbar>
             <div class="selection-menu dropdown">
                 <button class="selection-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Menu zaznaczania zamowien">
                     <input class="visually-hidden" type="checkbox" aria-label="Stan zaznaczenia zamowien na stronie" data-order-select-all disabled>
@@ -239,7 +239,7 @@
                 :per-page="$perPage"
                 aria-label="Paginacja zam&oacute;wie&#324;"
             />
-        </div>
+        </x-docked-list-toolbar>
 
         <div class="orders-table-card">
             <div class="table-responsive">
@@ -402,6 +402,7 @@
                 </table>
             </div>
         </div>
+        <div data-list-toolbar-spacer aria-hidden="true"></div>
 
         <div class="modal fade" id="createSavedViewModal" tabindex="-1" aria-labelledby="createSavedViewModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
@@ -508,6 +509,8 @@
         @endif
     </div>
 
+    @include('orders.partials.docked-list-toolbar-script')
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const fitOrderSortMenu = (dropdown) => {
@@ -584,16 +587,14 @@
             const allMatchingOrderIds = parseOrderIds(ordersPage.dataset.allMatchingOrderIds);
             const starredMatchingOrderIds = parseOrderIds(ordersPage.dataset.starredMatchingOrderIds);
             const selectionStorageKey = 'nexOmsOrderSelection:' + ordersPage.dataset.selectionScopeKey;
-            const selectAll = document.querySelector('[data-order-select-all]');
+            const selectAllIndicators = ordersPage.querySelectorAll('[data-order-select-all]');
             const checkboxes = Array.from(document.querySelectorAll('[data-order-checkbox]'));
             const selectionButtons = Array.from(document.querySelectorAll('[data-selection-action]'));
-            const bulkTrashSubmit = document.querySelector('[data-bulk-trash-submit]');
+            const bulkTrashButtons = ordersPage.querySelectorAll('[data-bulk-trash-submit]');
             const bulkStatusButtons = Array.from(document.querySelectorAll('[data-bulk-status-submit]'));
             const trashSelectionActions = Array.from(document.querySelectorAll('[data-trash-selection-action]'));
             const noOrdersSelectedModalElement = document.getElementById('noOrdersSelectedModal');
-            const forceDeleteButton = document.querySelector('[data-trash-force-delete]');
             const confirmTrashDeleteModalElement = document.getElementById('confirmTrashDeleteModal');
-            const confirmTrashDeleteButton = document.querySelector('[data-confirm-trash-delete]');
             const bulkOrdersForm = document.getElementById('bulkOrdersForm');
             const checkboxById = new Map(checkboxes.map((checkbox) => [String(checkbox.value), checkbox]));
             const storedSelectedIds = new Set();
@@ -719,23 +720,12 @@
             };
 
             const updateSelectAllState = () => {
-                if (!selectAll) {
-                    return;
-                }
-
                 const checkedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
-                selectAll.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
-                selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
-            };
-
-            if (selectAll) {
-                selectAll.addEventListener('change', () => {
-                    checkboxes.forEach((checkbox) => {
-                        checkbox.checked = selectAll.checked;
-                    });
-                    updateSelectAllState();
+                selectAllIndicators.forEach((indicator) => {
+                    indicator.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
+                    indicator.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
                 });
-            }
+            };
 
             selectionButtons.forEach((button) => {
                 button.addEventListener('click', () => {
@@ -796,8 +786,8 @@
                 });
             });
 
-            if (bulkTrashSubmit) {
-                bulkTrashSubmit.addEventListener('click', (event) => {
+            bulkTrashButtons.forEach((button) => {
+                button.addEventListener('click', (event) => {
                     const selectedCount = selectedOrderIds().size;
 
                     if (selectedCount === 0) {
@@ -810,7 +800,7 @@
                         event.preventDefault();
                     }
                 });
-            }
+            });
 
             bulkStatusButtons.forEach((button) => {
                 button.addEventListener('click', (event) => {
@@ -837,20 +827,12 @@
                         return;
                     }
 
-                    if (button === forceDeleteButton && confirmTrashDeleteModalElement) {
+                    if (button.hasAttribute('data-trash-force-delete') && confirmTrashDeleteModalElement) {
                         event.preventDefault();
                         bootstrap.Modal.getOrCreateInstance(confirmTrashDeleteModalElement).show();
                     }
                 });
             });
-
-            if (confirmTrashDeleteButton && forceDeleteButton && bulkOrdersForm) {
-                confirmTrashDeleteButton.addEventListener('click', () => {
-                    confirmTrashDeleteButton.disabled = true;
-                    bulkOrdersForm.action = forceDeleteButton.formAction;
-                    bulkOrdersForm.submit();
-                });
-            }
 
             readStoredSelection();
             restoreStoredSelection();
@@ -1186,7 +1168,7 @@
                 });
             };
 
-            const loadOrdersPage = async (url, { pushHistory = true } = {}) => {
+            const loadOrdersPage = async (url, { pushHistory = true, scrollToToolbar = false } = {}) => {
                 let targetUrl = new URL(url, window.location.href);
                 const currentPage = currentOrdersPage();
                 const requestSequence = ++navigationSequence;
@@ -1249,6 +1231,9 @@
                     }
 
                     initializeOrdersList();
+                    if (scrollToToolbar) {
+                        nextOrdersPage.querySelector('[data-list-toolbar-slot]')?.scrollIntoView({ block: 'start', behavior: 'instant' });
+                    }
                     document.querySelectorAll('.modal-backdrop').forEach((backdrop) => backdrop.remove());
                     document.body.classList.remove('modal-open');
                     document.body.style.removeProperty('padding-right');
@@ -1369,7 +1354,10 @@
                 }
 
                 event.preventDefault();
-                loadOrdersPage(anchor.href, { pushHistory: true });
+                loadOrdersPage(anchor.href, {
+                    pushHistory: true,
+                    scrollToToolbar: Boolean(anchor.closest('[data-list-toolbar-dock] .nex-pagination-toolbar')),
+                });
             });
 
             document.addEventListener('input', (event) => {
