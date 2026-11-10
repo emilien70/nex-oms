@@ -82,9 +82,7 @@
                         <div class="automation-event-box">
                             <span class="automation-event-dot"></span>
                             <select class="form-select form-select-sm" id="automationTrigger" name="trigger" required>
-                                @foreach ($catalog->triggers() as $trigger => $label)
-                                    <option value="{{ $trigger }}" @selected(old('trigger', $automationRule->trigger) === $trigger)>{{ $label }}</option>
-                                @endforeach
+                                @include('orders.partials.automation-trigger-options', ['selectedTrigger' => old('trigger', $automationRule->trigger)])
                             </select>
                         </div>
 

@@ -20,7 +20,8 @@
     $selectedTrigger = $isDraft ? array_key_first($catalog->triggers()) : $rule->trigger;
 @endphp
 
-<tr class="automation-inline-row {{ $editorOpen ? '' : 'd-none' }}" data-automation-editor-row="{{ $editorKey }}">
+<tr class="automation-inline-row {{ $editorOpen ? '' : 'd-none' }}" data-automation-editor-row="{{ $editorKey }}"
+    @isset($sectionId) data-automation-group-member="{{ $sectionId }}" @endisset>
     <td colspan="4">
         <form method="POST"
               action="{{ $isDraft ? route('orders.automatic-actions.store') : route('orders.automatic-actions.update', $rule) }}"
@@ -40,9 +41,7 @@
                     <div class="automation-event-box">
                         <span class="automation-event-dot"></span>
                         <select class="form-select form-select-sm" id="automationTrigger{{ $editorKey }}" name="trigger" required>
-                            @foreach ($catalog->triggers() as $trigger => $label)
-                                <option value="{{ $trigger }}" @selected($selectedTrigger === $trigger)>{{ $label }}</option>
-                            @endforeach
+                            @include('orders.partials.automation-trigger-options')
                         </select>
                     </div>
 
@@ -82,6 +81,15 @@
                     <div class="automation-inline-setting">
                         <label class="form-label small mb-1" for="automationDescription{{ $editorKey }}">Opis opcjonalny</label>
                         <textarea class="form-control form-control-sm" id="automationDescription{{ $editorKey }}" name="description" rows="3" maxlength="1000">{{ $isDraft ? '' : $rule->description }}</textarea>
+                    </div>
+                    <div class="automation-inline-setting">
+                        <label class="form-label small mb-1" for="automationGroup{{ $editorKey }}">Grupa</label>
+                        <select class="form-select form-select-sm" id="automationGroup{{ $editorKey }}" name="group_id">
+                            <option value="">Brak grupy</option>
+                            @foreach ($groups as $group)
+                                <option value="{{ $group->id }}" @selected($isDraft ? $groupFilter === (string) $group->id : $rule->group_id === $group->id)>{{ $group->name }}</option>
+                            @endforeach
+                        </select>
                     </div>
                     <div class="automation-inline-error d-none" data-editor-error></div>
                     <div class="automation-inline-setting automation-inline-buttons">

@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Modules\Automation\Http\Requests\SaveAutomationRuleRequest;
 use Modules\Automation\Models\AutomationRule;
+use Modules\Automation\Models\AutomationRuleGroup;
 use Modules\Automation\Services\AutomationCatalog;
 use Modules\Automation\Services\AutomationRuleService;
 
@@ -17,7 +18,13 @@ class AutomationRuleController extends Controller
 {
     public function index(Request $request, AutomationCatalog $catalog): View
     {
-        $hasFilters = $request->filled('search') || $request->filled('trigger') || $request->filled('active');
+        $groups = AutomationRuleGroup::query()->inDisplayOrder()->get()->keyBy('id');
+        $requestedGroup = $request->query('group');
+        $groupFilter = is_string($requestedGroup) && ($requestedGroup === 'none' || $groups->has($requestedGroup))
+            ? $requestedGroup
+            : null;
+        $hasFilters = $request->filled('search') || $request->filled('trigger') || $request->filled('active') || $groupFilter !== null;
+        $grouped = $groups->isNotEmpty() && $request->query('view') !== 'order';
 
         $rules = AutomationRule::query()
             ->with('actions')
@@ -32,13 +39,33 @@ class AutomationRuleController extends Controller
             ->when($request->input('active') !== null && $request->input('active') !== '', function ($query) use ($request): void {
                 $query->where('is_active', $request->boolean('active'));
             })
+            ->when($groupFilter !== null, fn ($query) => $groupFilter === 'none'
+                ? $query->whereNull('group_id')
+                : $query->where('group_id', $groupFilter))
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
 
+        $sections = [['id' => null, 'name' => null, 'rules' => $rules]];
+        if ($grouped) {
+            $byGroup = $rules->groupBy(fn (AutomationRule $rule) => $rule->group_id ?? 'none');
+            $labels = collect(['none' => 'Brak grupy'])->union($groups->pluck('name', 'id'));
+            $sections = $labels
+                ->filter(fn ($name, $id): bool => $groupFilter !== null
+                    ? (string) $id === $groupFilter
+                    : (! $hasFilters || $byGroup->has($id)))
+                ->map(fn ($name, $id): array => ['id' => $id, 'name' => $name, 'rules' => $byGroup->get($id, collect())])
+                ->values()->all();
+        }
+
         return view('orders.automatic-actions', [
             'rules' => $rules,
-            'canReorder' => ! $hasFilters && $rules->count() > 1,
+            'groups' => $groups,
+            'groupFilter' => $groupFilter,
+            'grouped' => $grouped,
+            'hasFilters' => $hasFilters,
+            'sections' => $sections,
+            'canReorder' => ! $grouped && ! $hasFilters && $rules->count() > 1,
             'catalog' => $catalog,
             'statuses' => OrderStatusSetting::orderedStatuses(),
             'shipmentActionDefinitions' => $catalog->shipmentActionDefinitions(),

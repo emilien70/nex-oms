@@ -7,6 +7,7 @@ use App\Models\OrderStatusSetting;
 use App\Models\ReturnStatusSetting;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Modules\Automation\Models\AutomationCustomEvent;
 use Modules\Integrations\DPD\Services\DpdServiceResolver;
 use Modules\Integrations\InPost\Services\InPostCourierServiceResolver;
 use Modules\Integrations\MacroDroid\Models\SmsTemplate;
@@ -57,6 +58,8 @@ class AutomationCatalog
 
     private ?array $orderSourceOptions = null;
 
+    private ?array $customTriggerOptions = null;
+
     public function __construct(
         private readonly InPostCourierServiceResolver $inPostCourierServices,
         private readonly DpdServiceResolver $dpdServices,
@@ -78,6 +81,14 @@ class AutomationCatalog
             'shipment.creation_failed' => $this->decode('Wyst&#261;pi&#322; b&#322;&#261;d tworzenia przesy&#322;ki'),
             'ksef.invoice_accepted' => 'Faktura zaakceptowana w KSeF',
         ];
+    }
+
+    public function customTriggers(): array
+    {
+        return $this->customTriggerOptions ??= AutomationCustomEvent::query()
+            ->orderBy('sort_order')->orderBy('id')->get(['id', 'name'])
+            ->mapWithKeys(fn (AutomationCustomEvent $event): array => [$event->triggerKey() => $event->name])
+            ->all();
     }
 
     public function conditionDefinitions(): array
@@ -233,7 +244,9 @@ class AutomationCatalog
 
     public function triggerLabel(string $trigger): string
     {
-        return $this->triggers()[$trigger] ?? $trigger;
+        return $this->triggers()[$trigger] ?? (str_starts_with($trigger, AutomationCustomEvent::TRIGGER_PREFIX)
+            ? ($this->customTriggers()[$trigger] ?? 'Zdarzenie własne')
+            : $trigger);
     }
 
     public function actionLabel(string $action): string

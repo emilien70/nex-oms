@@ -43,11 +43,14 @@ class OrderAutomationHistory
         $storedSteps = $run->steps->keyBy('position');
         $actions = $run->rule_snapshot['actions'] ?? [];
 
+        $manual = ($run->event_payload['source'] ?? null) === 'manual_quick_action';
+
         return [
             'id' => $run->id,
-            'actor' => 'Automat',
+            'actor' => $manual ? 'Ręcznie' : 'Automat',
             'occurred_at' => $run->created_at?->timezone(config('app.timezone'))->format('d.m.Y H:i:s'),
-            'trigger' => $this->catalog->triggerLabel($run->event_name),
+            'trigger' => ($manual ? ($run->event_payload['custom_event_label'] ?? null) : null)
+                ?? $this->catalog->triggerLabel($run->event_name),
             'rule_name' => $activity['title'],
             'gus_result' => match (data_get($run->rule_snapshot, 'gus_nip_check.result')) {
                 'found' => 'Znaleziono podmiot w GUS.',

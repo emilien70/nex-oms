@@ -10,6 +10,7 @@ class AutomationRule extends Model
     protected $fillable = [
         'name',
         'description',
+        'group_id',
         'trigger',
         'conditions',
         'is_active',
@@ -17,6 +18,7 @@ class AutomationRule extends Model
     ];
 
     protected $casts = [
+        'group_id' => 'integer',
         'conditions' => 'array',
         'is_active' => 'boolean',
         'sort_order' => 'integer',

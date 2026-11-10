@@ -1,6 +1,8 @@
 <script>
     (() => {
         const list = document.querySelector('[data-automation-sort-list]');
+        if (!list) return;
+        const entity = list.dataset.automationSortEntity || 'rule';
         const feedback = document.querySelector('[data-automation-order-feedback]');
         const rows = () => Array.from(list.querySelectorAll('[data-automation-sort-row]'));
         const ids = entries => entries.map(row => row.dataset.automationSortRow);
@@ -14,14 +16,14 @@
             const oldIndex = original.indexOf(row);
             if (saving || index === oldIndex || index < 0 || index >= original.length) return;
 
-            const editor = row.nextElementSibling;
+            const editor = entity === 'rule' ? row.nextElementSibling : null;
             const handle = row.querySelector('[data-automation-sort-handle]');
             const hadFocus = document.activeElement === handle;
             const reordered = original.filter(item => item !== row);
             reordered.splice(index, 0, row);
             const place = before => {
                 list.insertBefore(row, before ?? null);
-                row.after(editor);
+                if (editor) row.after(editor);
                 if (hadFocus) handle.focus({ preventScroll: true });
             };
 
@@ -37,19 +39,20 @@
                         'Content-Type': 'application/json',
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                     },
-                    body: JSON.stringify({ rule_ids: ids(reordered), previous_rule_ids: ids(original) }),
+                    body: JSON.stringify({
+                        [`${entity}_ids`]: ids(reordered),
+                        [`previous_${entity}_ids`]: ids(original),
+                    }),
                 });
-                if (response.status === 409) {
-                    throw new Error('Lista regu\u0142 zmieni\u0142a si\u0119. Od\u015bwie\u017c stron\u0119 i spr\u00f3buj ponownie.');
-                }
+                if (response.status === 409) throw new Error((await response.json()).message);
                 if (!response.ok || !(await response.json()).saved) throw new Error();
                 feedback.textContent = `Pozycja ${index + 1} z ${reordered.length}.`;
             } catch (error) {
                 place(original[oldIndex + 1]);
                 window.nexOmsShowActivity?.({
                     tone: 'error',
-                    title: 'Automatyczne akcje',
-                    message: error.message || 'Nie uda\u0142o si\u0119 zapisa\u0107 kolejno\u015bci regu\u0142.',
+                    title: list.dataset.automationSortTitle || (entity === 'rule' ? 'Automatyczne akcje' : 'Zdarzenia własne'),
+                    message: error.message || 'Nie udało się zapisać kolejności.',
                 });
             } finally {
                 saving = false;

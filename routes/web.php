@@ -31,7 +31,10 @@ use Illuminate\Support\Facades\Route;
 use Modules\Analytics\Http\Controllers\BasicStatisticsController;
 use Modules\Analytics\Http\Controllers\BasicStatisticsCsvController;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
+use Modules\Automation\Http\Controllers\AutomationCustomEventController;
 use Modules\Automation\Http\Controllers\AutomationRuleController;
+use Modules\Automation\Http\Controllers\AutomationRuleGroupController;
+use Modules\Automation\Http\Controllers\OrderQuickActionController;
 use Modules\CustomerPortal\Http\Controllers\PortalController;
 use Modules\CustomerPortal\Http\Controllers\PortalPaymentController;
 use Modules\CustomerPortal\Http\Controllers\PortalSettingsController;
@@ -408,6 +411,17 @@ Route::get('/orders/automatic-actions/{automationRule}/edit', [AutomationRuleCon
 Route::put('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'update'])->name('orders.automatic-actions.update');
 Route::patch('/orders/automatic-actions/{automationRule}/toggle', [AutomationRuleController::class, 'toggle'])->name('orders.automatic-actions.toggle');
 Route::delete('/orders/automatic-actions/{automationRule}', [AutomationRuleController::class, 'destroy'])->name('orders.automatic-actions.destroy');
+Route::get('/orders/automatic-actions/custom-events', [AutomationCustomEventController::class, 'index'])->name('orders.custom-events.index');
+Route::post('/orders/automatic-actions/custom-events', [AutomationCustomEventController::class, 'store'])->name('orders.custom-events.store');
+Route::patch('/orders/automatic-actions/custom-events/order', [AutomationCustomEventController::class, 'reorder'])->name('orders.custom-events.order');
+Route::patch('/orders/automatic-actions/custom-events/layout', [AutomationCustomEventController::class, 'saveLayout'])->name('orders.custom-events.layout');
+Route::put('/orders/automatic-actions/custom-events/{customEvent}', [AutomationCustomEventController::class, 'update'])->name('orders.custom-events.update');
+Route::delete('/orders/automatic-actions/custom-events/{customEvent}', [AutomationCustomEventController::class, 'destroy'])->name('orders.custom-events.destroy');
+Route::get('/orders/automatic-actions/groups', [AutomationRuleGroupController::class, 'index'])->name('orders.automatic-action-groups.index');
+Route::post('/orders/automatic-actions/groups', [AutomationRuleGroupController::class, 'store'])->name('orders.automatic-action-groups.store');
+Route::patch('/orders/automatic-actions/groups/order', [AutomationRuleGroupController::class, 'reorder'])->name('orders.automatic-action-groups.order');
+Route::put('/orders/automatic-actions/groups/{automationRuleGroup}', [AutomationRuleGroupController::class, 'update'])->name('orders.automatic-action-groups.update');
+Route::delete('/orders/automatic-actions/groups/{automationRuleGroup}', [AutomationRuleGroupController::class, 'destroy'])->name('orders.automatic-action-groups.destroy');
 Route::prefix('api/macrodroid/v1')->middleware([AuthenticateSmsDevice::class, 'throttle:macrodroid-device'])->group(function (): void {
     Route::post('/heartbeat', [SmsDeviceApiController::class, 'heartbeat'])->name('macrodroid.api.heartbeat');
     Route::post('/claim', [SmsDeviceApiController::class, 'claim'])->name('macrodroid.api.claim');
@@ -513,6 +527,8 @@ Route::patch('/orders/returns/{orderReturn}/parcels/{parcel}', [OrderReturnParce
 Route::get('/orders/returns/{orderReturn}/parcels/{parcel}/history', [OrderReturnParcelController::class, 'history'])->name('returns.parcels.history');
 Route::post('/orders/returns/{orderReturn}/parcels/{parcel}/refresh', [OrderReturnParcelController::class, 'refresh'])->middleware('throttle:20,1')->name('returns.parcels.refresh');
 Route::get('/orders/{order}', [OrdersController::class, 'show'])->name('orders.show');
+Route::post('/orders/{order}/quick-actions/{customEvent}', [OrderQuickActionController::class, 'store'])->name('orders.quick-actions.store');
+Route::get('/orders/{order}/quick-actions/{invocation}', [OrderQuickActionController::class, 'show'])->name('orders.quick-actions.show');
 Route::put('/integrations/allegro/returns/settings', [AllegroReturnSettingsController::class, 'update'])->name('integrations.allegro.returns.settings');
 Route::put('/integrations/allegro/refunds/settings', [AllegroRefundSettingsController::class, 'update'])->name('integrations.allegro.refunds.settings');
 Route::put('/integrations/allegro/refund-commands/settings', [AllegroRefundCommandController::class, 'settings'])->name('integrations.allegro.refund-commands.settings');

@@ -9,11 +9,19 @@
         .automation-title { font-size: 17px; font-weight: 700; margin: 0; }
         .automation-panel { background: #fff; border: 1px solid #dfe4ea; border-radius: 7px; box-shadow: 0 1px 3px rgba(15, 23, 42, .06); margin-bottom: 13px; overflow: hidden; }
         .automation-filter { padding: 13px; }
+        .automation-view-toolbar { border-bottom: 1px solid #dfe4ea; padding: 9px 12px; }
         .automation-table { font-size: 12.5px; margin: 0; table-layout: fixed; width: 100%; }
         .automation-table th { background: #fff; border-bottom: 1px solid #dce2e8; color: #596579; font-size: 10px; font-weight: 700; padding: 9px 12px; text-transform: uppercase; }
         .automation-table td { border-bottom: 1px solid #edf0f3; padding: 12px; vertical-align: top; }
         .automation-table tbody tr:last-child td { border-bottom: 0; }
         .automation-table tbody tr:hover { background: #fbfdff; }
+        .automation-table .automation-group-heading { background: #f4f6f8; padding: 0; }
+        .automation-group-toggle {
+            align-items: center; background: none; border: 0; color: #364152; display: flex;
+            font-weight: 600; gap: 7px; min-height: 34px; padding: 5px 12px; text-align: left; width: 100%;
+        }
+        .automation-group-toggle[aria-expanded="false"] .bi { transform: rotate(-90deg); }
+        .automation-table [data-automation-group-member][hidden] { display: none !important; }
         .automation-summary-row { cursor: pointer; }
         .automation-summary-row.is-open { background: #f6fbff; }
         .automation-rule-heading { align-items: flex-start; display: flex; gap: 6px; }
@@ -106,6 +114,7 @@
     </style>
 
     <div class="automation-page">
+        @include('orders.partials.automation-tabs')
         <div class="automation-toolbar">
             <h1 class="automation-title">Automatyczne akcje</h1>
             <div class="d-flex gap-2">
@@ -124,8 +133,11 @@
 
         <section class="automation-panel">
             <form class="automation-filter" method="GET" action="{{ route('orders.automatic-actions.index') }}">
+                @if (request()->query('view') === 'order')
+                    <input type="hidden" name="view" value="order">
+                @endif
                 <div class="row g-2 align-items-end">
-                    <div class="col-lg-4">
+                    <div @class(['col-lg-3' => $groups->isNotEmpty(), 'col-lg-4' => $groups->isEmpty()])>
                         <label class="form-label small text-muted mb-1" for="automationSearch">Szukaj</label>
                         <input class="form-control form-control-sm" id="automationSearch" name="search" value="{{ request('search') }}" placeholder="Nazwa lub opis">
                     </div>
@@ -133,9 +145,7 @@
                         <label class="form-label small text-muted mb-1" for="automationTrigger">Zdarzenie</label>
                         <select class="form-select form-select-sm" id="automationTrigger" name="trigger">
                             <option value="">Wszystkie zdarzenia</option>
-                            @foreach ($catalog->triggers() as $trigger => $label)
-                                <option value="{{ $trigger }}" @selected(request('trigger') === $trigger)>{{ $label }}</option>
-                            @endforeach
+                            @include('orders.partials.automation-trigger-options', ['selectedTrigger' => request('trigger')])
                         </select>
                     </div>
                     <div class="col-lg-2">
@@ -146,15 +156,47 @@
                             <option value="0" @selected(request('active') === '0')>Wy&#322;&#261;czone</option>
                         </select>
                     </div>
-                    <div class="col-lg-3 d-flex gap-2">
+                    @if ($groups->isNotEmpty())
+                        <div class="col-lg-2">
+                            <label class="form-label small text-muted mb-1" for="automationGroupFilter">Grupa</label>
+                            <select class="form-select form-select-sm" id="automationGroupFilter" name="group">
+                                <option value="">Wszystkie grupy</option>
+                                <option value="none" @selected($groupFilter === 'none')>Brak grupy</option>
+                                @foreach ($groups as $group)
+                                    <option value="{{ $group->id }}" @selected($groupFilter === (string) $group->id)>{{ $group->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @endif
+                    <div @class(['d-flex', 'flex-wrap', 'gap-2', 'col-lg-2' => $groups->isNotEmpty(), 'col-lg-3' => $groups->isEmpty()])>
                         <button class="btn btn-primary btn-sm" type="submit">Ustaw filtry</button>
-                        <a class="btn btn-light border btn-sm" href="{{ route('orders.automatic-actions.index') }}">Wyczy&#347;&#263;</a>
+                        <a class="btn btn-light border btn-sm" href="{{ route('orders.automatic-actions.index', request()->query('view') === 'order' ? ['view' => 'order'] : []) }}">Wyczy&#347;&#263;</a>
                     </div>
                 </div>
             </form>
         </section>
 
         <section class="automation-panel">
+            @if ($groups->isNotEmpty())
+                @php($filterParams = request()->only(['search', 'trigger', 'active', 'group']))
+                <div class="automation-view-toolbar d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    @if ($grouped && $sections !== [])
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-light border dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Operacje</button>
+                            <ul class="dropdown-menu">
+                                <li><button class="dropdown-item" type="button" data-automation-groups-expand>Rozwiń wszystkie grupy</button></li>
+                                <li><button class="dropdown-item" type="button" data-automation-groups-collapse>Zwiń wszystkie grupy</button></li>
+                            </ul>
+                        </div>
+                    @endif
+                    <div class="btn-group ms-auto" role="group" aria-label="Widok automatycznych akcji">
+                        <a @class(['btn', 'btn-sm', 'btn-outline-secondary', 'active' => $grouped]) @if ($grouped) aria-current="true" @endif
+                            href="{{ route('orders.automatic-actions.index', $filterParams) }}">Według grup</a>
+                        <a @class(['btn', 'btn-sm', 'btn-outline-secondary', 'active' => ! $grouped]) @unless ($grouped) aria-current="true" @endunless
+                            href="{{ route('orders.automatic-actions.index', $filterParams + ['view' => 'order']) }}">Kolejność reguł</a>
+                    </div>
+                </div>
+            @endif
             @if ($canReorder)
                 <div class="visually-hidden" role="status" data-automation-order-feedback></div>
             @endif
@@ -193,8 +235,22 @@
                             </tr>
                             @include('orders._automatic-action-inline-editor', ['rule' => null, 'isDraft' => true])
 
-                            @foreach ($rules as $rule)
-                                <tr id="automation-rule-{{ $rule->id }}" class="automation-summary-row {{ (int) request('edit') === $rule->id ? 'is-open' : '' }}" data-open-automation-editor="{{ $rule->id }}" @if ($canReorder) data-automation-sort-row="{{ $rule->id }}" @endif>
+                            @foreach ($sections as $section)
+                                @if ($grouped)
+                                    <tr>
+                                        <td colspan="4" class="automation-group-heading">
+                                            <button type="button" class="automation-group-toggle" data-automation-group-toggle="{{ $section['id'] }}" aria-expanded="true">
+                                                <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                                                <span class="text-break">{{ $section['name'] }}</span>
+                                                <span class="badge text-bg-light border">{{ $section['rules']->count() }}</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                @endif
+                            @foreach ($section['rules'] as $rule)
+                                <tr id="automation-rule-{{ $rule->id }}" class="automation-summary-row {{ (int) request('edit') === $rule->id ? 'is-open' : '' }}"
+                                    data-open-automation-editor="{{ $rule->id }}" @if ($canReorder) data-automation-sort-row="{{ $rule->id }}" @endif
+                                    @if ($grouped) data-automation-group-member="{{ $section['id'] }}" @endif>
                                     <td>
                                         <div class="automation-rule-heading">
                                             @if ($canReorder)
@@ -207,6 +263,9 @@
                                             <div>
                                                 <div class="automation-rule-name">{{ $rule->name }}</div>
                                                 <div class="automation-rule-meta">{{ $rule->description ?: 'Bez opisu' }}</div>
+                                                @if (! $grouped && $rule->group_id !== null && $groups->has($rule->group_id))
+                                                    <span class="automation-condition">{{ $groups->get($rule->group_id)->name }}</span>
+                                                @endif
                                             </div>
                                         </div>
                                     </td>
@@ -260,15 +319,20 @@
                                         </div>
                                     </td>
                                 </tr>
-                                @include('orders._automatic-action-inline-editor', ['rule' => $rule])
+                                @include('orders._automatic-action-inline-editor', ['rule' => $rule, 'sectionId' => $section['id']])
+                            @endforeach
                             @endforeach
 
                             @if ($rules->isEmpty())
                                 <tr data-automation-empty-row>
                                     <td colspan="4">
                                         <div class="automation-empty">
-                                            <strong>Nie utworzono jeszcze automatycznych akcji.</strong>
-                                            Dodaj pierwsz&#261; regu&#322;&#281;, wybierz zdarzenie i okre&#347;l kolejno wykonywane dzia&#322;ania.
+                                            @if ($hasFilters)
+                                                <strong>Brak automatycznych akcji pasujących do filtrów.</strong>
+                                            @else
+                                                <strong>Nie utworzono jeszcze automatycznych akcji.</strong>
+                                                Dodaj pierwsz&#261; regu&#322;&#281;, wybierz zdarzenie i okre&#347;l kolejno wykonywane dzia&#322;ania.
+                                            @endif
                                         </div>
                                     </td>
                                 </tr>
@@ -817,7 +881,11 @@
                             const messages = Object.values(payload.errors || {}).flat();
                             throw new Error(messages.join(' ') || payload.message || 'Nie uda&#322;o si&#281; zapisa&#263; automatycznej akcji.');
                         }
-                        window.location.href = payload.redirect_url || '{{ route('orders.automatic-actions.index') }}';
+                        const target = new URL(payload.redirect_url || '{{ route('orders.automatic-actions.index') }}', window.location.href);
+                        if (new URLSearchParams(window.location.search).get('view') === 'order') {
+                            target.searchParams.set('view', 'order');
+                        }
+                        window.location.href = target;
                     } catch (error) {
                         errorBox.textContent = error.message;
                         errorBox.classList.remove('d-none');
@@ -844,6 +912,21 @@
                 openEditor('draft');
                 document.querySelector('#automation-rule-draft')?.scrollIntoView({behavior: 'smooth', block: 'center'});
             });
+
+            const groupToggles = Array.from(document.querySelectorAll('[data-automation-group-toggle]'));
+            const groupMembers = new Map();
+            document.querySelectorAll('[data-automation-group-member]').forEach(row => {
+                const key = row.dataset.automationGroupMember;
+                if (!groupMembers.has(key)) groupMembers.set(key, []);
+                groupMembers.get(key).push(row);
+            });
+            const setGroupExpanded = (toggle, expanded) => {
+                toggle.setAttribute('aria-expanded', String(expanded));
+                (groupMembers.get(toggle.dataset.automationGroupToggle) || []).forEach(row => { row.hidden = !expanded; });
+            };
+            groupToggles.forEach(toggle => toggle.addEventListener('click', () => setGroupExpanded(toggle, toggle.getAttribute('aria-expanded') === 'false')));
+            document.querySelector('[data-automation-groups-expand]')?.addEventListener('click', () => groupToggles.forEach(toggle => setGroupExpanded(toggle, true)));
+            document.querySelector('[data-automation-groups-collapse]')?.addEventListener('click', () => groupToggles.forEach(toggle => setGroupExpanded(toggle, false)));
         })();
     </script>
     @if ($canReorder)

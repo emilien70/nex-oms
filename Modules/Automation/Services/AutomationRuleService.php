@@ -4,7 +4,9 @@ namespace Modules\Automation\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Modules\Automation\Models\AutomationCustomEvent;
 use Modules\Automation\Models\AutomationRule;
+use Modules\Automation\Models\AutomationRuleGroup;
 
 class AutomationRuleService
 {
@@ -45,6 +47,19 @@ class AutomationRuleService
     private function save(AutomationRule $rule, array $data): AutomationRule
     {
         return DB::transaction(function () use ($rule, $data): AutomationRule {
+            if (str_starts_with($data['trigger'], AutomationCustomEvent::TRIGGER_PREFIX)
+                && ! AutomationCustomEvent::query()->lockForUpdate()
+                    ->find(substr($data['trigger'], strlen(AutomationCustomEvent::TRIGGER_PREFIX)), ['id'])) {
+                throw ValidationException::withMessages(['trigger' => 'Wybrane zdarzenie już nie istnieje.']);
+            }
+
+            if (array_key_exists('group_id', $data)) {
+                if ($data['group_id'] !== null && ! AutomationRuleGroup::query()->lockForUpdate()->find($data['group_id'], ['id'])) {
+                    throw ValidationException::withMessages(['group_id' => 'Wybrana grupa już nie istnieje.']);
+                }
+                $rule->group_id = $data['group_id'];
+            }
+
             $rule->fill([
                 'name' => filled($data['name'] ?? null)
                     ? trim($data['name'])

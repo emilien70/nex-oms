@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Modules\Automation\Models\AutomationCustomEvent;
 use Modules\Automation\Services\OrderAutomationHistory;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
@@ -804,6 +805,8 @@ class OrdersController extends Controller
 
         return view('orders.show', [
             'order' => $order,
+            'quickActions' => $order->trashed() ? collect() : AutomationCustomEvent::query()->where('button_enabled', true)
+                ->orderBy('button_position')->orderBy('id')->get(),
             'automationHistory' => $automationHistory->forOrder($order, $request->integer('automation_page', 1)),
             'statuses' => $statuses,
             'statusSettings' => OrderStatusSetting::orderedSettings()->keyBy('code'),

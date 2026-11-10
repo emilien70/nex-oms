@@ -34,7 +34,8 @@ class SaveAutomationRuleRequest extends FormRequest
         return [
             'name' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:1000'],
-            'trigger' => ['required', 'string', Rule::in(array_keys($catalog->triggers()))],
+            'group_id' => ['nullable', 'integer', 'min:1', 'exists:automation_rule_groups,id'],
+            'trigger' => ['required', 'string', Rule::in(array_keys($catalog->triggers() + $catalog->customTriggers()))],
             'is_active' => ['required', 'boolean'],
             'conditions' => ['nullable', 'array', 'max:20'],
             'conditions.*.field' => ['required', 'string', Rule::in(array_keys($catalog->conditionDefinitions()))],

@@ -3814,12 +3814,7 @@
         </div>
 
         <div class="col-12 col-xl-4">
-            <div class="nex-card h-100">
-                <div class="nex-card-header"><h2 class="nex-card-title">Szybkie akcje</h2></div>
-                <div class="nex-card-body placeholder-card d-flex align-items-center justify-content-center text-center">
-                    Obs&#322;uga wysy&#322;ek zostanie dodana p&oacute;&#378;niej.
-                </div>
-            </div>
+            @include('orders.partials.quick-actions')
         </div>
     </div>
 
@@ -6066,6 +6061,7 @@
                     && managementStatusInput.value !== currentServerStatus;
 
                 currentServerStatus = state.status;
+                document.dispatchEvent(new CustomEvent('nexoms:order-status', { detail: state.status }));
 
                 if (managementStatusInput && managementStatusDot && managementStatusLabel && (!hasUnsavedSelection || forceSelection)) {
                     managementStatusInput.value = state.status;
