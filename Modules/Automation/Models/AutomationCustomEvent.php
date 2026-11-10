@@ -9,8 +9,6 @@ class AutomationCustomEvent extends Model
 {
     public const TRIGGER_PREFIX = 'custom_event.';
 
-    public const GRID_COLUMNS = 5;
-
     public const MAX_POSITIONS = 200;
 
     protected $fillable = [

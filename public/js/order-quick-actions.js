@@ -7,15 +7,18 @@
     const edit = card.querySelector('[data-quick-action-edit]');
     const save = card.querySelector('[data-quick-action-save]');
     const cancel = card.querySelector('[data-quick-action-cancel]');
-    const grid = card.querySelector('[data-quick-action-slots]');
-    const message = card.querySelector('[data-quick-action-message]');
-    const slots = Array.from(grid.querySelectorAll('[data-quick-action-slot]'));
-    const cells = Array.from(view.querySelectorAll('[data-quick-action-cell]'));
+    const columns = card.querySelector('[data-quick-action-columns]');
+    const runList = card.querySelector('[data-quick-action-runs]');
+    const list = card.querySelector('[data-quick-action-items]');
+    const layoutError = card.querySelector('[data-quick-action-layout-error]');
+    const status = card.querySelector('[data-quick-action-status]');
+    const runButtons = Array.from(view.querySelectorAll('[data-quick-action-run]'));
     const noActions = view.querySelector('[data-no-quick-actions]');
-    const item = slot => slot.firstElementChild;
-    const original = slots.map(item);
-    const getLayout = items => items.flatMap((entry, index) => entry
-        ? [{ id: Number(entry.dataset.quickActionItem), position: index + 1 }] : []);
+    const items = () => Array.from(list.querySelectorAll('[data-quick-action-item]'));
+    const original = items();
+    const previous = original.map(button => ({ id: Number(button.dataset.quickActionItem), position: Number(button.dataset.actionPosition) }));
+    const previousMaxColumns = Number(card.dataset.maxColumns);
+    const selectedMaxColumns = () => Number(columns.querySelector('input:checked').value);
     const headers = {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -26,12 +29,62 @@
     let suppressClick = false;
     let running = false;
 
-    const show = (text = '', danger = false) => {
-        message.textContent = text;
-        message.classList.toggle('text-danger', danger);
-        message.classList.toggle('text-secondary', !danger);
-        message.hidden = !text;
+    const limitRows = (container, buttons, limit) => {
+        const width = container.getBoundingClientRect().width;
+        if (!width) return;
+
+        // Flex handles width-based wrapping. Insert a break only when the count is the limiting factor.
+        const gap = parseFloat(getComputedStyle(container).columnGap);
+        const breaks = [];
+        let usedWidth = 0;
+        let count = 0;
+        for (const button of buttons) {
+            if (button.hidden) continue;
+            const buttonWidth = button.getBoundingClientRect().width;
+            const nextWidth = usedWidth + gap + buttonWidth;
+            if (count && nextWidth > width) {
+                count = 0;
+            } else if (count === limit) {
+                breaks.push(button);
+                count = 0;
+            }
+            usedWidth = count ? nextWidth : buttonWidth;
+            count++;
+        }
+
+        const markers = Array.from(container.querySelectorAll('.quick-action-line-break'));
+        if (markers.length === breaks.length && markers.every((marker, i) => marker.nextElementSibling === breaks[i])) return;
+        markers.forEach(marker => marker.remove());
+        breaks.forEach(button => {
+            const marker = document.createElement('span');
+            marker.className = 'quick-action-line-break';
+            marker.setAttribute('aria-hidden', 'true');
+            button.before(marker);
+        });
     };
+
+    const refreshRows = () => {
+        if (editor.hidden) limitRows(runList, runButtons, previousMaxColumns);
+        else limitRows(list, items(), selectedMaxColumns());
+    };
+
+    let frame = null;
+    const sizes = new ResizeObserver(() => {
+        if (frame !== null) return;
+        frame = requestAnimationFrame(() => {
+            frame = null;
+            refreshRows();
+        });
+    });
+    [runList, list, ...runButtons, ...original].forEach(element => sizes.observe(element));
+    columns.addEventListener('change', refreshRows);
+    refreshRows();
+
+    const showLayoutError = (text = '') => {
+        layoutError.textContent = text;
+        layoutError.hidden = !text;
+    };
+    const notify = (message, tone = 'error') => window.nexOmsShowActivity?.({ tone, title: 'Szybkie akcje', message });
 
     const send = async (url, method = 'GET', body) => {
         const response = await fetch(url, { method, headers, body: body && JSON.stringify(body) });
@@ -44,26 +97,18 @@
         return result;
     };
 
-    const renderSlot = (slot, content) => {
-        slot.replaceChildren(...(content ? [content] : []));
-        slot.toggleAttribute('data-occupied', Boolean(content));
-        slot.setAttribute('aria-label', 'Pole ' + slot.dataset.quickActionSlot
-            + (content ? ': ' + content.dataset.actionLabel : ', puste'));
-    };
-
-    const selectSlot = slot => {
+    const selectItem = button => {
         selected?.setAttribute('aria-pressed', 'false');
-        selected = slot;
+        selected = button;
         selected?.setAttribute('aria-pressed', 'true');
     };
 
-    const swap = (from, to) => {
-        const first = item(from);
-        if (!first || from === to) return;
-        renderSlot(from, item(to));
-        renderSlot(to, first);
-        selectSlot(null);
-        to.focus({ preventScroll: true });
+    const move = (button, target, after) => {
+        list.insertBefore(button, after ? target.nextElementSibling : target);
+        refreshRows();
+        selectItem(null);
+        button.focus({ preventScroll: true });
+        status.textContent = `Pozycja ${items().indexOf(button) + 1} z ${original.length}.`;
     };
 
     const editMode = enabled => {
@@ -71,78 +116,111 @@
         editor.hidden = !enabled;
         edit.setAttribute('aria-expanded', String(enabled));
         edit.disabled = enabled;
-        selectSlot(null);
-        show();
-        if (enabled) (slots.find(item) ?? slots[0]).focus();
+        selectItem(null);
+        status.textContent = '';
+        showLayoutError();
+        refreshRows();
+        if (enabled) columns.querySelector('input:checked').focus();
         else edit.focus();
     };
     edit.addEventListener('click', () => editMode(true));
     cancel.addEventListener('click', () => {
-        slots.forEach(slot => renderSlot(slot, null));
-        slots.forEach((slot, index) => renderSlot(slot, original[index]));
+        list.replaceChildren(...original);
+        columns.querySelector(`input[value="${previousMaxColumns}"]`).checked = true;
         editMode(false);
     });
     save.addEventListener('click', async () => {
         if (save.disabled) return;
-        const layout = getLayout(slots.map(item));
-        const previous = getLayout(original);
-        if (JSON.stringify(layout) === JSON.stringify(previous)) {
+        const current = items();
+        const maxColumns = selectedMaxColumns();
+        const reordered = current.some((button, index) => button !== original[index]);
+        if (!reordered && maxColumns === previousMaxColumns) {
             editMode(false);
             return;
         }
-        save.disabled = cancel.disabled = true;
-        grid.inert = true;
-        show();
+        const layout = reordered
+            ? current.map((button, index) => ({ id: Number(button.dataset.quickActionItem), position: index + 1 }))
+            : previous;
+        save.disabled = cancel.disabled = columns.disabled = true;
+        list.inert = true;
+        showLayoutError();
         try {
-            await send(card.dataset.layoutUrl, 'PATCH', { layout, previous_layout: previous });
+            await send(card.dataset.layoutUrl, 'PATCH', {
+                layout, previous_layout: previous, max_columns: maxColumns, previous_max_columns: previousMaxColumns,
+            });
             window.location.reload();
         } catch (failure) {
-            show(failure.message, true);
-            grid.inert = false;
-            save.disabled = cancel.disabled = false;
+            showLayoutError(failure.message);
+            list.inert = false;
+            save.disabled = cancel.disabled = columns.disabled = false;
         }
     });
 
-    grid.addEventListener('click', event => {
-        const slot = event.target.closest('[data-quick-action-slot]');
-        if (!slot || suppressClick) return;
-        if (selected && selected !== slot) swap(selected, slot);
-        else selectSlot(!selected && item(slot) ? slot : null);
+    list.addEventListener('click', event => {
+        const button = event.target.closest('[data-quick-action-item]');
+        if (!button || suppressClick) return;
+        if (selected && selected !== button) {
+            const order = items();
+            move(selected, button, order.indexOf(selected) < order.indexOf(button));
+        } else {
+            selectItem(selected ? null : button);
+        }
     });
-    grid.addEventListener('keydown', event => {
-        const slot = event.target.closest('[data-quick-action-slot]');
-        if (!slot || !item(slot) || event.altKey || event.ctrlKey || event.metaKey) return;
-        const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
-        const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns }[event.key];
+    list.addEventListener('keydown', event => {
+        const button = event.target.closest('[data-quick-action-item]');
+        if (!button || event.altKey || event.ctrlKey || event.metaKey) return;
+        const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1 }[event.key];
         if (!delta) return;
         event.preventDefault();
-        const target = slots[slots.indexOf(slot) + delta];
-        if (target) swap(slot, target);
+        const order = items();
+        const target = order[order.indexOf(button) + delta];
+        if (target) move(button, target, delta > 0);
     });
-    grid.addEventListener('pointerdown', event => {
-        const slot = event.target.closest('[data-quick-action-slot]');
-        if (!slot || !item(slot) || !event.isPrimary || event.button !== 0) return;
-        drag = { slot, id: event.pointerId, x: event.clientX, y: event.clientY };
-        slot.setPointerCapture(event.pointerId);
+
+    const dropAt = (x, y, source) => {
+        const bounds = list.getBoundingClientRect();
+        if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return null;
+
+        const entries = items().map(button => ({ button, rect: button.getBoundingClientRect() }));
+        const distance = ({ rect }) => Math.max(rect.top - y, y - rect.bottom, 0);
+        const nearest = entries.reduce((best, entry) => distance(entry) < distance(best) ? entry : best);
+        const row = entries.filter(entry => entry.button !== source && entry.rect.top === nearest.rect.top);
+        const next = row.find(({ rect }) => x < rect.left + rect.width / 2);
+        if (next) return { button: next.button, after: false };
+        return row.length ? { button: row.at(-1).button, after: true } : null;
+    };
+    const clearDropMarker = target => target?.button.classList.remove('is-drop-before', 'is-drop-after');
+
+    list.addEventListener('pointerdown', event => {
+        const button = event.target.closest('[data-quick-action-item]');
+        if (!button || drag || !event.isPrimary || event.button !== 0) return;
+        drag = { button, id: event.pointerId, x: event.clientX, y: event.clientY };
+        button.setPointerCapture(event.pointerId);
     });
-    grid.addEventListener('pointermove', event => {
+    list.addEventListener('pointermove', event => {
         if (drag?.id !== event.pointerId) return;
-        if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
-        drag.moved = true;
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-quick-action-slot]');
-        drag.target?.classList.remove('is-drop-target');
-        drag.target = target && grid.contains(target) ? target : null;
-        drag.target?.classList.add('is-drop-target');
+        if (!drag.moved) {
+            if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
+            drag.moved = true;
+            selectItem(null);
+            drag.button.classList.add('is-dragging');
+        }
+        const target = dropAt(event.clientX, event.clientY, drag.button);
+        if (drag.target?.button === target?.button && drag.target?.after === target?.after) return;
+        clearDropMarker(drag.target);
+        drag.target = target;
+        target?.button.classList.add(target.after ? 'is-drop-after' : 'is-drop-before');
     });
-    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => grid.addEventListener(type, event => {
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => list.addEventListener(type, event => {
         if (drag?.id !== event.pointerId) return;
-        const { slot, target, moved } = drag;
+        const { button, target, moved } = drag;
         drag = null;
-        target?.classList.remove('is-drop-target');
+        clearDropMarker(target);
+        button.classList.remove('is-dragging');
         if (!moved) return;
         suppressClick = true;
         window.setTimeout(() => { suppressClick = false; });
-        if (type === 'pointerup' && target) swap(slot, target);
+        if (type === 'pointerup' && target) move(button, target.button, target.after);
     }));
 
     const requestIds = new WeakMap();
@@ -151,19 +229,12 @@
             const statuses = JSON.parse(element.dataset.actionStatuses);
             return statuses.length === 0 || statuses.includes(event.detail);
         };
-        let lastAvailable = -1;
-        cells.forEach((cell, index) => {
-            const button = cell.querySelector('[data-quick-action-run]');
-            const available = button && allowsStatus(button);
-            if (button) button.hidden = !available;
-            cell.classList.toggle('quick-action-gap', !available);
-            if (available) lastAvailable = index;
-        });
-        cells.forEach((cell, index) => { cell.hidden = index > lastAvailable; });
-        noActions.hidden = lastAvailable !== -1;
-        original.filter(Boolean).forEach(element => {
+        runButtons.forEach(button => { button.hidden = !allowsStatus(button); });
+        noActions.hidden = runButtons.some(button => !button.hidden);
+        original.forEach(element => {
             element.toggleAttribute('data-unavailable', !allowsStatus(element));
         });
+        refreshRows();
     });
 
     view.addEventListener('click', async event => {
@@ -173,7 +244,8 @@
         if (confirmed && !requestIds.has(button) && !window.confirm('Uruchomić akcję „' + button.dataset.actionLabel + '”?')) return;
         running = true;
         button.disabled = edit.disabled = true;
-        show('Sprawdzanie reguł...');
+        button.setAttribute('aria-busy', 'true');
+        status.textContent = 'Sprawdzanie reguł...';
 
         try {
             const requestId = requestIds.get(button) || crypto.randomUUID();
@@ -184,17 +256,20 @@
                 result = await send(result.status_url);
             }
             if (result.status === 'pending') {
-                show('OMS nadal sprawdza reguły. Kliknij ponownie, aby sprawdzić wynik tego samego zlecenia.');
+                notify('OMS nadal sprawdza reguły. Kliknij ponownie, aby sprawdzić wynik tego samego zlecenia.', 'waiting');
             } else {
                 requestIds.delete(button);
-                show(result.message, ['failed', 'unavailable'].includes(result.status));
+                if (['failed', 'unavailable'].includes(result.status)) notify(result.message);
+                else if (result.status === 'checked' && result.run_count === 0) notify(result.message, 'waiting');
                 document.dispatchEvent(new Event('nexoms:automation-wake'));
             }
         } catch (failure) {
             if (failure.status >= 400 && failure.status < 500) requestIds.delete(button);
-            show(failure.message, true);
+            notify(failure.message);
         } finally {
             running = false;
+            button.removeAttribute('aria-busy');
+            status.textContent = '';
             button.disabled = edit.disabled = false;
         }
     });

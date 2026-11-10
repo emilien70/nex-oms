@@ -72,10 +72,17 @@ class AutomationCustomEventController extends Controller
             'previous_layout.*' => ['required', 'array:id,position'],
             'previous_layout.*.id' => ['required', 'integer', 'min:1', 'distinct'],
             'previous_layout.*.position' => ['required', 'integer', 'min:1', 'max:'.AutomationCustomEvent::MAX_POSITIONS, 'distinct'],
+            'max_columns' => ['required_with:previous_max_columns', 'integer', 'min:1', 'max:'.AutomationCustomEventSettings::MAX_COLUMNS],
+            'previous_max_columns' => ['required_with:max_columns', 'integer', 'min:1', 'max:'.AutomationCustomEventSettings::MAX_COLUMNS],
         ]);
 
         $positions = static fn (array $entries): array => array_map('intval', array_column($entries, 'position', 'id'));
-        $settings->saveLayout($positions($data['layout']), $positions($data['previous_layout']));
+        $settings->saveLayout(
+            $positions($data['layout']),
+            $positions($data['previous_layout']),
+            isset($data['max_columns']) ? (int) $data['max_columns'] : null,
+            isset($data['previous_max_columns']) ? (int) $data['previous_max_columns'] : null,
+        );
 
         return response()->json(['saved' => true]);
     }

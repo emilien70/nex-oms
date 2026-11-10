@@ -42,7 +42,14 @@ class AutomationCustomEventsTest extends TestCase
             ->assertSee('InPost A')->assertSee('Opis zdarzenia');
         $this->get(route('orders.show', $this->order()))
             ->assertOk()->assertSee('Edytuj układ szybkich akcji')->assertSee('InPost A')
-            ->assertSee('data-quick-action-run=', false);
+            ->assertSee('data-quick-action-run=', false)
+            ->assertSee('quick-action-spinner spinner-border')
+            ->assertSee('data-max-columns="4"', false)
+            ->assertSee('Maks. liczba kolumn')
+            ->assertSee('id="quick-action-columns-6"', false)
+            ->assertSee('class="quick-actions-list" data-quick-action-items', false)
+            ->assertDontSee('data-quick-action-slot', false)
+            ->assertDontSee('data-quick-action-message', false);
         $this->get(route('orders.show', $this->order(Order::STATUS_SHIPPED)))
             ->assertOk()->assertSee('InPost A')->assertSee('data-unavailable', false)
             ->assertSee('Brak dostępnych szybkich akcji.');
@@ -51,7 +58,7 @@ class AutomationCustomEventsTest extends TestCase
         $this->assertNull($event->fresh()->button_position);
     }
 
-    public function test_duplicate_uses_new_event_creation_without_inheriting_the_rule_or_grid_position(): void
+    public function test_duplicate_uses_new_event_creation_without_inheriting_the_rule_or_button_position(): void
     {
         $settings = [
             'description' => 'Opis oryginału',
@@ -74,7 +81,7 @@ class AutomationCustomEventsTest extends TestCase
         $this->assertSame('Nadanie', $event->fresh()->name);
     }
 
-    public function test_reorder_and_grid_positions_are_independent_and_conflicts_are_rejected(): void
+    public function test_event_order_and_quick_action_positions_are_independent_and_conflicts_are_rejected(): void
     {
         $one = $this->createEvent('Pierwsze');
         $two = $this->createEvent('Drugie');
@@ -113,6 +120,59 @@ class AutomationCustomEventsTest extends TestCase
         $this->assertSame(1, $one->fresh()->sort_order);
         $this->assertSame(9, $this->createEvent('Nowe')->button_position);
         $this->assertSame(1, $rule->fresh()->sort_order);
+    }
+
+    public function test_quick_actions_keep_their_existing_order_and_can_be_saved_without_gaps(): void
+    {
+        $one = $this->createEvent('Paczkomat A');
+        $two = $this->createEvent('Kurier InPost A');
+        $one->update(['button_position' => 8]);
+
+        $this->get(route('orders.show', $this->order()))->assertOk()
+            ->assertSeeInOrder([
+                'data-quick-action-item="'.$two->id.'"',
+                'data-action-position="2"',
+                'data-quick-action-item="'.$one->id.'"',
+                'data-action-position="8"',
+            ], false);
+
+        $this->patchJson(route('orders.custom-events.layout'), [
+            'layout' => [['id' => $one->id, 'position' => 1], ['id' => $two->id, 'position' => 2]],
+            'previous_layout' => [['id' => $two->id, 'position' => 2], ['id' => $one->id, 'position' => 8]],
+            'max_columns' => 2,
+            'previous_max_columns' => 4,
+        ])->assertOk();
+
+        $this->assertSame(1, $one->fresh()->button_position);
+        $this->assertSame(2, $two->fresh()->button_position);
+        $this->get(route('orders.show', $this->order()))->assertOk()->assertSee('data-max-columns="2"', false);
+    }
+
+    public function test_quick_action_column_limit_saves_without_changing_positions_and_rejects_stale_edits(): void
+    {
+        $one = $this->createEvent('Paczkomat A');
+        $two = $this->createEvent('Paczkomat B');
+        $two->update(['button_position' => 8]);
+        $positions = [['id' => $one->id, 'position' => 1], ['id' => $two->id, 'position' => 8]];
+        $payload = ['layout' => $positions, 'previous_layout' => $positions, 'previous_max_columns' => 4];
+        $url = route('orders.custom-events.layout');
+
+        $this->patchJson($url, $payload)->assertUnprocessable()->assertJsonValidationErrors('max_columns');
+        foreach ([0, 7, 2.5] as $invalid) {
+            $this->patchJson($url, $payload + ['max_columns' => $invalid])
+                ->assertUnprocessable()->assertJsonValidationErrors('max_columns');
+        }
+
+        $this->patchJson($url, $payload + ['max_columns' => 6])->assertOk();
+        $this->assertSame(8, $two->fresh()->button_position);
+        $this->patchJson($url, array_replace($payload, [
+            'layout' => [['id' => $one->id, 'position' => 2], ['id' => $two->id, 'position' => 1]],
+            'max_columns' => 1,
+        ]))->assertConflict();
+
+        $this->assertSame(1, $one->fresh()->button_position);
+        $this->assertSame(8, $two->fresh()->button_position);
+        $this->get(route('orders.show', $this->order()))->assertOk()->assertSee('data-max-columns="6"', false);
     }
 
     public function test_a_rule_keeps_its_event_after_rename_and_prevents_deletion_while_linked(): void
@@ -160,7 +220,7 @@ class AutomationCustomEventsTest extends TestCase
         $job->handle(app(AutomationEngine::class));
         $job->handle(app(AutomationEngine::class));
         $this->postJson($url, ['request_id' => $id])->assertOk()->assertJsonPath('status', 'checked');
-        $this->getJson($response->json('status_url'))->assertOk()->assertJsonPath('status', 'checked');
+        $this->getJson($response->json('status_url'))->assertOk()->assertJsonPath('status', 'checked')->assertJsonPath('run_count', 2);
         $this->getJson(route('orders.quick-actions.show', [$this->order(), $id]))->assertNotFound();
 
         $this->assertSame([$first->id, $second->id], Queue::pushed(ExecuteAutomationRunJob::class)
@@ -190,7 +250,8 @@ class AutomationCustomEventsTest extends TestCase
 
         $response = $this->postJson($url, ['request_id' => $id, 'confirmed' => true])->assertAccepted();
         (new EvaluateCustomAutomationEventJob($id))->handle(app(AutomationEngine::class));
-        $this->getJson($response->json('status_url'))->assertOk()->assertJsonPath('message', 'Żadna aktywna reguła nie pasuje do tego zamówienia.');
+        $this->getJson($response->json('status_url'))->assertOk()->assertJsonPath('run_count', 0)
+            ->assertJsonPath('message', 'Żadna aktywna reguła nie pasuje do tego zamówienia.');
         Queue::assertNotPushed(ExecuteAutomationRunJob::class);
 
         $this->travel(4)->seconds();

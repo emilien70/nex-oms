@@ -34,6 +34,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Modules\Automation\Models\AutomationCustomEvent;
+use Modules\Automation\Services\AutomationCustomEventSettings;
 use Modules\Automation\Services\OrderAutomationHistory;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
@@ -749,8 +750,12 @@ class OrdersController extends Controller
         return LiteralLike::contains($value);
     }
 
-    public function show(Request $request, Order $order, OrderAutomationHistory $automationHistory): View
-    {
+    public function show(
+        Request $request,
+        Order $order,
+        OrderAutomationHistory $automationHistory,
+        AutomationCustomEventSettings $quickActionSettings,
+    ): View {
         $statuses = OrderStatusSetting::orderedStatuses();
         $listContext = OrderListNavigationContext::fromOrder($request, $statuses);
         $sorting = OrderListSort::fromArray($listContext ?? $request->query());
@@ -803,10 +808,13 @@ class OrdersController extends Controller
                 ->orderByDesc('id'),
         ]);
 
+        $quickActions = $order->trashed() ? collect() : AutomationCustomEvent::query()->where('button_enabled', true)
+            ->orderBy('button_position')->orderBy('id')->get();
+
         return view('orders.show', [
             'order' => $order,
-            'quickActions' => $order->trashed() ? collect() : AutomationCustomEvent::query()->where('button_enabled', true)
-                ->orderBy('button_position')->orderBy('id')->get(),
+            'quickActions' => $quickActions,
+            'quickActionMaxColumns' => $quickActions->isNotEmpty() ? $quickActionSettings->maxColumns() : null,
             'automationHistory' => $automationHistory->forOrder($order, $request->integer('automation_page', 1)),
             'statuses' => $statuses,
             'statusSettings' => OrderStatusSetting::orderedSettings()->keyBy('code'),

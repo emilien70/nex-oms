@@ -10,6 +10,15 @@ use Modules\Automation\Models\AutomationRule;
 
 class AutomationCustomEventSettings
 {
+    public const MAX_COLUMNS = 6;
+
+    private const LAYOUT_SETTINGS_ID = 1;
+
+    public function maxColumns(): int
+    {
+        return (int) (DB::table('automation_quick_action_settings')->where('id', self::LAYOUT_SETTINGS_ID)->value('max_columns') ?? 4);
+    }
+
     public function save(?AutomationCustomEvent $event, array $data): void
     {
         DB::transaction(function () use ($event, $data): void {
@@ -71,9 +80,9 @@ class AutomationCustomEventSettings
         }, attempts: 3);
     }
 
-    public function saveLayout(array $layout, array $previous): void
+    public function saveLayout(array $layout, array $previous, ?int $maxColumns = null, ?int $previousMaxColumns = null): void
     {
-        DB::transaction(function () use ($layout, $previous): void {
+        DB::transaction(function () use ($layout, $previous, $maxColumns, $previousMaxColumns): void {
             $events = $this->lockedEvents()->where('button_enabled', true)->keyBy('id');
             $current = $events->pluck('button_position', 'id')->all();
             ksort($current);
@@ -84,6 +93,16 @@ class AutomationCustomEventSettings
 
             if (array_keys($layout) !== array_keys($current)) {
                 throw ValidationException::withMessages(['layout' => 'Układ musi obejmować wszystkie włączone przyciski.']);
+            }
+
+            if ($maxColumns !== null) {
+                $settings = DB::table('automation_quick_action_settings')->where('id', self::LAYOUT_SETTINGS_ID);
+                $currentMaxColumns = (int) $settings->lockForUpdate()->value('max_columns');
+                abort_if($currentMaxColumns !== $previousMaxColumns, 409, 'Limit szybkich akcji zmienił się. Odśwież stronę i spróbuj ponownie.');
+
+                if ($currentMaxColumns !== $maxColumns) {
+                    $settings->update(['max_columns' => $maxColumns]);
+                }
             }
 
             foreach ($layout as $id => $position) {

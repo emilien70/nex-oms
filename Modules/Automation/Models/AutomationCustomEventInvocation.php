@@ -26,6 +26,7 @@ class AutomationCustomEventInvocation extends Model
     {
         return [
             'status' => $this->status,
+            'run_count' => $this->run_count,
             'message' => match ($this->status) {
                 self::PENDING => 'Sprawdzanie reguł...',
                 self::UNAVAILABLE => 'Ta szybka akcja nie jest już dostępna dla tego zamówienia.',
