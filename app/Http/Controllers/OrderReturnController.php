@@ -10,7 +10,9 @@ use App\Services\OrderReturnRefundService;
 use App\Services\OrderReturnService;
 use App\Support\CountryCatalog;
 use App\Support\CurrencyCatalog;
+use App\Support\LiteralLike;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -40,20 +42,25 @@ class OrderReturnController extends Controller
             'sort' => ['nullable', 'in:newest,oldest,amount_desc,amount_asc'],
         ]);
         $query = OrderReturn::query()->with(['items', 'order', 'localStatus', 'parcels', 'refundAllocations.refund.allocations']);
-        if ($q = trim((string) ($filters['q'] ?? ''))) {
-            $query->where(function ($query) use ($q): void {
-                $pattern = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q).'%';
+        $q = trim((string) ($filters['q'] ?? ''));
+        if ($q !== '') {
+            $pattern = LiteralLike::contains($q);
+            $query->where(function (Builder $query) use ($q, $pattern): void {
                 foreach (['reference_number', 'external_return_id', 'external_order_id', 'buyer_name', 'buyer_login', 'buyer_email'] as $field) {
-                    $query->orWhereRaw($field." LIKE ? ESCAPE '\\'", [$pattern]);
+                    LiteralLike::where($query, $field, $pattern, 'or');
                 }
                 if (ctype_digit($q)) {
                     $query->orWhere('id', $q)->orWhere('order_id', $q);
                 }
-                $query->orWhereHas('items', fn ($items) => $items->whereRaw("name LIKE ? ESCAPE '\\'", [$pattern]));
-                $query->orWhereHas('parcels', fn ($parcels) => $parcels->whereRaw("waybill LIKE ? ESCAPE '\\'", [$pattern])
-                    ->orWhereRaw("transporting_waybill LIKE ? ESCAPE '\\'", [$pattern]));
-                $query->orWhereHas('order.shipments', fn ($shipments) => $shipments->whereRaw("tracking_number LIKE ? ESCAPE '\\'", [$pattern])
-                    ->orWhereHas('parcels', fn ($parcels) => $parcels->whereRaw("tracking_number LIKE ? ESCAPE '\\'", [$pattern])));
+                $query->orWhereHas('items', fn (Builder $items) => LiteralLike::where($items, 'name', $pattern));
+                $query->orWhereHas('parcels', function (Builder $parcels) use ($pattern): void {
+                    LiteralLike::where($parcels, 'waybill', $pattern);
+                    LiteralLike::where($parcels, 'transporting_waybill', $pattern, 'or');
+                });
+                $query->orWhereHas('order.shipments', function (Builder $shipments) use ($pattern): void {
+                    LiteralLike::where($shipments, 'tracking_number', $pattern);
+                    $shipments->orWhereHas('parcels', fn (Builder $parcels) => LiteralLike::where($parcels, 'tracking_number', $pattern));
+                });
             });
         }
         $query->when($filters['status'] ?? null, fn ($q, $value) => $q->where('status', $value))
@@ -138,13 +145,13 @@ class OrderReturnController extends Controller
         $candidates = collect();
         if (! $order && $request->filled('q')) {
             $q = trim($request->string('q')->toString());
-            $pattern = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q).'%';
-            $candidates = Order::query()->where(function ($query) use ($q, $pattern): void {
+            $pattern = LiteralLike::contains($q);
+            $candidates = Order::query()->where(function (Builder $query) use ($q, $pattern): void {
                 if (ctype_digit($q)) {
                     $query->orWhere('id', $q);
                 }
                 foreach (['external_id', 'shipping_name', 'customer_login', 'customer_email'] as $column) {
-                    $query->orWhereRaw($column." LIKE ? ESCAPE '\\'", [$pattern]);
+                    LiteralLike::where($query, $column, $pattern, 'or');
                 }
             })->latest('id')->limit(20)->get();
         }

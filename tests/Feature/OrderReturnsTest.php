@@ -268,6 +268,36 @@ class OrderReturnsTest extends TestCase
         $this->assertCount(0, $this->get(route('returns.create', ['q' => '%']))->assertOk()->viewData('candidates'));
     }
 
+    public function test_return_search_uses_portable_literal_matching_in_both_views(): void
+    {
+        $needle = 'A_%!\B';
+        $decoy = 'AXYZ!\B';
+        $record = app(OrderReturnService::class)->create(['buyer_name' => 'Kupujacy '.$needle] + $this->payload());
+        app(OrderReturnService::class)->create(['buyer_name' => 'Kupujacy '.$decoy] + $this->payload());
+        $order = $this->order();
+        $order->update(['customer_login' => 'login'.$needle]);
+        $this->order()->update(['customer_login' => 'login'.$decoy]);
+        $record->parcels()->create(['position' => 0, 'transporting_waybill' => 'TRACK-'.$needle]);
+
+        DB::enableQueryLog();
+        try {
+            $returns = $this->get(route('returns.index', ['q' => $needle]))->assertOk()->viewData('returns');
+            $this->assertSame([$record->id], $returns->pluck('id')->all());
+            $byWaybill = $this->get(route('returns.index', ['q' => 'TRACK-'.$needle]))->assertOk()->viewData('returns');
+            $this->assertSame([$record->id], $byWaybill->pluck('id')->all());
+            $candidates = $this->get(route('returns.create', ['q' => $needle]))->assertOk()->viewData('candidates');
+            $this->assertSame([$order->id], $candidates->pluck('id')->all());
+            $searchQueries = collect(DB::getQueryLog())->filter(fn (array $query): bool => str_contains($query['query'], ' LIKE ?'));
+        } finally {
+            DB::disableQueryLog();
+        }
+
+        $this->assertNotEmpty($searchQueries);
+        foreach ($searchQueries as $query) {
+            $this->assertSame(substr_count($query['query'], ' LIKE ?'), substr_count($query['query'], " LIKE ? ESCAPE '!'"));
+        }
+    }
+
     public function test_manual_form_recovers_from_empty_or_non_contiguous_item_indexes(): void
     {
         $this->withSession(['_old_input' => ['items' => []]])->get(route('returns.create'))->assertOk();
