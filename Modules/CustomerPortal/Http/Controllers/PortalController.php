@@ -28,6 +28,18 @@ class PortalController extends Controller
         return $this->page(null, 404);
     }
 
+    public function information(Request $request): Response
+    {
+        $information = $this->urls->information($request);
+        abort_if($information === null, 404);
+
+        $nonce = Str::random(32);
+        $response = $this->secure(response()->view('customer-portal.information', compact('information', 'nonce')));
+        $response->headers->set('Content-Security-Policy', "default-src 'none'; style-src 'nonce-{$nonce}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+
+        return $response;
+    }
+
     public function show(Request $request, string $orderNumber, string $token): Response
     {
         $grant = $this->grant($request, $orderNumber, $token);
@@ -213,7 +225,8 @@ class PortalController extends Controller
     private function page(?array $data, int $status = 200): Response
     {
         $nonce = Str::random(32);
-        $response = $this->secure(response()->view('customer-portal.show', compact('data', 'nonce'), $status));
+        $information = $this->urls->information(request());
+        $response = $this->secure(response()->view('customer-portal.show', compact('data', 'nonce', 'information'), $status));
         $response->headers->set('Content-Security-Policy', "default-src 'none'; style-src 'nonce-{$nonce}'; script-src 'nonce-{$nonce}'; img-src 'self' data:; base-uri 'none'; form-action 'self' https://paynow.pl https://*.paynow.pl; frame-ancestors 'none'");
 
         return $response;

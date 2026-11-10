@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Modules\CustomerPortal\Services\PortalPaymentService;
+use Modules\CustomerPortal\Services\PortalUrlService;
 use Modules\Integrations\PayNow\Exceptions\PayNowApiException;
 use Modules\Integrations\PayNow\Models\PayNowPayment;
 use Modules\Integrations\PayNow\Services\PayNowCustomerPaymentService;
@@ -72,6 +73,7 @@ class PayNowCustomerReturnController extends Controller
         $response = response()->view('paynow.return', [
             'data' => $data,
             'nonce' => $nonce,
+            'information' => app(PortalUrlService::class)->information($request),
             'portalUrl' => $payment ? app(PortalPaymentService::class)->returnUrl($request, $payment) : null,
             'statusUrl' => $canCheck ? $this->urls->withProviderHint($this->urls->forPayment($payment, 'paynow.return.status', $request), $request) : null,
             'retryUrl' => $canCheck ? $this->urls->withProviderHint($this->urls->forPayment($payment, 'paynow.return.retry', $request), $request) : null,

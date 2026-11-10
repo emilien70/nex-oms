@@ -61,6 +61,19 @@ class PortalUrlService
         return $this->route('customer-portal.show', ['orderNumber' => $link->order_id, 'token' => $link->token]);
     }
 
+    public function information(Request $request): ?array
+    {
+        $profile = config('customer-portal.information');
+        $localPreview = app()->environment('local') && in_array($request->getHost(), ['localhost', '127.0.0.1', '::1', '[::1]'], true);
+        if (! is_array($profile) || empty($profile['host']) || (! $localPreview && $this->domain() !== $profile['host'])) {
+            return null;
+        }
+
+        $base = $localPreview ? $request->getSchemeAndHttpHost() : $this->base();
+
+        return $profile + ['url' => $base.route('customer-portal.information', [], false)];
+    }
+
     public function accepts(Request $request): bool
     {
         return strtolower($request->getSchemeAndHttpHost()) === strtolower($this->base());

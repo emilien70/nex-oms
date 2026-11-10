@@ -32,6 +32,8 @@
         .secondary { color: #43586d; background: transparent; border-color: #bcc8d4; }
         .secondary:hover { background: #eaf0f5; }
         .portal-return { display: inline-block; color: #0075c9; margin-top: 20px; text-underline-offset: 3px; }
+        .customer-information-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 24px; font-size: 13px; }
+        .customer-information-links a { color: #005ea2; overflow-wrap: anywhere; text-underline-offset: 3px; }
         form { margin: 0 0 12px; }
         .error { padding: 12px 14px; border-left: 3px solid #b32f36; background: #fbe6e7; color: #7f2027; margin-bottom: 24px; }
         .test { display: inline-block; color: #895400; background: #fff0cf; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 18px; }
@@ -76,6 +78,7 @@
         @if ($portalUrl ?? null)
             <a class="portal-return" href="{{ $portalUrl }}">Powrót do zamówienia</a>
         @endif
+        @include('customer-portal.information-links')
     </main>
     @if ($statusUrl)
         <script nonce="{{ $nonce }}">

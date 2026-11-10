@@ -22,6 +22,8 @@
         @media(max-width:760px){.layout{grid-template-columns:minmax(0,1fr);gap:0}.brandbar{min-height:74px}.logo{max-width:165px;max-height:52px}.service{max-width:110px}main{padding-top:24px}.stage{padding:18px;margin:22px 0 28px}.stage strong{font-size:20px}h1{font-size:25px}.item{grid-template-columns:48px minmax(0,1fr);gap:12px}.item img{width:48px;height:48px}.item .price{grid-column:2}.item.no-image{grid-template-columns:minmax(0,1fr) auto}.item.no-image .price{grid-column:auto}.document{align-items:flex-start}.inner{width:calc(100% - 36px)}}
         .verification{max-width:760px;padding:24px 0 48px}.verification h1{font-size:22px;margin-bottom:18px}.verification form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}.verification label{display:block;font-size:14px;margin-bottom:8px}.verification input{width:100%;min-width:0;border:1px solid #bfcbd3;border-radius:4px;padding:10px 12px;font:inherit}.verification button{background:var(--accent);color:#fff;border-color:var(--accent);font-family:inherit;cursor:pointer}.verification .payment-error{margin:14px 0}.verification .back{display:inline-block;margin-top:20px}.personal{overflow-wrap:anywhere}@media(max-width:480px){.verification form{grid-template-columns:minmax(0,1fr)}.verification button{width:100%}}
         .personal-lines>span,.personal-lines>a{display:block}.personal-lines>a{width:fit-content;max-width:100%}
+        .customer-information-links{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;font-size:13px}
+        .customer-information-links a{overflow-wrap:anywhere}
     </style>
 </head>
 <body>
@@ -100,6 +102,9 @@
                     @if($data['paynow']['isTest'])
                         <span class="sandbox">Płatność testowa — PayNow Sandbox</span>
                     @endif
+                    @if($data['paynow']['actions'])
+                        @include('customer-portal.information-links', ['includeInformationPage' => false, 'informationLabel' => 'Dokumenty przed płatnością'])
+                    @endif
                     <div class="payment-actions">
                         @foreach($data['paynow']['actions'] as $action)
                             <form method="POST" action="{{ $action['url'] }}">@csrf<input type="hidden" name="intent" value="{{ $action['intent'] }}"><button type="submit" class="action {{ $action['primary'] ? 'primary' : '' }}">{{ $action['label'] }}</button></form>
@@ -148,7 +153,10 @@
                 @endif
             </aside></div>
         @endif
-    </main><footer class="footer"><div class="inner">{{ $data['storeName'] ?? 'NEX-OMS' }} · Informacje o zamówieniu</div></footer>
+    </main><footer class="footer"><div class="inner">
+        {{ $data['storeName'] ?? 'NEX-OMS' }} · Informacje o zamówieniu
+        @include('customer-portal.information-links')
+    </div></footer>
     @if($data['paynow']['actions'] ?? [])
         <script nonce="{{ $nonce }}">
             document.querySelectorAll('.payment-actions form').forEach(form => form.addEventListener('submit', () => {

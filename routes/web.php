@@ -26,8 +26,11 @@ use App\Http\Controllers\SettingsOrderStatusesController;
 use App\Http\Controllers\SettingsVariablesController;
 use App\Http\Controllers\ShipmentController;
 use App\Models\Order;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\Request;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Modules\Analytics\Http\Controllers\BasicStatisticsController;
 use Modules\Analytics\Http\Controllers\BasicStatisticsCsvController;
 use Modules\Automation\Http\Controllers\AutomationActivityController;
@@ -152,6 +155,12 @@ Route::post('/api/paynow/v1/notifications', PayNowWebhookController::class)
 
 Route::get('/paynow/powrot', [PayNowCustomerReturnController::class, 'show'])
     ->middleware('throttle:paynow-customer')->name('paynow.return');
+Route::get('/informacje', [PortalController::class, 'information'])
+    ->withoutMiddleware([
+        StartSession::class,
+        ShareErrorsFromSession::class,
+        ValidateCsrfToken::class,
+    ])->name('customer-portal.information');
 Route::get('/pay/{token}', PayNowShortLinkController::class)
     ->where('token', '[A-Za-z0-9_-]{32}')
     ->middleware('throttle:paynow-customer')->name('paynow.short-link');

@@ -524,6 +524,17 @@ server {
         fastcgi_hide_header X-Powered-By;
     }
 
+    # Publiczne informacje sprzedawcy. Dodac po wdrozeniu odpowiadajacej trasy.
+    location = /informacje {
+        limit_except GET { deny all; }
+        fastcgi_cache off;
+        rewrite ^ /index.php break;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_hide_header X-Powered-By;
+    }
+
     location ~ "^(?:/[1-9][0-9]{0,17}/[A-Za-z0-9]{10}(?:/(?:dane|weryfikacja|logo|dokumenty/[0-9]+|produkty/[0-9]+/zdjecie|platnosc/(?:pay|status|retry)))?|/paynow/powrot(?:/(?:status|ponow))?|/pay/[A-Za-z0-9_-]{32})/?$" {
         fastcgi_cache off;
         rewrite ^ /index.php break;
@@ -561,6 +572,7 @@ sudo systemctl reload nginx
 curl -sS -o /dev/null -w '%{http_code}\n' https://klient.multi-click.pl/
 curl -sS -I https://klient.multi-click.pl/
 curl -sS https://klient.multi-click.pl/
+curl -sS -I https://klient.multi-click.pl/informacje
 curl -sS -o /dev/null -w '%{http_code}\n' https://klient.multi-click.pl/orders
 curl -sS -o /dev/null -w '%{http_code}\n' https://oms.multi-click.pl/
 ```
@@ -572,6 +584,16 @@ a panel OMS bez Basic Auth nadal 401. Sprawdzic tez istniejacy poprawny
 link zamowienia. Sam status 404 nie odroznia strony aplikacji od Nginx:
 trzeba obejrzec tresc i naglowki. Nie wpisywac poufnych kodow do publicznych
 logow. W ramach lokalnej implementacji nie wykonywano tych operacji na VPS.
+
+`/informacje` zwraca 200 bez tokenu zamowienia, uwierzytelnienia i naglowka
+`Set-Cookie` na skonfigurowanym hoscie zgodnym z profilem w
+`config/customer-portal.php`. Nie wlaczac tej lokalizacji na hoscie panelu.
+Strona nie zmienia zachowania `/` ani nie zastepuje zatwierdzonych
+dokumentow sklepu; podlinkowane dokumenty musza dzialac publicznie.
+W portalu klienta i na powrocie PayNow formularze nadal wymagaja tokenu
+CSRF, ale portal nie ustawia dodatkowego cookie `XSRF-TOKEN`.
+Przed zgloszeniem do weryfikacji sprawdzic wymagania i stan cookies wedlug
+[notatki PayNow](paynow-customer-information-draft.md).
 
 Nie dodawac przekierowania klienta do panelu ani wyjatkow `/orders`,
 `/settings`, `/invoices`, calego `/api` lub dowolnego PHP. Osobny blok HTTP

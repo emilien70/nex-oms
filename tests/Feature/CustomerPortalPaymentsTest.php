@@ -115,6 +115,32 @@ class CustomerPortalPaymentsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_payment_documents_precede_the_action_and_the_customer_form_still_requires_csrf(): void
+    {
+        config(['app.url' => 'https://oms.example.test']);
+        $payment = $this->payment();
+        PortalSetting::query()->sole()->update(['customer_domain' => 'klient.multi-click.pl']);
+        $url = $this->url($payment->order);
+        $this->app->instance(ValidateCsrfToken::class, new class($this->app, $this->app['encrypter']) extends ValidateCsrfToken
+        {
+            protected function runningUnitTests()
+            {
+                return false;
+            }
+        });
+
+        $this->get($url)->assertOk()->assertSeeInOrder([
+            'Dokumenty przed płatnością', 'https://multi-click.pl/content/regulamin',
+            'https://multi-click.pl/content/polityka-prywatnosci', 'Kontynuuj płatność',
+        ])->assertCookie('nex_oms_customer_portal_session')->assertCookieMissing('XSRF-TOKEN');
+        $form = $this->form($url, 'pay');
+        $this->post($form['url'], ['intent' => $form['intent']])->assertStatus(419);
+        $this->withSession(['_token' => 'test-csrf'])
+            ->post($form['url'], ['intent' => $form['intent'], '_token' => 'test-csrf'])
+            ->assertStatus(303)->assertCookieMissing('XSRF-TOKEN');
+        Http::assertNothingSent();
+    }
+
     public function test_absent_attempt_cannot_be_created_by_customer_even_with_forged_post_fields(): void
     {
         $this->settings();
