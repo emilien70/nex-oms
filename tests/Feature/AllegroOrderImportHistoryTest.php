@@ -114,7 +114,7 @@ class AllegroOrderImportHistoryTest extends TestCase
             ->assertRedirect()->assertSessionHasNoErrors();
         $this->assertSame('pending', $failed->fresh()->status);
         $this->assertSame('processed', $latest->fresh()->status);
-        Queue::assertPushed(SyncAllegroOrderJob::class, fn (SyncAllegroOrderJob $job) => $job->eventId === $failed->id);
+        Queue::assertPushedOn('orders-import', SyncAllegroOrderJob::class, fn (SyncAllegroOrderJob $job) => $job->eventId === $failed->id);
         $pending = $this->get(route('integrations.allegro.edit', ['tab' => 'orders']))->assertOk();
         $this->assertSame('pending', $pending->viewData('importOrders')->sole()['state']);
         $pending->assertDontSee('Ponów pobranie');

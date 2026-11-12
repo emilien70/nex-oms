@@ -104,7 +104,7 @@ class VonHalskyAutomaticOrderImportTest extends TestCase
         $account = $this->automaticAccount(['order_import_enabled' => false]);
         $route = route('integrations.von-halsky.check-now');
         $this->post($route, ['expected_lock_version' => 0])->assertRedirect()->assertSessionHasNoErrors();
-        Queue::assertPushed(DiscoverVonHalskyOrdersJob::class, fn ($job) => $job->accountId === $account->id && $job->manual && $job->queue === 'integrations');
+        Queue::assertPushedOn('orders-import', DiscoverVonHalskyOrdersJob::class, fn ($job) => $job->accountId === $account->id && $job->manual);
         $this->assertFalse($account->fresh()->order_import_enabled);
         $this->post($route, ['expected_lock_version' => 0])->assertSessionHasErrors('von_halsky_scan');
         Http::assertNothingSent();
@@ -133,7 +133,7 @@ class VonHalskyAutomaticOrderImportTest extends TestCase
         $this->assertDatabaseCount('von_halsky_order_import_attempts', 1);
         $this->assertDatabaseCount('orders', 0);
         $this->assertNotNull($account->fresh()->order_import_cursor_at);
-        Queue::assertPushed(ImportVonHalskyOrderJob::class);
+        Queue::assertPushedOn('orders-import', ImportVonHalskyOrderJob::class);
         Http::assertSent(function (Request $request): bool {
             $query = parse_url($request->url(), PHP_URL_QUERY);
 

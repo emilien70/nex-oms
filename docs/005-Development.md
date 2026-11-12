@@ -29,7 +29,7 @@ http://127.0.0.1:8000
 
 ## Kolejki lokalne a VPS
 
-Aktualny `composer dev` uruchamia `queue:listen --queue=shipments-actions,shipments-sync,integrations,automation,default --tries=1 --timeout=0`. Nie uruchamia schedulera ani kolejek KSeF. Listener Windows/XAMPP nie odtwarza limitow daemonow Linux `queue:work` i Supervisora; sukces lokalny nie dowodzi zmieszczenia joba w limicie VPS.
+`composer dev` uruchamia osobny listener `orders-import` oraz dotychczasowy listener dla `shipments-actions,shipments-sync,integrations,automation,default`. Lokalny [Main Queues](../scripts/run-main-queues.ps1) ma osobny worker `orders-import`. Po aktualizacji kodu ponownie uruchom uzywany zestaw procesow; nie uruchamiaj obu sposobow naraz. `composer dev` nie uruchamia schedulera ani kolejek KSeF. Listener Windows/XAMPP nie odtwarza limitow daemonow Linux `queue:work` i Supervisora.
 
 Szczegoly pierwszenstwa parametrow jobow, ograniczen `--timeout=0`, odrebnego polaczenia `ksef_submit` oraz aktualnej konfiguracji stagingu: [Kolejki, harmonogram i Supervisor](007-Queues-Scheduler-VPS.md). Uruchamianie dodatkowych procesow lokalnych moze wykonac prawdziwe operacje integracji i wymaga swiadomej konfiguracji; nie jest czescia audytu dokumentacyjnego.
 

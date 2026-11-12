@@ -8,15 +8,22 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '../..');
 const runner = path.join(root, 'scripts/run-main-queues.ps1');
 
-test('Main Queues has three disjoint workers and no KSeF queues', { skip: process.platform !== 'win32' }, () => {
+test('Main Queues has four disjoint workers and no KSeF queues', { skip: process.platform !== 'win32' }, () => {
     const workers = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', runner, '-Describe'], { encoding: 'utf8' }));
-    assert.equal(workers.length, 3);
-    assert.deepEqual(workers.map(worker => worker.Queue), ['integrations,automation,default', 'shipments-actions', 'shipments-sync']);
+    assert.equal(workers.length, 4);
+    assert.deepEqual(workers.map(worker => worker.Queue), ['integrations,automation,default', 'shipments-actions', 'shipments-sync', 'orders-import']);
     assert.equal(workers[1].Sleep, 1);
     assert.equal(workers[2].Sleep, 1);
+    assert.equal(workers[3].Sleep, 1);
     const queues = workers.flatMap(worker => worker.Queue.split(','));
     assert.equal(new Set(queues).size, queues.length);
     assert.ok(queues.every(queue => !queue.includes('ksef')));
+});
+
+test('composer dev has a separate order import listener', () => {
+    const { scripts } = JSON.parse(fs.readFileSync(path.join(root, 'composer.json'), 'utf8'));
+    const queues = [...scripts.dev.join(' ').matchAll(/queue:listen --queue=([\w,-]+)/g)].map(match => match[1]);
+    assert.deepEqual(queues, ['shipments-actions,shipments-sync,integrations,automation,default', 'orders-import']);
 });
 
 test('both local launchers use the same group without changing KSeF commands', t => {

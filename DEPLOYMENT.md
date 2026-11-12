@@ -71,10 +71,11 @@ php artisan queue:work --queue=shipments-actions
 php artisan queue:work --queue=shipments-sync
 ```
 
-Kolejka `integrations` jest zachowana dla przyszlego importu zamowien z Allegro i PrestaShop:
+Import zamowien z Allegro, PrestaShop i Von Halsky wymaga osobnego workera `orders-import`. Kolejka `integrations` nadal obsluguje pozostale operacje integracji oraz wczesniej zakolejkowane zadania:
 
 ```bash
-php artisan queue:work --queue=integrations
+php artisan queue:work database --queue=orders-import --timeout=210
+php artisan queue:work database --queue=integrations
 ```
 
 Asynchroniczna wysylka e-mail wymaga stale dzialajacego workera kolejki `default`:
@@ -85,4 +86,4 @@ php artisan queue:work --queue=default
 
 Odzyskiwanie osieroconych wiadomosci `queued` wymaga rowniez wykonywania co minute polecenia `php artisan schedule:run`, zgodnie z konfiguracja cron powyzej.
 
-Na serwerze workery powinny byc uruchamiane stale przez Supervisor, systemd albo analogiczny mechanizm zarzadzania procesami. Do czasu wdrozenia importu zamowien worker `integrations` pozostanie bezczynny.
+Na serwerze workery powinny byc uruchamiane stale przez Supervisor, systemd albo analogiczny mechanizm zarzadzania procesami. Instrukcja uruchomienia `orders-import` i wymagania dla `retry_after`: [wdrozenie VPS](docs/006-Deployment.md#pierwsze-uruchomienie-orders-import).

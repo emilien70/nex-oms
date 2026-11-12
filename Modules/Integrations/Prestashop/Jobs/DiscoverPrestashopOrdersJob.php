@@ -10,6 +10,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\Prestashop\Exceptions\PrestashopApiException;
 use Modules\Integrations\Prestashop\Services\PrestashopOrderDiscoveryService;
+use Modules\Integrations\Support\OrderImportQueue;
 use Throwable;
 
 class DiscoverPrestashopOrdersJob implements ShouldBeUnique, ShouldQueue
@@ -26,7 +27,7 @@ class DiscoverPrestashopOrdersJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public int $accountId)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(OrderImportQueue::NAME);
     }
 
     public function uniqueId(): string

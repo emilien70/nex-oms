@@ -9,7 +9,7 @@ zmian konfiguracji Supervisor/Nginx ani przywracania bazy.
 - Ubuntu, uzytkownik `ubuntu`, aplikacja `/var/www/nex-oms`, galaz `main`.
 - MySQL **8.0**, baza `nex_oms`, lokalny administracyjny dostep `sudo mysql`.
 - `APP_ENV=staging`, KSeF DEMO, automatyczna wysylka KSeF wylaczona.
-- Siedem istniejacych workerow Supervisor i jeden cron
+- Osiem workerow Supervisor (wlacznie z `nex-oms-orders-import`) i jeden cron
   `/etc/cron.d/nex-oms-scheduler` zgodnie z dokumentem 007.
 - `retry_after`: `database=300`, `ksef_submit=240`.
 - Kontrola HTTPS `https://oms.multi-click.pl/up`; wymagane dane Basic Auth panelu,
@@ -54,6 +54,10 @@ ani przez wklejenie zawartosci do terminala. Uruchom jedna kopie pliku w jednej
 sesji PuTTY. Nie zamykaj terminala podczas wdrozenia i nie wykonuj wtedy operacji
 w OMS, innych polecen Git ani osobnego wdrozenia.
 
+Nowa kopia skryptu wymaga zarejestrowanego i uruchomionego programu
+`nex-oms-orders-import`. Pierwsze wdrozenie wykonac wedlug osobnej
+[procedury uruchomienia](006-Deployment.md#pierwsze-uruchomienie-orders-import).
+
 ## Przebieg
 
 Skrypt blokuje rownolegla kopie, sprawdza czysty stan plikow sledzonych oraz
@@ -68,7 +72,7 @@ serwera MySQL. Backup transakcyjny jest dozwolony tylko dla tabel InnoDB.
 
 Nastepnie zapisuje prywatna historie **przed** wstrzymaniem uslug, przenosi cron,
 czeka 65 sekund na jego przeladowanie, sprawdza pozostale procesy harmonogramu,
-wlacza maintenance i lagodnie zatrzymuje siedem workerow. Ponownie wymaga pustych
+wlacza maintenance i lagodnie zatrzymuje wszystkie workery z listy. Ponownie wymaga pustych
 kolejek. Nie kasuje rezerwacji ani automatyzacji w celu przejscia tej kontroli.
 
 Tworzy nowa kopie bazy z `--single-transaction --set-gtid-purged=OFF`, sprawdza

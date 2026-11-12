@@ -145,10 +145,10 @@ class PrestashopAutomaticOrderImportTest extends TestCase
         $account->forceFill(['order_import_enabled' => true])->save();
 
         $this->assertTrue(app(PrestashopOrderImportDispatcher::class)->dispatchDue());
-        Queue::assertPushed(
+        Queue::assertPushedOn(
+            'orders-import',
             DiscoverPrestashopOrdersJob::class,
-            fn (DiscoverPrestashopOrdersJob $job): bool => $job->accountId === $account->id
-                && $job->queue === 'integrations',
+            fn (DiscoverPrestashopOrdersJob $job): bool => $job->accountId === $account->id,
         );
     }
 
@@ -184,10 +184,7 @@ class PrestashopAutomaticOrderImportTest extends TestCase
             '2026-10-14 10:04:30',
             $account->fresh()->last_order_import_scan_at?->format('Y-m-d H:i:s'),
         );
-        Queue::assertPushed(
-            ImportPrestashopOrderJob::class,
-            fn (ImportPrestashopOrderJob $job): bool => $job->queue === 'integrations',
-        );
+        Queue::assertPushedOn('orders-import', ImportPrestashopOrderJob::class);
         Http::assertSent(function (Request $request): bool {
             parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
 
@@ -293,6 +290,7 @@ class PrestashopAutomaticOrderImportTest extends TestCase
         $this->assertSame(PrestashopOrderImportAttempt::STATUS_PENDING, $attempt->fresh()->status);
         $this->assertNull($attempt->fresh()->last_error);
         Queue::assertPushed(ImportPrestashopOrderJob::class, 1);
+        Queue::assertPushedOn('orders-import', ImportPrestashopOrderJob::class, fn (ImportPrestashopOrderJob $job) => $job->attemptId === $attempt->id);
 
         Queue::fake();
         $attempt->forceFill(['status' => PrestashopOrderImportAttempt::STATUS_IMPORTED])->save();

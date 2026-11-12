@@ -263,6 +263,16 @@ class AllegroAutomaticOrderImportTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_manual_scan_uses_order_import_queue(): void
+    {
+        $account = $this->account();
+
+        $this->post(route('integrations.allegro.orders.scan'))->assertRedirect()->assertSessionHasNoErrors();
+
+        Queue::assertPushedOn('orders-import', DiscoverAllegroOrdersJob::class, fn (DiscoverAllegroOrdersJob $job) => $job->accountId === $account->id);
+        Http::assertNothingSent();
+    }
+
     public function test_discovery_records_durable_events_before_advancing_cursor_and_queues_jobs(): void
     {
         $account = $this->account(['order_event_cursor' => '100']);
@@ -271,7 +281,7 @@ class AllegroAutomaticOrderImportTest extends TestCase
         app(AllegroOrderDiscoveryService::class)->discover($account->id);
         $this->assertSame('101', $account->fresh()->order_event_cursor);
         $this->assertDatabaseCount('allegro_order_import_events', 1);
-        Queue::assertPushed(SyncAllegroOrderJob::class);
+        Queue::assertPushedOn('orders-import', SyncAllegroOrderJob::class);
         app(AllegroOrderDiscoveryService::class)->discover($account->id);
         $this->assertDatabaseCount('allegro_order_import_events', 1);
     }

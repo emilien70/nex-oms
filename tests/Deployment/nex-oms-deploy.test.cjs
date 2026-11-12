@@ -55,6 +55,18 @@ test('private umask is scoped and dangerous deployment shortcuts are absent', ()
     }
 });
 
+test('deployments manage the same dedicated worker as the Supervisor template', () => {
+    const configuration = fs.readFileSync(path.join(path.dirname(script), 'supervisor/nex-oms-orders-import.conf'), 'utf8');
+    const program = configuration.match(/^\[program:(.+)\]$/m)[1];
+    const workerList = shell('printf "%s\\n" "\${WORKERS[@]}"');
+    assert.equal(workerList.status, 0, workerList.stderr);
+    assert.equal(workerList.stdout.trim().split(/\r?\n/).filter(name => name === program).length, 1);
+    assert.match(configuration, /^command=.* queue:work database --queue=orders-import --sleep=3 --tries=1 --timeout=210 --max-time=3600$/m);
+    assert.match(configuration, /^stopwaitsecs=240$/m);
+    assert.match(configuration, /^autostart=true$/m);
+    assert.match(configuration, /^autorestart=true$/m);
+});
+
 test('metadata failures really return nonzero instead of a successful Tinker exit', () => {
     assert.notEqual(shell('php_tool get missing', '{}').status, 0);
     assert.notEqual(shell('php_tool patch status ready', 'not JSON').status, 0);

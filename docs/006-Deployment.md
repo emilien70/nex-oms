@@ -941,7 +941,15 @@ W tym formacie `ubuntu` jest polem uzytkownika `/etc/cron.d`; nie kopiowac go do
 
 ## Kolejki i Supervisor
 
-Supervisor nadzoruje siedem workerow: `default`, `integrations`, `shipments-actions`, `shipments-sync`, `automation`, `ksef` na polaczeniu `database` oraz `ksef-submit` na polaczeniu `ksef_submit`. Importy Allegro/PrestaShop sa juz zaimplementowane i korzystaja z `integrations`; nie jest to kolejka oczekujaca na przyszly etap.
+Docelowo Supervisor nadzoruje osiem workerow: `default`, `integrations`, `orders-import`, `shipments-actions`, `shipments-sync`, `automation`, `ksef` na polaczeniu `database` oraz `ksef-submit` na polaczeniu `ksef_submit`. `orders-import` obsluguje wykrywanie i import zamowien Allegro, PrestaShop i Von Halsky, lacznie z ponowieniami tych samych zadan. Pozostale operacje integracji zachowuja dotychczasowe kolejki.
+
+### Pierwsze uruchomienie orders-import
+
+1. Wykonaj kontrolowane wdrozenie wydania (kopia bazy, wstrzymanie schedulera, lagodne zakonczenie pracy workerow). Nie usuwaj, nie przepisuj ani nie kolejkuj ponownie juz zapisanych jobow. Dotychczasowy worker `integrations` dokonczy joby pozostale pod stara nazwa kolejki.
+2. Po aktualizacji kodu, przed wznowieniem schedulera, zainstaluj [konfiguracje workera](../scripts/supervisor/nex-oms-orders-import.conf) jako `/etc/supervisor/conf.d/nex-oms-orders-import.conf`. Sprawdz aktywne `retry_after` dla `database` (na tym VPS 300 s) oraz dostepnosc PHP CLI PCNTL. Wykonaj `sudo supervisorctl reread`, a po sprawdzeniu wykrytych zmian `sudo supervisorctl update nex-oms-orders-import`. Zweryfikuj `RUNNING` i dopiero wznow normalna prace.
+3. Po uruchomieniu nowego programu wymien zewnetrzna kopie `/home/ubuntu/nex-oms-deploy.sh` na wersje z repozytorium. Od kolejnej aktualizacji preflight wymaga nowego workera. Sam Git nie aktualizuje tych dwoch plikow poza katalogiem aplikacji. Zweryfikuj po wznowieniu crona, czy nowe skany trafiaja do `orders-import` i czy importy sa przetwarzane. Nie uruchamiaj recznie dodatkowego importu tylko jako test.
+
+Pierwsze wydanie wymaga osobnego przegladu i wdrozenia, poniewaz standardowy skrypt celowo blokuje zmiany `composer.json` (tutaj zmienia sie tylko `composer dev`). Nie wylaczaj tej kontroli w standardowym skrypcie. Wydzielenie kolejki nie wymaga migracji, zmiany `.env` ani instalacji zaleznosci.
 
 Aktywne retry_after stagingu wynosi 300 s dla `database` oraz 240 s dla `ksef_submit`. Job automatycznej wysylki KSeF ma wlasny timeout 120 s, mimo workerowego 150 s. Automatyczna wysylka jest wedlug operatora wylaczona w OMS; uruchomiony worker jej nie wlacza.
 

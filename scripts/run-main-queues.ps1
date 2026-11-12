@@ -5,7 +5,8 @@ param([switch]$Describe)
 $workers = @(
     [PSCustomObject]@{ Name = 'main'; Queue = 'integrations,automation,default'; Sleep = 3 },
     [PSCustomObject]@{ Name = 'shipments-actions'; Queue = 'shipments-actions'; Sleep = 1 },
-    [PSCustomObject]@{ Name = 'shipments-sync'; Queue = 'shipments-sync'; Sleep = 1 }
+    [PSCustomObject]@{ Name = 'shipments-sync'; Queue = 'shipments-sync'; Sleep = 1 },
+    [PSCustomObject]@{ Name = 'orders-import'; Queue = 'orders-import'; Sleep = 1 }
 )
 
 if ($Describe) {

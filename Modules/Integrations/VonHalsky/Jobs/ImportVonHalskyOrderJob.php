@@ -8,6 +8,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Modules\Integrations\Support\OrderImportQueue;
 use Modules\Integrations\VonHalsky\Services\VonHalskyOrderProcessingService;
 
 class ImportVonHalskyOrderJob implements ShouldBeUnique, ShouldQueue
@@ -22,7 +23,7 @@ class ImportVonHalskyOrderJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public int $accountId, public int $revision, public int $attemptId, public bool $manual = false)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(OrderImportQueue::NAME);
     }
 
     public function uniqueId(): string

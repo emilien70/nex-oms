@@ -10,6 +10,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Services\AllegroOrderDiscoveryService;
+use Modules\Integrations\Support\OrderImportQueue;
 use Throwable;
 
 class DiscoverAllegroOrdersJob implements ShouldBeUnique, ShouldQueue
@@ -24,7 +25,7 @@ class DiscoverAllegroOrdersJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public int $accountId)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(OrderImportQueue::NAME);
     }
 
     public function uniqueId(): string

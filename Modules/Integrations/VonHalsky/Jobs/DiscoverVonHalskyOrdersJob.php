@@ -9,6 +9,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
+use Modules\Integrations\Support\OrderImportQueue;
 use Modules\Integrations\VonHalsky\Services\VonHalskyOrderDiscoveryService;
 use Throwable;
 
@@ -24,7 +25,7 @@ class DiscoverVonHalskyOrdersJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public int $accountId, public int $revision, public bool $manual = false)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(OrderImportQueue::NAME);
     }
 
     public function uniqueId(): string

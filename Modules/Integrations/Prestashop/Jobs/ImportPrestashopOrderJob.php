@@ -11,6 +11,7 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\Prestashop\Exceptions\PrestashopApiException;
 use Modules\Integrations\Prestashop\Exceptions\PrestashopImportException;
 use Modules\Integrations\Prestashop\Services\PrestashopAutomaticOrderImportService;
+use Modules\Integrations\Support\OrderImportQueue;
 use Throwable;
 
 class ImportPrestashopOrderJob implements ShouldBeUnique, ShouldQueue
@@ -27,7 +28,7 @@ class ImportPrestashopOrderJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public int $attemptId)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(OrderImportQueue::NAME);
     }
 
     public function uniqueId(): string

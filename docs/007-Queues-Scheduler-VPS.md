@@ -43,6 +43,7 @@ Migawka operatora: OVHcloud, Ubuntu Linux, katalog `/var/www/nex-oms`, PHP 8.3.6
 |---|---|---|---:|---:|---:|---|
 | `nex-oms-default` | `database` | `default` | 60 | 1 | 3600 | 120, odczyt SSH |
 | `nex-oms-integrations` | `database` | `integrations` | 210 | 1 | 3600 | 240, odczyt SSH |
+| `nex-oms-orders-import` | `database` | `orders-import` | 210 | 1 | 3600 | 240, wzor po wdrozeniu |
 | `nex-oms-shipments-actions` | `database` | `shipments-actions` | 60 | 1 | 3600 | 120, odczyt SSH |
 | `nex-oms-shipments-sync` | `database` | `shipments-sync` | 60 | 1 | 3600 | 120, odczyt SSH |
 | `nex-oms-automation` | `database` | `automation` | 60 | 1 | 3600 | 120, odczyt SSH |
@@ -211,9 +212,10 @@ Zrodlo: [routes/console.php](../routes/console.php). Wszystkie ponizsze callback
 | `automation-recover-interrupted` | co minute | oznaczenie porzuconych running jako interrupted, bez retry i API; nowy kod, jeszcze niewdrozony na VPS |
 | `paynow-reconcile-pending-payments` | co minute | bezposrednio `PayNowReconciliationService`, HTTP i lokalne ksiegowanie |
 | `prestashop-sync-order-statuses` | co minute | przychodzace `SyncPrestashopInboundStatusesJob`, integrations |
-| `prestashop-import-new-orders` | co minute | `DiscoverPrestashopOrdersJob`, potem `ImportPrestashopOrderJob`, integrations |
+| `prestashop-import-new-orders` | co minute | `DiscoverPrestashopOrdersJob`, potem `ImportPrestashopOrderJob`, orders-import |
 | `prestashop-sync-payments` | co minute | `SyncPrestashopPaymentsJob`, integrations |
-| `allegro-import-orders` | co minute | `DiscoverAllegroOrdersJob`, potem `SyncAllegroOrderJob`, integrations |
+| `allegro-import-orders` | co minute | `DiscoverAllegroOrdersJob`, potem `SyncAllegroOrderJob`, orders-import |
+| `von-halsky-import-orders` | co minute | `DiscoverVonHalskyOrdersJob`, potem `ImportVonHalskyOrderJob`, orders-import |
 | `allegro-recover-shipment-exports` | co minute | recovery zapisanych eksportow, `ExportAllegroShipmentJob`, integrations |
 | `allegro-recover-invoice-exports` | co minute | recovery zapisanych eksportow, `ExportAllegroInvoiceJob`, integrations |
 | `allegro-import-customer-returns` | co minute | discover/sync zwrotow, integrations |
@@ -227,7 +229,7 @@ Godzina 03:30 i granice godzin zaleza od aktywnej strefy aplikacji; samo Ubuntu 
 
 PayNow obsluguje do 20 oczekujacych platnosci na przebieg, ponowny odczyt danego rekordu po co najmniej 2 minutach. `PayNowPaymentStatusService` ksieguje transakcyjnie, z blokada i deduplikacja zdarzen; scheduler nie inicjuje nowej platnosci. Latarnia ma wlasny gate `ksef.latarnia.sync_enabled` (domyslnie false), do dwoch srodowisk TEST/Production i po jednym GET status/messages; DEMO nie jest zrodlem Latarni. Obie sciezki HTTP dzialaja **poza kolejka**. Limity workerow i retry_after ich nie obejmuja; dlugi callback moze opoznic kolejne zadania danego przebiegu.
 
-Nie znaleziono zadania harmonogramu kierowanego do kolejki nieobslugiwanej przez siedem zadeklarowanych workerow. Nie ma okresowego wyszukiwania historycznych faktur do automatycznego first-send KSeF.
+Po wydzieleniu importow wymagany jest osmy worker `nex-oms-orders-import`. Zapisane przed zmiana zadania importu pozostaja w `integrations`; nowy worker nie przepisuje ich ani nie powtarza. Pierwsze uruchomienie: [wdrozenie VPS](006-Deployment.md#pierwsze-uruchomienie-orders-import). Nie ma okresowego wyszukiwania historycznych faktur do automatycznego first-send KSeF.
 
 ## 7. Ochrona przed powtorzeniem i granice gwarancji
 
@@ -288,6 +290,7 @@ Aktualny [composer.json](../composer.json) uruchamia w `composer dev` wspolny li
 
 ```text
 php artisan queue:listen --queue=shipments-actions,shipments-sync,integrations,automation,default --tries=1 --timeout=0
+php artisan queue:listen --queue=orders-import --tries=1 --timeout=0
 ```
 
 - Jeden listener obsluguje piec kolejek w podanej kolejnosci; dluga praca i staly naplyw wczesniejszych kolejek moga opozniac pozniejsze. VPS ma rozdzielone procesy, co izoluje takie zatory.
@@ -362,7 +365,7 @@ ps -eo user,pid,etimes,args | grep '[a]rtisan queue:work'
 
 4. `queue:restart` zapisuje znacznik w cache, nie zabija joba i nie zmienia konfiguracji Supervisor. Workery odczytuja go pomiedzy jobami, wychodza, a `autorestart=true` je wznawia. Polecenie moze objac rowniez inne workery korzystajace z tego samego cache/prefixu. Obserwowac nowe PID-y i dalszy postep, nie oczekiwac natychmiastowego zatrzymania dlugiego joba. Niezgodny store/prefix lub stare wydanie moze uniemozliwic odebranie znacznika.
 5. Jezeli zatwierdzono zmiane plikow Supervisor: osobno wykonac `sudo supervisorctl reread`, przejrzec wykryte roznice, a nastepnie `sudo supervisorctl update NAZWA_ZMIENIONEGO_PROGRAMU`. `NAZWA_ZMIENIONEGO_PROGRAMU` jest placeholderem, nie nazwa do doslownego uruchomienia. Update/restart moze zatrzymac proces; najpierw sprawdzic stopwaitsecs i nie przerywac slepo operacji o niepewnym wyniku. Nie stosowac `restart all`, kill -9 ani restartu calego Supervisora jako rutynowej aktualizacji kodu.
-6. Potwierdzic siedem programow RUNNING, nowe PID-y, brak rosnacego backlogu, nowe wpisy schedulera i prawidlowy wynik biznesowy. Nie uruchamiac dodatkowego `schedule:run`, aby tylko potwierdzic dzialanie istniejacego crona.
+6. Potwierdzic wszystkie oczekiwane programy RUNNING (po wydzieleniu importow osiem), nowe PID-y, brak rosnacego backlogu, nowe wpisy schedulera i prawidlowy wynik biznesowy. Nie uruchamiac dodatkowego `schedule:run`, aby tylko potwierdzic dzialanie istniejacego crona.
 
 Rotacja `--max-time=3600` nie zastepuje kontrolowanego restartu po wdrozeniu. Restart nie uniewaznia starych payloadow, nie naprawia automatycznie failed i nie uzgadnia niepewnego wyniku zewnetrznego.
 

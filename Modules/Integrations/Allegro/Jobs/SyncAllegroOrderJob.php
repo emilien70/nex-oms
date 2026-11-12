@@ -12,6 +12,7 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Integrations\Allegro\Models\AllegroOrderImportEvent;
 use Modules\Integrations\Allegro\Models\AllegroOrderLink;
 use Modules\Integrations\Allegro\Services\AllegroOrderSyncService;
+use Modules\Integrations\Support\OrderImportQueue;
 use Throwable;
 
 class SyncAllegroOrderJob implements ShouldBeUnique, ShouldQueue
@@ -26,7 +27,7 @@ class SyncAllegroOrderJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public int $eventId)
     {
-        $this->onQueue('integrations');
+        $this->onQueue(OrderImportQueue::NAME);
     }
 
     public function uniqueId(): string
