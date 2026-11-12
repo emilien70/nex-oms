@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use App\Models\OrderReturn;
+use App\Models\OrderReturnParcelEvent;
 use App\Models\ReturnStatusSetting;
 use App\Services\OrderReturnService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Modules\Automation\Models\AutomationRun;
 use Modules\Integrations\Allegro\Models\AllegroAccount;
 use Modules\Integrations\Allegro\Services\AllegroReturnImportService;
 use Modules\Integrations\Allegro\Services\AllegroReturnNormalizer;
@@ -33,11 +35,14 @@ class OrderReturnsTest extends TestCase
     {
         $response = $this->get(route('returns.index'))->assertOk()->assertSee('Stwórz zwrot')->assertSee('Menu zwrotów')
             ->assertSee('orders-table')->assertSee('orders-context-sidebar')->assertSee('Filtrowanie zwrotów')
+            ->assertSeeInOrder(['Akcje', 'Usuń zwroty', 'Zmień status'])
+            ->assertSee('Tej operacji nie można cofnąć.')
+            ->assertSee('formaction="'.route('returns.bulk-delete').'"', false)
             ->assertSee('Nowe')->assertSee('Odebrane')->assertSee('W trakcie')->assertSee('Zakończone')->assertSee('Odrzucone')
             ->assertSee('class="orders-context-add orders-context-add--return"', false)
             ->assertSee('class="bi bi-plus-circle orders-context-plus" aria-hidden="true"', false);
         $this->assertSame(2, substr_count($response->getContent(), 'class="nex-pagination-toolbar"'));
-        $this->assertSame(2, substr_count($response->getContent(), 'data-return-bulk disabled'));
+        $this->assertSame(4, substr_count($response->getContent(), 'data-return-bulk disabled'));
         $response->assertSeeInOrder([
             'id="return-list-toolbar"',
             'class="nex-pagination-toolbar"',
@@ -210,6 +215,116 @@ class OrderReturnsTest extends TestCase
         $this->assertSame('Kontrola', $record->events()->first()->status);
     }
 
+    public function test_deletes_selected_manual_returns_permanently_and_keeps_order_and_outbound_shipment(): void
+    {
+        $service = app(OrderReturnService::class);
+        $order = $this->order('allegro');
+        $shipment = $order->shipments()->create([
+            'provider' => 'inpost_courier', 'service' => 'test', 'tracking_number' => 'test-outbound',
+            'request_uuid' => (string) Str::uuid(),
+        ]);
+        $one = $service->create($this->forOrder($order, 2));
+        $two = $service->create($this->payload());
+        $other = $service->create($this->payload());
+        $one->parcels()->create(['position' => 1, 'waybill' => 'untracked', 'is_manual' => true]);
+        $rejected = ReturnStatusSetting::query()->where('code', 'rejected')->sole();
+        $service->changeStatuses([$two->id => $two->lock_version], $rejected->id);
+        $orderBefore = $order->fresh()->getAttributes();
+        $itemBefore = $order->items()->sole()->getAttributes();
+        $shipmentBefore = $shipment->fresh()->getAttributes();
+        $filterUrl = route('returns.index', ['q' => 'Jan Klient', 'per_page' => 50]);
+        Queue::fake();
+
+        $this->from($filterUrl)->post(route('returns.bulk-delete'), $this->deletion($one, $two->fresh()))
+            ->assertRedirect($filterUrl)->assertSessionHasNoErrors()->assertSessionHas('success');
+
+        foreach ([$one, $two] as $deleted) {
+            $this->assertModelMissing($deleted);
+            foreach (['order_return_items', 'order_return_parcels', 'order_return_events'] as $table) {
+                $this->assertDatabaseMissing($table, ['order_return_id' => $deleted->id]);
+            }
+            $this->get(route('returns.show', $deleted))->assertNotFound();
+        }
+        $this->assertModelExists($other);
+        $this->assertSame($orderBefore, $order->fresh()->getAttributes());
+        $this->assertSame($itemBefore, $order->items()->sole()->getAttributes());
+        $this->assertSame($shipmentBefore, $shipment->fresh()->getAttributes());
+        $this->assertSame(0, $service->claimedQuantity($order->items()->sole()->id));
+        Http::assertNothingSent();
+        Queue::assertNothingPushed();
+    }
+
+    public function test_confirmation_versions_and_distinct_selection_are_required_before_any_delete(): void
+    {
+        $record = app(OrderReturnService::class)->create($this->payload());
+        $route = route('returns.bulk-delete');
+        $data = $this->deletion($record);
+        $this->get($route)->assertNotFound();
+        $this->postJson($route, array_diff_key($data, ['confirm_delete' => 1]))
+            ->assertUnprocessable()->assertJsonValidationErrors('confirm_delete');
+        $this->postJson($route, [...$data, 'versions' => [999999 => 0]])
+            ->assertUnprocessable()->assertJsonValidationErrors('return');
+        $this->postJson($route, [...$data, 'return_ids' => [$record->id, (string) $record->id]])
+            ->assertUnprocessable()->assertJsonValidationErrors('return_ids.0');
+        $this->postJson($route, [...$data, 'versions' => [$record->id => 99]])
+            ->assertUnprocessable()->assertJsonPath('errors.return.0', "Zwrot #{$record->id} zmienił się w innym oknie. Odśwież listę.");
+        $this->postJson($route, [...$data, 'return_ids' => [$record->id, 999999], 'versions' => $data['versions'] + [999999 => 0]])
+            ->assertUnprocessable()->assertJsonPath('errors.return.0', 'Zwrot #999999 już nie istnieje. Odśwież listę.');
+        $this->assertModelExists($record);
+    }
+
+    public function test_imported_return_blocks_entire_batch_and_keeps_selection_after_redirect(): void
+    {
+        $manual = app(OrderReturnService::class)->create($this->payload());
+        $account = AllegroAccount::query()->create(['account_key' => 'default', 'name' => 'multi-click', 'environment' => 'production', 'allegro_user_id' => 'seller']);
+        $imported = app(AllegroReturnImportService::class)->store($account, app(AllegroReturnNormalizer::class)->normalize(AllegroReturnFixture::payload()));
+        $url = route('returns.index');
+        $data = $this->deletion($manual, $imported->fresh());
+
+        $this->from($url)->post(route('returns.bulk-delete'), $data)->assertRedirect($url)
+            ->assertSessionHasErrors(['return' => "Zwrot #{$imported->id} został zaimportowany. Usuwanie zwrotów z integracji nie jest dostępne."])
+            ->assertSessionHasInput('return_ids', $data['return_ids']);
+        $this->get($url)->assertOk()->assertSee('Zwrot #'.$imported->id.' został zaimportowany');
+        $this->assertModelExists($manual);
+        $this->assertModelExists($imported);
+        Http::assertNothingSent();
+    }
+
+    public function test_history_of_processing_tracking_and_automation_blocks_delete(): void
+    {
+        $service = app(OrderReturnService::class);
+        $handled = $service->create($this->payload());
+        $received = ReturnStatusSetting::query()->where('code', 'received')->sole();
+        $rejected = ReturnStatusSetting::query()->where('code', 'rejected')->sole();
+        $service->changeStatuses([$handled->id => 0], $received->id);
+        $this->postJson(route('returns.bulk-delete'), $this->deletion($handled->fresh()))
+            ->assertUnprocessable()->assertJsonPath('errors.return.0', "Zwrot #{$handled->id} nie jest nowy ani odrzucony.");
+        $service->changeStatuses([$handled->id => 1], $rejected->id);
+        $tracked = $service->create($this->payload());
+        OrderReturnParcelEvent::query()->create([
+            'order_return_id' => $tracked->id, 'event_id' => (string) Str::uuid(),
+            'tracking_identity' => str_repeat('a', 64), 'event_key' => str_repeat('b', 64),
+            'provider_status' => 'delivered', 'tracking_status' => 'delivered', 'occurred_at' => now(),
+        ]);
+        $order = $this->order();
+        $automated = $service->create($this->forOrder($order, 1));
+        AutomationRun::query()->create([
+            'order_id' => $order->id, 'order_return_id' => $automated->id, 'event_id' => (string) Str::uuid(),
+            'event_name' => 'return.parcel_status_changed', 'chain_id' => (string) Str::uuid(),
+            'status' => AutomationRun::STATUS_RUNNING, 'event_payload' => [], 'rule_snapshot' => [],
+        ]);
+
+        $this->postJson(route('returns.bulk-delete'), $this->deletion($handled->fresh(), $tracked, $automated))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.return', [
+                "Zwrot #{$handled->id} ma wcześniejszą historię obsługi.",
+                "Zwrot #{$tracked->id} ma historię śledzenia przesyłki zwrotnej.",
+                "Zwrot #{$automated->id} ma powiązane wykonanie automatyzacji.",
+            ]);
+        $this->assertDatabaseCount('order_returns', 3);
+        Http::assertNothingSent();
+    }
+
     public function test_import_does_not_overwrite_local_workflow_and_never_adopts_manual_return(): void
     {
         $order = $this->order('allegro');
@@ -337,6 +452,15 @@ class OrderReturnsTest extends TestCase
         return ['request_key' => (string) Str::uuid(), 'buyer_name' => 'Jan Klient', 'currency' => 'PLN', 'notes' => 'Uwagi testowe',
             'address' => ['street' => 'Testowa 12', 'city' => 'Krakow', 'country_code' => 'PL'],
             'items' => [['name' => 'Towar ręczny', 'quantity' => 3, 'unit_price' => '0.03', 'reason' => 'Pomyłka', 'comment' => 'Komentarz']]];
+    }
+
+    private function deletion(OrderReturn ...$returns): array
+    {
+        return [
+            'confirm_delete' => 1,
+            'return_ids' => array_map(fn ($return) => $return->id, $returns),
+            'versions' => collect($returns)->mapWithKeys(fn (OrderReturn $return) => [$return->id => $return->fresh()->lock_version])->all(),
+        ];
     }
 
     private function order(string $source = 'manual'): Order

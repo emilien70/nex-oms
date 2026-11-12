@@ -149,6 +149,20 @@ class AllegroRefundCommandsTest extends TestCase
         $this->assertStringContainsString(AllegroAccount::PAYMENTS_WRITE_SCOPE, $this->oauthQueries[1]['scope']);
     }
 
+    public function test_bulk_return_delete_does_not_detach_a_queued_refund(): void
+    {
+        $return = $this->returnRecord($this->account());
+        $command = $this->prepare($return);
+        $this->service()->confirm($command, 'owner');
+        $return->refresh();
+        $this->postJson(route('returns.bulk-delete'), [
+            'confirm_delete' => 1, 'return_ids' => [$return->id], 'versions' => [$return->id => $return->lock_version],
+        ])->assertUnprocessable()->assertJsonPath('errors.return.0', "Zwrot #{$return->id} ma przypisaną lub zleconą refundację.");
+        $this->assertModelExists($return);
+        $this->assertDatabaseHas('allegro_refund_commands', ['id' => $command->id, 'order_return_id' => $return->id, 'state' => 'queued']);
+        $this->assertCount(0, $this->writes);
+    }
+
     public function test_full_ui_confirmation_and_duplicate_click_queue_one_write_with_delivery_default_off(): void
     {
         $this->withSession(['refund_flow' => 'test'])->withCookie(config('session.cookie'), session()->getId());

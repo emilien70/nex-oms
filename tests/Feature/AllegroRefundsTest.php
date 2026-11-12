@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Order;
 use App\Models\OrderReturn;
 use App\Models\OrderReturnRefundAllocation;
+use App\Models\ReturnStatusSetting;
 use App\Services\OrderReturnRefundService;
 use App\Services\OrderReturnService;
 use Brick\Math\BigDecimal;
@@ -122,6 +123,27 @@ class AllegroRefundsTest extends TestCase
         $refund = $this->store($account, $raw);
         $this->allocate($return, $refund, '60.02', '0.01')->assertSessionHasErrors('refund_allocation');
         $this->assertDatabaseCount('order_return_refund_allocations', 0);
+    }
+
+    public function test_bulk_return_delete_preserves_allocated_money_on_a_manual_return(): void
+    {
+        $account = $this->account();
+        $order = $this->order($account);
+        $refund = $this->store($account);
+        $return = OrderReturn::query()->create([
+            'source' => 'allegro', 'creation_method' => 'manual', 'order_id' => $order->id,
+            'local_status_id' => ReturnStatusSetting::initial()->id, 'currency' => 'PLN',
+            'total_value' => '60.02', 'buyer_name' => 'Jan Testowy', 'submitted_at' => now(),
+        ])->fresh();
+        $this->allocate($return, $refund, '60.02', '0.00')->assertRedirect()->assertSessionHasNoErrors();
+        $return->refresh();
+
+        $this->postJson(route('returns.bulk-delete'), [
+            'confirm_delete' => 1, 'return_ids' => [$return->id], 'versions' => [$return->id => $return->lock_version],
+        ])->assertUnprocessable()->assertJsonPath('errors.return.0', "Zwrot #{$return->id} ma przypisaną lub zleconą refundację.");
+        $this->assertModelExists($return);
+        $this->assertSame('60.02', $return->refundAllocations()->sole()->products_value);
+        Http::assertNothingSent();
     }
 
     public function test_same_money_cannot_be_allocated_to_two_returns_even_with_fresh_versions(): void

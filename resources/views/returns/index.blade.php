@@ -6,6 +6,9 @@
     $selectedStatus = $returnStatuses->firstWhere('id', (int) ($filters['return_status'] ?? 0));
     $sourceLabels = ['manual' => 'Ręczne', 'prestashop' => 'PrestaShop', 'allegro' => 'Allegro'];
     $starLabels = ['' => 'Usuń oznaczenie', 'orange' => 'Pomarańczowa', 'navy' => 'Granatowa', 'green' => 'Zielona', 'blue' => 'Niebieska', 'red' => 'Czerwona'];
+    $previousSelection = collect((array) old('return_ids', []))
+        ->filter(fn ($id) => (is_int($id) || is_string($id)) && ctype_digit((string) $id))
+        ->map(fn ($id) => (int) $id)->all();
 @endphp
 <style>
     .return-list-indicators{display:grid;grid-template-columns:repeat(3,22px);gap:2px;align-self:flex-start;flex-shrink:0}
@@ -54,6 +57,12 @@
             </div>
         </div>
         <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-return-bulk disabled>Akcje</button>
+            <ul class="dropdown-menu">
+                <li><button class="dropdown-item text-danger" type="button" data-bs-toggle="modal" data-bs-target="#confirmReturnDelete">Usuń zwroty</button></li>
+            </ul>
+        </div>
+        <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-return-bulk disabled>Zmień status</button>
             <div class="dropdown-menu">@foreach ($returnStatuses as $status)<button class="dropdown-item" type="submit" form="bulkReturnsForm" name="local_status_id" value="{{ $status->id }}"><span class="bulk-status-color-dot" style="background:{{ $status->color }}"></span>{{ $status->name }}</button>@endforeach</div>
         </div>
@@ -66,7 +75,7 @@
         <tbody>
         @forelse ($returns as $record)
             <tr>
-                <td class="order-select-column"><input class="form-check-input" type="checkbox" form="bulkReturnsForm" name="return_ids[]" value="{{ $record->id }}" aria-label="Zaznacz zwrot {{ $record->id }}" data-return-checkbox data-starred="{{ $record->star_color ? '1' : '0' }}"><input type="hidden" form="bulkReturnsForm" name="versions[{{ $record->id }}]" value="{{ $record->lock_version }}"></td>
+                <td class="order-select-column"><input class="form-check-input" type="checkbox" form="bulkReturnsForm" name="return_ids[]" value="{{ $record->id }}" aria-label="Zaznacz zwrot {{ $record->id }}" data-return-checkbox data-starred="{{ $record->star_color ? '1' : '0' }}" @checked(in_array($record->id, $previousSelection, true))><input type="hidden" form="bulkReturnsForm" name="versions[{{ $record->id }}]" value="{{ $record->lock_version }}"></td>
                 <td class="order-star-column"><div class="dropdown">
                     <button class="star-button star-{{ $record->star_color ?: 'empty' }}" type="button" data-bs-toggle="dropdown" aria-label="Wybierz kolor oznaczenia zwrotu {{ $record->id }}" aria-expanded="false">{!! $record->star_color ? '&#9733;' : '&#9734;' !!}</button>
                     <div class="dropdown-menu star-picker"><div class="d-flex gap-1">@foreach ($starColors as $color)<form method="POST" action="{{ route('returns.star', $record) }}">@csrf @method('PATCH')<input type="hidden" name="expected_lock_version" value="{{ $record->lock_version }}"><input type="hidden" name="star_color" value="{{ $color }}"><button class="star-color-button star-{{ $color ?: 'empty' }}" title="{{ $starLabels[$color] }}" aria-label="{{ $starLabels[$color] }}" type="submit">{!! $color ? '&#9733;' : '&#9734;' !!}</button></form>@endforeach</div></div>
@@ -108,6 +117,24 @@
         </tbody>
     </table></div></div>
     <div data-list-toolbar-spacer aria-hidden="true"></div>
+    <div class="modal fade" id="confirmReturnDelete" tabindex="-1" aria-labelledby="confirmReturnDeleteTitle" aria-describedby="confirmReturnDeleteWarning" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="confirmReturnDeleteTitle">Usuń zwroty</h2>
+                    <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2" id="confirmReturnDeleteWarning">Zaznaczone zwroty zostaną usunięte na stałe, bez przenoszenia do Kosza. Tej operacji nie można cofnąć.</p>
+                    <p class="mb-0 text-break" data-return-delete-ids></p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-light border" type="button" data-bs-dismiss="modal">Anuluj</button>
+                    <button class="btn btn-danger" type="submit" form="bulkReturnsForm" formaction="{{ route('returns.bulk-delete') }}" name="confirm_delete" value="1" data-return-delete-confirm>Usuń trwale</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 @include('orders.partials.docked-list-toolbar-script')
 <script>
@@ -115,8 +142,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const boxes = [...document.querySelectorAll('[data-return-checkbox]')];
     const bulkButtons = document.querySelectorAll('[data-return-bulk]');
     const selectionCounts = document.querySelectorAll('[data-return-selected]');
+    const selectedIds = () => boxes.filter(box => box.checked).map(box => box.value);
     const update = () => {
-        const count = boxes.filter(box => box.checked).length;
+        const count = selectedIds().length;
         bulkButtons.forEach(button => { button.disabled = !count; });
         selectionCounts.forEach(label => { label.textContent = count ? 'Zaznaczono: ' + count : ''; });
     };
@@ -124,6 +152,38 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-return-select]').forEach(button => button.addEventListener('click', () => {
         boxes.forEach(box => { box.checked = button.dataset.returnSelect === 'all' || (button.dataset.returnSelect === 'starred' && box.dataset.starred === '1') || (button.dataset.returnSelect === 'invert' && !box.checked); }); update();
     }));
+    update();
+
+    const deleteModal = document.getElementById('confirmReturnDelete');
+    const deleteConfirm = deleteModal.querySelector('[data-return-delete-confirm]');
+    let deleteSelection = null;
+    let deleting = false;
+    deleteModal.addEventListener('show.bs.modal', event => {
+        const ids = selectedIds();
+        if (!ids.length || deleting) {
+            event.preventDefault();
+            return;
+        }
+        deleteSelection = ids.join(',');
+        deleteModal.querySelector('[data-return-delete-ids]').textContent = ids.map(id => '#' + id).join(', ');
+    });
+    deleteModal.addEventListener('hidden.bs.modal', () => { deleteSelection = null; });
+    deleteConfirm.form.addEventListener('submit', event => {
+        if (event.submitter !== deleteConfirm) return;
+        if (deleting || deleteSelection === null || selectedIds().join(',') !== deleteSelection) {
+            event.preventDefault();
+            return;
+        }
+        deleting = true;
+        deleteConfirm.setAttribute('aria-disabled', 'true');
+    });
+    window.addEventListener('pageshow', event => {
+        if (!event.persisted) return;
+        deleting = false;
+        deleteConfirm.removeAttribute('aria-disabled');
+        update();
+    });
+
     document.querySelectorAll('[data-return-copy]').forEach(button => button.addEventListener('click', async () => {
         if (!button.dataset.returnCopy) return;
         try { await navigator.clipboard.writeText(button.dataset.returnCopy); } catch { window.nexOmsShowActivity?.({tone:'error',title:'Schowek',message:'Nie udało się skopiować loginu.'}); }

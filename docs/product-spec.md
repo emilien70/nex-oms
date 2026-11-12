@@ -3060,6 +3060,8 @@ Lokalny status i jego data sa oddzielone od statusu Allegro i daty jego odczytu.
 
 Utworzenie jest chronione przed podwojnym wyslaniem formularza, zmiana zamowienia w innym oknie i przekroczeniem znanych pozostalych ilosci. Ceny i sumy sa liczone dokladnie, bez float. Pozycje i adres maja wlasne snapshoty; usuniecie zamowienia lub produktu nie kasuje historii zwrotu. Oryginalne przesylki wyslane klientowi sa nadal pokazywane oddzielnie od przesylek zwrotnych. Ten etap nie wykonuje refundacji, korekt, operacji magazynowych ani zapisu do API Allegro. Szczegoly wdrozenia: docs/returns-general-report.md.
 
+Na liscie zwrotow Akcje -> Usun zwroty usuwa zaznaczone karty trwale, bez Kosza. Potwierdzenie pokazuje ich numery. Do usuniecia kwalifikuja sie wylacznie reczne zwroty (niezaleznie od zrodla zamowienia), ktore pozostaly w stanie Nowe lub zostaly od razu odrzucone i nie maja historii dalszej obslugi. Korekta, powiazane rozliczenia lub zlecenia refundacji i prowizji, zapisane sledzenie przesylki lub wykonanie automatyzacji blokuja operacje. Przy blokadzie lub niezgodnej wersji rekordu nie jest usuwany zaden zaznaczony zwrot. Usuniecie nie zmienia zamowien, przesylek wychodzacych ani dokumentow i nie wywoluje zewnetrznego API. Importowane zwroty pozostaja poza zakresem.
+
 ---
 
 # ALLEGRO.4B.1 - odczyt refundacji i lokalne przypisanie

@@ -170,6 +170,20 @@ class AllegroCommissionRefundsTest extends TestCase
         $this->get(route('returns.show', $two))->assertOk()->assertSee('Zwroty prowizji Allegro');
     }
 
+    public function test_bulk_return_delete_does_not_detach_a_queued_commission_claim(): void
+    {
+        $return = $this->returnRecord($this->account());
+        [$data, $quote] = $this->submission($return);
+        $this->service()->submit($return, $data, $quote);
+        $return->refresh();
+        $this->postJson(route('returns.bulk-delete'), [
+            'confirm_delete' => 1, 'return_ids' => [$return->id], 'versions' => [$return->id => $return->lock_version],
+        ])->assertUnprocessable()->assertJsonPath('errors.return.0', "Zwrot #{$return->id} ma wniosek o zwrot prowizji.");
+        $this->assertModelExists($return);
+        $this->assertDatabaseHas('allegro_commission_refund_claims', ['order_return_id' => $return->id, 'state' => 'queued']);
+        $this->assertCount(0, $this->writes);
+    }
+
     public function test_existing_automatic_claim_is_recognized_and_no_post_is_sent(): void
     {
         $return = $this->returnRecord($this->account());

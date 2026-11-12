@@ -523,6 +523,7 @@ Route::get('/orders/returns', [OrderReturnController::class, 'index'])->name('re
 Route::get('/orders/returns/create', [OrderReturnController::class, 'create'])->name('returns.create');
 Route::post('/orders/returns', [OrderReturnController::class, 'store'])->name('returns.store');
 Route::post('/orders/returns/bulk-status', [OrderReturnController::class, 'bulkStatus'])->name('returns.bulk-status');
+Route::post('/orders/returns/bulk-delete', [OrderReturnController::class, 'bulkDelete'])->name('returns.bulk-delete');
 Route::patch('/orders/returns/{orderReturn}/status', [OrderReturnController::class, 'status'])->name('returns.status');
 Route::patch('/orders/returns/{orderReturn}/star', [OrderReturnController::class, 'star'])->name('returns.star');
 Route::patch('/orders/returns/{orderReturn}/refunds/{refund}', [OrderReturnRefundController::class, 'update'])->name('returns.refunds.allocate');

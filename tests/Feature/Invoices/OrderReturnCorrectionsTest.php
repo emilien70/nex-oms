@@ -74,6 +74,22 @@ class OrderReturnCorrectionsTest extends TestCase
         return [['manual'], ['prestashop'], ['allegro']];
     }
 
+    public function test_bulk_return_delete_never_unlinks_a_correction(): void
+    {
+        [$invoice, $return] = $this->fixture();
+        $this->post(route('invoices.corrections.store', $invoice), $this->payload($invoice, $return))
+            ->assertRedirect()->assertSessionHasNoErrors();
+        $return->refresh();
+        $correction = $return->correction;
+        $before = $correction->getAttributes();
+        $this->postJson(route('returns.bulk-delete'), [
+            'confirm_delete' => 1, 'return_ids' => [$return->id], 'versions' => [$return->id => $return->lock_version],
+        ])->assertUnprocessable()->assertJsonPath('errors.return.0', "Zwrot #{$return->id} ma powiązaną korektę.");
+        $this->assertModelExists($return);
+        $this->assertSame($before, $correction->fresh()->getAttributes());
+        Http::assertNothingSent();
+    }
+
     #[DataProvider('shippingAmounts')]
     public function test_shipping_can_be_corrected_fully_or_partly(string $amount, string $total, string $remaining): void
     {

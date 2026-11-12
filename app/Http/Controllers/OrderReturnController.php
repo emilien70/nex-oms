@@ -188,6 +188,27 @@ class OrderReturnController extends Controller
         return back();
     }
 
+    public function bulkDelete(Request $request, OrderReturnService $service)
+    {
+        $data = $request->validate([
+            'confirm_delete' => ['required', 'accepted'],
+            'return_ids' => ['required', 'array', 'min:1', 'max:200'],
+            'return_ids.*' => ['required', 'integer', 'min:1', 'distinct'],
+            'versions' => ['required', 'array', 'max:200'],
+            'versions.*' => ['required', 'integer', 'min:0'],
+        ]);
+        $versions = array_intersect_key($data['versions'], array_flip($data['return_ids']));
+        if (count($versions) !== count($data['return_ids'])) {
+            throw ValidationException::withMessages(['return' => 'Odśwież listę zwrotów i spróbuj ponownie.']);
+        }
+
+        $service->deleteUnprocessed($versions);
+
+        return back()->with('success', count($versions) === 1
+            ? 'Trwale usunięto zwrot #'.array_key_first($versions).'.'
+            : 'Liczba trwale usuniętych zwrotów: '.count($versions).'.');
+    }
+
     public function star(Request $request, OrderReturn $orderReturn)
     {
         $data = $request->validate(['star_color' => ['nullable', Rule::in(OrderReturnService::STAR_COLORS)], 'expected_lock_version' => ['required', 'integer', 'min:0']]);
