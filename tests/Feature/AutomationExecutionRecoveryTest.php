@@ -234,7 +234,7 @@ class AutomationExecutionRecoveryTest extends TestCase
         $token = (string) Str::uuid();
         $this->claimAndStart($run, $token);
         app(AutomationExecutionState::class)->interrupt($run->id, $token);
-        $this->getJson(route('automation.activity.index'))->assertOk()
+        $this->getJson(route('automation.activity.index', ['order_id' => $run->order_id]))->assertOk()
             ->assertJsonPath('activities.0.status', AutomationRun::STATUS_INTERRUPTED)
             ->assertJsonPath('activities.0.status_label', 'Przerwano - sprawdź wynik')
             ->assertJsonPath('activities.0.is_terminal', true)

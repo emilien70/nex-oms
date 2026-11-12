@@ -18,7 +18,7 @@ class AutomationActivityFeedTest extends TestCase
     use CreatesInvoiceStage2CDocuments;
     use RefreshDatabase;
 
-    public function test_feed_returns_the_current_automation_step_for_the_global_panel(): void
+    public function test_feed_returns_the_current_automation_step_for_the_order_panel(): void
     {
         $this->travelTo(Carbon::parse('2026-07-16 15:30:00'));
 
@@ -41,10 +41,11 @@ class AutomationActivityFeedTest extends TestCase
             'started_at' => now(),
         ]);
 
-        $this->getJson(route('automation.activity.index'))
+        $this->getJson($this->activityUrl($run))
             ->assertOk()
             ->assertHeader('Cache-Control', 'must-revalidate, no-cache, no-store, private')
             ->assertJsonPath('activities.0.id', $run->id)
+            ->assertJsonPath('activities.0.notification_title', 'Testowa automatyczna akcja')
             ->assertJsonPath('activities.0.order_id', $order->id)
             ->assertJsonPath('activities.0.status', AutomationRun::STATUS_RUNNING)
             ->assertJsonPath('activities.0.status_label', 'Wykonywanie')
@@ -62,7 +63,7 @@ class AutomationActivityFeedTest extends TestCase
     {
         $run = $this->createRun($this->order(), AutomationRun::STATUS_QUEUED, $this->threeActions());
 
-        $response = $this->getJson(route('automation.activity.index'))->assertOk();
+        $response = $this->getJson($this->activityUrl($run))->assertOk();
         $steps = $response->json('activities.0.steps');
 
         $this->assertSame($run->id, $response->json('activities.0.id'));
@@ -80,7 +81,7 @@ class AutomationActivityFeedTest extends TestCase
         ]);
         $this->addStep($run, 1, AutomationCatalog::ACTION_DELAY, 'running', ['minutes' => 5]);
 
-        $response = $this->getJson(route('automation.activity.index'))->assertOk();
+        $response = $this->getJson($this->activityUrl($run))->assertOk();
         $steps = $response->json('activities.0.steps');
 
         $this->assertSame(['completed', 'running', 'queued'], array_column($steps, 'status'));
@@ -103,7 +104,7 @@ class AutomationActivityFeedTest extends TestCase
         );
         $this->addThreeCompletedSteps($run);
 
-        $response = $this->getJson(route('automation.activity.index'))->assertOk();
+        $response = $this->getJson($this->activityUrl($run))->assertOk();
         $steps = $response->json('activities.0.steps');
 
         $this->assertSame(['completed', 'completed', 'completed'], array_column($steps, 'status'));
@@ -133,7 +134,8 @@ class AutomationActivityFeedTest extends TestCase
             errorMessage: $error,
         );
 
-        $response = $this->getJson(route('automation.activity.index'))->assertOk();
+        $response = $this->getJson($this->activityUrl($run))->assertOk()
+            ->assertJsonPath('activities.0.tone', 'error');
         $steps = $response->json('activities.0.steps');
 
         $this->assertSame(['completed', 'failed', 'skipped'], array_column($steps, 'status'));
@@ -145,10 +147,12 @@ class AutomationActivityFeedTest extends TestCase
 
     public function test_feed_does_not_skip_steps_completed_after_a_non_stopping_failure(): void
     {
+        $actions = $this->threeActions();
+        $actions[1]['stop_on_error'] = false;
         $run = $this->createRun(
             $this->order(),
             AutomationRun::STATUS_COMPLETED_WITH_ERRORS,
-            $this->threeActions(),
+            $actions,
             now(),
         );
         $this->addStep($run, 0, AutomationCatalog::ACTION_CHANGE_STATUS, 'completed', [
@@ -166,11 +170,14 @@ class AutomationActivityFeedTest extends TestCase
             'status' => Order::STATUS_SHIPPED,
         ]);
 
-        $steps = $this->getJson(route('automation.activity.index'))
+        $steps = $this->getJson($this->activityUrl($run))
             ->assertOk()
+            ->assertJsonPath('activities.0.tone', 'warning')
             ->json('activities.0.steps');
 
         $this->assertSame(['completed', 'failed', 'completed'], array_column($steps, 'status'));
+        $this->assertSame(['success', 'warning', 'success'], array_column($steps, 'tone'));
+        $this->assertSame('Zmień status', $steps[2]['short_label']);
         $this->assertNotContains('skipped', array_column($steps, 'status'));
     }
 
@@ -189,7 +196,7 @@ class AutomationActivityFeedTest extends TestCase
             output: ['resume_at' => now()->addMinutes(5)->toIso8601String()],
         );
 
-        $waitingSteps = $this->getJson(route('automation.activity.index'))
+        $waitingSteps = $this->getJson($this->activityUrl($run))
             ->assertOk()
             ->json('activities.0.steps');
 
@@ -199,7 +206,7 @@ class AutomationActivityFeedTest extends TestCase
 
         $run->update(['status' => AutomationRun::STATUS_RUNNING]);
 
-        $resumedSteps = $this->getJson(route('automation.activity.index'))
+        $resumedSteps = $this->getJson($this->activityUrl($run))
             ->assertOk()
             ->json('activities.0.steps');
 
@@ -214,7 +221,7 @@ class AutomationActivityFeedTest extends TestCase
             'finished_at' => now(),
         ]);
 
-        $completedSteps = $this->getJson(route('automation.activity.index'))
+        $completedSteps = $this->getJson($this->activityUrl($run))
             ->assertOk()
             ->json('activities.0.steps');
 
@@ -257,9 +264,9 @@ class AutomationActivityFeedTest extends TestCase
                 'configuration' => ['email_template_id' => $template->id],
             ],
         ];
-        $this->createRun($this->order(), AutomationRun::STATUS_QUEUED, $actions);
+        $run = $this->createRun($this->order(), AutomationRun::STATUS_QUEUED, $actions);
 
-        $steps = $this->getJson(route('automation.activity.index'))
+        $steps = $this->getJson($this->activityUrl($run))
             ->assertOk()
             ->json('activities.0.steps');
 
@@ -273,42 +280,42 @@ class AutomationActivityFeedTest extends TestCase
         ], array_column($steps, 'label'));
     }
 
-    public function test_single_step_keeps_compact_message_and_layout_supports_safe_multi_step_rendering(): void
+    public function test_unnamed_manual_rule_uses_the_event_label_without_changing_history_title(): void
     {
-        $this->createRun($this->order(), AutomationRun::STATUS_QUEUED, [[
+        $run = $this->createRun($this->order(), AutomationRun::STATUS_QUEUED, []);
+        $run->update([
+            'rule_snapshot' => ['name' => '', 'actions' => []],
+            'event_payload' => ['source' => 'manual_quick_action', 'custom_event_label' => 'Paczkomat B'],
+        ]);
+
+        $this->getJson($this->activityUrl($run))->assertOk()
+            ->assertJsonPath('activities.0.notification_title', 'Paczkomat B')
+            ->assertJsonPath('activities.0.title', 'Automatyczna akcja #'.$run->id);
+    }
+
+    public function test_single_step_is_available_to_the_compact_notification_panel(): void
+    {
+        $run = $this->createRun($this->order(), AutomationRun::STATUS_QUEUED, [[
             'type' => AutomationCatalog::ACTION_DELAY,
             'configuration' => ['minutes' => 5],
         ]]);
 
-        $this->getJson(route('automation.activity.index'))
+        $this->getJson($this->activityUrl($run))
             ->assertOk()
             ->assertJsonCount(1, 'activities.0.steps')
             ->assertJsonPath('activities.0.message', 'Oczekuje na wykonanie');
 
         $page = $this->get('/')->assertOk()->getContent();
 
-        $this->assertStringContainsString('if (steps.length >= 2) {', $page);
-        $this->assertStringContainsString('message.textContent = activity.message;', $page);
-        $this->assertStringContainsString('stepLabel.textContent =', $page);
-        $this->assertStringContainsString('stepStatus.textContent = step.status_label;', $page);
-        $this->assertStringContainsString('stepDetails.textContent = step.details;', $page);
-
-        foreach (['completed', 'failed', 'skipped', 'running', 'queued', 'waiting'] as $status) {
-            $this->assertStringContainsString(".automation-activity-step-status.is-{$status}", $page);
-        }
-
-        preg_match_all(
-            '/\.automation-activity-step-status(?:\.[^{]+)?\s*\{([^}]*)\}/',
-            $page,
-            $statusRules,
-        );
-        $this->assertNotEmpty($statusRules[1]);
-        foreach ($statusRules[1] as $declarations) {
-            $this->assertStringNotContainsString('background', $declarations);
+        $this->assertStringContainsString('automation-activity-chip is-', $page);
+        $this->assertStringContainsString('automation-activity-step-list', $page);
+        $this->assertStringNotContainsString('automation-activity-popover', $page);
+        foreach (['success', 'warning', 'error', 'progress'] as $tone) {
+            $this->assertStringContainsString(".automation-activity-step.is-{$tone}", $page);
         }
     }
 
-    public function test_feed_contains_only_recent_finished_runs_and_layout_contains_the_panel(): void
+    public function test_feed_scopes_runs_before_limiting_and_excludes_expired_results(): void
     {
         $this->travelTo(Carbon::parse('2026-07-16 15:35:00'));
 
@@ -320,18 +327,63 @@ class AutomationActivityFeedTest extends TestCase
             ->where('id', $old->id)
             ->update(['updated_at' => now()->subMinutes(3)]);
 
-        $this->getJson(route('automation.activity.index'))
+        $otherOrder = $this->order();
+        $this->travel(1)->seconds();
+        for ($i = 0; $i < 13; $i++) {
+            $this->createRun($otherOrder, AutomationRun::STATUS_RUNNING, []);
+        }
+
+        $this->getJson($this->activityUrl($recent))
             ->assertOk()
             ->assertJsonCount(1, 'activities')
             ->assertJsonPath('activities.0.id', $recent->id)
             ->assertJsonPath('activities.0.tone', 'success')
             ->assertJsonPath('activities.0.is_terminal', true);
 
-        $this->get('/')
+        $this->getJson(route('automation.activity.index', ['order_id' => $otherOrder->id]))
             ->assertOk()
-            ->assertSee('data-automation-activity-center', false)
-            ->assertSee('nexoms:automation-finished', false)
-            ->assertSee(route('automation.activity.index'), false);
+            ->assertJsonCount(12, 'activities')
+            ->assertJsonMissing(['id' => $recent->id]);
+    }
+
+    public function test_feed_requires_a_valid_order_id_and_has_no_global_fallback(): void
+    {
+        $this->createRun($this->order(), AutomationRun::STATUS_QUEUED, []);
+        $this->getJson(route('automation.activity.index'))
+            ->assertUnprocessable()->assertJsonValidationErrors('order_id');
+        $this->getJson(route('automation.activity.index', ['order_id' => 'all']))
+            ->assertUnprocessable()->assertJsonValidationErrors('order_id');
+        $this->getJson(route('automation.activity.index', ['order_id' => 999999]))
+            ->assertOk()->assertExactJson(['activities' => []]);
+    }
+
+    public function test_only_order_cards_opt_in_to_automation_polling(): void
+    {
+        $order = $this->order();
+        $otherOrder = $this->order();
+        $endpoint = fn (Order $order): string => route('automation.activity.index', ['order_id' => $order->id]);
+
+        foreach ([$order, $otherOrder] as $card) {
+            $this->get(route('orders.show', $card))
+                ->assertOk()
+                ->assertSee('data-automation-order-id="'.$card->id.'"', false)
+                ->assertSee('data-endpoint="'.$endpoint($card).'"', false)
+                ->assertSee('nexoms:automation-finished', false)
+                ->assertDontSee('data-endpoint="'.$endpoint($card->is($order) ? $otherOrder : $order).'"', false);
+        }
+
+        foreach (['/', route('orders.index'), route('returns.index')] as $url) {
+            $this->get($url)
+                ->assertOk()
+                ->assertSee('data-automation-activity-center', false)
+                ->assertDontSee('data-automation-order-id=', false)
+                ->assertDontSee('data-endpoint="'.route('automation.activity.index'), false);
+        }
+    }
+
+    private function activityUrl(AutomationRun $run): string
+    {
+        return route('automation.activity.index', ['order_id' => $run->order_id]);
     }
 
     private function order(): Order

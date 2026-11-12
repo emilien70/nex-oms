@@ -904,21 +904,99 @@
         }
 
         .automation-activity-center {
+            --automation-activity-width: min(244px, calc((100vw - 96px) / 3));
+            align-items: flex-end;
             bottom: 16px;
-            display: grid;
-            gap: 8px;
-            max-height: calc(100vh - 32px);
-            overflow-y: auto;
-            padding: 2px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            justify-content: flex-end;
+            max-width: calc(100vw - 32px);
             pointer-events: none;
             position: fixed;
             right: 16px;
-            width: min(390px, calc(100vw - 32px));
             z-index: 1090;
+        }
+
+        .automation-activity-center[data-automation-order-id] {
+            bottom: calc(4px + env(safe-area-inset-bottom, 0px));
         }
 
         .automation-activity-center[hidden] {
             display: none;
+        }
+
+        .automation-activity-group {
+            max-width: var(--automation-activity-width);
+            min-width: 0;
+            position: relative;
+        }
+
+        .automation-activity-chip {
+            align-items: center;
+            background: #176da8;
+            border: 1px solid rgba(0, 0, 0, .12);
+            border-radius: 4px;
+            box-shadow: 0 2px 6px rgba(15, 23, 42, .14);
+            color: #fff;
+            display: flex;
+            font-size: 12px;
+            gap: 6px;
+            height: 36px;
+            max-width: 100%;
+            min-width: min(128px, var(--automation-activity-width));
+            padding: 0 8px;
+            pointer-events: auto;
+        }
+
+        .automation-activity-chip.is-success { background: #146c43; }
+        .automation-activity-chip.is-warning { background: #ffbf49; color: #382700; }
+        .automation-activity-chip.is-error { background: #b62d3b; }
+        .automation-activity-chip.is-waiting { background: #52667b; }
+
+        .automation-activity-chip:focus-visible {
+            outline: 2px solid #0b6fd3;
+            outline-offset: 2px;
+        }
+
+        .automation-activity-chip-title {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .automation-activity-chip-icon,
+        .automation-activity-chevron {
+            align-items: center;
+            display: inline-flex;
+            flex: 0 0 auto;
+            justify-content: center;
+        }
+
+        .automation-activity-chip-icon {
+            height: 14px;
+            width: 14px;
+        }
+
+        .automation-activity-chip-icon.is-alert {
+            border: 1px solid currentColor;
+            border-radius: 50%;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .automation-activity-count {
+            align-items: center;
+            background: #edf1f5;
+            border: 1px solid #d5dce5;
+            border-radius: 4px;
+            color: #374151;
+            display: flex;
+            font-size: 12px;
+            height: 36px;
+            padding: 0 6px;
         }
 
         .automation-activity-item {
@@ -930,6 +1008,7 @@
             box-shadow: 0 8px 22px rgba(15, 23, 42, .16);
             display: flex;
             gap: 10px;
+            max-width: min(390px, calc(100vw - 32px));
             min-height: 64px;
             padding: 10px 11px;
             pointer-events: auto;
@@ -1041,8 +1120,7 @@
         }
 
         .automation-activity-order,
-        .automation-activity-status,
-        .automation-activity-progress {
+        .automation-activity-status {
             font-size: 11px;
             line-height: 1.25;
         }
@@ -1056,8 +1134,7 @@
             text-decoration: underline;
         }
 
-        .automation-activity-status,
-        .automation-activity-progress {
+        .automation-activity-status {
             color: #718096;
         }
 
@@ -1069,72 +1146,67 @@
         }
 
         .automation-activity-steps {
-            display: grid;
-            gap: 6px;
-            margin-top: 7px;
+            bottom: calc(100% + 3px);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-end;
+            max-height: min(240px, 36dvh);
+            overflow-y: auto;
+            padding: 2px;
+            position: absolute;
+            right: -2px;
+            width: calc(100% + 4px);
+        }
+
+        .automation-activity-step-list {
+            align-items: flex-end;
+            display: flex;
+            flex: 0 0 auto;
+            flex-direction: column;
+            gap: 4px;
+            list-style: none;
+            margin: 0;
+            max-width: 100%;
+            padding: 0;
         }
 
         .automation-activity-step {
-            min-width: 0;
-        }
-
-        .automation-activity-step-label {
-            color: #172033;
+            align-items: center;
+            background: #edf1f5;
+            border: 1px solid #cbd5df;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+            color: #374151;
+            display: flex;
+            flex: 0 0 26px;
             font-size: 12px;
-            line-height: 1.3;
+            gap: 6px;
+            max-width: 100%;
+            min-width: 0;
+            padding: 0 7px;
+            pointer-events: auto;
         }
 
-        .automation-activity-step-status {
-            color: #718096;
-            font-size: 11px;
-            font-weight: 600;
-            line-height: 1.3;
-            margin-left: 15px;
-            margin-top: 1px;
+        .automation-activity-step.is-success { background: #e7f6ed; border-color: #7ab598; color: #125335; }
+        .automation-activity-step.is-warning { background: #fff2d4; border-color: #dda640; color: #382700; }
+        .automation-activity-step.is-error { background: #fce8ea; border-color: #da8b93; color: #8a2030; }
+        .automation-activity-step.is-progress { background: #e4f2fc; border-color: #83b3d6; color: #145887; }
+
+        .automation-activity-step-close {
+            background: #fff;
+            border: 1px solid #cbd5df;
+            color: #52667b;
+            flex: 0 0 22px;
+            margin: 0;
+            pointer-events: auto;
+            width: 22px;
         }
 
-        .automation-activity-step-status.is-completed {
-            color: #198754;
-        }
-
-        .automation-activity-step-status.is-failed {
-            color: #dc3545;
-        }
-
-        .automation-activity-step-status.is-skipped {
-            color: #d97706;
-        }
-
-        .automation-activity-step-status.is-running {
-            color: #0d6efd;
-        }
-
-        .automation-activity-step-status.is-queued {
-            color: #718096;
-        }
-
-        .automation-activity-step-status.is-waiting,
-        .automation-activity-step-status.is-uncertain {
-            color: #a86e00;
-        }
-
-        .automation-activity-step-details {
-            color: #b4232f;
-            font-size: 11px;
-            line-height: 1.35;
-            margin-left: 15px;
-            margin-top: 1px;
-        }
-
-        .automation-activity-details {
-            color: #b4232f;
-            display: -webkit-box;
-            font-size: 11px;
-            line-height: 1.35;
-            margin-top: 3px;
-            overflow: hidden;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
+        @media (prefers-reduced-motion: reduce) {
+            .automation-activity-spinner {
+                animation: none;
+            }
         }
 
         .page-navigation-loading {
@@ -1410,9 +1482,10 @@
             }
 
             .automation-activity-center {
-                bottom: 8px;
+                --automation-activity-width: min(202px, calc((100vw - 62px) / 2));
+                bottom: max(8px, env(safe-area-inset-bottom, 0px));
+                max-width: calc(100vw - 16px);
                 right: 8px;
-                width: calc(100vw - 16px);
             }
         }
     </style>
@@ -1680,7 +1753,10 @@
     <div
         class="automation-activity-center"
         data-automation-activity-center
-        data-endpoint="{{ route('automation.activity.index') }}"
+        @isset($automationActivityOrderId)
+            data-automation-order-id="{{ $automationActivityOrderId }}"
+            data-endpoint="{{ route('automation.activity.index', ['order_id' => $automationActivityOrderId]) }}"
+        @endisset
         aria-live="polite"
         aria-label="Wykonywane automatyczne akcje"
         hidden
@@ -2114,12 +2190,21 @@
             }
 
             const endpoint = center.dataset.endpoint;
+            const orderId = Number(center.dataset.automationOrderId);
             const dismissedStorageKey = 'nexOmsDismissedAutomationActivities';
+            const narrowScreen = window.matchMedia('(max-width: 767.98px)');
+            const tonePriority = { error: 0, warning: 1, progress: 2, success: 3, waiting: 4 };
             const autoHideTimers = new Map();
             const handledTerminalActivities = new Set();
+            const stepExpiry = new Map();
+            const stepExpansion = new Map();
             let activities = [];
-            let loading = false;
+            let visibleIds = [];
+            let lastRender = '';
+            let pageActive = true;
+            let currentRequest = null;
             let refreshTimer = null;
+            let stepHideTimer = null;
             let fastPollingUntil = 0;
 
             const readDismissed = () => {
@@ -2183,7 +2268,7 @@
 
             const statusIcon = (activity) => {
                 const icon = document.createElement('span');
-                icon.className = 'automation-activity-icon';
+                icon.className = activity.is_local ? 'automation-activity-icon' : 'automation-activity-chip-icon';
                 icon.setAttribute('aria-hidden', 'true');
 
                 if (activity.tone === 'progress') {
@@ -2192,8 +2277,11 @@
                     icon.appendChild(spinner);
                 } else if (activity.tone === 'success') {
                     icon.textContent = '\u2713';
-                } else if (activity.tone === 'error') {
+                } else if (activity.tone === 'error' || activity.tone === 'warning') {
                     icon.textContent = '!';
+                    if (!activity.is_local) icon.className += ' is-alert';
+                } else if (activity.tone === 'skipped') {
+                    icon.textContent = '\u2013';
                 } else {
                     icon.textContent = '\u2026';
                 }
@@ -2201,147 +2289,261 @@
                 return icon;
             };
 
-            const render = () => {
-                center.replaceChildren();
+            const dismissButton = (activity) => {
+                const close = document.createElement('button');
+                close.className = 'automation-activity-close';
+                close.type = 'button';
+                close.textContent = '\u00d7';
+                close.dataset.activityControl = `close:${activity.id}`;
+                close.setAttribute('aria-label', 'Zamknij powiadomienie');
+                close.addEventListener('click', () => {
+                    rememberDismissed(activityToken(activity));
+                    render();
+                });
+                return close;
+            };
 
-                const visible = activities
-                    .filter((activity) => !dismissed.has(activityToken(activity)))
-                    .slice(0, 6);
+            const activityHeading = (activity) => {
+                const heading = document.createElement('div');
+                heading.className = 'automation-activity-heading';
+                const title = document.createElement('p');
+                title.className = 'automation-activity-title';
+                title.textContent = activity.title;
+                heading.appendChild(title);
+                if (activity.can_dismiss) heading.appendChild(dismissButton(activity));
+                return heading;
+            };
 
-                center.hidden = visible.length === 0;
-
-                visible.forEach((activity) => {
-                    const token = activityToken(activity);
-                    const item = document.createElement('article');
-                    item.className = `automation-activity-item is-${activity.tone}`;
-                    item.setAttribute('role', activity.tone === 'error' ? 'alert' : 'status');
-                    item.appendChild(statusIcon(activity));
-
-                    const content = document.createElement('div');
-                    content.className = 'automation-activity-content';
-
-                    const heading = document.createElement('div');
-                    heading.className = 'automation-activity-heading';
-
-                    const title = document.createElement('p');
-                    title.className = 'automation-activity-title';
-                    title.textContent = activity.title;
-                    heading.appendChild(title);
-
-                    if (activity.can_dismiss) {
-                        const close = document.createElement('button');
-                        close.className = 'automation-activity-close';
-                        close.type = 'button';
-                        close.textContent = '\u00d7';
-                        close.setAttribute('aria-label', 'Zamknij komunikat automatycznej akcji');
-                        close.addEventListener('click', () => {
-                            rememberDismissed(token);
-                            render();
-                        });
-                        heading.appendChild(close);
-                    }
-
-                    content.appendChild(heading);
-
-                    const meta = document.createElement('div');
-                    meta.className = 'automation-activity-meta';
-
+            const activityMeta = (activity, statusText) => {
+                const meta = document.createElement('div');
+                meta.className = 'automation-activity-meta';
+                if (activity.order_label && activity.order_url) {
                     const order = document.createElement('a');
                     order.className = 'automation-activity-order';
                     order.href = activity.order_url;
                     order.textContent = activity.order_label;
+                    order.dataset.activityControl = `order:${activity.id}`;
                     meta.appendChild(order);
-
+                }
+                if (statusText) {
                     const status = document.createElement('span');
                     status.className = 'automation-activity-status';
-                    status.textContent = activity.status_label;
+                    status.textContent = statusText;
                     meta.appendChild(status);
-
-                    if (activity.progress?.total > 1) {
-                        const progress = document.createElement('span');
-                        progress.className = 'automation-activity-progress';
-                        progress.textContent = `Krok ${activity.progress.current} z ${activity.progress.total}`;
-                        meta.appendChild(progress);
-                    }
-
-                    content.appendChild(meta);
-
-                    const steps = Array.isArray(activity.steps) ? activity.steps : [];
-
-                    if (steps.length >= 2) {
-                        const stepList = document.createElement('div');
-                        stepList.className = 'automation-activity-steps';
-
-                        steps.forEach((step, index) => {
-                            const stepItem = document.createElement('div');
-                            stepItem.className = 'automation-activity-step';
-
-                            const stepLabel = document.createElement('div');
-                            stepLabel.className = 'automation-activity-step-label';
-                            stepLabel.textContent = `${step.position || index + 1}. ${step.label || step.action_type || ''}`;
-                            stepItem.appendChild(stepLabel);
-
-                            const presentationStatus = [
-                                'completed',
-                                'failed',
-                                'uncertain',
-                                'skipped',
-                                'running',
-                                'queued',
-                                'waiting',
-                            ].includes(step.status) ? step.status : 'queued';
-                            const stepStatus = document.createElement('div');
-                            stepStatus.className = `automation-activity-step-status is-${presentationStatus}`;
-                            stepStatus.textContent = step.status_label;
-                            stepItem.appendChild(stepStatus);
-
-                            if (step.details) {
-                                const stepDetails = document.createElement('div');
-                                stepDetails.className = 'automation-activity-step-details';
-                                stepDetails.textContent = step.details;
-                                stepDetails.title = step.details;
-                                stepItem.appendChild(stepDetails);
-                            }
-
-                            stepList.appendChild(stepItem);
-                        });
-
-                        content.appendChild(stepList);
-                    } else {
-                        const message = document.createElement('div');
-                        message.className = 'automation-activity-message';
-                        message.textContent = activity.message;
-                        content.appendChild(message);
-                    }
-
-                    if (activity.details) {
-                        const details = document.createElement('div');
-                        details.className = 'automation-activity-details';
-                        details.textContent = activity.details;
-                        details.title = activity.details;
-                        content.appendChild(details);
-                    }
-
-                    item.appendChild(content);
-                    center.appendChild(item);
-
-                    const autoHideDelay = activity.tone === 'success' ? 7000 : (activity.tone === 'error' ? 20000 : null);
-
-                    if (
-                        autoHideDelay !== null
-                        && activity.is_terminal
-                        && activity.can_dismiss
-                        && !autoHideTimers.has(token)
-                    ) {
-                        const timer = window.setTimeout(() => {
-                            rememberDismissed(token);
-                            render();
-                        }, autoHideDelay);
-
-                        autoHideTimers.set(token, timer);
-                    }
-                });
+                }
+                return meta;
             };
+
+            const localActivity = (activity) => {
+                const item = document.createElement('article');
+                item.className = `automation-activity-item is-${activity.tone}`;
+                item.setAttribute('role', activity.tone === 'error' ? 'alert' : 'status');
+                item.appendChild(statusIcon(activity));
+                const content = document.createElement('div');
+                content.className = 'automation-activity-content';
+                content.appendChild(activityHeading(activity));
+                content.appendChild(activityMeta(activity, activity.status_label));
+                [activity.message, activity.details].filter(Boolean).forEach((text) => {
+                    const message = document.createElement('div');
+                    message.className = 'automation-activity-message';
+                    message.textContent = text;
+                    content.appendChild(message);
+                });
+                item.appendChild(content);
+                return item;
+            };
+
+            const compactTitle = (activity) => activity.notification_title || activity.title;
+            const compactStatus = (activity) => {
+                if (activity.status === 'failed') return 'B\u0142\u0105d zatrzyma\u0142 regu\u0142\u0119';
+                if (activity.status === 'interrupted') return 'Przerwano wykonanie \u2013 sprawd\u017a wynik';
+                if (activity.status === 'completed_with_errors') return 'Zako\u0144czono z b\u0142\u0119dami bez zatrzymania regu\u0142y';
+                return activity.status_label;
+            };
+
+            const activitySteps = (activity, now) => {
+                const steps = Array.isArray(activity.steps) ? activity.steps : [];
+                const mode = stepExpansion.get(activity.id);
+                if (mode === 'closed') return { steps: [], nextExpiry: Infinity, manual: false };
+                if (mode === 'open') return { steps, nextExpiry: Infinity, manual: true };
+
+                let deadlines = stepExpiry.get(activity.id);
+                if (!deadlines) {
+                    deadlines = new Map();
+                    stepExpiry.set(activity.id, deadlines);
+                }
+
+                let nextExpiry = Infinity;
+                const visibleSteps = steps.filter((step) => {
+                    if (step.status === 'running' || step.status === 'waiting') return true;
+                    if (!['completed', 'failed', 'uncertain'].includes(step.status)) return false;
+                    const key = `${step.position}:${step.status}`;
+                    if (!deadlines.has(key)) deadlines.set(key, now + 5000);
+                    const expiresAt = deadlines.get(key);
+                    if (expiresAt <= now) return false;
+                    nextExpiry = Math.min(nextExpiry, expiresAt);
+                    return true;
+                });
+                return { steps: visibleSteps, nextExpiry, manual: false };
+            };
+
+            const activityStep = (step) => {
+                const stepItem = document.createElement('li');
+                const tone = ['success', 'warning', 'error', 'progress', 'waiting', 'skipped'].includes(step.tone)
+                    ? step.tone : 'queued';
+                stepItem.className = `automation-activity-step is-${tone}`;
+                stepItem.appendChild(statusIcon({ tone }));
+
+                const label = document.createElement('span');
+                label.className = 'automation-activity-chip-title';
+                label.textContent = step.short_label || step.action_type || '';
+                stepItem.appendChild(label);
+
+                const statusText = step.status === 'failed'
+                    ? (tone === 'warning' ? 'B\u0142\u0105d nie zatrzyma\u0142 regu\u0142y' : 'B\u0142\u0105d zatrzyma\u0142 regu\u0142\u0119')
+                    : step.status_label;
+                if (statusText) {
+                    stepItem.title = `${label.textContent}: ${statusText}`;
+                    const status = document.createElement('span');
+                    status.className = 'visually-hidden';
+                    status.textContent = `: ${statusText}`;
+                    stepItem.appendChild(status);
+                }
+                return stepItem;
+            };
+
+            const compactActivity = (activity, details) => {
+                const group = document.createElement('div');
+                group.className = 'automation-activity-group';
+                group.dataset.automationRun = String(activity.id);
+                const expanded = details.steps.length > 0 || details.manual;
+                const panelId = `automationActivitySteps-${activity.id}`;
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `automation-activity-chip is-${activity.tone}`;
+                button.dataset.activityControl = `chip:${activity.id}`;
+                button.title = `${compactTitle(activity)}: ${compactStatus(activity)}`;
+                button.setAttribute('aria-label', button.title);
+                button.appendChild(statusIcon(activity));
+
+                const title = document.createElement('span');
+                title.className = 'automation-activity-chip-title';
+                title.textContent = compactTitle(activity);
+                button.appendChild(title);
+                if (activity.steps?.length || activity.can_dismiss) {
+                    button.setAttribute('aria-expanded', String(expanded));
+                    if (expanded) button.setAttribute('aria-controls', panelId);
+                    const chevron = document.createElement('i');
+                    chevron.className = `automation-activity-chevron bi bi-chevron-${expanded ? 'up' : 'down'}`;
+                    chevron.setAttribute('aria-hidden', 'true');
+                    button.appendChild(chevron);
+                    button.addEventListener('click', () => {
+                        stepExpansion.set(activity.id, expanded ? 'closed' : 'open');
+                        render(button.dataset.activityControl);
+                    });
+                } else {
+                    button.disabled = true;
+                }
+                group.appendChild(button);
+
+                if (expanded) {
+                    const panel = document.createElement('div');
+                    panel.id = panelId;
+                    panel.className = 'automation-activity-steps';
+                    if (details.manual && activity.can_dismiss) {
+                        const close = dismissButton(activity);
+                        close.className += ' automation-activity-step-close';
+                        panel.appendChild(close);
+                    }
+                    if (details.steps.length) {
+                        const list = document.createElement('ol');
+                        list.className = 'automation-activity-step-list';
+                        list.setAttribute('role', 'list');
+                        details.steps.forEach((step) => list.appendChild(activityStep(step)));
+                        panel.appendChild(list);
+                    }
+                    group.appendChild(panel);
+                }
+                return group;
+            };
+
+            const scheduleDismissal = (activity) => {
+                if (!activity.is_terminal || !activity.can_dismiss) return;
+                const token = activityToken(activity);
+                if (autoHideTimers.has(token)) return;
+                const delay = activity.is_local
+                    ? { success: 7000, error: 20000 }[activity.tone]
+                    : 8000;
+                if (!delay) return;
+                autoHideTimers.set(token, window.setTimeout(() => {
+                    rememberDismissed(token);
+                    render();
+                }, delay));
+            };
+
+            const render = (focusControl = document.activeElement?.dataset?.activityControl) => {
+                const pending = activities.filter((activity) => !dismissed.has(activityToken(activity)));
+                const pendingIds = new Set(pending.map((activity) => activity.id));
+                stepExpiry.forEach((_, id) => { if (!pendingIds.has(id)) stepExpiry.delete(id); });
+                stepExpansion.forEach((_, id) => { if (!pendingIds.has(id)) stepExpansion.delete(id); });
+
+                const previousIds = new Set(visibleIds);
+                const limit = narrowScreen.matches ? 2 : 3;
+                if (pending.length > limit) {
+                    pending.sort((a, b) => (tonePriority[a.tone] ?? 5) - (tonePriority[b.tone] ?? 5)
+                        || Number(previousIds.has(b.id)) - Number(previousIds.has(a.id)));
+                }
+                const selected = new Map(pending.slice(0, limit).map((activity) => [activity.id, activity]));
+                // Keep existing slots, and insert the newest notifications at the left.
+                visibleIds = visibleIds.filter((id) => selected.has(id));
+                visibleIds.unshift(...Array.from(selected.keys()).filter((id) => !previousIds.has(id)));
+                const visible = visibleIds.map((id) => selected.get(id));
+                const overflow = pending.length - visible.length;
+
+                const now = Date.now();
+                const entries = visible.map((activity) => ({
+                    activity,
+                    details: activity.is_local ? null : activitySteps(activity, now),
+                }));
+                window.clearTimeout(stepHideTimer);
+                const nextStepExpiry = Math.min(...entries.map(({ details }) => details?.nextExpiry ?? Infinity));
+                if (Number.isFinite(nextStepExpiry)) {
+                    stepHideTimer = window.setTimeout(() => render(), nextStepExpiry - now);
+                }
+
+                const signature = JSON.stringify([entries, overflow]);
+                if (signature === lastRender) return;
+                lastRender = signature;
+                center.replaceChildren();
+                center.hidden = visible.length === 0;
+
+                if (overflow > 0) {
+                    const count = document.createElement('span');
+                    count.className = 'automation-activity-count';
+                    count.textContent = `+${overflow}`;
+                    count.title = `Pozosta\u0142e powiadomienia: ${overflow}`;
+                    center.appendChild(count);
+                }
+                entries.forEach(({ activity, details }) => {
+                    center.appendChild(activity.is_local ? localActivity(activity) : compactActivity(activity, details));
+                    scheduleDismissal(activity);
+                });
+                if (focusControl) {
+                    Array.from(center.querySelectorAll('[data-activity-control]'))
+                        .find((element) => element.dataset.activityControl === focusControl)?.focus({ preventScroll: true });
+                }
+            };
+
+            narrowScreen.addEventListener('change', () => render());
+            center.addEventListener('keydown', (event) => {
+                if (event.key !== 'Escape') return;
+                const group = event.target.closest('[data-automation-run]');
+                const chip = group?.querySelector('.automation-activity-chip');
+                if (chip?.getAttribute('aria-expanded') !== 'true') return;
+                event.stopPropagation();
+                stepExpansion.set(Number(group.dataset.automationRun), 'closed');
+                render(chip.dataset.activityControl);
+            });
 
             const hasActiveActivity = () => activities.some((activity) => (
                 activity.status === 'queued' || activity.status === 'running'
@@ -2361,24 +2563,25 @@
 
             const scheduleRefresh = (delay = nextRefreshDelay()) => {
                 window.clearTimeout(refreshTimer);
-                refreshTimer = window.setTimeout(refresh, delay);
+                if (pageActive) {
+                    refreshTimer = window.setTimeout(refresh, delay);
+                }
             };
 
             const refresh = async () => {
+                if (!pageActive) return;
                 if (document.hidden) {
                     scheduleRefresh(10000);
                     return;
                 }
 
-                if (
-                    loading
-                    || document.querySelector('[data-orders-page].is-loading')
-                ) {
+                if (currentRequest) {
                     scheduleRefresh(1200);
                     return;
                 }
 
-                loading = true;
+                const request = new AbortController();
+                currentRequest = request;
 
                 try {
                     const response = await fetch(endpoint, {
@@ -2387,6 +2590,7 @@
                             'X-Requested-With': 'XMLHttpRequest',
                         },
                         cache: 'no-store',
+                        signal: request.signal,
                     });
 
                     if (!response.ok) {
@@ -2394,10 +2598,13 @@
                     }
 
                     const payload = await response.json();
-                    const incoming = Array.isArray(payload.activities) ? payload.activities : [];
+                    if (request.signal.aborted) return;
+                    const incoming = Array.isArray(payload.activities)
+                        ? payload.activities.filter((activity) => Number(activity?.order_id) === orderId)
+                        : [];
                     const incomingIds = new Set(incoming.map((activity) => activity.id));
                     const retainedMessages = activities.filter((activity) => (
-                        (activity.is_local || activity.tone === 'error')
+                        (activity.is_local || activity.is_terminal)
                         && !dismissed.has(activityToken(activity))
                         && !incomingIds.has(activity.id)
                     ));
@@ -2408,8 +2615,10 @@
                 } catch (error) {
                     // A temporary polling error must not interrupt work in the OMS.
                 } finally {
-                    loading = false;
-                    scheduleRefresh();
+                    if (currentRequest === request) {
+                        currentRequest = null;
+                        scheduleRefresh();
+                    }
                 }
             };
 
@@ -2445,6 +2654,8 @@
                 render();
             };
 
+            if (!endpoint || !Number.isSafeInteger(orderId) || orderId <= 0) return;
+
             document.addEventListener('nexoms:automation-wake', wakeActivityPolling);
             scheduleRefresh(1500);
             document.addEventListener('visibilitychange', () => {
@@ -2452,7 +2663,29 @@
                     wakeActivityPolling();
                 }
             });
-            window.addEventListener('pagehide', () => window.clearTimeout(refreshTimer), { once: true });
+            window.addEventListener('pagehide', () => {
+                pageActive = false;
+                window.clearTimeout(refreshTimer);
+                currentRequest?.abort();
+                currentRequest = null;
+                activities.forEach((activity) => {
+                    const token = activityToken(activity);
+                    if (!activity.is_local && autoHideTimers.has(token)) {
+                        rememberDismissed(token);
+                    }
+                });
+                autoHideTimers.forEach((timer) => window.clearTimeout(timer));
+                autoHideTimers.clear();
+                activities = [];
+                render();
+            });
+            window.addEventListener('pageshow', (event) => {
+                if (event.persisted) {
+                    readDismissed().forEach((token) => dismissed.add(token));
+                    pageActive = true;
+                    wakeActivityPolling();
+                }
+            });
         });
     </script>
 </body>

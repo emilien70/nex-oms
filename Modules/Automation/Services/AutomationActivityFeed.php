@@ -15,12 +15,13 @@ class AutomationActivityFeed
 
     public function __construct(private readonly AutomationCatalog $catalog) {}
 
-    public function recent(): array
+    public function recent(int $orderId): array
     {
         $recentSince = now()->subSeconds(self::RECENT_SECONDS);
 
         return AutomationRun::query()
             ->with('steps')
+            ->where('order_id', $orderId)
             ->where(function ($query) use ($recentSince): void {
                 $query->whereIn('status', [
                     AutomationRun::STATUS_QUEUED,
@@ -62,6 +63,8 @@ class AutomationActivityFeed
         ], true);
         $steps = $this->steps($run, $actions);
         $details = $isError ? ($run->error_message ?: $failedStep?->error_message) : null;
+        $ruleName = trim((string) data_get($run->rule_snapshot, 'name'));
+        $title = $ruleName ?: 'Automatyczna akcja #'.$run->id;
 
         if (
             $totalSteps > 1
@@ -76,8 +79,10 @@ class AutomationActivityFeed
             'order_id' => $run->order_id,
             'order_label' => $this->decode('Zam&oacute;wienie').' '.$run->order_id,
             'order_url' => route('orders.show', $run->order_id),
-            'title' => trim((string) data_get($run->rule_snapshot, 'name'))
-                ?: 'Automatyczna akcja #'.$run->id,
+            'title' => $title,
+            'notification_title' => $ruleName
+                ?: (trim((string) data_get($run->event_payload, 'custom_event_label'))
+                    ?: ($this->catalog->triggers()[$run->event_name] ?? $title)),
             'status' => $run->status,
             'status_label' => $this->statusLabel($run->status),
             'tone' => $this->tone($run->status),
@@ -130,9 +135,10 @@ class AutomationActivityFeed
                     'position' => $position + 1,
                     'action_type' => $actionType,
                     'label' => $this->catalog->actionSummary($actionType, $configuration),
+                    'short_label' => $this->catalog->actionLabel($actionType),
                     'status' => $status,
                     'status_label' => $this->stepStatusLabel($status, $configuration, $actionType),
-                    'tone' => $this->stepTone($status),
+                    'tone' => $this->stepTone($status, (bool) ($action['stop_on_error'] ?? true)),
                     'details' => in_array($status, ['failed', 'uncertain'], true) && filled($step?->error_message)
                         ? $step->error_message
                         : null,
@@ -211,11 +217,12 @@ class AutomationActivityFeed
         };
     }
 
-    private function stepTone(string $status): string
+    private function stepTone(string $status, bool $stopOnError): string
     {
         return match ($status) {
             'completed' => 'success',
-            'failed', 'uncertain' => 'error',
+            'failed' => $stopOnError ? 'error' : 'warning',
+            'uncertain' => 'error',
             'skipped' => 'skipped',
             'running' => 'progress',
             'waiting' => 'waiting',
@@ -308,7 +315,8 @@ class AutomationActivityFeed
     {
         return match ($status) {
             AutomationRun::STATUS_COMPLETED => 'success',
-            AutomationRun::STATUS_COMPLETED_WITH_ERRORS, AutomationRun::STATUS_FAILED, AutomationRun::STATUS_INTERRUPTED => 'error',
+            AutomationRun::STATUS_COMPLETED_WITH_ERRORS => 'warning',
+            AutomationRun::STATUS_FAILED, AutomationRun::STATUS_INTERRUPTED => 'error',
             AutomationRun::STATUS_WAITING => 'waiting',
             default => 'progress',
         };

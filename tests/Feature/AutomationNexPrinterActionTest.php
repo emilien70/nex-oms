@@ -170,7 +170,7 @@ class AutomationNexPrinterActionTest extends TestCase
         $this->assertSame(1, $job->copies);
         $this->assertSame(
             '✓ Dodano do kolejki NEX Printer',
-            app(AutomationActivityFeed::class)->recent()[0]['steps'][0]['status_label'],
+            app(AutomationActivityFeed::class)->recent($order->id)[0]['steps'][0]['status_label'],
         );
 
         app(AutomationNexPrinterActionService::class)->execute($run, $step, $step->configuration);

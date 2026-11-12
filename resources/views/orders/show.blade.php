@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends('layouts.app', ['automationActivityOrderId' => $order->id])
 
 @section('title', 'Zamowienie ' . $order->id . ' - NEX-OMS')
 

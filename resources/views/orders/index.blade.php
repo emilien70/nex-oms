@@ -1279,8 +1279,6 @@
                         throw new Error(await responseErrorMessage(response));
                     }
 
-                    document.dispatchEvent(new Event('nexoms:automation-wake'));
-
                     if (clearSelection) {
                         clearStoredSelection();
                     }
