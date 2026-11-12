@@ -54,6 +54,8 @@ Wszystkie: `--sleep=3`, `autostart=true`, `autorestart=true`, uzytkownik `ubuntu
 
 Pozniejszy odczyt SSH z 2026-10-24 potwierdzil siedem programow RUNNING, ponizsze stopwaitsecs oraz stopasgroup=true i killasgroup=true we wszystkich siedmiu plikach. Zweryfikowano zgodnosc odcisku hosta. Nie odczytywano ponownie backlogu ani failed_jobs. Nie potwierdzono limitow zasobow, konfiguracji logowania ani efektywnych wartosci parametrow niewystepujacych w wybranych liniach.
 
+Po wdrozeniu [oczekiwania na MySQL](006-Deployment.md#start-workerow-podczas-niedostepnosci-mysql) sprawdzac oprocz `RUNNING` komunikaty `[queue-start]`. Proces uruchamiajacy moze byc `RUNNING` podczas oczekiwania, zanim wystartuje Artisan. Mechanizm nie dodaje osobnego crona, timera ani automatycznego wznawiania stanow `FATAL`.
+
 ### 3.2. Aktywne limity a domyslne wartosci kodu
 
 | Parametr | Wartosc domyslna repozytorium | Aktywna wartosc VPS, operator |

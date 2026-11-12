@@ -61,7 +61,7 @@ test('deployments manage the same dedicated worker as the Supervisor template', 
     const workerList = shell('printf "%s\\n" "\${WORKERS[@]}"');
     assert.equal(workerList.status, 0, workerList.stderr);
     assert.equal(workerList.stdout.trim().split(/\r?\n/).filter(name => name === program).length, 1);
-    assert.match(configuration, /^command=.* queue:work database --queue=orders-import --sleep=3 --tries=1 --timeout=210 --max-time=3600$/m);
+    assert.match(configuration, /^command=\/bin\/bash \/var\/www\/nex-oms\/scripts\/start-queue-worker\.sh \/usr\/bin\/php \/var\/www\/nex-oms\/artisan queue:work database --queue=orders-import --sleep=3 --tries=1 --timeout=210 --max-time=3600$/m);
     assert.match(configuration, /^stopwaitsecs=240$/m);
     assert.match(configuration, /^autostart=true$/m);
     assert.match(configuration, /^autorestart=true$/m);

@@ -943,6 +943,14 @@ W tym formacie `ubuntu` jest polem uzytkownika `/etc/cron.d`; nie kopiowac go do
 
 Docelowo Supervisor nadzoruje osiem workerow: `default`, `integrations`, `orders-import`, `shipments-actions`, `shipments-sync`, `automation`, `ksef` na polaczeniu `database` oraz `ksef-submit` na polaczeniu `ksef_submit`. `orders-import` obsluguje wykrywanie i import zamowien Allegro, PrestaShop i Von Halsky, lacznie z ponowieniami tych samych zadan. Pozostale operacje integracji zachowuja dotychczasowe kolejki.
 
+### Start workerow podczas niedostepnosci MySQL
+
+Wersjonowany [skrypt startowy](../scripts/start-queue-worker.sh) wykonuje ograniczony czasowo, odczytowy test MySQL przed uruchomieniem workera. Uzywa aktywnej konfiguracji Laravel dla danego polaczenia kolejki i bazodanowego cache, bez uruchamiania schedulera lub providerow aplikacji. Przy sprawnej bazie od razu uruchamia oryginalne polecenie `queue:work`. Przy przejsciowym bledzie ponawia probe po 5-7 sekundach, a po czterech probach po 15-18 sekundach. Nie ponawia blednego hasla ani nieistniejacej bazy. Nie wymaga timera, dodatkowego crona, zmian `.env` ani migracji.
+
+Po kontrolowanym wdrozeniu kodu wykonaj kopie osmiu plikow Supervisor. W kazdym dopisz do obecnego `command=` prefiks `/bin/bash /var/www/nex-oms/scripts/start-queue-worker.sh `, pozostawiajac cale dotychczasowe polecenie (`/usr/bin/php /var/www/nex-oms/artisan queue:work ...`) i pozostale ustawienia bez zmian. Wzor: [nex-oms-orders-import.conf](../scripts/supervisor/nex-oms-orders-import.conf). Sprawdz skladnie skryptu, dostepnosc `timeout` z GNU coreutils i wykonaj jako `ubuntu` [probe MySQL](../scripts/check-queue-mysql.php) przez `/usr/bin/php` osobno dla `database` i `ksef_submit`. Ta proba nie pobiera zadan.
+
+Zastosuj konfiguracje tylko dla zatwierdzonych programow przez `supervisorctl reread` i `supervisorctl update` w oknie wdrozeniowym. `update` moze sam uruchomic program z `autostart=true`; nie uruchamiaj drugiej kopii. Zweryfikuj logi startu, procesy PHP oraz postep kolejek. Sam status `RUNNING` moze oznaczac, ze skrypt jeszcze czeka na MySQL. Skrypt nie uruchamia celowo zatrzymanych workerow ani nie wznawia `FATAL` z innej przyczyny. Po powrocie bazy workery wykonuja oczekujace zadania wedlug dotychczasowych zasad. Nie testuj tej zmiany przez zatrzymywanie produkcyjnego MySQL. Wycofanie polega na przywroceniu kopii konfiguracji Supervisor, bez zmian w bazie lub kolejkach.
+
 ### Pierwsze uruchomienie orders-import
 
 1. Wykonaj kontrolowane wdrozenie wydania (kopia bazy, wstrzymanie schedulera, lagodne zakonczenie pracy workerow). Nie usuwaj, nie przepisuj ani nie kolejkuj ponownie juz zapisanych jobow. Dotychczasowy worker `integrations` dokonczy joby pozostale pod stara nazwa kolejki.
