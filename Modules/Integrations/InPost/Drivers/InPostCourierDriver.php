@@ -4,7 +4,6 @@ namespace Modules\Integrations\InPost\Drivers;
 
 use App\Models\Order;
 use DomainException;
-use Illuminate\Support\Facades\DB;
 use Modules\Integrations\InPost\Services\InPostCourierServiceResolver;
 use Modules\Integrations\InPost\Services\InPostCourierShipmentPayloadFactory;
 use Modules\Integrations\InPost\Services\InPostShipmentOperations;
@@ -47,8 +46,7 @@ class InPostCourierDriver extends AbstractInPostDriver
             throw new DomainException('Przesylka kurierska musi zawierac od 1 do 99 paczek.');
         }
 
-        return DB::transaction(function () use ($order, $account, $data, $service, $codAmount, $insuranceAmount, $parcels): ShipmentCreationAttempt {
-            $attempt = $this->attempts->begin($order, $account, $data);
+        return $this->attempts->queue($order, $account, $data, function (ShipmentCreationAttempt $attempt) use ($order, $account, $data, $service, $codAmount, $insuranceAmount, $parcels): ShipmentCreationAttempt {
             $contentDescription = trim((string) ($data['content_description'] ?? ''));
 
             if ($contentDescription === '') {

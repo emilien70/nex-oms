@@ -4,7 +4,6 @@ namespace Modules\Integrations\InPost\Drivers;
 
 use App\Models\Order;
 use DomainException;
-use Illuminate\Support\Facades\DB;
 use Modules\Integrations\InPost\Services\InPostShipmentOperations;
 use Modules\Integrations\InPost\Services\InPostShipmentPayloadFactory;
 use Modules\Integrations\InPost\Services\InPostShipmentServiceResolver;
@@ -33,8 +32,7 @@ class InPostLockerDriver extends AbstractInPostDriver
     {
         $this->assertAccount($account, 'InPost Paczkomaty');
 
-        return DB::transaction(function () use ($order, $account, $data): ShipmentCreationAttempt {
-            $attempt = $this->attempts->begin($order, $account, $data);
+        return $this->attempts->queue($order, $account, $data, function (ShipmentCreationAttempt $attempt) use ($order, $account, $data): ShipmentCreationAttempt {
             $codAmount = $data['cod_amount'] ?? null;
             $service = $this->serviceResolver->resolve($order, $data['service'] ?? null);
             $additionalServices = collect($data['additional_services'] ?? [])

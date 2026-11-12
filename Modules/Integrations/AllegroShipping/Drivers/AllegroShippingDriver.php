@@ -5,7 +5,6 @@ namespace Modules\Integrations\AllegroShipping\Drivers;
 use App\Models\Order;
 use DomainException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\DB;
 use Modules\Integrations\AllegroShipping\Services\AllegroShippingOperations;
 use Modules\Shipments\Contracts\CourierDriver;
 use Modules\Shipments\Models\CourierAccount;
@@ -49,8 +48,7 @@ class AllegroShippingDriver implements CourierDriver
             throw new DomainException('Przesylka Allegro musi zawierac od 1 do 10 paczek.');
         }
 
-        return DB::transaction(function () use ($order, $account, $data, $parcels): ShipmentCreationAttempt {
-            $attempt = $this->attempts->begin($order, $account, $data);
+        return $this->attempts->queue($order, $account, $data, function (ShipmentCreationAttempt $attempt) use ($order, $account, $data, $parcels): ShipmentCreationAttempt {
             $link = $order->allegroOrderLink()->first();
             $methodId = $link?->external_order_id === $order->external_id ? $link?->delivery_method_id : null;
             $shipment = $order->shipments()->create([

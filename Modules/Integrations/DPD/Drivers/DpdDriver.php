@@ -5,7 +5,6 @@ namespace Modules\Integrations\DPD\Drivers;
 use App\Models\Order;
 use DomainException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\DB;
 use Modules\Integrations\DPD\Services\DpdServiceResolver;
 use Modules\Integrations\DPD\Services\DpdShipmentOperations;
 use Modules\Shipments\Contracts\CourierDriver;
@@ -57,8 +56,7 @@ class DpdDriver implements CourierDriver
             throw new DomainException('Przesylka DPD musi zawierac od 1 do 100 paczek.');
         }
 
-        return DB::transaction(function () use ($order, $account, $data, $parcels): ShipmentCreationAttempt {
-            $attempt = $this->attempts->begin($order, $account, $data);
+        return $this->attempts->queue($order, $account, $data, function (ShipmentCreationAttempt $attempt) use ($order, $account, $data, $parcels): ShipmentCreationAttempt {
             $shipment = $order->shipments()->create([
                 'courier_account_id' => $account->id,
                 'provider' => $this->provider(),

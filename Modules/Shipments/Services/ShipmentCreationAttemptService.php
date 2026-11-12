@@ -3,6 +3,7 @@
 namespace Modules\Shipments\Services;
 
 use App\Models\Order;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Shipments\Events\ShipmentCreationFailed;
@@ -12,17 +13,30 @@ use Modules\Shipments\Models\ShipmentCreationAttempt;
 
 class ShipmentCreationAttemptService
 {
-    public function begin(Order $order, CourierAccount $account, array $requestData): ShipmentCreationAttempt
+    /** @param Closure(ShipmentCreationAttempt): ShipmentCreationAttempt $create */
+    public function queue(Order $order, CourierAccount $account, array $requestData, Closure $create): ShipmentCreationAttempt
     {
-        $order->assertPurchaseReady();
+        return DB::transaction(function () use ($order, $account, $requestData, $create): ShipmentCreationAttempt {
+            $sqlite = DB::connection()->getDriverName() === 'sqlite';
+            if (! $sqlite) {
+                $order->assertPurchaseReady();
+            }
 
-        return $order->shipmentCreationAttempts()->create([
-            'courier_account_id' => $account->id,
-            'provider' => $account->provider,
-            'request_uuid' => (string) Str::uuid(),
-            'status' => ShipmentCreationAttempt::STATUS_QUEUED,
-            'request_data' => $requestData,
-        ]);
+            $attempt = $order->shipmentCreationAttempts()->create([
+                'courier_account_id' => $account->id,
+                'provider' => $account->provider,
+                'request_uuid' => (string) Str::uuid(),
+                'status' => ShipmentCreationAttempt::STATUS_QUEUED,
+                'request_data' => $requestData,
+            ]);
+
+            // Start as a write transaction on SQLite; a read-to-write upgrade can fail without waiting.
+            if ($sqlite) {
+                $order->assertPurchaseReady();
+            }
+
+            return $create($attempt);
+        });
     }
 
     public function attach(ShipmentCreationAttempt $attempt, Shipment $shipment): ShipmentCreationAttempt

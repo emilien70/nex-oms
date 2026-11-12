@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use DomainException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -172,6 +174,13 @@ class InPostCourierShipmentTest extends TestCase
         Queue::fake();
         $this->account();
         $order = $this->order();
+        $outerLevel = DB::transactionLevel();
+        $firstQueueQuery = null;
+        DB::listen(function (QueryExecuted $query) use ($outerLevel, &$firstQueueQuery): void {
+            if ($query->connection->transactionLevel() > $outerLevel) {
+                $firstQueueQuery ??= $query->sql;
+            }
+        });
 
         $response = $this->post(route('orders.shipments.inpost-courier.store', $order), [
             'shipment_provider' => CourierAccount::PROVIDER_INPOST_COURIER,
@@ -190,6 +199,7 @@ class InPostCourierShipmentTest extends TestCase
         ]);
 
         $response->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertStringStartsWith('insert into "shipment_creation_attempts"', $firstQueueQuery);
 
         $shipment = Shipment::query()->with('parcels')->firstOrFail();
 
@@ -199,7 +209,7 @@ class InPostCourierShipmentTest extends TestCase
         $this->assertSame('120.00', $shipment->insurance_amount);
         $this->assertCount(2, $shipment->parcels);
         $this->assertTrue($shipment->parcels[1]->is_non_standard);
-        Queue::assertPushed(CreateInPostShipmentJob::class);
+        Queue::assertPushed(CreateInPostShipmentJob::class, 1);
 
         Http::fake([
             '*/v1/organizations/12345/shipments' => Http::response([
@@ -238,6 +248,35 @@ class InPostCourierShipmentTest extends TestCase
             'shipment_id' => $shipment->id,
             'successful' => true,
         ]);
+    }
+
+    public function test_incomplete_purchase_rolls_back_the_attempt_without_queueing_a_shipment(): void
+    {
+        Queue::fake();
+        Http::fake();
+        $this->account();
+        $order = $this->order();
+        $order->update(['source' => 'allegro', 'external_id' => (string) Str::uuid()]);
+        $order->allegroOrderLink()->create([
+            'environment' => 'sandbox',
+            'seller_user_id' => 'test-seller',
+            'account_name' => 'Test',
+            'external_order_id' => $order->external_id,
+            'external_status' => 'BOUGHT',
+            'source_hash' => str_repeat('a', 64),
+            'import_state' => 'incomplete',
+            'imported_at' => now(),
+        ]);
+
+        $this->postJson(route('orders.shipments.inpost-courier.store', $order), [
+            'service' => Shipment::SERVICE_INPOST_COURIER_STANDARD,
+            'parcels' => [$this->parcel()],
+        ])->assertUnprocessable()->assertJsonValidationErrors('order');
+
+        $this->assertDatabaseCount('shipment_creation_attempts', 0);
+        $this->assertDatabaseCount('shipments', 0);
+        Queue::assertNotPushed(CreateInPostShipmentJob::class);
+        Http::assertNothingSent();
     }
 
     public function test_courier_payload_splits_a_legacy_combined_receiver_address(): void
