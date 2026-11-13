@@ -1528,14 +1528,14 @@
                     </a>
                 </div>
                 <div class="sidebar-nav-item has-nav-flyout orders-nav-item {{ $ordersNavigationActive ? 'is-open' : '' }}">
-                    <a class="nav-link {{ $ordersNavigationActive ? 'active' : '' }}" href="{{ route('orders.index') }}" aria-label="Zam&oacute;wienia" title="Zam&oacute;wienia" aria-expanded="{{ $ordersNavigationActive ? 'true' : 'false' }}">
+                    <a class="nav-link {{ $ordersNavigationActive ? 'active' : '' }}" href="{{ route('orders.index') }}" data-order-filter-target="all" aria-label="Zam&oacute;wienia" title="Zam&oacute;wienia" aria-expanded="{{ $ordersNavigationActive ? 'true' : 'false' }}">
                         <span class="nav-initial nav-orders-icon" aria-hidden="true"><i class="bi bi-cart3"></i></span>
                         <span class="nav-text">Zam&oacute;wienia</span>
                         <span class="nav-chevron" aria-hidden="true"></span>
                     </a>
                     <div class="nav-flyout">
                         <div class="nav-flyout-title">Zam&oacute;wienia</div>
-                        <a class="nav-flyout-link {{ request()->routeIs('orders.index') && ! request()->boolean('trash') ? 'active' : '' }}" href="{{ route('orders.index') }}">Lista zam&oacute;wie&#324;</a>
+                        <a class="nav-flyout-link {{ request()->routeIs('orders.index') && ! request()->boolean('trash') ? 'active' : '' }}" href="{{ route('orders.index') }}" data-order-filter-target="all">Lista zam&oacute;wie&#324;</a>
                         <a class="nav-flyout-link {{ request()->routeIs('invoices.*') ? 'active' : '' }}" href="{{ route('invoices.index') }}">Faktury</a>
                         <a class="nav-flyout-link {{ request()->routeIs('returns.*') ? 'active' : '' }}" href="{{ route('returns.index') }}">Zwroty</a>
                         <a class="nav-flyout-link {{ request()->routeIs('settings.order-statuses.index') ? 'active' : '' }}" href="{{ route('settings.order-statuses.index') }}">Statusy zam&oacute;wie&#324;</a>
@@ -1641,12 +1641,12 @@
                         </button>
                     </div>
                     <nav class="orders-context-list" id="orderStatusNavigation" aria-label="Statusy zam&#243;wie&#324;">
-                        <a class="orders-context-link orders-context-link-all {{ ! $layoutShowsTrash && $currentLayoutStatus === null && request()->routeIs('orders.index') ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === null ? $ordersContextBackUrl : route('orders.index') }}">
+                        <a class="orders-context-link orders-context-link-all {{ ! $layoutShowsTrash && $currentLayoutStatus === null && request()->routeIs('orders.index') ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === null ? $ordersContextBackUrl : route('orders.index') }}" @unless($ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === null) data-order-filter-target="all" @endunless>
                             <span class="orders-context-all-icon" aria-hidden="true"></span>
                             <span class="orders-context-link-label">Wszystkie</span>
                         </a>
                         @foreach ($layoutOrderStatuses ?? [] as $status)
-                            <a class="orders-context-link {{ ! $layoutShowsTrash && $currentLayoutStatus === $status['code'] ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === $status['code'] ? $ordersContextBackUrl : route('orders.index', ['status' => $status['code']]) }}">
+                            <a class="orders-context-link {{ ! $layoutShowsTrash && $currentLayoutStatus === $status['code'] ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === $status['code'] ? $ordersContextBackUrl : route('orders.index', ['status' => $status['code']]) }}" @unless($ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === $status['code']) data-order-filter-target="{{ \App\Support\OrderListFilterState::preferenceScope($status) }}" @endunless>
                                 <span class="orders-context-count" style="background: {{ $status['color'] }}; color: {{ $status['code'] === 'new' ? '#ffffff' : ($status['text_color'] ?? '#ffffff') }};">{{ $layoutOrderStatusCounts[$status['code']] ?? 0 }}</span>
                                 <span class="orders-context-link-label">{{ $status['name'] }}</span>
                             </a>
@@ -1657,7 +1657,7 @@
                                 <i class="bi bi-file-earmark-text orders-context-action-icon" aria-hidden="true"></i>
                                 <span class="orders-context-link-label">Archiwum</span>
                             </a>
-                            <a class="orders-context-link {{ $layoutShowsTrash ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && $layoutShowsTrash ? $ordersContextBackUrl : route('orders.index', ['trash' => 1]) }}">
+                            <a class="orders-context-link {{ $layoutShowsTrash ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && $layoutShowsTrash ? $ordersContextBackUrl : route('orders.index', ['trash' => 1]) }}" @unless($ordersContextBackUrl !== null && $layoutShowsTrash) data-order-filter-target="trash" @endunless>
                                 <i class="bi bi-trash3 orders-context-action-icon" aria-hidden="true"></i>
                                 <span class="orders-context-link-label">Kosz</span>
                                 @if (($layoutTrashOrdersCount ?? 0) > 0)
@@ -1763,6 +1763,7 @@
     ></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ asset('js/order-filter-preferences.js') }}" data-order-filter-keys='@json(\App\Support\OrderListFilterState::FILTER_KEYS)'></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const toast = document.querySelector('[data-global-error-toast]');

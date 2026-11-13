@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use App\Models\OrderSavedView;
+use App\Models\OrderStatusSetting;
 use App\Support\OrderListNavigationContext;
 use DOMDocument;
 use DOMXPath;
@@ -40,7 +41,8 @@ class OrderListContextNavigationTest extends TestCase
         $returnUrl = route('orders.index', $query + ['list_return' => 1]);
         $this->assertSame($returnUrl, $details->viewData('ordersListUrl'));
         $returned = $this->get($returnUrl)->assertOk()->assertViewHas('hasActiveFilters', true)
-            ->assertSee('class="collapse show" id="ordersFiltersPanel"', false);
+            ->assertSee('class="collapse" id="ordersFiltersPanel"', false)
+            ->assertSee('data-order-filter-summary="source"', false);
         $this->assertSame(2, $returned->viewData('orders')->currentPage());
         $this->assertSame('allegro', $returned->viewData('filters')['source']);
         $this->assertSame('unpaid', $returned->viewData('filters')['payment']);
@@ -122,8 +124,13 @@ class OrderListContextNavigationTest extends TestCase
         $xpath = $this->xpath($details->getContent());
         $origin = $xpath->query('//nav[@id="orderStatusNavigation"]/a[contains(@class,"active")]')->item(0);
         $this->assertSame($original, $origin?->getAttribute('href'));
+        $this->assertFalse($origin?->hasAttribute('data-order-filter-target'));
         $shippedUrl = route('orders.index', ['status' => 'shipped']);
-        $this->assertSame(1, $xpath->query('//nav[@id="orderStatusNavigation"]/a[@href="'.$shippedUrl.'"]')->length);
+        $shipped = $xpath->query('//nav[@id="orderStatusNavigation"]/a[@href="'.$shippedUrl.'"]')->item(0);
+        $this->assertSame(
+            'status:'.OrderStatusSetting::query()->where('status', 'shipped')->sole()->id,
+            $shipped?->getAttribute('data-order-filter-target'),
+        );
         $returned = $this->get($original)->assertOk()->viewData('orders')->pluck('id')->all();
         $this->assertSame([$other->id], $returned);
     }
@@ -185,6 +192,92 @@ class OrderListContextNavigationTest extends TestCase
         $context = ['status' => 'new', 'source' => 'allegro', 'page' => 1, 'per_page' => 20];
         $details = $this->get($this->orderUrl($order, $context))->assertOk();
         $this->get($details->viewData('ordersListUrl'))->assertOk()->assertViewHas('activeSavedViewId', $saved->id);
+    }
+
+    public function test_filter_preferences_are_scoped_to_the_selected_list_and_not_global_search(): void
+    {
+        $this->get(route('orders.index'))->assertOk()
+            ->assertSee('data-order-filter-scope="all"', false)
+            ->assertSee('data-order-filter-clear="all"', false);
+
+        $this->get(route('orders.index', ['trash' => 1]))->assertOk()
+            ->assertSee('data-order-filter-scope="trash"', false)
+            ->assertSee('data-order-filter-clear="trash"', false);
+
+        $scope = 'status:'.OrderStatusSetting::query()->where('status', 'new')->sole()->id;
+        $this->get(route('orders.index', ['status' => 'new']))->assertOk()
+            ->assertSee('data-order-filter-scope="'.$scope.'"', false)
+            ->assertSee('data-order-filter-clear="'.$scope.'"', false)
+            ->assertSee('data-order-filter-target="'.$scope.'"', false);
+
+        foreach ([['q' => 'search'], ['status' => 'unknown']] as $query) {
+            $this->get(route('orders.index', $query))->assertOk()
+                ->assertDontSee('data-order-filter-scope=', false)
+                ->assertDontSee('data-order-filter-clear=', false);
+        }
+    }
+
+    public function test_collapsed_filter_summary_describes_criteria_and_removes_only_the_selected_filter(): void
+    {
+        $order = $this->order('new', '2026-10-15 11:00:00');
+        $order->update(['total_gross' => '50.00']);
+        $order->items()->create([
+            'product_name' => 'Zgemma H8.2H',
+            'quantity' => 1,
+            'unit_price_gross' => '50.00',
+            'total_price_gross' => '50.00',
+            'currency' => 'PLN',
+        ]);
+        $query = [
+            'status' => 'new',
+            'product' => 'H8.2H',
+            'source' => 'allegro',
+            'cash_on_delivery' => '0',
+            'ordered_from' => '2026-10-15',
+            'total_to' => '500',
+            'per_page' => 30,
+            'sort' => 'total',
+            'direction' => 'asc',
+            'page' => 2,
+        ];
+        $response = $this->get(route('orders.index', $query))->assertOk();
+        $xpath = $this->xpath($response->getContent());
+        $this->assertSame('false', $xpath->evaluate('string(//button[@aria-controls="ordersFiltersPanel"]/@aria-expanded)'));
+        $this->assertSame(5, $xpath->query('//li[@data-order-filter-summary]')->length);
+        foreach ([
+            'product' => ['Nazwa produktu', 'zawiera', 'H8.2H'],
+            'source' => ['Źródło zamówienia', 'to', 'Allegro'],
+            'cash_on_delivery' => ['Pobranie', 'to', 'Nie'],
+            'ordered_from' => ['Data złożenia', 'od', '15.10.2026'],
+            'total_to' => ['Łączna kwota', 'do', '500,00'],
+        ] as $key => [$label, $operator, $value]) {
+            $row = '//li[@data-order-filter-summary="'.$key.'"]';
+            $this->assertSame($label, $xpath->evaluate('string('.$row.'/span/span[1])'));
+            $this->assertSame($operator, $xpath->evaluate('string('.$row.'/span/span[2])'));
+            $this->assertSame($value, $xpath->evaluate('string('.$row.'/span/strong)'));
+        }
+
+        $remove = $xpath->query('//li[@data-order-filter-summary="product"]/a')->item(0);
+        $this->assertSame(
+            'status:'.OrderStatusSetting::query()->where('status', 'new')->sole()->id,
+            $remove?->getAttribute('data-order-filter-remove'),
+        );
+        parse_str(parse_url($remove->getAttribute('href'), PHP_URL_QUERY), $remaining);
+        unset($query['product'], $query['page']);
+        $this->assertEquals(array_map(strval(...), $query), $remaining);
+        $this->get($remove->getAttribute('href'))->assertOk()
+            ->assertDontSee('data-order-filter-summary="product"', false)
+            ->assertViewHas('orders', fn ($orders): bool => $orders->currentPage() === 1 && $orders->pluck('id')->all() === [$order->id]);
+    }
+
+    public function test_empty_filters_do_not_display_a_summary_and_filter_values_are_escaped(): void
+    {
+        $this->get(route('orders.index'))->assertOk()
+            ->assertDontSee('data-order-filter-summary=', false);
+        $this->get(route('orders.index', ['notes' => '<script>alert(1)</script>']))->assertOk()
+            ->assertSee('data-order-filter-summary="notes"', false)
+            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
+            ->assertDontSee('<script>alert(1)</script>', false);
     }
 
     public function test_malformed_context_cannot_inject_redirect_targets_or_html(): void

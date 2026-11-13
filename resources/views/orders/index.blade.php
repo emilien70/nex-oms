@@ -15,10 +15,19 @@
     $money = fn ($value) => number_format((float) $value, 2, '.', '');
     $compactDate = fn ($value) => $value ? $value->format('d.m.Y H:i') : '...';
     $activeFilters = array_filter($filters ?? [], fn ($value) => $value !== null && $value !== '');
-    $filterQueryBase = array_filter(array_merge($activeFilters, ['q' => $searchQuery, 'per_page' => $perPage]), fn ($value) => $value !== null && $value !== '');
+    $filterSummary = \App\Support\OrderListFilterState::summary($activeFilters);
+    $filterListParameters = array_filter([
+        'q' => $searchQuery,
+        'status' => $currentStatus,
+        'trash' => $showTrash ? 1 : null,
+        'per_page' => $perPage,
+    ] + $orderSorting->parameters(), fn ($value) => $value !== null && $value !== '');
     $filterValue = fn ($key) => $filters[$key] ?? '';
     $sortingDirectionLabel = html_entity_decode($orderSorting->direction === 'desc' ? 'Malej&#261;co' : 'Rosn&#261;co', ENT_QUOTES, 'UTF-8');
     $headerStatus = $currentStatus ? ($statusSettings[$currentStatus] ?? null) : null;
+    $filterPreferenceScope = $searchQuery === '' && (request()->query('status') === null || $headerStatus !== null || $showTrash)
+        ? \App\Support\OrderListFilterState::preferenceScope($headerStatus, $showTrash)
+        : null;
     $headerTitle = $showTrash ? 'Kosz' : ($headerStatus['name'] ?? 'Wszystkie zam&oacute;wienia');
     $headerColor = $showTrash ? '#64748b' : ($headerStatus['color'] ?? '#64748b');
     $showHeaderColor = $showTrash || $headerStatus !== null;
@@ -47,7 +56,7 @@
             @csrf
         </form>
 
-        <div class="orders-header mb-4">
+        <div class="orders-header {{ $filterSummary !== [] ? 'mb-2' : 'mb-4' }}">
             <div>
                 <h1 class="orders-status-heading">
                     @if ($showHeaderColor)
@@ -57,7 +66,7 @@
                 </h1>
             </div>
             <div class="orders-top-actions">
-                <button class="orders-filters-toggle {{ $hasActiveFilters ? 'is-active' : '' }}" type="button" data-bs-toggle="collapse" data-bs-target="#ordersFiltersPanel" aria-expanded="{{ $hasActiveFilters ? 'true' : 'false' }}" aria-controls="ordersFiltersPanel" aria-label="Filtrowanie zam&#243;wie&#324;" title="Filtrowanie zam&#243;wie&#324;">
+                <button class="orders-filters-toggle {{ $filterSummary !== [] ? 'is-active' : '' }}" type="button" data-bs-toggle="collapse" data-bs-target="#ordersFiltersPanel" aria-expanded="false" aria-controls="ordersFiltersPanel" aria-label="Filtrowanie zam&#243;wie&#324;" title="Filtrowanie zam&#243;wie&#324;">
                     <span class="orders-filters-toggle-icon"><i class="bi bi-filter-left" aria-hidden="true"></i></span>
                     <span>Filtrowanie zam&oacute;wie&#324;</span>
                     <i class="bi bi-chevron-down orders-filters-toggle-chevron" aria-hidden="true"></i>
@@ -65,8 +74,8 @@
             </div>
         </div>
 
-        <div class="collapse {{ $hasActiveFilters ? 'show' : '' }}" id="ordersFiltersPanel">
-            <form class="orders-filters-panel" method="GET" action="{{ route('orders.index') }}">
+        <div class="collapse" id="ordersFiltersPanel">
+            <form class="orders-filters-panel" method="GET" action="{{ route('orders.index') }}" @isset($filterPreferenceScope) data-order-filter-scope="{{ $filterPreferenceScope }}" @endisset>
                 @if ($searchQuery !== '')
                     <input type="hidden" name="q" value="{{ $searchQuery }}">
                 @endif
@@ -98,7 +107,7 @@
 
                     <div class="orders-filter-field"><label for="filter_postal_code">Kod pocztowy</label><input id="filter_postal_code" class="form-control form-control-sm" type="text" name="postal_code" value="{{ $filterValue('postal_code') }}"></div>
                     <div class="orders-filter-field"><label for="filter_shipping_method">Spos&oacute;b wysy&#322;ki</label><input id="filter_shipping_method" class="form-control form-control-sm" type="text" name="shipping_method" value="{{ $filterValue('shipping_method') }}"></div>
-                    <div class="orders-filter-field"><label for="filter_tracking_number">Numer nadania (ostatni)</label><input id="filter_tracking_number" class="form-control form-control-sm" type="text" name="tracking_number" value="{{ $filterValue('tracking_number') }}" placeholder="Brak pola w MVP"></div>
+                    <div class="orders-filter-field"><label for="filter_tracking_number">Numer nadania</label><input id="filter_tracking_number" class="form-control form-control-sm" type="text" name="tracking_number" value="{{ $filterValue('tracking_number') }}"></div>
                     <div class="orders-filter-field"><label for="filter_cash_on_delivery">Pobranie</label><select id="filter_cash_on_delivery" class="form-select form-select-sm" name="cash_on_delivery"><option value="">Wszystkie</option><option value="1" @selected($filterValue('cash_on_delivery') === '1')>Tak</option><option value="0" @selected($filterValue('cash_on_delivery') === '0')>Nie</option></select></div>
                     <div class="orders-filter-field"><label for="filter_payment">P&#322;atno&#347;&#263;</label><select id="filter_payment" class="form-select form-select-sm" name="payment"><option value="">Wszystkie</option><option value="unpaid" @selected($filterValue('payment') === 'unpaid')>Nieop&#322;acone</option><option value="partial" @selected($filterValue('payment') === 'partial')>Cz&#281;&#347;ciowo op&#322;acone</option><option value="paid" @selected($filterValue('payment') === 'paid')>Op&#322;acone</option></select></div>
                     <div class="orders-filter-field"><label for="filter_payment_method">Spos&oacute;b p&#322;atno&#347;ci</label><input id="filter_payment_method" class="form-control form-control-sm" type="text" name="payment_method" value="{{ $filterValue('payment_method') }}"></div>
@@ -124,7 +133,8 @@
                                     <div class="saved-filter-entry" data-saved-filter-entry data-view-id="{{ $savedView->id }}">
                                         <a
                                             class="saved-filter-entry-link {{ $activeSavedViewId === $savedView->id ? 'is-active' : '' }}"
-                                            href="{{ route('orders.index', array_merge($savedView->filters ?? [], ['per_page' => $perPage])) }}"
+                                            href="{{ route('orders.index', $savedViewParameters[$savedView->id] + ['per_page' => $perPage]) }}"
+                                            @isset($filterPreferenceScope) data-order-filter-apply="{{ $filterPreferenceScope }}" @endisset
                                             title="{{ $savedView->name }}"
                                         >{{ $savedView->name }}</a>
                                         <button
@@ -153,11 +163,33 @@
                             </button>
                         </div>
                     </div>
-                    <a class="btn btn-outline-secondary orders-filter-action-button" href="{{ route('orders.index', array_filter(['q' => $searchQuery, 'status' => $currentStatus, 'trash' => $showTrash ? 1 : null, 'per_page' => $perPage] + $orderSorting->parameters(), fn ($value) => $value !== null && $value !== '')) }}">Wyczy&#347;&#263; filtry</a>
+                    <a class="btn btn-outline-secondary orders-filter-action-button" href="{{ route('orders.index', $filterListParameters) }}" @isset($filterPreferenceScope) data-order-filter-clear="{{ $filterPreferenceScope }}" @endisset>Wyczy&#347;&#263; filtry</a>
                     <button class="btn btn-primary orders-filter-action-button" type="submit">Ustaw filtry</button>
                 </div>
             </form>
         </div>
+
+        @if ($filterSummary !== [])
+            <ul class="orders-active-filters" aria-label="Aktywne filtry">
+                @foreach ($filterSummary as $key => $criterion)
+                    @php
+                        $removeLabel = 'Usuń filtr: '.$criterion['label'].' '.$criterion['operator'];
+                    @endphp
+                    <li class="orders-active-filter" data-order-filter-summary="{{ $key }}">
+                        <span class="orders-active-filter-description">
+                            <span>{{ $criterion['label'] }}</span>
+                            <span class="orders-active-filter-operator">{{ $criterion['operator'] }}</span>
+                            <strong>{{ $criterion['value'] }}</strong>
+                        </span>
+                        <a class="orders-active-filter-remove"
+                            href="{{ route('orders.index', $filterListParameters + \Illuminate\Support\Arr::except($activeFilters, $key) + ($searchQuery !== '' ? ['list_return' => 1] : [])) }}"
+                            @isset($filterPreferenceScope) data-order-filter-remove="{{ $filterPreferenceScope }}" @endisset
+                            aria-label="{{ $removeLabel }}" title="{{ $removeLabel }}"
+                        ><i class="bi bi-x" aria-hidden="true"></i></a>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
 
         <x-docked-list-toolbar>
             <div class="selection-menu dropdown">
@@ -865,6 +897,7 @@
 
                 if (currentContext && nextContext) {
                     currentContext.replaceWith(nextContext);
+                    window.nexOmsOrderFilters?.refreshLinks();
                 }
             };
 
@@ -1168,7 +1201,7 @@
                 });
             };
 
-            const loadOrdersPage = async (url, { pushHistory = true, scrollToToolbar = false } = {}) => {
+            const loadOrdersPage = async (url, { pushHistory = true, scrollToToolbar = false, collapseFilters = false } = {}) => {
                 let targetUrl = new URL(url, window.location.href);
                 const currentPage = currentOrdersPage();
                 const requestSequence = ++navigationSequence;
@@ -1187,6 +1220,10 @@
                         signal: navigationController.signal,
                     });
 
+                    if (requestSequence !== navigationSequence) {
+                        return false;
+                    }
+
                     if (!response.ok) {
                         throw new Error('Nie uda\u0142o si\u0119 od\u015bwie\u017cy\u0107 listy zam\u00f3wie\u0144.');
                     }
@@ -1203,6 +1240,10 @@
                     }
 
                     const nextDocument = new DOMParser().parseFromString(await response.text(), 'text/html');
+                    if (requestSequence !== navigationSequence) {
+                        return false;
+                    }
+
                     const nextOrdersPage = nextDocument.querySelector('[data-orders-page]');
                     const activeOrdersPage = currentOrdersPage();
 
@@ -1213,6 +1254,10 @@
                     activeOrdersPage.querySelectorAll('[data-order-copy-login]').forEach((button) => {
                         bootstrap.Tooltip.getInstance(button)?.dispose();
                     });
+                    if (!collapseFilters && activeOrdersPage.querySelector('#ordersFiltersPanel.show')) {
+                        nextOrdersPage.querySelector('#ordersFiltersPanel')?.classList.add('show');
+                        nextOrdersPage.querySelector('.orders-filters-toggle')?.setAttribute('aria-expanded', 'true');
+                    }
                     activeOrdersPage.replaceWith(nextOrdersPage);
                     replaceOrdersContext(nextDocument);
                     const globalSearchInput = document.querySelector('[data-global-order-search-input]');
@@ -1305,7 +1350,12 @@
                 });
 
                 form.removeAttribute('data-orders-form-dirty');
-                loadOrdersPage(targetUrl, { pushHistory: true });
+                const scope = form.dataset.orderFilterScope;
+                return loadOrdersPage(targetUrl, { pushHistory: true }).then((loaded) => {
+                    if (loaded && scope) {
+                        window.nexOmsOrderFilters?.remember(scope, targetUrl.searchParams);
+                    }
+                });
             };
 
             const isOrdersIndexUrl = (url) => {
@@ -1352,9 +1402,19 @@
                 }
 
                 event.preventDefault();
-                loadOrdersPage(anchor.href, {
+                const scope = anchor.dataset.orderFilterApply || anchor.dataset.orderFilterClear || anchor.dataset.orderFilterRemove;
+                const statusTarget = anchor.dataset.orderFilterTarget;
+                const currentScope = currentOrdersPage()?.querySelector('[data-order-filter-scope]')?.dataset.orderFilterScope;
+                const sameStatus = statusTarget !== undefined && statusTarget === currentScope && anchor.closest('.orders-context-list');
+                const targetUrl = new URL(sameStatus ? window.location.href : anchor.href);
+                loadOrdersPage(targetUrl, {
                     pushHistory: true,
+                    collapseFilters: statusTarget !== undefined,
                     scrollToToolbar: Boolean(anchor.closest('[data-list-toolbar-dock] .nex-pagination-toolbar')),
+                }).then((loaded) => {
+                    if (loaded && scope) {
+                        window.nexOmsOrderFilters?.remember(scope, targetUrl.searchParams);
+                    }
                 });
             });
 
@@ -1393,10 +1453,12 @@
             }, true);
 
             window.addEventListener('popstate', () => {
-                loadOrdersPage(window.location.href, { pushHistory: false });
+                loadOrdersPage(window.location.href, { pushHistory: false, collapseFilters: true });
             });
 
-            initializeOrdersList();
+            if (!window.nexOmsOrderFilters?.restoreEntry()) {
+                initializeOrdersList();
+            }
         });
     </script>
 @endsection

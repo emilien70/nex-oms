@@ -3151,14 +3151,21 @@ sledzenie zachowuja dotychczasowe zasady. Zmiana nie wymaga migracji.
 Otwarcie zamowienia z listy zachowuje status, zastosowane filtry,
 wyszukiwanie, numer strony i liczbe pozycji. Powrot do listy lub klikniecie
 statusu pochodzenia w bocznym menu odtwarza ten widok. Inny status otwiera
-liste bez odziedziczonych filtrow. Strzalki przechodza po wynikach filtrow,
+pierwsza strone z wlasnymi filtrami. Strzalki przechodza po wynikach filtrow,
 takze miedzy stronami, z zachowaniem pierwotnej strony powrotu.
 Zmiana danych/statusu zamowienia nie zmienia kontekstu. Pusta ostatnia
 strona powoduje powrot do ostatniej dostepnej bez usuwania filtrow.
-Wyczysc filtry pozostaje jawna operacja; zwijanie panelu ich nie wylacza.
-Rozne karty przegladarki sa niezalezne. Nie jest to trwale zapamietywanie
-filtrow konta ani nowy system zapisanych widokow. Bez kontekstu zachowany
-jest dotychczasowy powrot. Szczegoly: docs/order-list-navigation-report.md.
+Ustaw filtry zapamietuje wszystkie kryteria w przegladarce osobno dla
+kazdego statusu, widoku Wszystkie i Kosza. Wyczysc filtry usuwa tylko
+biezacy zestaw; zwijanie panelu go nie zmienia. Wybor z Zapisanych filtrow
+stosuje i zapamietuje kryteria szablonu w biezacym statusie, bez zmiany
+szablonu. Wyszukiwanie globalne nie zmienia preferencji statusow.
+Klikniecie statusu, takze juz aktywnego, zwija formularz. Pod naglowkiem
+widac wtedy wiersze aktywnych kryteriow z przyciskiem usuniecia kazdego
+osobno. Usuniecie aktualizuje zestaw danego statusu i zachowuje pozostale
+kryteria, sortowanie i liczbe pozycji na stronie.
+Sortowanie i paginacja nie sa czescia zestawu. Aktywny widok kazdej karty
+pozostaje w jej URL, ale preferencje sa wspolne w profilu przegladarki.
 
 # Sortowanie zamowien
 

@@ -135,10 +135,14 @@ class OrdersController extends Controller
                 array_replace($listContext, ['page' => $orders->lastPage()]),
             ));
         }
+        $listStatus = ! $showTrash && array_key_exists((string) $currentStatus, $statuses) ? $currentStatus : null;
         $savedViews = OrderSavedView::query()->ordered()->get();
+        $savedViewParameters = $savedViews->mapWithKeys(fn (OrderSavedView $view): array => [
+            $view->id => OrderListFilterState::savedViewParameters($view->filters ?? [], $listStatus, $showTrash, $searchQuery),
+        ]);
         $currentSavedState = OrderListFilterState::savedFromRequest($request);
         $activeSavedViewId = $savedViews
-            ->first(fn (OrderSavedView $view): bool => ($view->filters ?? []) === $currentSavedState)
+            ->first(fn (OrderSavedView $view): bool => OrderListFilterState::normalizeSaved($savedViewParameters[$view->id]) === $currentSavedState)
             ?->id;
 
         return view('orders.index', [
@@ -146,7 +150,7 @@ class OrdersController extends Controller
             'statuses' => $statuses,
             'statusSettings' => $statusSettings,
             'statusCounts' => $statusCounts,
-            'currentStatus' => ! $showTrash && array_key_exists((string) $currentStatus, $statuses) ? $currentStatus : null,
+            'currentStatus' => $listStatus,
             'showTrash' => $showTrash,
             'searchQuery' => $searchQuery,
             'filters' => $filters,
@@ -154,6 +158,7 @@ class OrdersController extends Controller
             'sourceOptions' => $this->sourceOptions(),
             'perPage' => $perPage,
             'savedViews' => $savedViews,
+            'savedViewParameters' => $savedViewParameters,
             'activeSavedViewId' => $activeSavedViewId,
             'perPageOptions' => $perPageOptions,
             'allMatchingOrderIds' => $allMatchingOrderIds,

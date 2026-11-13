@@ -3793,15 +3793,25 @@ Szczegoly i wczytanie zmiany: docs/shipment-confirmation-optimization-report.md.
 
 OrderListNavigationContext przenosi do karty zamowienia znormalizowana
 tablice list: filtry OrderListFilterState, status, q, page i per_page.
-Powrot i boczny link statusu pochodzenia odtwarzaja ja przez orders.index;
-inny status nie dziedziczy filtrow. Bez list pozostaje stara nawigacja.
+Powrot i boczny link statusu pochodzenia odtwarzaja ja przez orders.index.
+Przy zwyklej nawigacji order-filter-preferences.js odtwarza w URL zestaw
+z localStorage dla statusu (klucz wg ID), Wszystkich lub Kosza. Zapis i
+czyszczenie nastepuja tylko po udanej jawnej operacji w panelu filtrow,
+takze przy wyborze zapisanego szablonu. Klucze pochodza z
+OrderListFilterState::FILTER_KEYS. Link szablonu zachowuje biezacy kontekst
+listy, zamiast uzywac statusu lub q z szablonu. Jawny URL wyszukiwania,
+paginacji lub powrotu ma pierwszenstwo przed preferencja.
+Zwiniety panel pokazuje kryteria z OrderListFilterState::summary.
+Link usuniecia zmienia tylko jeden parametr i zapisuje pozostale filtry
+po udanym odswiezeniu listy. Nawigacja po statusach zwija panel; zwykle
+odswiezenie AJAX zachowuje jego recznie otwarty stan.
 Sasiedzi korzystaja z ordersListQuery i OrderListSort (wybrane pole oraz ID),
 bez pelnej materializacji wynikow. Zmiana statusu otwartego zamowienia nie zmienia
 zrodlowego kontekstu. Powrot z pustej strony koryguje page do lastPage.
 Marker list_return zapobiega petli przekierowania wyszukiwania po numerze
 paczki i nie wchodzi do filtrow, zapisanych widokow ani zakresu zaznaczenia.
 AJAX zachowuje kanoniczny URL po przekierowaniu na dostepna strone.
-Nie dodano sesji, pamieci wspoldzielonej kart, routingu ani migracji.
+Nie dodano sesji, routingu ani migracji.
 Raport i testy: docs/order-list-navigation-report.md.
 
 ## Sortowanie listy zamowien

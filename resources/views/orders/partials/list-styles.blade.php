@@ -643,8 +643,82 @@
         }
 
         .orders-filters-toggle.is-active {
-            background: #eff6ff;
-            border-color: #bfdbfe;
+            background: #f0f7fd;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px #cce5ff;
+            color: #006fc9;
+        }
+
+        .orders-active-filters {
+            display: grid;
+            gap: 3px;
+            list-style: none;
+            margin: 0 0 8px;
+            padding: 0;
+        }
+
+        #ordersFiltersPanel:is(.show, .collapsing) + .orders-active-filters {
+            display: none;
+        }
+
+        .orders-active-filter {
+            align-items: center;
+            background: #f0f7fd;
+            border-radius: 5px;
+            color: #465263;
+            display: flex;
+            font-size: 13px;
+            gap: 8px;
+            justify-content: space-between;
+            min-height: 34px;
+            padding: 4px 10px 4px 6px;
+        }
+
+        .orders-active-filter-description {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .orders-active-filter-description strong {
+            color: #27364a;
+            font-weight: 600;
+            min-width: 0;
+        }
+
+        .orders-active-filter-operator {
+            background: #e7edf3;
+            border-radius: 3px;
+            font-size: 11px;
+            padding: 3px 8px;
+        }
+
+        .orders-active-filter-remove {
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #a6ccf9;
+            border-radius: 4px;
+            color: #0077d9;
+            display: inline-flex;
+            flex: 0 0 38px;
+            height: 22px;
+            justify-content: center;
+            text-decoration: none;
+        }
+
+        .orders-active-filter-remove:hover,
+        .orders-active-filter-remove:focus-visible {
+            background: #e3effd;
+            color: #005ba6;
+        }
+
+        @media (pointer: coarse) {
+            .orders-active-filter-remove {
+                height: 38px;
+            }
         }
 
         .orders-filters-toggle-icon {

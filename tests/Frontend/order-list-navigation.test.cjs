@@ -9,10 +9,13 @@ const start = page.indexOf('const loadOrdersPage =');
 const end = page.indexOf('const submitMutation =', start);
 assert.ok(start > 0 && end > start);
 
-function harness({ initial, redirected = false, responseUrl = initial, ok = true }) {
-    const events = { requests: [], pushes: [], replacements: [], assignments: [], rendered: 0, errors: [], scrolls: [] };
+function harness({ initial, redirected = false, responseUrl = initial, ok = true, filtersOpen = false }) {
+    const events = { requests: [], pushes: [], replacements: [], assignments: [], rendered: 0, errors: [], scrolls: [], filterState: [] };
     const classes = { add: () => {}, remove: () => {} };
-    const activePage = { classList: classes, querySelectorAll: () => [], replaceWith: () => events.rendered++ };
+    const activePage = {
+        classList: classes, querySelectorAll: () => [], replaceWith: () => events.rendered++,
+        querySelector: selector => filtersOpen && selector === '#ordersFiltersPanel.show' ? {} : null,
+    };
     const location = { href: initial, assign: url => events.assignments.push(url) };
     const context = vm.createContext({
         URL, AbortController,
@@ -28,7 +31,11 @@ function harness({ initial, redirected = false, responseUrl = initial, ok = true
             parseFromString() {
                 const nextPage = {
                     querySelector: selector => selector === '[data-list-toolbar-slot]'
-                        ? { scrollIntoView: options => events.scrolls.push(options.block) } : null,
+                        ? { scrollIntoView: options => events.scrolls.push(options.block) }
+                        : ({
+                            '#ordersFiltersPanel': { classList: { add: name => events.filterState.push(name) } },
+                            '.orders-filters-toggle': { setAttribute: (name, value) => events.filterState.push([name, value]) },
+                        })[selector] ?? null,
                 };
                 return { querySelector: selector => selector === '[data-orders-page]' ? nextPage : null, title: 'Orders' };
             }
@@ -71,6 +78,19 @@ test('ordinary background refresh keeps current filter URL and history', async (
     assert.deepEqual(h.events.replacements, []);
     assert.equal(h.location.href, original);
     assert.deepEqual(h.events.scrolls, []);
+});
+
+test('a status click closes open filters even when the URL is unchanged', async () => {
+    const h = harness({ initial: original, filtersOpen: true });
+    assert.equal(await h.load(original, { collapseFilters: true }), true);
+    assert.deepEqual(h.events.filterState, []);
+    assert.deepEqual(h.events.requests, [original]);
+});
+
+test('refreshing a list preserves a manually expanded filter panel', async () => {
+    const h = harness({ initial: original, filtersOpen: true });
+    assert.equal(await h.load(original, { pushHistory: false }), true);
+    assert.deepEqual(h.events.filterState, ['show', ['aria-expanded', 'true']]);
 });
 
 test('pagination from the docked toolbar returns to the top of the new table', async () => {

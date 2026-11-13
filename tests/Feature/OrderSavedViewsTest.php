@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use App\Models\OrderSavedView;
+use App\Models\OrderStatusSetting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -79,6 +80,65 @@ class OrderSavedViewsTest extends TestCase
         $view->refresh();
         $this->assertSame('Wszystkie', $view->name);
         $this->assertSame([], $view->filters);
+    }
+
+    public function test_saved_product_filter_is_applied_in_the_current_status_without_changing_the_template(): void
+    {
+        $new = $this->order('Anna', Order::STATUS_NEW);
+        $shipped = $this->order('Anna', Order::STATUS_SHIPPED);
+        $other = $this->order('Anna', Order::STATUS_NEW);
+        foreach ([[$new, 'Zgemma H8.2H'], [$shipped, 'Zgemma H8.2H'], [$other, 'Pilot']] as [$order, $product]) {
+            $order->items()->create([
+                'product_name' => $product,
+                'quantity' => 1,
+                'unit_price_gross' => '10.00',
+                'total_price_gross' => '10.00',
+                'currency' => 'PLN',
+            ]);
+        }
+
+        OrderStatusSetting::syncDefaults();
+        $scope = 'status:'.OrderStatusSetting::query()->where('status', Order::STATUS_NEW)->sole()->id;
+        foreach ([
+            ['product' => 'H8.2H'],
+            ['q' => 'inna fraza', 'status' => Order::STATUS_SHIPPED, 'product' => 'H8.2H'],
+        ] as $filters) {
+            $view = OrderSavedView::query()->create([
+                'name' => 'H8.2H',
+                'filters' => $filters,
+                'sort_order' => 1,
+            ]);
+
+            $target = route('orders.index', ['product' => 'H8.2H', 'status' => Order::STATUS_NEW, 'per_page' => 30]);
+            $this->get(route('orders.index', ['status' => Order::STATUS_NEW, 'per_page' => 30, 'page' => 2]))
+                ->assertOk()
+                ->assertSee('href="'.e($target).'"', false)
+                ->assertSee('data-order-filter-apply="'.$scope.'"', false);
+            $this->get($target)->assertOk()
+                ->assertViewHas('currentStatus', Order::STATUS_NEW)
+                ->assertViewHas('activeSavedViewId', $view->id)
+                ->assertViewHas('orders', fn ($orders): bool => $orders->currentPage() === 1 && $orders->pluck('id')->all() === [$new->id]);
+
+            $this->assertSame($filters, $view->fresh()->filters);
+            $view->delete();
+        }
+    }
+
+    public function test_saved_view_preserves_the_current_search_or_trash_context(): void
+    {
+        $view = OrderSavedView::query()->create([
+            'name' => 'H8.2H',
+            'filters' => ['q' => 'old search', 'status' => Order::STATUS_SHIPPED, 'product' => 'H8.2H', 'sort' => 'total', 'direction' => 'asc'],
+            'sort_order' => 1,
+        ]);
+        $criteria = ['product' => 'H8.2H', 'sort' => 'total', 'direction' => 'asc'];
+
+        $this->get(route('orders.index', ['q' => 'current search']))->assertOk()
+            ->assertViewHas('savedViewParameters', fn ($sets): bool => $sets[$view->id] === $criteria + ['q' => 'current search'])
+            ->assertDontSee('data-order-filter-apply=', false);
+        $this->get(route('orders.index', ['trash' => 1]))->assertOk()
+            ->assertViewHas('savedViewParameters', fn ($sets): bool => $sets[$view->id] === $criteria + ['trash' => 1])
+            ->assertSee('data-order-filter-apply="trash"', false);
     }
 
     public function test_saved_views_can_be_reordered_and_deleted(): void
