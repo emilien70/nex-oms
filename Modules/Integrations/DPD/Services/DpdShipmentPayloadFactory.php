@@ -90,7 +90,7 @@ class DpdShipmentPayloadFactory
                     'packages' => [[
                         'parcels' => $waybills->map(fn (string $waybill): array => ['waybill' => $waybill])->all(),
                     ]],
-                    'type' => 'DOMESTIC',
+                    'type' => $this->labelSessionType($shipment),
                 ],
             ],
             'outputDocFormat' => strtoupper($shipment->label_format ?: 'PDF'),
@@ -98,6 +98,36 @@ class DpdShipmentPayloadFactory
             'outputType' => 'BIC3',
             'variant' => 'STANDARD',
         ];
+    }
+
+    private function labelSessionType(Shipment $shipment): string
+    {
+        $created = $shipment->events()
+            ->where('event_type', 'shipment_created')
+            ->latest('id')
+            ->first(['payload']);
+        $sender = data_get($created?->payload, 'sender_country_code');
+        $receiver = data_get($created?->payload, 'receiver_country_code');
+
+        if (blank($sender) || blank($receiver)) {
+            // Older shipments did not record the countries in the creation event.
+            $creation = $shipment->apiLogs()
+                ->where('integration', $shipment->provider)
+                ->where('operation', 'create_shipment')
+                ->where('successful', true)
+                ->latest('id')
+                ->first(['request_payload']);
+            $sender = data_get($creation?->request_payload, 'packages.0.sender.countryCode');
+            $receiver = data_get($creation?->request_payload, 'packages.0.receiver.countryCode');
+        }
+
+        if (blank($sender) || blank($receiver)) {
+            $shipment->loadMissing(['order', 'courierAccount']);
+            $sender = $shipment->courierAccount?->setting('sender_country_code', 'PL') ?: 'PL';
+            $receiver = $shipment->order?->shipping_country_code ?: 'PL';
+        }
+
+        return strtoupper(trim($sender)) === strtoupper(trim($receiver)) ? 'DOMESTIC' : 'INTERNATIONAL';
     }
 
     private function receiver(Shipment $shipment): array

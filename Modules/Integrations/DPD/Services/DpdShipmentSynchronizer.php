@@ -16,7 +16,7 @@ class DpdShipmentSynchronizer
         private readonly ShipmentCreationAttemptService $attempts,
     ) {}
 
-    public function applyCreated(Shipment $shipment, array $data): void
+    public function applyCreated(Shipment $shipment, array $data, array $requestPayload): void
     {
         $shipment->loadMissing(['order', 'parcels']);
         $sessionId = data_get($data, 'sessionId');
@@ -56,6 +56,8 @@ class DpdShipmentSynchronizer
                 'session_id' => (string) $sessionId,
                 'tracking_number' => (string) $trackingNumber,
                 'trace_id' => data_get($data, 'traceId'),
+                'sender_country_code' => data_get($requestPayload, 'packages.0.sender.countryCode'),
+                'receiver_country_code' => data_get($requestPayload, 'packages.0.receiver.countryCode'),
             ],
             'occurred_at' => now(),
         ]);

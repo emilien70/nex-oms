@@ -171,6 +171,9 @@ class DpdShipmentTest extends TestCase
         $this->assertSame('771122', $shipment->external_id);
         $this->assertSame('00000000000001', $shipment->tracking_number);
         $this->assertSame('00000000000002', $shipment->parcels[1]->tracking_number);
+        $creation = $shipment->events()->where('event_type', 'shipment_created')->firstOrFail();
+        $this->assertSame('PL', $creation->payload['sender_country_code']);
+        $this->assertSame('PL', $creation->payload['receiver_country_code']);
         $this->assertDatabaseHas('integration_api_logs', [
             'integration' => CourierAccount::PROVIDER_DPD,
             'shipment_id' => $shipment->id,
@@ -193,7 +196,83 @@ class DpdShipmentTest extends TestCase
 
         $this->assertSame('%PDF-DPD-LABEL', $response->body());
         Http::assertSent(fn ($request): bool => data_get($request->data(), 'labelSearchParams.session.packages.0.parcels.0.waybill') === $shipment->tracking_number
+            && data_get($request->data(), 'labelSearchParams.session.type') === 'DOMESTIC'
             && data_get($request->data(), 'format') === 'LBL_PRINTER');
+    }
+
+    public function test_dpd_uses_historical_countries_to_download_an_existing_international_label(): void
+    {
+        $shipment = $this->createdShipment();
+        $shipment->apiLogs()->create([
+            'integration' => CourierAccount::PROVIDER_DPD,
+            'operation' => 'create_shipment',
+            'request_id' => (string) Str::uuid(),
+            'method' => 'POST',
+            'url' => 'https://dpdservicesdemo.dpd.com.pl/public/shipment/v1/generatePackagesNumbers',
+            'request_payload' => ['packages' => [[
+                'sender' => ['countryCode' => 'PL'],
+                'receiver' => ['countryCode' => 'HU'],
+            ]]],
+            'successful' => true,
+        ]);
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://dpdservicesdemo.dpd.com.pl/public/shipment/v1/generateSpedLabels' => Http::response([
+                'status' => 'OK',
+                'documentData' => base64_encode('%PDF-DPD-HU'),
+            ]),
+        ]);
+
+        $response = $this->get(route('shipments.label', $shipment))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf')
+            ->assertDownload('dpd-'.$shipment->tracking_number.'.pdf');
+
+        $this->assertSame('%PDF-DPD-HU', $response->getContent());
+        Http::assertSent(fn ($request): bool => data_get($request->data(), 'labelSearchParams.session.type') === 'INTERNATIONAL'
+            && data_get($request->data(), 'labelSearchParams.session.packages.0.parcels.0.waybill') === $shipment->tracking_number);
+        Http::assertSentCount(1);
+        $this->assertSame('771122', $shipment->refresh()->external_id);
+    }
+
+    public function test_dpd_keeps_international_label_type_after_creation_logs_are_removed(): void
+    {
+        $shipment = $this->createdShipment();
+        $shipment->events()->create([
+            'event_type' => 'shipment_created',
+            'payload' => ['sender_country_code' => 'PL', 'receiver_country_code' => 'HU'],
+            'occurred_at' => now(),
+        ]);
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://dpdservicesdemo.dpd.com.pl/public/shipment/v1/generateSpedLabels' => Http::response([
+                'status' => 'OK',
+                'documentData' => base64_encode('%PDF-DPD-HU'),
+            ]),
+        ]);
+
+        $this->get(route('shipments.label', $shipment))->assertOk();
+
+        Http::assertSent(fn ($request): bool => data_get($request->data(), 'labelSearchParams.session.type') === 'INTERNATIONAL');
+    }
+
+    public function test_dpd_label_failure_redirects_to_the_order_without_creating_a_shipment(): void
+    {
+        $shipment = $this->createdShipment();
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://dpdservicesdemo.dpd.com.pl/public/shipment/v1/generateSpedLabels' => Http::response([
+                'status' => 'UNKNOWN_ERROR',
+            ], 500),
+        ]);
+
+        $orderUrl = route('orders.show', $shipment->order);
+        $this->from($orderUrl)->get(route('shipments.label', $shipment))
+            ->assertRedirect($orderUrl)
+            ->assertSessionHasErrors('shipment');
+
+        Http::assertSentCount(1);
+        $this->assertSame('771122', $shipment->refresh()->external_id);
     }
 
     public function test_dpd_status_is_refreshed_through_info_services(): void

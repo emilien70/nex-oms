@@ -5,6 +5,7 @@ namespace Modules\Integrations\DPD\Services;
 use DomainException;
 use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Http\Client\Response;
+use Modules\Integrations\DPD\Exceptions\DpdApiException;
 use Modules\Integrations\DPD\Jobs\CreateDpdShipmentJob;
 use Modules\Integrations\DPD\Jobs\RefreshDpdShipmentJob;
 use Modules\Shipments\Models\Shipment;
@@ -37,12 +38,13 @@ class DpdShipmentOperations
         }
 
         $shipment->loadMissing(['order', 'courierAccount', 'parcels']);
+        $payload = $this->payloadFactory->make($shipment);
         $data = $this->client->createShipment(
             $shipment->courierAccount,
             $shipment,
-            $this->payloadFactory->make($shipment),
+            $payload,
         );
-        $this->synchronizer->applyCreated($shipment, $data);
+        $this->synchronizer->applyCreated($shipment, $data, $payload);
 
         return $shipment->fresh();
     }
@@ -73,11 +75,15 @@ class DpdShipmentOperations
             throw new DomainException('Etykieta DPD bedzie dostepna po utworzeniu przesylki.');
         }
 
-        $data = $this->client->getLabel(
-            $shipment->courierAccount,
-            $shipment,
-            $this->payloadFactory->label($shipment),
-        );
+        try {
+            $data = $this->client->getLabel(
+                $shipment->courierAccount,
+                $shipment,
+                $this->payloadFactory->label($shipment),
+            );
+        } catch (DpdApiException $exception) {
+            throw new DomainException('Nie udalo sie pobrac etykiety DPD. Sprobuj ponownie bez nadawania nowej przesylki.', previous: $exception);
+        }
         $document = base64_decode((string) ($data['documentData'] ?? ''), true);
 
         if ($document === false || $document === '') {
