@@ -187,7 +187,7 @@ class InvoiceDocumentPreparationTest extends TestCase
         $legacyPayment['payment_identifier'] = '13592';
         unset($legacyPayment['payment_identifier_source']);
         $invoice->update(['payment_snapshot' => $legacyPayment]);
-        $cachePath = 'invoices/'.$invoice->getKey().'/invoice-v47-ksef-demo.pdf';
+        $cachePath = 'invoices/'.$invoice->getKey().'/invoice-v48-ksef-demo.pdf';
         $attachmentPath = 'invoices/'.$invoice->getKey().'/external-document.pdf';
         Storage::disk('local')->put($cachePath, '%PDF-cache');
         Storage::disk('local')->put($attachmentPath, '%PDF-attachment');

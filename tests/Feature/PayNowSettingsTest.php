@@ -16,6 +16,13 @@ class PayNowSettingsTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Http::preventStrayRequests();
+    }
+
     public function test_settings_page_and_integration_tile_are_available_without_exposing_secrets(): void
     {
         $account = $this->account();
@@ -26,16 +33,21 @@ class PayNowSettingsTest extends TestCase
             ->assertSee('href="'.route('integrations.paynow.edit').'"', false)
             ->assertSeeText('PayNow');
 
-        $this->get(route('integrations.paynow.edit'))
+        $settings = $this->get(route('integrations.paynow.edit'))
             ->assertOk()
             ->assertSeeText('Konto PayNow')
             ->assertSee('Zapisano - pozostaw puste bez zmian')
             ->assertDontSee((string) $account->api_key)
             ->assertDontSee((string) $account->signature_key);
+
+        $this->assertMatchesRegularExpression('/<input\s+id="paynow-active"[^>]*>/s', $settings->getContent());
+        $this->assertDoesNotMatchRegularExpression('/<input\s+id="paynow-active"[^>]*\bdisabled\b/s', $settings->getContent());
     }
 
     public function test_settings_are_saved_encrypted_and_blank_secret_fields_preserve_credentials(): void
     {
+        Http::fake(['https://api.sandbox.paynow.pl/v3/payments/paymentmethods*' => Http::response([])]);
+
         $this->put(route('integrations.paynow.update'), $this->settingsPayload([
             'api_key' => 'new-api-key',
             'signature_key' => 'new-signature-key',
@@ -45,6 +57,8 @@ class PayNowSettingsTest extends TestCase
 
         $this->assertSame('new-api-key', $account->api_key);
         $this->assertSame('new-signature-key', $account->signature_key);
+        $this->assertFalse($account->is_active);
+        $this->assertSame(PayNowConnectionTestStatus::Success, $account->last_test_status);
         $this->assertNotSame('new-api-key', DB::table('paynow_accounts')->value('api_key'));
         $this->assertNotSame('new-signature-key', DB::table('paynow_accounts')->value('signature_key'));
 
@@ -59,6 +73,7 @@ class PayNowSettingsTest extends TestCase
         $this->assertSame('PayNow sklep', $account->name);
         $this->assertSame('new-api-key', $account->api_key);
         $this->assertSame('new-signature-key', $account->signature_key);
+        Http::assertSentCount(1);
     }
 
     public function test_changing_environment_requires_new_credentials_and_secrets_are_not_flashed(): void
@@ -89,26 +104,105 @@ class PayNowSettingsTest extends TestCase
         $this->assertArrayNotHasKey('signature_key', $oldInput);
     }
 
-    public function test_activation_requires_a_successful_test_for_current_credentials(): void
+    public function test_saving_can_switch_from_active_sandbox_to_production_in_one_step(): void
+    {
+        $account = $this->account(['is_active' => true, 'last_test_status' => PayNowConnectionTestStatus::Success]);
+        Http::fake(['https://api.paynow.pl/v3/payments/paymentmethods*' => function () use ($account) {
+            $this->assertSame(PayNowEnvironment::Sandbox, $account->fresh()->environment);
+            $this->assertSame('secret-api-key', $account->fresh()->api_key);
+
+            return Http::response([['paymentMethods' => [['id' => 1000]]]]);
+        }]);
+
+        $this->put(route('integrations.paynow.update'), $this->settingsPayload([
+            'environment' => 'production', 'api_key' => 'prod-api-key',
+            'signature_key' => 'prod-signature-key', 'is_active' => '1',
+        ]))->assertRedirect(route('integrations.paynow.edit'))->assertSessionHasNoErrors();
+
+        $account->refresh();
+        $this->assertSame(PayNowEnvironment::Production, $account->environment);
+        $this->assertSame('prod-api-key', $account->api_key);
+        $this->assertSame('prod-signature-key', $account->signature_key);
+        $this->assertTrue($account->is_active);
+        $this->assertSame(PayNowConnectionTestStatus::Success, $account->last_test_status);
+        $this->assertNotNull($account->last_tested_at);
+        Http::assertSent(function (Request $request): bool {
+            $signature = app(PayNowSignatureService::class)->generateV3(
+                'prod-api-key', 'prod-signature-key', $request->header('Idempotency-Key')[0],
+                parameters: ['amount' => 100, 'currency' => 'PLN'],
+            );
+
+            return $request->method() === 'GET'
+                && str_starts_with($request->url(), 'https://api.paynow.pl/v3/payments/paymentmethods?')
+                && $request->hasHeader('Api-Key', 'prod-api-key')
+                && $request->hasHeader('Signature', $signature);
+        });
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('paynow_payments', 0);
+    }
+
+    public function test_failed_automatic_test_keeps_active_settings_and_does_not_flash_keys(): void
+    {
+        $account = $this->account(['is_active' => true, 'last_test_status' => PayNowConnectionTestStatus::Success]);
+        $original = $account->refresh()->getRawOriginal();
+        Http::fake(['https://api.paynow.pl/v3/payments/paymentmethods*' => Http::response([
+            'errors' => [['errorType' => 'UNAUTHORIZED', 'message' => 'invalid-prod-api-key']],
+        ], 401)]);
+
+        $this->from(route('integrations.paynow.edit'))
+            ->put(route('integrations.paynow.update'), $this->settingsPayload([
+                'environment' => 'production', 'api_key' => 'invalid-prod-api-key',
+                'signature_key' => 'invalid-prod-signature-key', 'is_active' => '1',
+            ]))
+            ->assertRedirect(route('integrations.paynow.edit'))
+            ->assertSessionHasErrors('connection_test')
+            ->assertSessionHasInput('environment', 'production');
+
+        $this->assertSame($original, $account->fresh()->getRawOriginal());
+        $this->assertArrayNotHasKey('api_key', session()->getOldInput());
+        $this->assertArrayNotHasKey('signature_key', session()->getOldInput());
+        $settings = $this->get(route('integrations.paynow.edit'))
+            ->assertSeeText('Nie zapisano ustawień PayNow.')
+            ->assertDontSee('invalid-prod-api-key')
+            ->assertDontSee('invalid-prod-signature-key');
+        $this->assertMatchesRegularExpression('/<button[^>]*data-credentials-configured="1"[^>]*\bdisabled\b/s', $settings->getContent());
+        Http::assertSentCount(1);
+    }
+
+    public function test_enabling_with_saved_keys_tests_once_and_ordinary_edits_do_not(): void
     {
         $account = $this->account();
+        Http::fake(['https://api.sandbox.paynow.pl/v3/payments/paymentmethods*' => Http::response([])]);
+
+        $this->put(route('integrations.paynow.update'), $this->settingsPayload(['is_active' => '1']))
+            ->assertSessionHasNoErrors();
+
+        $this->assertTrue($account->fresh()->is_active);
+        $this->put(route('integrations.paynow.update'), $this->settingsPayload(['name' => 'Nowa nazwa', 'is_active' => '1']))
+            ->assertSessionHasNoErrors();
+        $this->put(route('integrations.paynow.update'), $this->settingsPayload(['name' => 'Nowa nazwa', 'is_active' => '0']))
+            ->assertSessionHasNoErrors();
+        $this->assertFalse($account->fresh()->is_active);
+        Http::assertSentCount(1);
+    }
+
+    public function test_concurrent_save_is_not_overwritten_by_an_older_automatic_test(): void
+    {
+        $account = $this->account();
+        Http::fake(['https://api.sandbox.paynow.pl/v3/payments/paymentmethods*' => function () use ($account) {
+            $account->fresh()->update(['name' => 'Zmieniono równolegle']);
+
+            return Http::response([]);
+        }]);
 
         $this->from(route('integrations.paynow.edit'))
             ->put(route('integrations.paynow.update'), $this->settingsPayload(['is_active' => '1']))
-            ->assertSessionHasErrors(['is_active']);
+            ->assertSessionHasErrors('connection_test');
 
-        $this->assertFalse($account->fresh()->is_active);
-
-        $account->forceFill([
-            'last_tested_at' => now(),
-            'last_test_status' => PayNowConnectionTestStatus::Success,
-            'last_test_message' => 'OK',
-        ])->save();
-
-        $this->put(route('integrations.paynow.update'), $this->settingsPayload(['is_active' => '1']))
-            ->assertRedirect(route('integrations.paynow.edit'));
-
-        $this->assertTrue($account->fresh()->is_active);
+        $account->refresh();
+        $this->assertSame('Zmieniono równolegle', $account->name);
+        $this->assertFalse($account->is_active);
+        $this->assertNull($account->last_test_status);
     }
 
     public function test_connection_test_signs_a_get_request_and_records_success(): void
@@ -181,6 +275,25 @@ class PayNowSettingsTest extends TestCase
         $this->assertSame(PayNowConnectionTestStatus::Error, $account->last_test_status);
         $this->assertFalse($account->is_active);
         $this->assertStringNotContainsString('secret-api-key', (string) $account->last_test_message);
+    }
+
+    public function test_manual_test_cannot_apply_a_result_to_concurrently_replaced_credentials(): void
+    {
+        $account = $this->account(['is_active' => true, 'last_test_status' => PayNowConnectionTestStatus::Success]);
+        Http::fake(['https://api.sandbox.paynow.pl/v3/payments/paymentmethods*' => function () use ($account) {
+            $account->fresh()->update(['environment' => PayNowEnvironment::Production, 'api_key' => 'other-api-key']);
+
+            return Http::response([], 401);
+        }]);
+
+        $this->from(route('integrations.paynow.edit'))
+            ->post(route('integrations.paynow.test-connection'))
+            ->assertSessionHasErrors('connection_test');
+
+        $account->refresh();
+        $this->assertSame(PayNowEnvironment::Production, $account->environment);
+        $this->assertTrue($account->is_active);
+        $this->assertSame(PayNowConnectionTestStatus::Success, $account->last_test_status);
     }
 
     public function test_signature_verification_failure_has_a_specific_safe_message(): void

@@ -181,7 +181,7 @@
                         </div>
                     @endif
 
-                    <form id="paynow-settings-form" method="POST" action="{{ route('integrations.paynow.update') }}" novalidate>
+                    <form id="paynow-settings-form" method="POST" action="{{ route('integrations.paynow.update') }}" data-saved-environment="{{ $account->environment->value }}" novalidate>
                         @csrf
                         @method('PUT')
 
@@ -315,24 +315,22 @@
                                         type="checkbox"
                                         value="1"
                                         @checked(old('is_active', $account->is_active))
-                                        @disabled(! $canActivate && ! $account->is_active)
                                     >
                                     <label class="form-check-label" for="paynow-active">Integracja aktywna</label>
                                 </div>
-                                @if (! $canActivate && ! $account->is_active)
-                                    <div class="form-text">Najpierw zapisz klucze i wykonaj poprawny test połączenia.</div>
-                                @endif
                             </div>
                         </div>
                     </form>
 
                     <div class="paynow-actions">
-                        <form method="POST" action="{{ route('integrations.paynow.test-connection') }}">
+                        <form method="POST" action="{{ route('integrations.paynow.test-connection') }}" data-paynow-manual-test>
                             @csrf
-                            <button class="btn btn-outline-primary" type="submit" @disabled(! $credentialsConfigured)>
-                                <i class="bi bi-wifi" aria-hidden="true"></i>
-                                Testuj połączenie
-                            </button>
+                            <span data-paynow-manual-test-tooltip title="Sprawdź zapisane ustawienia PayNow">
+                                <button class="btn btn-outline-primary" type="submit" data-credentials-configured="{{ $credentialsConfigured ? '1' : '0' }}" @disabled(! $credentialsConfigured || old('environment', $account->environment->value) !== $account->environment->value)>
+                                    <i class="bi bi-wifi" aria-hidden="true"></i>
+                                    Testuj połączenie
+                                </button>
+                            </span>
                         </form>
 
                         <button class="btn btn-primary" type="submit" form="paynow-settings-form">
@@ -345,6 +343,29 @@
     </div>
 
     <script>
+        (() => {
+            const settings = document.getElementById('paynow-settings-form');
+            const manualTest = document.querySelector('[data-paynow-manual-test]');
+            const button = manualTest.querySelector('button');
+            const tooltip = manualTest.querySelector('[data-paynow-manual-test-tooltip]');
+
+            const updateManualTest = () => {
+                const hasUnsavedCredentials = settings.elements.environment.value !== settings.dataset.savedEnvironment
+                    || settings.elements.api_key.value.trim() !== ''
+                    || settings.elements.signature_key.value.trim() !== '';
+
+                button.disabled = hasUnsavedCredentials || button.dataset.credentialsConfigured !== '1';
+                tooltip.title = hasUnsavedCredentials || button.disabled
+                    ? 'Zapisz środowisko i klucze, aby wykonać ręczny test.'
+                    : 'Sprawdź zapisane ustawienia PayNow';
+            };
+
+            settings.addEventListener('input', updateManualTest);
+            settings.addEventListener('change', updateManualTest);
+            window.addEventListener('pageshow', updateManualTest);
+            updateManualTest();
+        })();
+
         document.querySelector('[data-copy-paynow-notification-url]')?.addEventListener('click', async () => {
             const input = document.getElementById('paynow-notification-url');
             if (!input) {

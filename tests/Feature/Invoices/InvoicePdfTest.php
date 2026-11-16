@@ -222,14 +222,14 @@ class InvoicePdfTest extends TestCase
         Storage::fake('local');
         Http::preventStrayRequests();
         $invoice = $this->foreignInvoice();
-        $oldPath = 'invoices/'.$invoice->getKey().'/invoice-v39.pdf';
+        $oldPath = 'invoices/'.$invoice->getKey().'/invoice-v47-ksef-test.pdf';
         Storage::disk('local')->put($oldPath, '%PDF-1.7 old layout');
 
         $first = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
         $newPath = app(InvoicePdfFilenameGenerator::class)->storagePath($invoice);
         $second = $this->get(route('invoices.pdf', $invoice))->assertOk()->getContent();
 
-        $this->assertStringEndsWith('/invoice-v47-ksef-test.pdf', $newPath);
+        $this->assertStringEndsWith('/invoice-v48-ksef-test.pdf', $newPath);
         $this->assertSame($first, $second);
         Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($newPath);
@@ -243,8 +243,8 @@ class InvoicePdfTest extends TestCase
         $correction->id = 9002;
         $correction->document_type = InvoiceDocumentType::Correction;
         $filenames = app(InvoicePdfFilenameGenerator::class);
-        $this->assertStringEndsWith('/proforma-v36.pdf', $filenames->storagePath($proforma));
-        $this->assertStringEndsWith('/correction-v47-ksef-test.pdf', $filenames->storagePath($correction));
+        $this->assertStringEndsWith('/proforma-v37.pdf', $filenames->storagePath($proforma));
+        $this->assertStringEndsWith('/correction-v48-ksef-test.pdf', $filenames->storagePath($correction));
         Http::assertNothingSent();
     }
 
@@ -436,7 +436,7 @@ class InvoicePdfTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_invoice_v47_and_correction_v47_cache_render_warsaw_timestamp_and_preserve_attachments(): void
+    public function test_invoice_and_correction_cache_render_warsaw_timestamp_and_preserve_attachments(): void
     {
         $invoice = $this->issueInvoice();
         $correction = $this->createCorrection($invoice);
@@ -470,7 +470,7 @@ class InvoicePdfTest extends TestCase
             $html = $renderer->html($document);
             $newPath = $filenames->storagePath($document);
 
-            $version = 'v47';
+            $version = 'v48';
             $this->assertSame(
                 'invoices/'.$document->id.'/'.$kind.'-'.$version.'-ksef-production.pdf',
                 $newPath,
@@ -1081,6 +1081,23 @@ class InvoicePdfTest extends TestCase
         $html = app(InvoicePdfRenderer::class)->html($invoice->refresh());
 
         $this->assertStringContainsString('00-001 Warszawa, Niemcy', $html);
+    }
+
+    public function test_party_details_do_not_indent_explicit_lines_in_tcpdf(): void
+    {
+        $name = 'M3 DIGITAL KERESKEDELMI ÉS SZOLGÁLTATÓ KORLÁTOLT FELELŐSSÉGŰ TÁRSASÁG';
+        $invoice = $this->issueInvoiceForOrder(['billing_country_code' => 'HU', 'billing_company_name' => $name]);
+        $document = app(InvoicePdfViewModelFactory::class)->make($invoice);
+        $renderer = app(InvoicePdfRenderer::class);
+        $html = $renderer->html($invoice);
+
+        $this->assertSame($name, $document['buyer']['lines'][0]);
+        foreach (['seller' => 95, 'buyer' => 97] as $party => $width) {
+            $lines = array_map(e(...), $document[$party]['lines']);
+            $this->assertGreaterThan(1, count($lines));
+            $this->assertStringContainsString('<td width="'.$width.'%">'.implode('<br>', $lines).'<br></td>', $html);
+        }
+        $this->assertStringStartsWith('%PDF-', $renderer->render($invoice));
     }
 
     public function test_missing_buyer_country_does_not_add_poland_to_pdf(): void

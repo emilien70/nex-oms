@@ -3283,7 +3283,7 @@ Podpis v3 jest liczony jako Base64 z binarnego HMAC SHA-256 nad JSON-em zawieraj
 
 `paynow_accounts` przechowuje zaszyfrowane credentiale i stan ostatniego testu. `paynow_payments` jest przyszłym rejestrem wielu wpłat lub dopłat dla zamówienia i nie używa `float`; kwota ma typ `DECIMAL(18,2)`, a URL płatności jest szyfrowany. `paynow_payment_events` zachowuje zaszyfrowany payload oraz jawny SHA-256 potrzebny do deduplikacji i audytu. Klucze obce do konta, zamówienia i płatności używają `nullOnDelete`, aby usunięcie rekordu źródłowego nie niszczyło historii finansowej.
 
-Sekrety są ukryte przez casty i `$hidden`, a nazwy pól zostały dodane do globalnej listy danych niewracających do sesji po błędzie walidacji. Aktywacja wymaga kompletnej konfiguracji i udanego testu bieżących credentiali. PAYNOW.1 nie zawiera tworzenia linku, webhooka, reconciliation ani księgowania na zamówieniu.
+Sekrety są ukryte przez casty i `$hidden`, a nazwy pól zostały dodane do globalnej listy danych niewracających do sesji po błędzie walidacji. Zmiana środowiska lub kluczy oraz aktywacja wymagają testu konfiguracji z formularza przed zapisem. Żądanie HTTP nie trzyma blokady bazy; pod blokadą sprawdzana jest zgodność ustawień ze stanem sprzed testu. Ręczny test nie zapisuje wyniku, jeśli w międzyczasie zmieniły się testowane środowisko lub klucze. PAYNOW.1 nie zawiera tworzenia linku, webhooka, reconciliation ani księgowania na zamówieniu.
 
 ---
 
