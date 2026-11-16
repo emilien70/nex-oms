@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Services\OrderArchiveService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -197,6 +198,28 @@ class PayNowPaymentRegistrationTest extends TestCase
             && ($request->header('Api-Key')[0] ?? null) === $account->api_key
             && filled($request->header('Signature')[0] ?? null));
         Http::assertSentCount(1);
+    }
+
+    public function test_archived_orders_skip_polling_but_accept_signed_payment_notifications(): void
+    {
+        $this->freezeSecond();
+        Http::fake();
+        $account = $this->account();
+        $order = $this->order(['total_gross' => '80.00', 'purchased_at' => now()->subDays(100)]);
+        $payment = $this->payment($account, $order, ['amount' => '80.00']);
+
+        config(['order_archive.automatic' => true]);
+        $this->assertSame(1, app(OrderArchiveService::class)->archiveDue());
+        $this->assertSame(0, app(PayNowReconciliationService::class)->reconcileDue());
+        Http::assertNothingSent();
+
+        $body = $this->notification($payment, 'CONFIRMED', now()->toIso8601String());
+        $this->postNotification($body, $account)->assertStatus(202);
+        $this->postNotification($body, $account)->assertStatus(202);
+        $this->assertSame('80.00', $order->fresh()->paid_amount);
+        $this->assertTrue($order->fresh()->isArchived());
+        $this->assertSame(1, $payment->events()->where('source', 'accounting')->count());
+        Http::assertNothingSent();
     }
 
     public function test_order_view_exposes_confirmed_payments_and_paynow_notification_url(): void

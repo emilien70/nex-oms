@@ -158,7 +158,9 @@ class SmsGatewayService
     private function current(SmsDevice $device, SmsMessage $message, ?Order $order): bool
     {
         $status = null;
-        if ($order) {
+        if ($order?->isArchived()) {
+            $status = 'cancelled';
+        } elseif ($order) {
             try {
                 $order->assertPurchaseReady();
             } catch (ValidationException) {

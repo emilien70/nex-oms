@@ -17,6 +17,6 @@
         <div class="order-email-message-heading"><strong>Do:</strong> {{ $sms->recipient }}</div>
         <div class="order-email-message-body order-sms-message-body">{{ $sms->body }}</div>
         @if($sms->status === 'uncertain')<div class="alert alert-danger py-2 px-3 mt-2 mb-0">Nie wiadomo, czy SMS został wysłany. Sprawdź telefon przed ponowną wysyłką.</div>@endif
-        @if(in_array($sms->status, ['queued','claimed'], true))<button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-sms-cancel="{{ route('orders.sms.cancel', [$order, $sms]) }}"><i class="bi bi-x-lg me-1"></i>Anuluj zlecenie</button>@endif
+        @if(! $order->isArchived() && in_array($sms->status, ['queued','claimed'], true))<button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-sms-cancel="{{ route('orders.sms.cancel', [$order, $sms]) }}"><i class="bi bi-x-lg me-1"></i>Anuluj zlecenie</button>@endif
     </article>
 @endforeach

@@ -21,6 +21,7 @@ class PayNowReconciliationService
     {
         $payments = PayNowPayment::query()
             ->with('account')
+            ->where(fn ($query) => $query->whereNull('order_id')->orWhereHas('order', fn ($order) => $order->operational()))
             ->whereNotNull('provider_payment_id')
             ->whereIn('status', [
                 PayNowPaymentStatus::Created->value,
@@ -35,6 +36,10 @@ class PayNowReconciliationService
             ->get();
 
         foreach ($payments as $payment) {
+            if ($payment->order_id !== null && ! $payment->order()->operational()->exists()) {
+                continue;
+            }
+
             $account = $payment->account;
 
             if (! $account?->hasCompleteCredentials()) {

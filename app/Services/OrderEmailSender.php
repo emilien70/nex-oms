@@ -183,7 +183,9 @@ class OrderEmailSender
                 return null;
             }
 
-            $recipientFailure = $this->recipientFailure($message, $order);
+            $recipientFailure = $order?->isArchived()
+                ? ['order_archived', 'Zamówienie jest w archiwum. Nie wysłano wiadomości.']
+                : $this->recipientFailure($message, $order);
             if ($recipientFailure !== null) {
                 $message->update([
                     'status' => OrderEmailMessageStatus::Failed,

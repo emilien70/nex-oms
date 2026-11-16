@@ -33,7 +33,7 @@ class PrestashopOrderMessageService
         $link = PrestashopOrderLink::query()->with(['account', 'order'])->find($linkId);
         $account = $link?->account;
 
-        if (! $link || ! $account?->is_active || ! $link->order || $link->order->trashed()
+        if (! $link || ! $account?->is_active || ! $link->order || $link->order->trashed() || $link->order->isArchived()
             || $link->order->source !== 'prestashop' || blank($account->api_key)) {
             return 0;
         }
@@ -96,6 +96,9 @@ class PrestashopOrderMessageService
             $lockedAccount = PrestashopAccount::query()->whereKey($account->id)->lockForUpdate()->first();
             $lockedLink = PrestashopOrderLink::query()->whereKey($linkId)->lockForUpdate()->first();
             $lockedOrder = Order::query()->whereKey($lockedLink?->order_id)->lockForUpdate()->first();
+            if ($lockedOrder?->isArchived()) {
+                return 0;
+            }
             if (! $lockedAccount?->is_active || ! $lockedLink
                 || $this->identity($lockedAccount, $lockedLink) !== $identity
                 || ! $lockedOrder || $lockedOrder->source !== 'prestashop') {

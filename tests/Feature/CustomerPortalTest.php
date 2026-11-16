@@ -10,6 +10,7 @@ use App\Models\EmailAccount;
 use App\Models\EmailTemplate;
 use App\Models\Order;
 use App\Models\OrderStatusSetting;
+use App\Services\OrderArchiveService;
 use App\Services\OrderEmailPreparationService;
 use App\Services\OrderVariableService;
 use App\ValueObjects\OrderEmailPreparationData;
@@ -250,6 +251,30 @@ class CustomerPortalTest extends TestCase
         $this->assertSame($counters, DB::table('invoice_number_counters')->get()->toJson());
         app(PortalAccessService::class)->revoke($order, 1);
         $this->get($url)->assertNotFound();
+        Http::assertNothingSent();
+    }
+
+    public function test_archiving_keeps_a_valid_customer_link_and_its_invoice_available(): void
+    {
+        $this->freezeSecond();
+        $this->settings(['availability_days' => 120]);
+        $order = $this->order(['purchased_at' => now()->subDays(100)]);
+        $invoice = $this->invoice($order);
+        $url = $this->url($order);
+        $linkBefore = PortalLink::query()->sole()->getAttributes();
+        $invoiceBefore = $invoice->fresh()->getAttributes();
+        Queue::fake();
+
+        config(['order_archive.automatic' => true]);
+        $this->assertSame(1, app(OrderArchiveService::class)->archiveDue());
+        $this->get($url)->assertOk()->assertSeeText($invoice->number);
+        $this->get($this->portalRoute('customer-portal.document', ['token' => basename($url), 'invoice' => $invoice->id]))
+            ->assertOk()->assertHeader('Content-Type', 'application/pdf');
+        $this->get(route('invoices.pdf', $invoice))->assertOk()->assertHeader('Content-Type', 'application/pdf');
+        $this->assertSame($linkBefore, PortalLink::query()->sole()->getAttributes());
+        $this->assertSame($invoiceBefore, $invoice->fresh()->getAttributes());
+        $this->assertTrue($order->fresh()->isArchived());
+        Queue::assertNothingPushed();
         Http::assertNothingSent();
     }
 

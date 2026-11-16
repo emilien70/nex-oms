@@ -19,7 +19,7 @@ class AutomationEngine
 
     public function evaluate(string $eventName, array $eventPayload): void
     {
-        $order = Order::query()->find($eventPayload['order_id'] ?? null);
+        $order = Order::query()->operational()->find($eventPayload['order_id'] ?? null);
 
         if (! $order) {
             return;

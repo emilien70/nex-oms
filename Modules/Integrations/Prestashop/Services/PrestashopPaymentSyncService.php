@@ -51,7 +51,7 @@ class PrestashopPaymentSyncService
             $ids = $account->orderLinks()
                 ->whereNull('external_payment_paid')
                 ->whereNotNull('order_id')
-                ->whereHas('order', fn ($query) => $query->whereNull('deleted_at')->where('source', 'prestashop'))
+                ->whereHas('order', fn ($query) => $query->operational()->whereNull('deleted_at')->where('source', 'prestashop'))
                 ->whereNotIn('external_order_id', array_column($rows, 'id'))
                 ->orderByDesc('id')
                 ->limit(self::INITIAL_STATUS_BATCH_SIZE)
@@ -127,6 +127,7 @@ class PrestashopPaymentSyncService
         $rows = [];
 
         $account->orderLinks()
+            ->whereHas('order', fn ($query) => $query->operational())
             ->orderBy('id')
             ->pluck('external_order_id')
             ->chunk(self::PAGE_SIZE)
@@ -185,7 +186,7 @@ class PrestashopPaymentSyncService
             ->where('external_order_id', $row['id'])
             ->first();
 
-        if (! $link?->order || $link->order->trashed()) {
+        if (! $link?->order || $link->order->trashed() || $link->order->isArchived()) {
             return $this->emptyOutcome(observed: 1);
         }
 
@@ -214,6 +215,9 @@ class PrestashopPaymentSyncService
                 ->whereKey($link->getKey())
                 ->lockForUpdate()
                 ->firstOrFail();
+            if (! $managedLink->order()->operational()->lockForUpdate()->first()) {
+                return $this->emptyOutcome(observed: 1);
+            }
             $known = $managedLink->payments()
                 ->get()
                 ->keyBy('external_payment_id');

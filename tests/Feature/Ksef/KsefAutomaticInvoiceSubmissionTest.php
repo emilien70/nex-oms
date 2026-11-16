@@ -115,6 +115,23 @@ class KsefAutomaticInvoiceSubmissionTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_queued_automatic_submission_does_not_send_a_document_detached_by_archive_deletion(): void
+    {
+        Queue::fake();
+        $invoice = $this->issueInvoice();
+        $order = $invoice->order;
+        $order->forceFill(['archived_at' => now()])->save();
+        $this->postJson(route('orders.archive.bulk-delete'), [
+            'confirm_archive_delete' => true, 'order_ids' => [$order->id],
+        ])->assertOk();
+
+        $this->runJob($invoice);
+
+        $this->assertNull($invoice->fresh()->order_id);
+        $this->assertDatabaseCount('ksef_invoice_submissions', 0);
+        Http::assertNothingSent();
+    }
+
     public static function ineligibleConfigurations(): array
     {
         return [

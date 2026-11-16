@@ -19,12 +19,13 @@ class OrderEmailExchange extends Component
 
     public function render(): View
     {
-        $emailAccounts = EmailAccount::query()
+        $archived = $this->order->isArchived();
+        $emailAccounts = $archived ? collect() : EmailAccount::query()
             ->whereNotNull('smtp_password')
             ->orderBy('email')
             ->orderBy('name')
             ->get();
-        $emailTemplates = EmailTemplate::query()
+        $emailTemplates = $archived ? collect() : EmailTemplate::query()
             ->where('is_hidden', false)
             ->orderBy('name')
             ->get();
@@ -32,22 +33,23 @@ class OrderEmailExchange extends Component
             ->with('attachments')
             ->where('order_id', $this->order->getKey())
             ->latest('id')
-            ->limit(25)
+            ->when(! $archived, fn ($query) => $query->limit(25))
             ->get();
 
-        $smsDevice = SmsDevice::configured();
+        $smsDevice = $archived ? null : SmsDevice::configured();
 
         return view('components.order-email-exchange', [
             'emailAccounts' => $emailAccounts,
+            'archived' => $archived,
             'emailTemplates' => $emailTemplates,
             'emailMessages' => $emailMessages,
-            'smsReady' => Schema::hasTable('sms_templates'),
+            'smsReady' => ! $archived && Schema::hasTable('sms_templates'),
             'smsEnabled' => $smsDevice?->enabled ?? false,
             'smsSenderPhone' => $smsDevice?->sender_phone,
-            'smsTemplates' => Schema::hasTable('sms_templates')
+            'smsTemplates' => ! $archived && Schema::hasTable('sms_templates')
                 ? SmsTemplate::query()->orderBy('name')->get() : collect(),
             'smsMessages' => Schema::hasTable('order_sms_messages')
-                ? SmsMessage::query()->where('order_id', $this->order->id)->latest('id')->limit(25)->get() : collect(),
+                ? SmsMessage::query()->where('order_id', $this->order->id)->latest('id')->when(! $archived, fn ($query) => $query->limit(25))->get() : collect(),
             'defaultEmailAccountId' => $emailAccounts->first()?->getKey(),
         ]);
     }

@@ -288,7 +288,7 @@ class VonHalskyOrderCommandService
     {
         $snapshot = VonHalskyOrderLink::query()->where('order_id', $orderId)->first();
         $account = $snapshot ? VonHalskyAccount::query()->lockForUpdate()->find($snapshot->von_halsky_account_id) : null;
-        $order = Order::query()->lockForUpdate()->find($orderId);
+        $order = Order::query()->operational()->lockForUpdate()->find($orderId);
         $link = $snapshot ? VonHalskyOrderLink::query()->lockForUpdate()->find($snapshot->id) : null;
         if (! $account || ! $order || ! $link || ! $account->status_sync_enabled || ! $this->owns($account, $link)
             || $link->von_halsky_account_id !== $account->id || $link->order_id !== $order->id

@@ -323,7 +323,7 @@ class AllegroCommissionRefundService
     {
         if (! $account->isOperational() || self::accountIdentity($account) !== self::accountIdentity($context['account'])
             || $return->lock_version !== $context['return_version'] || $link->only(array_keys($context['identity'])) !== $context['identity']
-            || $link->order_id !== $return->order_id || $link->replaced_by_link_id) {
+            || $return->order_id === null || $link->order_id !== $return->order_id || $link->replaced_by_link_id) {
             $this->invalid('Konto lub zwrot zmieniły się. Otwórz formularz ponownie.');
         }
     }

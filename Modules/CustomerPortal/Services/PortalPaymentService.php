@@ -181,7 +181,7 @@ class PortalPaymentService
         $order = $grant['order'] ?? null;
         if (! $grant || ! $settings?->paynow_enabled || ! $account?->is_active || ! $account->hasCompleteCredentials()
             || $account->last_test_status !== PayNowConnectionTestStatus::Success || ! $this->sourceAllowed($order, $settings)
-            || ! $order->purchaseIsComplete() || $order->cash_on_delivery || $order->status === Order::STATUS_CANCELLED
+            || $order->isArchived() || ! $order->purchaseIsComplete() || $order->cash_on_delivery || $order->status === Order::STATUS_CANCELLED
             || $order->currency !== 'PLN') {
             $this->deny();
         }

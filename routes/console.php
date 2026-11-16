@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\OrderArchiveService;
 use App\Services\OrderEmailQueuedRecoveryService;
 use App\Services\ReturnParcelTrackingService;
 use Illuminate\Foundation\Inspiring;
@@ -41,6 +42,11 @@ Artisan::command('sms:expire', function (): void {
 })->purpose('Oznacz stare zlecenia SMS bez ponawiania wysylki');
 Schedule::command('sms:expire')->everyMinute()->withoutOverlapping();
 
+Schedule::call(fn () => app(OrderArchiveService::class)->archiveDue())
+    ->name('archive-old-orders')
+    ->dailyAt('04:15')
+    ->withoutOverlapping();
+
 Schedule::call(function (): void {
     $syncCutoff = now()->subMinutes(max(1, (int) config('services.inpost.sync_interval_minutes', 60)));
 
@@ -50,6 +56,7 @@ Schedule::call(function (): void {
             CourierAccount::PROVIDER_INPOST_COURIER,
         ])
         ->whereNotNull('external_id')
+        ->whereHas('order', fn ($query) => $query->operational())
         ->whereNotIn('oms_status', Shipment::terminalOmsStatuses())
         ->whereNotIn('status', [Shipment::STATUS_CANCELLED, Shipment::STATUS_CANCELLED_LOCALLY, 'canceled'])
         ->where(fn ($query) => $query
@@ -65,6 +72,7 @@ Schedule::call(function (): void {
         ->where('provider', CourierAccount::PROVIDER_DPD)
         ->whereNotNull('external_id')
         ->whereNotNull('tracking_number')
+        ->whereHas('order', fn ($query) => $query->operational())
         ->whereNotIn('oms_status', Shipment::terminalOmsStatuses())
         ->whereNotIn('status', [Shipment::STATUS_CANCELLED, Shipment::STATUS_CANCELLED_LOCALLY])
         ->where(fn ($query) => $query
@@ -83,6 +91,7 @@ Schedule::call(function (): void {
 
     Shipment::query()
         ->where('provider', CourierAccount::PROVIDER_ALLEGRO_SHIPPING)
+        ->whereHas('order', fn ($query) => $query->operational())
         ->whereNotNull('external_id')
         ->whereNotIn('oms_status', Shipment::terminalOmsStatuses())
         ->whereNotIn('status', [Shipment::STATUS_CANCELLED, Shipment::STATUS_CANCELLED_LOCALLY])

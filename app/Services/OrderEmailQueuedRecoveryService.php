@@ -15,6 +15,7 @@ final class OrderEmailQueuedRecoveryService
         $dispatched = 0;
 
         OrderEmailMessage::query()
+            ->whereHas('order', fn ($order) => $order->operational())
             ->where('status', OrderEmailMessageStatus::Queued->value)
             ->where('queued_at', '<=', now()->subMinutes(self::STALE_AFTER_MINUTES))
             ->whereNull('sending_started_at')

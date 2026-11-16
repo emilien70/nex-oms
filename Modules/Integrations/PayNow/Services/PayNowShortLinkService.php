@@ -90,7 +90,7 @@ class PayNowShortLinkService
                 return null;
             }
 
-            if ($order->status === Order::STATUS_CANCELLED || ! $order->purchaseIsComplete()) {
+            if ($order->isArchived() || $order->status === Order::STATUS_CANCELLED || ! $order->purchaseIsComplete()) {
                 return null;
             }
 

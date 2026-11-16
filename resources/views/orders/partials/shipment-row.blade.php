@@ -67,6 +67,7 @@
         @endif
     </td>
     <td>
+        @unless ($shipment->order?->isArchived())
         <div class="shipment-actions">
             @if ($shipment->canDownloadLabel())
                 <div class="btn-group shipment-label-group" role="group" aria-label="Akcje etykiety {{ $shipment->tracking_number }}">
@@ -134,5 +135,6 @@
                 </ul>
             </div>
         </div>
+        @endunless
     </td>
 </tr>

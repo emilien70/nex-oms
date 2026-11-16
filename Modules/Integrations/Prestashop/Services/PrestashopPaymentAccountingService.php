@@ -35,7 +35,7 @@ class PrestashopPaymentAccountingService
                 return $payment->accounting_status;
             }
 
-            if (! $order || $order->trashed()) {
+            if (! $order || $order->trashed() || $order->isArchived()) {
                 return $this->markForReview(
                     $payment,
                     'order_unavailable',

@@ -19,7 +19,7 @@
     </td>
     <td>
         <div class="d-flex gap-1 justify-content-end">
-            @if (! $parcel->isTerminal())<form method="POST" action="{{ route('returns.parcels.refresh', [$parcel->order_return_id, $parcel]) }}">@csrf<button class="btn btn-sm btn-outline-secondary" title="Sprawdź status" aria-label="Sprawdź status" type="submit"><i class="bi bi-arrow-clockwise"></i></button></form>@endif
+            @if (! ($archived ?? false) && ! $parcel->isTerminal())<form method="POST" action="{{ route('returns.parcels.refresh', [$parcel->order_return_id, $parcel]) }}">@csrf<button class="btn btn-sm btn-outline-secondary" title="Sprawdź status" aria-label="Sprawdź status" type="submit"><i class="bi bi-arrow-clockwise"></i></button></form>@endif
             @if (($canEditParcel ?? false) && $parcel->is_manual)<button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#editReturnParcel{{ $parcel->id }}" title="Edytuj numer" aria-label="Edytuj numer"><i class="bi bi-pencil"></i></button>@endif
         </div>
     </td>

@@ -21,7 +21,7 @@ class AllegroOrderSyncService
         $link = AllegroOrderLink::query()->where('environment', $account->environment)
             ->where('seller_user_id', $account->allegro_user_id)->where('external_order_id', $identifier)->first();
         // Tombstones and the trash remain authoritative, even after reconnecting the account.
-        if ($link && (! $link->order || $link->order->trashed() || $link->import_state === 'superseded')) {
+        if ($link && (! $link->order || $link->order->trashed() || $link->order->isArchived() || $link->import_state === 'superseded')) {
             return;
         }
         $raw = $this->client->order($account, $identifier);
@@ -63,7 +63,7 @@ class AllegroOrderSyncService
         DB::transaction(function () use ($link): void {
             $managed = AllegroOrderLink::query()->lockForUpdate()->findOrFail($link->id);
             $order = Order::withTrashed()->lockForUpdate()->find($managed->order_id);
-            if (! $order || $order->trashed() || in_array($managed->import_state, ['cancelled', 'superseded'], true)) {
+            if (! $order || $order->trashed() || $order->isArchived() || in_array($managed->import_state, ['cancelled', 'superseded'], true)) {
                 return;
             }
             $inProgress = $managed->completed_at !== null && ($order->status !== Order::STATUS_NEW
@@ -96,7 +96,7 @@ class AllegroOrderSyncService
                 DB::transaction(function () use ($candidate, $replacement): void {
                     $old = AllegroOrderLink::query()->lockForUpdate()->findOrFail($candidate->id);
                     $order = Order::withTrashed()->lockForUpdate()->find($old->order_id);
-                    if ($old->completed_at || $old->import_state === 'superseded' || ! $order || $order->trashed()) {
+                    if ($old->completed_at || $old->import_state === 'superseded' || ! $order || $order->trashed() || $order->isArchived()) {
                         return;
                     }
                     $old->update(['import_state' => 'superseded', 'replaced_by_link_id' => $replacement->id, 'processing_error' => null]);

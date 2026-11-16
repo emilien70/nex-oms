@@ -6,9 +6,9 @@ use Illuminate\Http\Request;
 
 final class OrderListNavigationContext
 {
-    public static function fromList(Request $request, array $statuses): array
+    public static function fromList(Request $request, array $statuses, bool $archive = false): array
     {
-        return self::normalize($request->query(), $statuses);
+        return self::normalize(['archive' => $archive] + $request->query(), $statuses);
     }
 
     public static function fromOrder(Request $request, array $statuses): ?array
@@ -41,7 +41,11 @@ final class OrderListNavigationContext
         if (filter_var($values['trash'] ?? null, FILTER_VALIDATE_BOOLEAN)) {
             $context['trash'] = 1;
         }
-
+        if (filter_var($values['archive'] ?? null, FILTER_VALIDATE_BOOLEAN)) {
+            $context['archive'] = 1;
+            $context['status'] = 'all';
+            unset($context['trash']);
+        }
         if (($context['q'] ?? '') !== '') {
             $context['status'] = 'all';
             unset($context['trash']);

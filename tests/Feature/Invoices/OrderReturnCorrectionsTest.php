@@ -74,6 +74,26 @@ class OrderReturnCorrectionsTest extends TestCase
         return [['manual'], ['prestashop'], ['allegro']];
     }
 
+    public function test_archived_order_can_be_deleted_without_losing_a_linked_correction_or_return(): void
+    {
+        [$invoice, $return] = $this->fixture();
+        $this->post(route('invoices.corrections.store', $invoice), $this->payload($invoice, $return))->assertSessionHasNoErrors();
+        $correction = $return->fresh()->correction;
+        $order = $invoice->order;
+        $order->forceFill(['archived_at' => now()])->save();
+
+        $this->postJson(route('orders.archive.bulk-delete'), [
+            'confirm_archive_delete' => true, 'order_ids' => [$order->id],
+        ])->assertOk();
+
+        $this->assertNull($correction->fresh()->order_id);
+        $this->assertSame($invoice->id, $correction->fresh()->corrected_invoice_id);
+        $this->assertSame($return->id, $correction->fresh()->order_return_id);
+        $this->assertNull($return->fresh()->order_id);
+        $this->get(route('invoices.pdf', $correction))->assertOk()->assertHeader('content-type', 'application/pdf');
+        Http::assertNothingSent();
+    }
+
     public function test_bulk_return_delete_never_unlinks_a_correction(): void
     {
         [$invoice, $return] = $this->fixture();

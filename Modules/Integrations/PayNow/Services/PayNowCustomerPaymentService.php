@@ -52,7 +52,7 @@ class PayNowCustomerPaymentService
             $state = 'settled';
             $title = 'Zamówienie zostało już opłacone';
             $message = 'Nie ma potrzeby ponawiania płatności.';
-        } elseif (! $order || $order->status === Order::STATUS_CANCELLED) {
+        } elseif (! $order || $order->isArchived() || $order->status === Order::STATUS_CANCELLED) {
             $state = 'unavailable';
             $title = 'Płatność nie jest dostępna';
             $message = 'Skontaktuj się ze sprzedawcą.';
@@ -77,7 +77,7 @@ class PayNowCustomerPaymentService
             'currency' => $payment->currency,
             'transactionId' => $state === 'confirmed' ? $payment->provider_payment_id : null,
             'canRetry' => $canRetry,
-            'poll' => ! in_array($state, ['confirmed', 'settled', 'failed'], true),
+            'poll' => ! $order?->isArchived() && ! in_array($state, ['confirmed', 'settled', 'failed'], true),
             'isTest' => $payment->account?->environment === PayNowEnvironment::Sandbox,
         ];
     }
@@ -130,7 +130,7 @@ class PayNowCustomerPaymentService
         if ($payment->status === PayNowPaymentStatus::Confirmed) {
             return $payment;
         }
-        if (! $payment->provider_payment_id || ! $payment->account?->hasCompleteCredentials()) {
+        if ($payment->order?->isArchived() || ! $payment->provider_payment_id || ! $payment->account?->hasCompleteCredentials()) {
             return null;
         }
 

@@ -44,7 +44,8 @@ class CreateDpdShipmentJob implements ShouldBeUnique, ShouldQueue
     {
         $shipment = $this->shipment->fresh();
 
-        if (! $shipment || in_array($shipment->status, [Shipment::STATUS_CANCELLED, Shipment::STATUS_CANCELLED_LOCALLY], true)) {
+        if (! $shipment || ! $shipment->order()->operational()->exists()
+            || in_array($shipment->status, [Shipment::STATUS_CANCELLED, Shipment::STATUS_CANCELLED_LOCALLY], true)) {
             return;
         }
 

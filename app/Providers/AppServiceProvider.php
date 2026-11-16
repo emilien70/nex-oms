@@ -152,6 +152,7 @@ class AppServiceProvider extends ServiceProvider
 
             if (Schema::hasTable('orders')) {
                 Order::query()
+                    ->operational()
                     ->whereIn('status', array_keys($statusCounts))
                     ->selectRaw('status, COUNT(*) as orders_count')
                     ->groupBy('status')

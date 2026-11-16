@@ -21,7 +21,7 @@ class AllegroOutboundStatusSyncService
     {
         return DB::transaction(function () use ($orderId, $expectedStatus, $eventId): bool {
             $link = AllegroOrderLink::query()->where('order_id', $orderId)->lockForUpdate()->first();
-            $order = Order::query()->lockForUpdate()->find($orderId);
+            $order = Order::query()->operational()->lockForUpdate()->find($orderId);
             if (! $link || ! $order || $order->status !== $expectedStatus || $link->status_sync_event_id === $eventId) {
                 return false;
             }
@@ -52,7 +52,7 @@ class AllegroOutboundStatusSyncService
     {
         return DB::transaction(function () use ($orderId, $eventId): bool {
             $link = AllegroOrderLink::query()->where('order_id', $orderId)->lockForUpdate()->first();
-            $order = Order::query()->lockForUpdate()->find($orderId);
+            $order = Order::query()->operational()->lockForUpdate()->find($orderId);
             if (! $link || ! $order || $link->status_sync_state !== 'failed'
                 || $order->status !== $link->status_sync_oms_status || ! $this->eligible($link->account, $link)
                 || ! $this->target($link->account, $order->status)) {
@@ -103,7 +103,7 @@ class AllegroOutboundStatusSyncService
 
         DB::transaction(function () use ($job, $target, $alreadyCurrent): void {
             $link = AllegroOrderLink::query()->where('order_id', $job->orderId)->lockForUpdate()->first();
-            $order = Order::query()->lockForUpdate()->find($job->orderId);
+            $order = Order::query()->operational()->lockForUpdate()->find($job->orderId);
             if (! $link || ! $order || ! $this->context($job)) {
                 $this->skip($job);
 
@@ -146,7 +146,7 @@ class AllegroOutboundStatusSyncService
 
     private function context(SyncAllegroOrderStatusJob $job): ?array
     {
-        $order = Order::query()->find($job->orderId);
+        $order = Order::query()->operational()->find($job->orderId);
         $link = AllegroOrderLink::query()->with('account')->where('order_id', $job->orderId)->first();
         $account = $link?->account;
         if (! $order || $order->status !== $job->expectedOmsStatus || ! $link

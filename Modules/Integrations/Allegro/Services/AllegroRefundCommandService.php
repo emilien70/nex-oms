@@ -304,6 +304,7 @@ class AllegroRefundCommandService
     private function validateContext(AllegroRefundCommand $command, AllegroAccount $account, OrderReturn $return, array $fresh): void
     {
         if (! $account->isOperational() || ! $account->refund_write_enabled || $account->refund_write_identity !== $account->orderImportIdentity()
+            || $return->order_id === null || $return->order_id !== $command->order_id
             || $account->refund_write_revision !== $command->configuration_revision || $fresh['account']->id !== $account->id
             || $command->context_hash !== $fresh['hash'] || $return->lock_version !== $command->return_version || $command->expires_at->isPast()
             || $fresh['ledger_hash'] !== $this->context->ledgerHash($command->identity(), $command->id)

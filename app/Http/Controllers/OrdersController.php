@@ -12,6 +12,7 @@ use App\Models\OrderReturn;
 use App\Models\OrderSavedView;
 use App\Models\OrderStatusSetting;
 use App\Rules\ValidCurrencyCode;
+use App\Services\OrderArchiveService;
 use App\Services\OrderCurrencyService;
 use App\Services\OrderPaymentStateService;
 use App\Services\OrderStatusService;
@@ -64,9 +65,44 @@ class OrdersController extends Controller
 
     public function index(Request $request): View|RedirectResponse
     {
-        $currentStatus = $request->query('status');
+        return $this->orderList($request);
+    }
+
+    public function archive(Request $request): View|RedirectResponse
+    {
+        return $this->orderList($request, true);
+    }
+
+    public function restoreArchived(Order $order, OrderArchiveService $archives): RedirectResponse
+    {
+        return redirect()->route('orders.show', $archives->restore($order))
+            ->with('success', 'Zamówienie zostało przywrócone z archiwum.');
+    }
+
+    public function bulkDeleteArchived(Request $request, OrderArchiveService $archives): JsonResponse|RedirectResponse
+    {
+        $validated = $request->validate([
+            'confirm_archive_delete' => ['accepted'],
+            'order_ids' => ['required', 'array', 'list', 'min:1', 'max:'.OrderArchiveService::DELETE_LIMIT],
+            'order_ids.*' => ['required', 'integer', 'min:1', 'distinct'],
+        ], [
+            'confirm_archive_delete.accepted' => 'Potwierdź trwałe usunięcie zamówień z Archiwum.',
+            'order_ids.max' => 'Jednorazowo można usunąć maksymalnie '.OrderArchiveService::DELETE_LIMIT.' zamówień.',
+        ]);
+
+        $deleted = $archives->deleteMany($validated['order_ids']);
+        $message = 'Usunięto trwale zamówienia z Archiwum: '.$deleted.'. Dokumenty sprzedaży pozostały w module Faktury.';
+
+        return $request->expectsJson()
+            ? response()->json(['message' => $message])
+            : back(302, [], route('orders.archive.index'))->with('success', $message);
+    }
+
+    private function orderList(Request $request, bool $archive = false): View|RedirectResponse
+    {
+        $currentStatus = $archive ? null : $request->query('status');
         $currentStatus = is_string($currentStatus) ? $currentStatus : null;
-        $showTrash = $request->boolean('trash');
+        $showTrash = ! $archive && $request->boolean('trash');
         $searchQuery = trim((string) $request->query('q', ''));
 
         if ($searchQuery !== '') {
@@ -83,9 +119,9 @@ class OrdersController extends Controller
         $statuses = $statusSettings
             ->mapWithKeys(fn (array $status): array => [$status['code'] => $status['name']])
             ->all();
-        $listContext = OrderListNavigationContext::fromList($request, $statuses);
+        $listContext = OrderListNavigationContext::fromList($request, $statuses, $archive);
 
-        if (! $showTrash && $searchQuery !== '' && ! $request->boolean('list_return')) {
+        if (! $archive && ! $showTrash && $searchQuery !== '' && ! $request->boolean('list_return')) {
             $trackingOrderIds = $this->trackingLookup->matchingOrderIds(
                 $this->ordersListQuery(
                     false,
@@ -112,15 +148,16 @@ class OrdersController extends Controller
             $filters,
             true,
             $sorting,
+            $archive,
         );
-        $listSignature = $this->ordersListSignature($ordersQuery, $statusCounts, $trashCount);
+        $listSignature = $archive ? '' : $this->ordersListSignature($ordersQuery, $statusCounts, $trashCount);
 
-        $allMatchingOrderIds = (clone $ordersQuery)
+        $allMatchingOrderIds = $archive ? [] : (clone $ordersQuery)
             ->pluck('id')
             ->map(fn ($id): int => (int) $id)
             ->all();
 
-        $starredMatchingOrderIds = (clone $ordersQuery)
+        $starredMatchingOrderIds = $archive ? [] : (clone $ordersQuery)
             ->whereNotNull('star_color')
             ->where('star_color', '<>', '')
             ->pluck('id')
@@ -131,12 +168,15 @@ class OrdersController extends Controller
             ->paginate($perPage)
             ->appends(array_merge($request->except(['page', 'per_page']), ['per_page' => $perPage]));
         if ($request->boolean('list_return') && $orders->currentPage() > $orders->lastPage()) {
-            return redirect()->route('orders.index', OrderListNavigationContext::listParameters(
+            $parameters = OrderListNavigationContext::listParameters(
                 array_replace($listContext, ['page' => $orders->lastPage()]),
-            ));
+            );
+            unset($parameters['archive']);
+
+            return redirect()->route($archive ? 'orders.archive.index' : 'orders.index', $parameters);
         }
         $listStatus = ! $showTrash && array_key_exists((string) $currentStatus, $statuses) ? $currentStatus : null;
-        $savedViews = OrderSavedView::query()->ordered()->get();
+        $savedViews = $archive ? collect() : OrderSavedView::query()->ordered()->get();
         $savedViewParameters = $savedViews->mapWithKeys(fn (OrderSavedView $view): array => [
             $view->id => OrderListFilterState::savedViewParameters($view->filters ?? [], $listStatus, $showTrash, $searchQuery),
         ]);
@@ -147,6 +187,7 @@ class OrdersController extends Controller
 
         return view('orders.index', [
             'orders' => $orders,
+            'showArchive' => $archive,
             'statuses' => $statuses,
             'statusSettings' => $statusSettings,
             'statusCounts' => $statusCounts,
@@ -305,6 +346,7 @@ class OrdersController extends Controller
         $validated = $this->validateSelectedOrders($request);
 
         Order::query()
+            ->operational()
             ->whereIn('id', $validated['order_ids'])
             ->delete();
 
@@ -341,6 +383,7 @@ class OrdersController extends Controller
 
         DB::transaction(function () use ($validated, $orderStatusService): void {
             Order::query()
+                ->operational()
                 ->whereIn('id', $validated['order_ids'])
                 ->get()
                 ->each(fn (Order $order) => $orderStatusService->change($order, $validated['status'], 'bulk'));
@@ -518,6 +561,7 @@ class OrdersController extends Controller
         $statusCounts = array_fill_keys(array_keys($statuses), 0);
 
         Order::query()
+            ->operational()
             ->whereIn('status', array_keys($statuses))
             ->selectRaw('status, COUNT(*) as orders_count')
             ->groupBy('status')
@@ -537,8 +581,10 @@ class OrdersController extends Controller
         array $filters,
         bool $withItems = false,
         ?OrderListSort $sorting = null,
+        bool $archive = false,
     ): Builder {
         $query = Order::query()
+            ->when($archive, fn (Builder $query) => $query->whereNotNull('orders.archived_at'), fn (Builder $query) => $query->operational())
             ->when($withItems, fn (Builder $query) => $query
                 ->with('items')
                 ->with(['prestashopOrderLinks.account', 'allegroOrderLink.account', 'vonHalskyOrderLink.account'])
@@ -763,6 +809,12 @@ class OrdersController extends Controller
     ): View {
         $statuses = OrderStatusSetting::orderedStatuses();
         $listContext = OrderListNavigationContext::fromOrder($request, $statuses);
+        $archive = $order->isArchived();
+        if ($archive) {
+            $listContext = isset($listContext['archive']) ? $listContext : ['status' => 'all', 'archive' => 1];
+        } elseif (isset($listContext['archive'])) {
+            $listContext = null;
+        }
         $sorting = OrderListSort::fromArray($listContext ?? $request->query());
         $navigationStatus = $listContext === null
             ? $this->resolveOrderNavigationStatus($request, $order, $statuses)
@@ -773,7 +825,7 @@ class OrdersController extends Controller
             $statuses,
             $listContext['q'] ?? '',
             array_intersect_key($listContext ?? [], array_flip(OrderListFilterState::FILTER_KEYS)),
-            false,
+            $archive,
             $sorting,
         );
         $adjacentOrderIds = $sorting->adjacentIds($order, $navigationOrders, $statuses);
@@ -800,7 +852,7 @@ class OrdersController extends Controller
                 ->orderByDesc('paid_at')
                 ->orderByDesc('id'),
             'shipments' => fn ($query) => $query
-                ->whereNotNull('tracking_number')
+                ->when(! $archive, fn ($query) => $query->whereNotNull('tracking_number'))
                 ->orderByDesc('created_at'),
             'shipments.courierAccount',
             'shipments.parcels',
@@ -812,12 +864,21 @@ class OrdersController extends Controller
                 ->orderByDesc('confirmed_at')
                 ->orderByDesc('id'),
         ]);
+        if ($archive) {
+            $order->load('invoices.ksefOfflineIssuances');
+        }
 
-        $quickActions = $order->trashed() ? collect() : AutomationCustomEvent::query()->where('button_enabled', true)
+        $quickActions = $archive || $order->trashed() ? collect() : AutomationCustomEvent::query()->where('button_enabled', true)
             ->orderBy('button_position')->orderBy('id')->get();
+
+        $listParameters = $listContext === null
+            ? ($navigationStatus === null ? [] : ['status' => $navigationStatus]) + $sorting->parameters()
+            : OrderListNavigationContext::listParameters($listContext);
+        unset($listParameters['archive']);
 
         return view('orders.show', [
             'order' => $order,
+            'orderNavigationArchive' => $archive,
             'quickActions' => $quickActions,
             'quickActionMaxColumns' => $quickActions->isNotEmpty() ? $quickActionSettings->maxColumns() : null,
             'automationHistory' => $automationHistory->forOrder($order, $request->integer('automation_page', 1)),
@@ -830,9 +891,7 @@ class OrdersController extends Controller
             'nextOrderUrl' => $adjacentOrderIds['next'] === null
                 ? null
                 : route('orders.show', $orderNavigationParameters($adjacentOrderIds['next'])),
-            'ordersListUrl' => route('orders.index', $listContext === null
-                ? ($navigationStatus === null ? [] : ['status' => $navigationStatus]) + $sorting->parameters()
-                : OrderListNavigationContext::listParameters($listContext)),
+            'ordersListUrl' => route($archive ? 'orders.archive.index' : 'orders.index', $listParameters),
             'orderNavigationStatus' => $navigationStatus,
             'orderNavigationTrash' => (bool) ($listContext['trash'] ?? false),
             'quickStatusActions' => [
@@ -863,8 +922,8 @@ class OrdersController extends Controller
                 ->where('account_key', PrestashopAccount::DEFAULT_ACCOUNT_KEY)
                 ->value('name')),
             'paymentStatusOptions' => $this->paymentStatusOptions(),
-            'itemRows' => $this->itemRows($order),
-            'salesDocumentActions' => $this->salesDocumentActionsView->data($order),
+            'itemRows' => $archive ? [] : $this->itemRows($order),
+            'salesDocumentActions' => $archive ? [] : $this->salesDocumentActionsView->data($order),
             'countries' => $this->countries->all(),
             'currencyOptions' => $this->currencies->all(),
         ]);

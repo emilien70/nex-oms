@@ -38,7 +38,7 @@ class RefreshAllegroShipmentJob implements ShouldBeUnique, ShouldQueue
     public function handle(CourierDriverRegistry $drivers): void
     {
         $shipment = $this->shipment->fresh();
-        if ($shipment && ! $shipment->hasTerminalOmsStatus()) {
+        if ($shipment && ! $shipment->hasTerminalOmsStatus() && $shipment->order()->operational()->exists()) {
             $drivers->forShipment($shipment)->refresh($shipment);
         }
     }

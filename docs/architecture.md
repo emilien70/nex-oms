@@ -3814,6 +3814,27 @@ AJAX zachowuje kanoniczny URL po przekierowaniu na dostepna strone.
 Nie dodano sesji, routingu ani migracji.
 Raport i testy: docs/order-list-navigation-report.md.
 
+## ARCHIWUM.1 - Archiwum zamowien
+
+Zamowienia zachowuja rekord w orders i klucze obce. Zakres operational
+wyklucza archived_at z aktywnych list i wybranych procesow operacyjnych,
+bez globalnego zakresu Eloquent. Archiwum uzywa tego samego widoku tabeli,
+ale bez pobierania wszystkich ID i sygnatury listy. Osobny POST usuwania
+blokuje zaznaczone rekordy i sprawdza ich stan oraz operacje w toku przed
+trwalym usunieciem. Istniejace klucze obce odlaczaja dokumenty, zwroty,
+platnosci i identyfikatory importu; lokalne pozycje i przesylki sa usuwane
+kaskadowo. Zachowane identyfikatory importu zapobiegaja odtworzeniu zamowien.
+Indeksy lacza stan archiwizacji i usuniecia ze statusem i identyfikatorem.
+Weryfikacje wydajnosci wykonac na oddzielnej bazie MySQL 8 z reprezentatywna
+liczba pozycji i przesylek. Porownac czas calej listy i plany EXPLAIN ANALYZE
+bez archiwum i z 60 tys. rekordow; nie wykonywac pomiaru na bazie roboczej.
+
+ORDER_ARCHIVE_AUTOMATIC domyslnie false. Harmonogram 04:15 nie wymaga
+osobnego crona. Usluga sprawdza wiek oraz odroczenie pod blokada wiersza
+i nie przerywa trwajacego kroku automatyzacji. Zmiany archiwizacji
+i przywrocenia maja zapis historii, bez emitowania zdarzenia zmiany
+statusu. Migracja tylko dodaje kolumny i indeksy, bez backfillu.
+
 ## Sortowanie listy zamowien
 
 OrderListSort definiuje 13 dozwolonych pol i kierunki asc/desc. Lista jest

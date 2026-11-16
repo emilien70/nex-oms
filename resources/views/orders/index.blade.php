@@ -25,15 +25,16 @@
     $filterValue = fn ($key) => $filters[$key] ?? '';
     $sortingDirectionLabel = html_entity_decode($orderSorting->direction === 'desc' ? 'Malej&#261;co' : 'Rosn&#261;co', ENT_QUOTES, 'UTF-8');
     $headerStatus = $currentStatus ? ($statusSettings[$currentStatus] ?? null) : null;
-    $filterPreferenceScope = $searchQuery === '' && (request()->query('status') === null || $headerStatus !== null || $showTrash)
+    $filterPreferenceScope = $showArchive ? 'archive' : ($searchQuery === '' && (request()->query('status') === null || $headerStatus !== null || $showTrash)
         ? \App\Support\OrderListFilterState::preferenceScope($headerStatus, $showTrash)
-        : null;
-    $headerTitle = $showTrash ? 'Kosz' : ($headerStatus['name'] ?? 'Wszystkie zam&oacute;wienia');
+        : null);
+    $listRoute = $showArchive ? 'orders.archive.index' : 'orders.index';
+    $headerTitle = $showArchive ? 'Archiwum zam&oacute;wie&#324;' : ($showTrash ? 'Kosz' : ($headerStatus['name'] ?? 'Wszystkie zam&oacute;wienia'));
     $headerColor = $showTrash ? '#64748b' : ($headerStatus['color'] ?? '#64748b');
     $showHeaderColor = $showTrash || $headerStatus !== null;
     $selectionScope = request()->except(['page', 'per_page', 'list_return', 'sort', 'direction']);
     ksort($selectionScope);
-    $selectionScopeKey = md5(json_encode($selectionScope));
+    $selectionScopeKey = ($showArchive ? 'archive:' : '').md5(json_encode($selectionScope));
 @endphp
 
 @section('content')
@@ -52,9 +53,18 @@
             <span>Prosz&#281; czeka&#263;</span>
         </div>
 
-        <form id="bulkOrdersForm" method="POST" action="{{ route('orders.bulk-trash') }}">
+        <form id="bulkOrdersForm" method="POST" action="{{ route($showArchive ? 'orders.archive.bulk-delete' : 'orders.bulk-trash') }}" @if ($showArchive) data-archive-delete-limit="{{ \App\Services\OrderArchiveService::DELETE_LIMIT }}" @endif>
             @csrf
         </form>
+
+        @if ($showArchive)
+            <div class="alert alert-success" role="status" data-archive-delete-result hidden></div>
+            <div class="alert alert-light border mb-3 d-flex align-items-start gap-2 small">
+                <i class="bi bi-info-circle text-warning" aria-hidden="true"></i>
+                <span>Zamówienia starsze niż 90 dni trafiają do Archiwum, gdy automatyczna archiwizacja jest włączona.
+                    Archiwum ma własne filtry. Aby ponownie obsługiwać zamówienie, wybierz „Przywróć” na jego karcie.</span>
+            </div>
+        @endif
 
         <div class="orders-header {{ $filterSummary !== [] ? 'mb-2' : 'mb-4' }}">
             <div>
@@ -75,7 +85,7 @@
         </div>
 
         <div class="collapse" id="ordersFiltersPanel">
-            <form class="orders-filters-panel" method="GET" action="{{ route('orders.index') }}" @isset($filterPreferenceScope) data-order-filter-scope="{{ $filterPreferenceScope }}" @endisset>
+            <form class="orders-filters-panel" method="GET" action="{{ route($listRoute) }}" @isset($filterPreferenceScope) data-order-filter-scope="{{ $filterPreferenceScope }}" @endisset>
                 @if ($searchQuery !== '')
                     <input type="hidden" name="q" value="{{ $searchQuery }}">
                 @endif
@@ -121,6 +131,7 @@
                 </div>
 
                 <div class="orders-filter-actions">
+                    @unless ($showArchive)
                     <div class="dropdown">
                         <button class="btn btn-outline-secondary orders-filter-action-button saved-filters-toggle {{ $activeSavedViewId ? 'is-active' : '' }}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <span class="saved-filters-toggle-icon"><i class="bi bi-table" aria-hidden="true"></i></span>
@@ -163,7 +174,8 @@
                             </button>
                         </div>
                     </div>
-                    <a class="btn btn-outline-secondary orders-filter-action-button" href="{{ route('orders.index', $filterListParameters) }}" @isset($filterPreferenceScope) data-order-filter-clear="{{ $filterPreferenceScope }}" @endisset>Wyczy&#347;&#263; filtry</a>
+                    @endunless
+                    <a class="btn btn-outline-secondary orders-filter-action-button" href="{{ route($listRoute, $filterListParameters) }}" @isset($filterPreferenceScope) data-order-filter-clear="{{ $filterPreferenceScope }}" @endisset>Wyczy&#347;&#263; filtry</a>
                     <button class="btn btn-primary orders-filter-action-button" type="submit">Ustaw filtry</button>
                 </div>
             </form>
@@ -182,7 +194,7 @@
                             <strong>{{ $criterion['value'] }}</strong>
                         </span>
                         <a class="orders-active-filter-remove"
-                            href="{{ route('orders.index', $filterListParameters + \Illuminate\Support\Arr::except($activeFilters, $key) + ($searchQuery !== '' ? ['list_return' => 1] : [])) }}"
+                            href="{{ route($listRoute, $filterListParameters + \Illuminate\Support\Arr::except($activeFilters, $key) + ($searchQuery !== '' ? ['list_return' => 1] : [])) }}"
                             @isset($filterPreferenceScope) data-order-filter-remove="{{ $filterPreferenceScope }}" @endisset
                             aria-label="{{ $removeLabel }}" title="{{ $removeLabel }}"
                         ><i class="bi bi-x" aria-hidden="true"></i></a>
@@ -203,14 +215,25 @@
                     <button class="dropdown-item" type="button" data-selection-action="select-page-starred">Zaznacz oznaczone gwiazdk&#261;</button>
                     <button class="dropdown-item" type="button" data-selection-action="clear-page-all">Odznacz wszystkie</button>
                     <button class="dropdown-item" type="button" data-selection-action="clear-page-starred">Odznacz oznaczone gwiazdk&#261;</button>
-                    <div class="selection-dropdown-heading">Na wszystkich stronach</div>
-                    <button class="dropdown-item" type="button" data-selection-action="select-all-pages">Zaznacz wszystkie</button>
-                    <button class="dropdown-item" type="button" data-selection-action="select-all-pages-starred">Zaznacz oznaczone gwiazdk&#261;</button>
-                    <button class="dropdown-item" type="button" data-selection-action="clear-all-pages">Odznacz wszystkie</button>
-                    <button class="dropdown-item" type="button" data-selection-action="clear-all-pages-starred">Odznacz oznaczone gwiazdk&#261;</button>
+                    @if ($showArchive)
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item" type="button" data-selection-action="clear-archive-selection">Wyczyść zaznaczenie ze wszystkich stron</button>
+                    @else
+                        <div class="selection-dropdown-heading">Na wszystkich stronach</div>
+                        <button class="dropdown-item" type="button" data-selection-action="select-all-pages">Zaznacz wszystkie</button>
+                        <button class="dropdown-item" type="button" data-selection-action="select-all-pages-starred">Zaznacz oznaczone gwiazdk&#261;</button>
+                        <button class="dropdown-item" type="button" data-selection-action="clear-all-pages">Odznacz wszystkie</button>
+                        <button class="dropdown-item" type="button" data-selection-action="clear-all-pages-starred">Odznacz oznaczone gwiazdk&#261;</button>
+                    @endif
                 </div>
             </div>
-            @if ($showTrash)
+            @if ($showArchive)
+                <span title="Usuń trwale zaznaczone zamówienia">
+                    <button class="btn btn-sm btn-outline-danger" type="button" aria-label="Usuń trwale zaznaczone zamówienia" data-archive-force-delete disabled>
+                        <i class="bi bi-trash" aria-hidden="true"></i>
+                    </button>
+                </span>
+            @elseif ($showTrash)
                 <button class="btn btn-sm btn-outline-danger" type="submit" form="bulkOrdersForm" formaction="{{ route('orders.bulk-force-delete') }}" title="Usu&#324; zam&oacute;wienia z kosza" aria-label="Usu&#324; zam&oacute;wienia z kosza" data-trash-selection-action data-trash-force-delete>
                     <span aria-hidden="true">&#128465;</span>
                 </button>
@@ -349,7 +372,7 @@
                             <tr>
                                 <td class="order-select-column"><input class="form-check-input" type="checkbox" name="order_ids[]" value="{{ $order->id }}" form="bulkOrdersForm" aria-label="Zaznacz zamowienie {{ $order->id }}" data-order-checkbox data-order-starred="{{ $currentStar ? '1' : '0' }}"></td>
                                 <td class="order-star-column">
-                                    @if ($showTrash)
+                                    @if ($showTrash || $showArchive)
                                         <span class="trash-star {{ $starClass($currentStar) }}" aria-hidden="true">{!! $currentStar ? '&#9733;' : '&#9734;' !!}</span>
                                     @else
                                         <div class="dropdown">
@@ -422,7 +445,7 @@
                                 </td>
                                 <td class="order-date-column">
                                     <div>{{ $compactDate($order->purchased_at ?? $order->created_at) }}</div>
-                                    <div class="order-subline text-primary">{{ $compactDate($order->updated_at) }}</div>
+                                    <div class="order-subline text-primary">{{ $compactDate($showArchive ? $order->status_changed_at : $order->updated_at) }}</div>
                                 </td>
                             </tr>
                         @empty
@@ -436,6 +459,7 @@
         </div>
         <div data-list-toolbar-spacer aria-hidden="true"></div>
 
+        @unless ($showArchive)
         <div class="modal fade" id="createSavedViewModal" tabindex="-1" aria-labelledby="createSavedViewModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
                 <form class="modal-content" action="{{ route('orders.saved-views.store') }}" method="POST" data-saved-view-create-form>
@@ -539,6 +563,29 @@
                 </div>
             </div>
         @endif
+        @endunless
+
+        @if ($showArchive)
+            <div class="modal fade" id="confirmArchiveDeleteModal" tabindex="-1" aria-labelledby="confirmArchiveDeleteModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header border-0 pb-0">
+                            <h2 class="modal-title fs-5" id="confirmArchiveDeleteModalLabel">Trwałe usunięcie zamówień</h2>
+                            <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p>Czy trwale usunąć zaznaczone zamówienia z Archiwum? Liczba zamówień: <strong data-archive-delete-count></strong>.</p>
+                            <p>Faktury i korekty pozostaną dostępne w module Faktury. Zapisane zwroty i rozliczenia integracji pozostaną w OMS bez powiązania z zamówieniem.</p>
+                            <p class="mb-0">Pozycje zamówień i ich lokalna historia, w tym przesyłki i e-maile, zostaną usunięte. Nie anuluje to przesyłek ani nie zwraca wpłat. Operacji nie można cofnąć.</p>
+                        </div>
+                        <div class="modal-footer border-0 pt-0">
+                            <button class="btn btn-light border" type="button" data-bs-dismiss="modal">Anuluj</button>
+                            <button class="btn btn-danger" type="button" data-confirm-archive-delete>Usuń trwale</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
     </div>
 
     @include('orders.partials.docked-list-toolbar-script')
@@ -625,6 +672,8 @@
             const bulkTrashButtons = ordersPage.querySelectorAll('[data-bulk-trash-submit]');
             const bulkStatusButtons = Array.from(document.querySelectorAll('[data-bulk-status-submit]'));
             const trashSelectionActions = Array.from(document.querySelectorAll('[data-trash-selection-action]'));
+            const archiveDeleteButtons = ordersPage.querySelectorAll('[data-archive-force-delete]');
+            const archiveDeleteModal = ordersPage.querySelector('#confirmArchiveDeleteModal');
             const noOrdersSelectedModalElement = document.getElementById('noOrdersSelectedModal');
             const confirmTrashDeleteModalElement = document.getElementById('confirmTrashDeleteModal');
             const bulkOrdersForm = document.getElementById('bulkOrdersForm');
@@ -757,6 +806,7 @@
                     indicator.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
                     indicator.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
                 });
+                archiveDeleteButtons.forEach((button) => { button.disabled = storedSelectedIds.size === 0; });
             };
 
             selectionButtons.forEach((button) => {
@@ -777,6 +827,12 @@
 
                     if (action === 'clear-page-starred') {
                         setVisibleSelection((checkbox) => checkbox.dataset.orderStarred === '1', false);
+                    }
+
+                    if (action === 'clear-archive-selection') {
+                        setVisibleSelection(() => true, false);
+                        storedSelectedIds.clear();
+                        removeSelectionInputs();
                     }
 
                     if (action === 'select-all-pages') {
@@ -866,13 +922,28 @@
                 });
             });
 
+            archiveDeleteButtons.forEach((button) => {
+                button.addEventListener('click', () => {
+                    const ids = Array.from(selectedOrderIds());
+                    if (ids.length === 0 || !archiveDeleteModal) return;
+                    const limit = Number(bulkOrdersForm.dataset.archiveDeleteLimit);
+                    if (ids.length > limit) {
+                        showRequestError(`Jednorazowo można usunąć maksymalnie ${limit} zamówień.`);
+                        return;
+                    }
+                    archiveDeleteModal.dataset.orderIds = JSON.stringify(ids);
+                    archiveDeleteModal.querySelector('[data-archive-delete-count]').textContent = ids.length;
+                    bootstrap.Modal.getOrCreateInstance(archiveDeleteModal).show(button);
+                });
+            });
+
             readStoredSelection();
             restoreStoredSelection();
             updateSelectAllState();
             initializeSavedViews();
             };
 
-            const ordersIndexUrl = new URL(@json(route('orders.index')), window.location.origin);
+            const ordersIndexUrl = new URL(@json(route($listRoute)), window.location.origin);
             let navigationController = null;
             let navigationSequence = 0;
             let listRequestActive = false;
@@ -1298,13 +1369,27 @@
                 }
             };
 
-            const submitMutation = async (form, submitter = null, { clearSelection = false } = {}) => {
+            const submitMutation = async (form, submitter = null, { clearSelection = false, archiveOrderIds = null } = {}) => {
                 const action = submitter?.getAttribute('formaction') || form.action;
                 const method = (submitter?.getAttribute('formmethod') || form.method || 'POST').toUpperCase();
                 const formData = new FormData(form);
+                const headers = {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                };
+                let body = formData;
 
                 if (submitter?.name && !formData.has(submitter.name)) {
                     formData.append(submitter.name, submitter.value);
+                }
+
+                if (archiveOrderIds !== null) {
+                    headers['Content-Type'] = 'application/json';
+                    body = JSON.stringify({
+                        _token: formData.get('_token'),
+                        confirm_archive_delete: true,
+                        order_ids: archiveOrderIds,
+                    });
                 }
 
                 submitter?.setAttribute('disabled', 'disabled');
@@ -1313,11 +1398,8 @@
                 try {
                     const response = await fetch(action, {
                         method,
-                        body: formData,
-                        headers: {
-                            Accept: 'application/json',
-                            'X-Requested-With': 'XMLHttpRequest',
-                        },
+                        body,
+                        headers,
                     });
 
                     if (!response.ok) {
@@ -1328,7 +1410,13 @@
                         clearStoredSelection();
                     }
 
+                    const result = archiveOrderIds !== null ? await response.json() : null;
                     await loadOrdersPage(window.location.href, { pushHistory: false });
+                    const notice = currentOrdersPage()?.querySelector('[data-archive-delete-result]');
+                    if (notice && result?.message) {
+                        notice.textContent = result.message;
+                        notice.hidden = false;
+                    }
                 } catch (error) {
                     showRequestError(error.message);
                     currentOrdersPage()?.classList.remove('is-loading');
@@ -1372,7 +1460,7 @@
                     return;
                 }
 
-                if (form.matches('.orders-search-form, .orders-filters-panel')) {
+                if (form.matches('.orders-search-form, .orders-filters-panel') && isOrdersIndexUrl(form.action)) {
                     event.preventDefault();
                     submitGetForm(form);
                     return;
@@ -1386,7 +1474,9 @@
 
                 if (form.id === 'bulkOrdersForm') {
                     event.preventDefault();
-                    submitMutation(form, event.submitter, { clearSelection: true });
+                    if (!form.hasAttribute('data-archive-delete-limit')) {
+                        submitMutation(form, event.submitter, { clearSelection: true });
+                    }
                 }
             });
 
@@ -1427,6 +1517,22 @@
             });
 
             document.addEventListener('click', (event) => {
+                const confirmArchiveButton = event.target.closest('[data-confirm-archive-delete]');
+                if (confirmArchiveButton) {
+                    const ordersPage = currentOrdersPage();
+                    const form = ordersPage?.querySelector('form[data-archive-delete-limit]');
+                    const modal = confirmArchiveButton.closest('#confirmArchiveDeleteModal');
+                    const instance = modal && bootstrap.Modal.getInstance(modal);
+                    if (!form || !instance || !modal.classList.contains('show') || confirmArchiveButton.disabled) return;
+
+                    const orderIds = JSON.parse(modal.dataset.orderIds || '[]');
+                    if (orderIds.length === 0) return;
+                    delete modal.dataset.orderIds;
+                    instance.hide();
+                    submitMutation(form, confirmArchiveButton, { clearSelection: true, archiveOrderIds: orderIds });
+                    return;
+                }
+
                 const confirmButton = event.target.closest('[data-confirm-trash-delete]');
 
                 if (!confirmButton) {

@@ -20,7 +20,9 @@ class KsefAutomaticInvoiceSubmissionPolicy
     {
         if (config('ksef.invoice_submission_enabled') !== true
             || ! $invoice->isInvoice()
-            || ! $invoice->isIssued()) {
+            || ! $invoice->isIssued()
+            || ($invoice->order_id === null && filled($invoice->order_reference_snapshot))
+            || $invoice->order?->isArchived()) {
             return null;
         }
 

@@ -86,6 +86,7 @@ class AllegroShipmentExportService
     {
         AllegroShipmentExport::query()->where(fn ($query) => $query->where('state', 'waiting')
             ->orWhere(fn ($pending) => $pending->where('state', 'pending')->where('updated_at', '<=', now()->subMinutes(15))))
+            ->whereHas('order', fn ($query) => $query->operational())
             ->orderBy('updated_at')->orderBy('id')->limit(100)->get()->each(function ($candidate): void {
                 DB::transaction(function () use ($candidate): void {
                     $export = AllegroShipmentExport::query()->lockForUpdate()->find($candidate->id);
@@ -229,7 +230,7 @@ class AllegroShipmentExportService
         $account = $link->account;
         $order = $link->order;
 
-        return $account && $order && ! $order->trashed() && $order->source === 'allegro' && $order->status !== Order::STATUS_CANCELLED
+        return $account && $order && ! $order->trashed() && ! $order->isArchived() && $order->source === 'allegro' && $order->status !== Order::STATUS_CANCELLED
             && $link->isReady() && $link->external_status === 'READY_FOR_PROCESSING' && $link->fulfillment_status !== 'CANCELLED'
             && $account->isOperational() && $account->shipment_sync_mode !== AllegroShipmentSyncMode::Disabled
             && $account->shipment_sync_identity === $account->orderImportIdentity()

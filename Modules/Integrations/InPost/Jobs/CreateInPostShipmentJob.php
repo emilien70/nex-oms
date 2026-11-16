@@ -42,7 +42,8 @@ class CreateInPostShipmentJob implements ShouldBeUnique, ShouldQueue
     {
         $shipment = $this->shipment->fresh();
 
-        if (! $shipment || in_array($shipment->status, [Shipment::STATUS_CANCELLED, Shipment::STATUS_CANCELLED_LOCALLY, 'canceled'], true)) {
+        if (! $shipment || ! $shipment->order()->operational()->exists()
+            || in_array($shipment->status, [Shipment::STATUS_CANCELLED, Shipment::STATUS_CANCELLED_LOCALLY, 'canceled'], true)) {
             return;
         }
 

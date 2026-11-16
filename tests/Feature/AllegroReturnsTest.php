@@ -106,6 +106,20 @@ class AllegroReturnsTest extends TestCase
         $this->assertNull($record->items()->sole()->order_item_id);
     }
 
+    public function test_new_return_can_be_linked_to_an_archived_order_without_restoring_it(): void
+    {
+        $account = $this->account();
+        [$order, $item] = $this->linkedOrder($account);
+        $order->forceFill(['archived_at' => now()])->saveQuietly();
+        $before = $order->fresh()->getAttributes();
+
+        $record = $this->store($account);
+
+        $this->assertSame($order->id, $record->order_id);
+        $this->assertSame($item->id, $record->items()->sole()->order_item_id);
+        $this->assertSame($before, $order->fresh()->getAttributes());
+    }
+
     public function test_identity_includes_environment_and_seller(): void
     {
         $account = $this->account();

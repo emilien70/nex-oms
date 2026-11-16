@@ -79,6 +79,11 @@
             @endif
         </td>
         <td class="text-end product-actions product-actions-column">
+            @if ($order->isArchived())
+                <button class="btn product-actions-toggle" type="button" data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal" aria-label="Akcje produktu {{ $item->product_name }}">
+                    <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
+                </button>
+            @else
             <div class="dropdown">
                 <button class="btn product-actions-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport" data-bs-config='{"popperConfig":{"strategy":"fixed"}}' aria-expanded="false" aria-label="Akcje produktu {{ $item->product_name }}">
                     <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
@@ -94,8 +99,10 @@
                     </li>
                 </ul>
             </div>
+            @endif
         </td>
     </tr>
+    @unless ($order->isArchived())
     <tr class="collapse" id="productEdit{{ $item->id }}">
         <td colspan="9">
             <div class="product-inline-form">
@@ -150,6 +157,7 @@
             </div>
         </td>
     </tr>
+    @endunless
 @empty
     <tr>
         <td colspan="9" class="text-secondary">Brak pozycji zam&oacute;wienia.</td>

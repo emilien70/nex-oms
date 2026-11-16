@@ -405,6 +405,9 @@ Route::prefix('/api/nex-printer/v1')->name('nex-printer.api.')->group(function (
 });
 
 Route::get('/orders', [OrdersController::class, 'index'])->name('orders.index');
+Route::get('/orders/archive', [OrdersController::class, 'archive'])->name('orders.archive.index');
+Route::post('/orders/archive/bulk-delete', [OrdersController::class, 'bulkDeleteArchived'])->name('orders.archive.bulk-delete');
+Route::post('/orders/{order}/restore-from-archive', [OrdersController::class, 'restoreArchived'])->name('orders.archive.restore');
 Route::get('/orders/list-state', [OrdersController::class, 'listState'])->name('orders.list-state');
 Route::get('/orders/scan', OrderScanController::class)->name('orders.scan');
 Route::post('/orders/saved-views', [OrderSavedViewController::class, 'store'])->name('orders.saved-views.store');

@@ -144,7 +144,7 @@ class VonHalskyOrderStatusSyncService
     {
         return VonHalskyOrderLink::query()->where('von_halsky_account_id', $account->id)
             ->where('environment', $account->environment->value)->where('organization_id', $account->organization_id)
-            ->whereHas('order', fn ($q) => $q->where('source', 'von_halsky')
+            ->whereHas('order', fn ($q) => $q->operational()->where('source', 'von_halsky')
                 ->whereColumn('orders.external_id', 'von_halsky_order_links.external_order_id'));
     }
 
@@ -157,7 +157,7 @@ class VonHalskyOrderStatusSyncService
     private function lockedLink(VonHalskyAccount $account, int $id): ?array
     {
         $snapshot = $this->links($account)->find($id);
-        $order = $snapshot ? Order::query()->whereKey($snapshot->order_id)->lockForUpdate()->first() : null;
+        $order = $snapshot ? Order::query()->operational()->whereKey($snapshot->order_id)->lockForUpdate()->first() : null;
         $link = $order ? $this->links($account)->where('order_id', $order->id)->lockForUpdate()->find($id) : null;
 
         return $link ? [$link, $order] : null;

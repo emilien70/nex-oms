@@ -1502,7 +1502,11 @@
             || request()->routeIs('settings.variables.index');
         $currentLayoutStatus = request()->query('status');
         $currentLayoutStatus = is_string($currentLayoutStatus) ? $currentLayoutStatus : null;
-        $layoutShowsTrash = request()->boolean('trash');
+        $layoutShowsArchive = request()->routeIs('orders.archive.index') || ($orderNavigationArchive ?? false);
+        $layoutShowsTrash = ! $layoutShowsArchive && request()->boolean('trash');
+        if ($layoutShowsArchive) {
+            $currentLayoutStatus = null;
+        }
         $ordersContextBackUrl = request()->routeIs('orders.show') ? ($ordersListUrl ?? null) : null;
         if ($ordersContextBackUrl !== null) {
             $currentLayoutStatus = $orderNavigationStatus;
@@ -1641,7 +1645,7 @@
                         </button>
                     </div>
                     <nav class="orders-context-list" id="orderStatusNavigation" aria-label="Statusy zam&#243;wie&#324;">
-                        <a class="orders-context-link orders-context-link-all {{ ! $layoutShowsTrash && $currentLayoutStatus === null && request()->routeIs('orders.index') ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === null ? $ordersContextBackUrl : route('orders.index') }}" @unless($ordersContextBackUrl !== null && ! $layoutShowsTrash && $currentLayoutStatus === null) data-order-filter-target="all" @endunless>
+                        <a class="orders-context-link orders-context-link-all {{ ! $layoutShowsTrash && $currentLayoutStatus === null && request()->routeIs('orders.index') ? 'active' : '' }}" href="{{ $ordersContextBackUrl !== null && ! $layoutShowsTrash && ! $layoutShowsArchive && $currentLayoutStatus === null ? $ordersContextBackUrl : route('orders.index') }}" @unless($ordersContextBackUrl !== null && ! $layoutShowsTrash && ! $layoutShowsArchive && $currentLayoutStatus === null) data-order-filter-target="all" @endunless>
                             <span class="orders-context-all-icon" aria-hidden="true"></span>
                             <span class="orders-context-link-label">Wszystkie</span>
                         </a>
@@ -1653,7 +1657,7 @@
                         @endforeach
 
                         <div class="orders-context-section">
-                            <a class="orders-context-link" href="#">
+                            <a class="orders-context-link {{ $layoutShowsArchive ? 'active' : '' }}" href="{{ $layoutShowsArchive && $ordersContextBackUrl !== null ? $ordersContextBackUrl : route('orders.archive.index') }}" @unless($layoutShowsArchive && $ordersContextBackUrl !== null) data-order-filter-target="archive" @endunless>
                                 <i class="bi bi-file-earmark-text orders-context-action-icon" aria-hidden="true"></i>
                                 <span class="orders-context-link-label">Archiwum</span>
                             </a>

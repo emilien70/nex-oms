@@ -6,6 +6,7 @@
         <div data-order-buyer-comments>
             @include('orders.partials.buyer-comments', ['order' => $order])
         </div>
+        @unless ($archived)
         <div class="alert alert-danger py-2 px-3 mb-3 d-none" role="alert" data-email-form-error></div>
         <div class="order-email-type-options d-none mb-3" data-contact-channels>
             <span class="form-label mb-0 me-2">Typ wiadomości:</span>
@@ -92,6 +93,7 @@
         </form>
 
         @include('components.order-sms-compose')
+        @endunless
 
         <div class="order-email-empty {{ $emailMessages->isNotEmpty() || $smsMessages->isNotEmpty() ? 'd-none' : '' }}" data-email-empty>Brak wiadomości wysłanych do klienta.</div>
 
@@ -99,12 +101,17 @@
             @foreach ($emailMessages as $message)
                 @include('components.order-email-message-item', ['order' => $order, 'message' => $message])
             @endforeach
+            @if ($archived)
+                @include('components.order-sms-history', ['messages' => $smsMessages])
+            @endif
         </div>
 
+        @unless ($archived)
         <button class="btn btn-primary btn-sm order-email-compose-toggle" type="button" data-email-compose-toggle>
             <i class="bi bi-envelope me-1" aria-hidden="true"></i>
             <span data-email-compose-toggle-label>Napisz wiadomość</span>
             <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
         </button>
+        @endunless
     </div>
 </div>

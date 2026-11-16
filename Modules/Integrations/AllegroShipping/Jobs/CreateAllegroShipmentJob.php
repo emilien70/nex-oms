@@ -43,7 +43,7 @@ class CreateAllegroShipmentJob implements ShouldBeUnique, ShouldQueue
     public function handle(CourierDriverRegistry $drivers): void
     {
         $shipment = $this->shipment->fresh();
-        if ($shipment && blank($shipment->external_id)) {
+        if ($shipment && blank($shipment->external_id) && $shipment->order()->operational()->exists()) {
             $drivers->forShipment($shipment)->create($shipment);
         }
     }

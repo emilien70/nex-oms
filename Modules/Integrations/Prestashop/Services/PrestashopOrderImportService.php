@@ -70,6 +70,10 @@ class PrestashopOrderImportService
                     throw new PrestashopImportException('To zamówienie PrestaShop znajduje się już w koszu OMS.');
                 }
 
+                if ($existingOrder->isArchived()) {
+                    return $existingOrder;
+                }
+
                 $this->buyerMessages->enqueue($existingLink->id);
 
                 return $this->completeExistingOrder(

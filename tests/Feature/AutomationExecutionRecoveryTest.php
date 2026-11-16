@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Services\OrderArchiveService;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +45,80 @@ class AutomationExecutionRecoveryTest extends TestCase
         $this->assertNull($run->fresh()->execution_expires_at);
         $this->assertSame('completed', $run->steps()->sole()->status);
         $this->assertSame(1, $run->order->events()->where('event_type', 'automation_completed')->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_archived_order_interrupts_a_queued_rule_without_running_its_steps(): void
+    {
+        $run = $this->makeRun();
+        $run->order->forceFill(['archived_at' => now()])->saveQuietly();
+        $this->mock(AutomationActionExecutor::class)->shouldNotReceive('execute');
+
+        (new ExecuteAutomationRunJob($run, 0))->handle(app(AutomationRunner::class));
+
+        $this->assertSame(AutomationRun::STATUS_INTERRUPTED, $run->fresh()->status);
+        $this->assertDatabaseCount('automation_run_steps', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_archive_waits_for_a_running_rule_but_interrupts_a_delayed_rule(): void
+    {
+        config(['order_archive.automatic' => true]);
+        $archive = app(OrderArchiveService::class);
+        $running = $this->makeRun();
+        $waiting = $this->makeRun();
+        foreach ([$running, $waiting] as $run) {
+            $run->order->forceFill(['purchased_at' => now()->subDays(100)])->saveQuietly();
+        }
+
+        $snapshot = $waiting->rule_snapshot;
+        array_unshift($snapshot['actions'], ['type' => AutomationCatalog::ACTION_DELAY, 'configuration' => ['minutes' => 2]]);
+        $waiting->update(['rule_snapshot' => $snapshot]);
+        (new ExecuteAutomationRunJob($waiting, 0))->handle(app(AutomationRunner::class));
+        $this->assertSame(AutomationRun::STATUS_WAITING, $waiting->fresh()->status);
+
+        $this->mock(AutomationActionExecutor::class)->shouldReceive('execute')->once()->andReturnUsing(function () use ($archive, $running, $waiting): array {
+            $this->assertSame(1, $archive->archiveDue());
+            $this->assertFalse($running->order->fresh()->isArchived());
+            $this->assertTrue($waiting->order->fresh()->isArchived());
+
+            return ['sent' => true];
+        });
+        (new ExecuteAutomationRunJob($running, 0))->handle(app(AutomationRunner::class));
+        $this->assertSame(AutomationRun::STATUS_COMPLETED, $running->fresh()->status);
+        $this->assertSame(['sent' => true], $running->steps()->sole()->output);
+        $this->assertSame(AutomationRun::STATUS_INTERRUPTED, $waiting->fresh()->status);
+
+        $this->travel(1)->day();
+        $this->assertSame(1, $archive->archiveDue());
+        $this->assertTrue($running->order->fresh()->isArchived());
+        $archive->restore($waiting->order);
+        (new ExecuteAutomationRunJob($waiting->fresh(), 1))->handle(app(AutomationRunner::class));
+        $this->assertSame(AutomationRun::STATUS_INTERRUPTED, $waiting->fresh()->status);
+        $this->assertSame(1, $waiting->steps()->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_order_is_eligible_for_archive_after_recovery_of_an_expired_automation(): void
+    {
+        config(['order_archive.automatic' => true]);
+        $archive = app(OrderArchiveService::class);
+        $run = $this->makeRun();
+        $run->order->forceFill(['purchased_at' => now()->subDays(100)])->saveQuietly();
+        $token = (string) Str::uuid();
+        $this->claimAndStart($run, $token);
+        $this->assertSame(0, $archive->archiveDue());
+
+        $this->travel(AutomationExecutionState::LEASE_SECONDS + 1)->seconds();
+        $state = app(AutomationExecutionState::class);
+        $this->assertSame(1, $state->recoverExpired());
+        $this->assertSame(1, $archive->archiveDue());
+        $step = $run->steps()->sole();
+        $this->assertTrue($run->order->fresh()->isArchived());
+        $this->assertSame(AutomationRun::STATUS_INTERRUPTED, $run->fresh()->status);
+        $this->assertSame('uncertain', $step->status);
+        $this->assertFalse($state->recordStep($run, $token, $step, ['late' => true], null));
+        Queue::assertNothingPushed();
         Http::assertNothingSent();
     }
 

@@ -12,7 +12,7 @@
 <article
     class="order-email-message"
     data-email-message-id="{{ $message->getKey() }}"
-    data-email-status-url="{{ route('orders.email-messages.status', [$order, $message]) }}"
+    @unless ($order->isArchived()) data-email-status-url="{{ route('orders.email-messages.status', [$order, $message]) }}" @endunless
     data-email-terminal="{{ $message->status->isTerminal() ? '1' : '0' }}"
 >
     <div class="order-email-message-meta">
@@ -25,7 +25,9 @@
     <div class="order-email-message-heading"><strong>Temat wiadomości:</strong> {{ $message->subject }}</div>
     <div class="order-email-message-heading"><strong>Do:</strong> {{ $message->to_email }}</div>
     <div class="order-email-message-body">
-        @if ($message->format === \App\Enums\EmailTemplateFormat::Html)
+        @if ($order->isArchived())
+            {!! nl2br(e($message->body_text ?: strip_tags((string) $message->body_html))) !!}
+        @elseif ($message->format === \App\Enums\EmailTemplateFormat::Html)
             {!! $message->body_html !!}
         @else
             {!! nl2br(e($message->body_text)) !!}

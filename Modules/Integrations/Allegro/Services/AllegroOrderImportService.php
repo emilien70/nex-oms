@@ -67,7 +67,7 @@ class AllegroOrderImportService
                         return $order;
                     }
                     $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-                    if ($order->status === Order::STATUS_CANCELLED || $order->invoices()->exists()
+                    if ($order->isArchived() || $order->status === Order::STATUS_CANCELLED || $order->invoices()->exists()
                         || $order->shipments()->exists() || $order->shipmentCreationAttempts()->exists()) {
                         throw new AllegroImportException('Zakup byl juz obslugiwany w OMS. Aktualizacja wymaga sprawdzenia.');
                     }

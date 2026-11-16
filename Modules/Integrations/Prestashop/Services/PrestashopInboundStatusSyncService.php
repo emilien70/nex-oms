@@ -142,6 +142,7 @@ class PrestashopInboundStatusSyncService
         $rows = [];
 
         $account->orderLinks()
+            ->whereHas('order', fn ($query) => $query->operational())
             ->orderBy('id')
             ->pluck('external_order_id')
             ->chunk(self::PAGE_SIZE)
@@ -204,7 +205,7 @@ class PrestashopInboundStatusSyncService
                 ->lockForUpdate()
                 ->first();
 
-            if (! $link) {
+            if (! $link || $link->order()->lockForUpdate()->first()?->isArchived()) {
                 return 'observed';
             }
 

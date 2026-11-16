@@ -28,13 +28,14 @@
 
 <div class="paid-amount-row" data-paid-view>
     <div class="nex-label">Zap&#322;acono:</div>
-    <button class="badge border-0 {{ $paidBadgeClass }}" type="button" data-paid-edit-open aria-label="Edytuj wp&#322;at&#281;">{{ $moneyValue($order->paid_amount) }} {{ $order->currency }}</button>
+    <button class="badge border-0 {{ $paidBadgeClass }}" type="button" @if ($order->isArchived()) data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal" @else data-paid-edit-open @endif aria-label="Edytuj wp&#322;at&#281;">{{ $moneyValue($order->paid_amount) }} {{ $order->currency }}</button>
     <span class="text-secondary">z {{ $moneyValue($order->total_gross) }} {{ $order->currency }}</span>
     @if (app(\Modules\Integrations\Prestashop\Services\PrestashopPaymentStatusService::class)->hasMissingTransactionId($order))
         <button type="button" class="border-0 bg-transparent text-danger p-0 d-inline-flex align-items-center justify-content-center" style="width: 18px; height: 20px; font-size: 16px" data-payment-id-warning data-bs-toggle="tooltip" data-bs-trigger="hover focus click" title="Brak ID płatności" aria-label="Brak ID płatności">
             <i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>
         </button>
     @endif
+    @unless ($order->isArchived())
     <div class="paid-amount-action-group" role="group" aria-label="Akcje p&#322;atno&#347;ci">
         <form method="POST" action="{{ route('orders.recalculate-total', $order) }}" data-order-ajax-form>
             @csrf
@@ -64,7 +65,9 @@
             </button>
         @endif
     </div>
+    @endunless
 </div>
+@unless ($order->isArchived())
 <form method="POST" action="{{ route('orders.paid-amount.update', $order) }}" class="paid-amount-edit align-items-center flex-wrap gap-2" data-paid-edit data-total="{{ (float) $order->total_gross }}" data-order-ajax-form>
     @csrf
     @method('PATCH')
@@ -75,6 +78,7 @@
     <button class="mini-icon-button text-danger" type="button" data-paid-set="0.00" aria-label="Ustaw zero">0.00</button>
     <button class="mini-icon-button" type="button" data-paid-cancel aria-label="Anuluj edycj&#281; wp&#322;aty">&#10005;</button>
 </form>
+@endunless
 
 @php
     $infoSections = [
@@ -96,9 +100,9 @@
 @foreach ($infoSections as $infoRows)
     <div class="order-info-section">
         @foreach ($infoRows as $field => [$label, $value])
-            <div class="order-info-row inline-field-row inline-edit-trigger" data-edit-section="order-info" data-edit-field="{{ $field }}">
+            <div class="order-info-row inline-field-row {{ $order->isArchived() ? '' : 'inline-edit-trigger' }}" @unless ($order->isArchived()) data-edit-section="order-info" data-edit-field="{{ $field }}" @endunless>
                 <div class="nex-label">{{ $label }}</div>
-                <div class="nex-value">@include('orders.partials.inline-edit-value', compact('field', 'label', 'value'))</div>
+                <div class="nex-value">@include('orders.partials.inline-edit-value', ['field' => $order->isArchived() ? null : $field, 'label' => $label, 'value' => $value])</div>
             </div>
         @endforeach
     </div>

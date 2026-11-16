@@ -20,7 +20,7 @@ class PrestashopOutboundStatusSyncService
             ->with('account')
             ->where('order_id', $orderId)
             ->first();
-        $order = Order::query()->find($orderId);
+        $order = Order::query()->operational()->find($orderId);
 
         if (! $order || $order->status !== $expectedOmsStatus) {
             $this->clearPendingForEvent($link, $eventId);
@@ -79,7 +79,7 @@ class PrestashopOutboundStatusSyncService
             return;
         }
 
-        if (Order::query()->whereKey($orderId)->value('status') !== $expectedOmsStatus) {
+        if (Order::query()->operational()->whereKey($orderId)->value('status') !== $expectedOmsStatus) {
             $this->clearPendingForEvent($link, $eventId);
 
             return;

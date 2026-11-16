@@ -134,22 +134,23 @@ class AllegroInvoiceExportService
             $query->where('state', 'waiting')
                 ->orWhere(fn ($q) => $q->whereIn('state', ['pending', 'uploading'])->where('updated_at', '<=', now()->subMinutes(15)))
                 ->orWhere(fn ($q) => $q->whereIn('state', ['verifying', 'uncertain'])->whereNotNull('next_check_at')->where('next_check_at', '<=', now()));
-        })->orderBy('updated_at')->orderBy('id')->limit(100)->get()->each(function ($candidate): void {
-            DB::transaction(function () use ($candidate): void {
-                $export = AllegroInvoiceExport::query()->lockForUpdate()->find($candidate->id);
-                if (! $export) {
-                    return;
-                }
-                if ($export->state === 'waiting') {
-                    $this->activate($export);
-                    $export->touch();
-                } elseif ($this->accountMatches($export)
-                    && ((in_array($export->state, ['pending', 'uploading'], true) && $export->updated_at->lte(now()->subMinutes(15)))
-                        || (in_array($export->state, ['verifying', 'uncertain'], true) && $export->next_check_at?->lte(now())))) {
-                    $this->dispatch($export);
-                }
-            }, 3);
-        });
+        })->where(fn ($query) => $query->whereNotNull('upload_started_at')->orWhereHas('order', fn ($order) => $order->operational()))
+            ->orderBy('updated_at')->orderBy('id')->limit(100)->get()->each(function ($candidate): void {
+                DB::transaction(function () use ($candidate): void {
+                    $export = AllegroInvoiceExport::query()->lockForUpdate()->find($candidate->id);
+                    if (! $export) {
+                        return;
+                    }
+                    if ($export->state === 'waiting') {
+                        $this->activate($export);
+                        $export->touch();
+                    } elseif ($this->accountMatches($export)
+                        && ((in_array($export->state, ['pending', 'uploading'], true) && $export->updated_at->lte(now()->subMinutes(15)))
+                            || (in_array($export->state, ['verifying', 'uncertain'], true) && $export->next_check_at?->lte(now())))) {
+                        $this->dispatch($export);
+                    }
+                }, 3);
+            });
     }
 
     public function sync(ExportAllegroInvoiceJob $job): void
@@ -411,7 +412,7 @@ class AllegroInvoiceExportService
     public function eligible(Invoice $invoice, AllegroOrderLink $link): bool
     {
         if (! $invoice->isIssued() || trim((string) $invoice->number) === ''
-            || ! $link->account?->isOperational() || ! $link->order || $link->order->trashed()
+            || ! $link->account?->isOperational() || ! $link->order || $link->order->trashed() || $link->order->isArchived()
             || $link->order->source !== 'allegro' || $invoice->order_id !== $link->order_id
             || $link->environment !== $link->account->environment || $link->seller_user_id !== $link->account->allegro_user_id
             || $link->replaced_by_link_id !== null) {

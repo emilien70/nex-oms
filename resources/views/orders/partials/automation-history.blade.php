@@ -42,7 +42,9 @@
     @empty
         <div class="order-automation-empty">Brak historii automatycznych akcji.</div>
     @endforelse
-    @if ($automationHistory->hasPages())
+    @if ($automationHistory->hasPages() && ($order ?? null)?->isArchived())
+        {{ $automationHistory->appends(request()->except('automation_page'))->links() }}
+    @elseif ($automationHistory->hasPages())
         <nav class="order-automation-pagination" aria-label="Strony historii automatycznych akcji">
             <button type="button" data-automation-history-page="{{ max(1, $automationHistory->currentPage() - 1) }}" @disabled($automationHistory->onFirstPage()) title="Nowsze akcje" aria-label="Nowsze akcje"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
             <span>{{ $automationHistory->currentPage() }} / {{ $automationHistory->lastPage() }}</span>

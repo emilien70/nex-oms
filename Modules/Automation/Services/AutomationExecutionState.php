@@ -2,6 +2,7 @@
 
 namespace Modules\Automation\Services;
 
+use App\Models\Order;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Modules\Automation\Models\AutomationRun;
@@ -19,9 +20,16 @@ class AutomationExecutionState
     public function claim(AutomationRun $run, int $position, string $token): ?AutomationRun
     {
         return DB::transaction(function () use ($run, $position, $token): ?AutomationRun {
+            $order = Order::query()->lockForUpdate()->find($run->order_id);
             $managed = AutomationRun::query()->with('order', 'steps')->lockForUpdate()->find($run->id);
 
             if (! $managed?->order || $managed->isFinished() || $managed->execution_token !== null) {
+                return null;
+            }
+            if ($order?->isArchived()) {
+                $managed->update(['status' => AutomationRun::STATUS_INTERRUPTED, 'finished_at' => now(),
+                    'error_message' => 'Zamówienie jest w archiwum. Nie uruchomiono dalszych kroków.']);
+
                 return null;
             }
 

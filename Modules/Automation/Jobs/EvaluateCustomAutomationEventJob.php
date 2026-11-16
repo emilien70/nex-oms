@@ -39,7 +39,7 @@ class EvaluateCustomAutomationEventJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $order = Order::query()->find($invocation->order_id);
+        $order = Order::query()->operational()->find($invocation->order_id);
         $event = AutomationCustomEvent::query()->find($invocation->automation_custom_event_id);
         if (! $order || ! $event?->availableFor($order)) {
             $invocation->update(['status' => AutomationCustomEventInvocation::UNAVAILABLE]);

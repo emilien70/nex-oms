@@ -63,7 +63,7 @@
         </div>
         <div>Przekazywanie statusu: {{ ['pending' => 'Oczekuje', 'synced' => 'Potwierdzone', 'failed' => 'Błąd', 'skipped' => 'Pominięto'][$link->status_sync_state] ?? $link->status_sync_state }}</div>
         @if ($link->status_sync_error)<div class="text-danger text-break" role="alert">{{ $link->status_sync_error }}</div>@endif
-        @if ($link->status_sync_state === 'failed')
+        @if (! $order->isArchived() && $link->status_sync_state === 'failed')
             <form method="POST" action="{{ route('orders.allegro.status.retry', $order) }}" class="mt-2">@csrf
                 <button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Ponów przekazanie statusu</button>
             </form>

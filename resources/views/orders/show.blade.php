@@ -1,8 +1,9 @@
-@extends('layouts.app', ['automationActivityOrderId' => $order->id])
+@extends('layouts.app', ['automationActivityOrderId' => $order->isArchived() ? null : $order->id])
 
 @section('title', 'Zamowienie ' . $order->id . ' - NEX-OMS')
 
 @php
+    $archived = $order->isArchived();
     $dateValue = fn ($value) => $value ? $value->format('Y-m-d\TH:i') : null;
     $displayDate = fn ($value) => $value ? $value->format('Y-m-d H:i') : '-';
     $shippingAddress = $order->shippingAddressData();
@@ -446,6 +447,16 @@
             grid-column: 2 / 4;
             margin-top: 0;
             min-height: var(--order-detail-line-height);
+        }
+
+        .management-archive-label,
+        .management-archive-control {
+            margin-top: 8px;
+        }
+
+        .management-archive-control .btn {
+            font-size: 11px;
+            padding: 3px 10px;
         }
 
         .management-meta-label.is-status-date,
@@ -3316,9 +3327,14 @@
         }
     </style>
 
-    <div class="order-page{{ $order->purchaseIsComplete() ? '' : ' purchase-readonly' }}" data-order-id="{{ $order->id }}" data-order-state-url="{{ route('orders.state', $order) }}">
+    <div class="order-page{{ $archived || $order->purchaseIsComplete() ? '' : ' purchase-readonly' }}" @if ($archived) data-archived-order @else data-order-id="{{ $order->id }}" data-order-state-url="{{ route('orders.state', $order) }}" @endif>
     <div class="order-topbar">
         <div class="order-heading">
+            @if ($archived)
+            <button class="star-button order-star {{ $starClass }}" type="button" data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal" aria-label="Wybierz kolor oznaczenia zamówienia">
+                <i class="bi {{ $currentStar ? 'bi-star-fill' : 'bi-star' }}" aria-hidden="true"></i>
+            </button>
+            @else
             <div class="dropdown">
                 <button class="star-button order-star {{ $starClass }}" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false" aria-label="Wybierz kolor oznaczenia zamowienia">
                     <i class="bi {{ $currentStar ? 'bi-star-fill' : 'bi-star' }}" data-order-star-icon aria-hidden="true"></i>
@@ -3336,9 +3352,11 @@
                     </div>
                 </div>
             </div>
+            @endif
             <div class="order-heading-text">
                 <h1 class="order-title">Zam&oacute;wienie {{ $order->id }}</h1>
                 <span class="order-customer {{ $headerCustomerName ? '' : 'd-none' }}" data-order-header-customer>{{ $headerCustomerName }}</span>
+                @if ($archived)<span class="badge text-bg-secondary">Archiwum</span>@endif
             </div>
         </div>
         <nav class="order-navigation" aria-label="Nawigacja mi&#281;dzy zam&oacute;wieniami">
@@ -3354,7 +3372,7 @@
                 <button class="order-navigation-arrow" type="button" data-order-navigation-disabled="next" aria-label="Brak nast&#281;pnego zam&oacute;wienia" title="Brak nast&#281;pnego zam&oacute;wienia" disabled><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
             @endif
 
-            <a class="order-list-back" href="{{ $ordersListUrl }}" data-page-navigation-loading><i class="bi bi-arrow-return-left" aria-hidden="true"></i><span>Powr&oacute;t do listy zam&oacute;wie&#324;</span></a>
+            <a class="order-list-back" href="{{ $ordersListUrl }}" data-page-navigation-loading><i class="bi bi-arrow-return-left" aria-hidden="true"></i><span>{{ $archived ? 'Powrót do archiwum' : 'Powrót do listy zamówień' }}</span></a>
         </nav>
     </div>
 
@@ -3404,6 +3422,7 @@
         </div>
     </div>
 
+    @unless ($archived)
     <div class="products-toolbar" role="group" aria-label="Dodawanie i operacje na produktach">
         <div class="dropdown product-add-group">
             <button class="btn product-add-button" type="button" data-bs-toggle="modal" data-bs-target="#catalogProductModal">
@@ -3439,11 +3458,13 @@
             </ul>
         </div>
     </div>
+    @endunless
 
     <div data-order-returns>
         @include('orders.partials.returns-card', ['order' => $order])
     </div>
 
+    @unless ($archived)
     <div class="collapse product-add-panel" id="productAddPanel">
         <h3 class="h6 mb-3">Dodaj produkt ręcznie</h3>
         <form method="POST" action="{{ route('orders.products.store', $order) }}" data-order-ajax-form>
@@ -3637,14 +3658,15 @@
             <span class="catalog-selected-stock-warning" data-catalog-stock-warning hidden></span>
         </article>
     </template>
-    <div class="row g-3 mb-3">
-        <div class="col-12 col-xl-4">
+    @endunless
+    <div class="row g-3 mb-3 {{ $archived ? 'mt-0' : '' }}">
+        <div class="col-12 {{ $archived ? 'col-xl-6' : 'col-xl-4' }}">
             <div class="nex-card h-100 inline-section" data-inline-section="order-info">
                 <div class="nex-card-header">
                     <h2 class="nex-card-title">Informacje o zam&oacute;wieniu</h2>
                     <div class="d-flex align-items-center gap-2">
-                        <button class="btn btn-sm btn-light border inline-section-edit-button" type="button" data-edit-section="order-info">Edytuj</button>
-                        @if (! $order->trashed())
+                        <button class="btn btn-sm btn-light border inline-section-edit-button" type="button" @if ($archived) data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal" @else data-edit-section="order-info" @endif>Edytuj</button>
+                        @if (! $archived && ! $order->trashed())
                             <div class="dropdown">
                                 <button class="btn btn-sm btn-light border dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                                     Akcje
@@ -3679,6 +3701,7 @@
                     <div class="order-info-panel inline-section-view" data-order-info-view>
                         @include('orders.partials.order-info-view', ['order' => $order, 'sourceOptions' => $sourceOptions])
                     </div>
+                    @unless ($archived)
                     <form method="POST" action="{{ route('orders.sections.order-info', $order) }}" class="inline-section-edit" data-order-ajax-form data-refresh-courier-defaults>
                         @csrf
                         @method('PATCH')
@@ -3720,11 +3743,12 @@
                         </div>
                         <div class="inline-actions"><button type="submit" class="btn inline-save">Zapisz</button><button type="button" class="btn inline-cancel">Anuluj</button></div>
                     </form>
+                    @endunless
                 </div>
             </div>
         </div>
 
-        <div class="col-12 col-xl-4">
+        <div class="col-12 {{ $archived ? 'col-xl-6' : 'col-xl-4' }}">
             <div class="nex-card h-100">
                 <div class="nex-card-header">
                     <h2 class="nex-card-title">Zarz&#261;dzanie</h2>
@@ -3732,6 +3756,15 @@
                 <div class="nex-card-body">
                     @if (! $order->trashed())
                         <div class="management-status-form {{ $order->source === 'allegro' ? 'is-allegro' : '' }}">
+                        @if ($archived)
+                            <div class="management-meta-label">Status:</div>
+                            <div class="management-meta-value">
+                                <button class="btn btn-sm btn-light border dropdown-toggle management-status-toggle" type="button" data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal" aria-label="Zmień status: {{ $order->statusLabel() }}">
+                                    <span class="management-status-dot" style="background: {{ $statusSettings[$order->status]['color'] ?? '#64748b' }}"></span>
+                                    {{ $order->statusLabel() }}
+                                </button>
+                            </div>
+                        @else
                         <form method="POST" action="{{ route('orders.status.update', $order) }}" class="management-status-fields" data-management-status-form>
                             @csrf
                             @method('PATCH')
@@ -3760,11 +3793,13 @@
                             </div>
                             <button class="btn btn-sm btn-primary management-status-submit" type="submit" data-management-status-submit>Zapisz</button>
                         </form>
+                        @endif
                             <div class="management-status-section-gap" aria-hidden="true"></div>
-                            @include('orders.partials.sales-document-actions', [
-                                'order' => $order,
-                                'salesDocumentActions' => $salesDocumentActions,
-                            ])
+                            @if ($archived)
+                                @include('orders.partials.archived-documents')
+                            @else
+                                @include('orders.partials.sales-document-actions', ['order' => $order, 'salesDocumentActions' => $salesDocumentActions])
+                            @endif
                             @if ($order->source === 'prestashop')
                                 <div class="management-meta-label">Numer w sklepie:</div>
                                 <div class="management-meta-value">
@@ -3805,6 +3840,15 @@
                                 @endif
                             </div>
                             @include('customer-portal.order-link', ['order' => $order])
+                            @if ($archived)
+                                <div class="management-meta-label management-archive-label">Archiwum:</div>
+                                <div class="management-meta-value management-archive-control">
+                                    <form method="POST" action="{{ route('orders.archive.restore', $order) }}">
+                                        @csrf
+                                        <button class="btn btn-sm btn-light border" type="submit">PRZYWRÓĆ</button>
+                                    </form>
+                                </div>
+                            @endif
                         </div>
                     @else
                         <div class="management-placeholder">Zam&oacute;wienie jest w koszu.</div>
@@ -3813,9 +3857,11 @@
             </div>
         </div>
 
+        @unless ($archived)
         <div class="col-12 col-xl-4">
             @include('orders.partials.quick-actions')
         </div>
+        @endunless
     </div>
 
     <div class="row g-3 mb-3">
@@ -3824,8 +3870,8 @@
                 <div class="nex-card-header">
                     <h2 class="nex-card-title">Adres dostawy</h2>
                     <div class="card-header-actions">
-                        <button class="btn btn-sm btn-light border icon-action-button" type="button" data-copy-shipping-to-billing title="Skopiuj adres do danych faktury" aria-label="Skopiuj adres do danych faktury">&#10697;</button>
-                        <button class="btn btn-sm btn-light border icon-action-button" type="button" data-edit-section="shipping" title="Edytuj adres dostawy" aria-label="Edytuj adres dostawy"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+                        @unless ($archived)<button class="btn btn-sm btn-light border icon-action-button" type="button" data-copy-shipping-to-billing title="Skopiuj adres do danych faktury" aria-label="Skopiuj adres do danych faktury">&#10697;</button>@endunless
+                        <button class="btn btn-sm btn-light border icon-action-button" type="button" @if ($archived) data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal" @else data-edit-section="shipping" @endif title="Edytuj adres dostawy" aria-label="Edytuj adres dostawy"><i class="bi bi-pencil" aria-hidden="true"></i></button>
                     </div>
                 </div>
                 <div class="nex-card-body">
@@ -3837,7 +3883,7 @@
                         'showProvince' => false,
                         'showPhone' => false,
                         'showEmail' => false,
-                        'editFields' => [
+                        'editFields' => $archived ? [] : [
                             'Imię i Nazwisko' => 'shipping_name',
                             'Firma' => 'shipping_company_name',
                             'Adres' => 'shipping_address_line',
@@ -3846,6 +3892,7 @@
                             'Kraj' => 'shipping_country_code',
                         ],
                     ])</div>
+                    @unless ($archived)
                     <form method="POST" action="{{ route('orders.sections.shipping-address', $order) }}" class="inline-section-edit" data-order-ajax-form data-refresh-courier-defaults>
                         @csrf
                         @method('PATCH')
@@ -3870,6 +3917,7 @@
                         </div>
                         <div class="inline-actions"><button type="submit" class="btn inline-save">Zapisz</button><button type="button" class="btn inline-cancel">Anuluj</button></div>
                     </form>
+                    @endunless
                 </div>
             </div>
         </div>
@@ -3879,8 +3927,8 @@
                 <div class="nex-card-header">
                     <h2 class="nex-card-title">Dane do faktury</h2>
                     <div class="card-header-actions">
-                        <button class="btn btn-sm btn-light border icon-action-button" type="button" data-copy-billing-to-shipping title="Skopiuj dane faktury do adresu dostawy" aria-label="Skopiuj dane faktury do adresu dostawy">&#10697;</button>
-                        <button class="btn btn-sm btn-light border icon-action-button" type="button" data-edit-section="billing" title="Edytuj dane do faktury" aria-label="Edytuj dane do faktury"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+                        @unless ($archived)<button class="btn btn-sm btn-light border icon-action-button" type="button" data-copy-billing-to-shipping title="Skopiuj dane faktury do adresu dostawy" aria-label="Skopiuj dane faktury do adresu dostawy">&#10697;</button>@endunless
+                        <button class="btn btn-sm btn-light border icon-action-button" type="button" @if ($archived) data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal" @else data-edit-section="billing" @endif title="Edytuj dane do faktury" aria-label="Edytuj dane do faktury"><i class="bi bi-pencil" aria-hidden="true"></i></button>
                     </div>
                 </div>
                 @if (($order->source === 'allegro' && $allegroOrderLink?->invoice_required) || ($order->source === 'von_halsky' && $order->vonHalskyOrderLink?->invoice_required))
@@ -3900,7 +3948,7 @@
                             'showEmail' => false,
                             'taxIdLast' => true,
                             'countryName' => $countryCatalog->name($billingAddress?->country_code),
-                            'editFields' => [
+                            'editFields' => $archived ? [] : [
                                 'Imię i Nazwisko' => 'billing_name',
                                 'Firma' => 'billing_company_name',
                                 'Adres' => 'billing_address_line',
@@ -3911,6 +3959,7 @@
                             ],
                         ])
                     </div>
+                    @unless ($archived)
                     <form method="POST" action="{{ route('orders.sections.billing-address', $order) }}" class="inline-section-edit" data-billing-form data-gus-lookup-url="{{ route('gus.company-by-nip') }}" data-order-ajax-form>
                         @csrf
                         @method('PATCH')
@@ -3950,6 +3999,7 @@
                         </div>
                         <div class="inline-actions"><button type="submit" class="btn inline-save">Zapisz</button><button type="button" class="btn inline-cancel">Anuluj</button></div>
                     </form>
+                    @endunless
                 </div>
             </div>
         </div>
@@ -3959,13 +4009,14 @@
                 <div class="nex-card-header">
                     <h2 class="nex-card-title">Odbi&oacute;r w punkcie</h2>
                     <div class="card-header-actions">
-                        <button class="btn btn-sm btn-light border icon-action-button" type="button" data-edit-section="pickup" title="Edytuj odbi&oacute;r w punkcie" aria-label="Edytuj odbi&oacute;r w punkcie"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+                        <button class="btn btn-sm btn-light border icon-action-button" type="button" @if ($archived) data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal" @else data-edit-section="pickup" @endif title="Edytuj odbi&oacute;r w punkcie" aria-label="Edytuj odbi&oacute;r w punkcie"><i class="bi bi-pencil" aria-hidden="true"></i></button>
                     </div>
                 </div>
                 <div class="nex-card-body">
                     <div class="inline-section-view inline-edit-trigger" data-edit-section="pickup" data-pickup-view>
                         @include('orders.partials.pickup-view', ['order' => $order])
                     </div>
+                    @unless ($archived)
                     <form method="POST" action="{{ route('orders.pickup-point.update', $order) }}" class="inline-section-edit" data-order-ajax-form data-refresh-courier-defaults>
                         @csrf
                         @method('PATCH')
@@ -3978,6 +4029,7 @@
                         </div>
                         <div class="inline-actions"><button type="submit" class="btn inline-save">Zapisz</button><button type="button" class="btn inline-cancel">Anuluj</button></div>
                     </form>
+                    @endunless
                 </div>
             </div>
         </div>
@@ -3998,7 +4050,7 @@
             @else
                 <div class="alert alert-info py-2 px-3 small d-none" role="status" data-shipment-ajax-notice></div>
                 @php($hasParcels = $order->shipments->isNotEmpty() || $order->returns->contains(fn ($record) => $record->parcels->isNotEmpty()))
-                <div class="shipments-empty-copy {{ $hasParcels ? 'd-none' : '' }}" data-shipments-empty>Nie nadano &#380;adnych paczek - skorzystaj z przycisk&oacute;w poni&#380;ej, aby wygenerowa&#263; przesy&#322;k&#281;.</div>
+                <div class="shipments-empty-copy {{ $hasParcels ? 'd-none' : '' }}" data-shipments-empty>{{ $archived ? 'Nie nadano żadnych paczek.' : 'Nie nadano żadnych paczek - skorzystaj z przycisków poniżej, aby wygenerować przesyłkę.' }}</div>
                 <div class="shipments-table-wrap {{ ! $hasParcels ? 'd-none' : '' }}" data-shipments-table-wrap>
                     <table class="table shipments-table">
                         <thead>
@@ -4025,7 +4077,11 @@
                     </table>
                 </div>
 
-                @if ($activeCourierAccounts->isNotEmpty())
+                @if ($archived)
+                    <div class="courier-tabs">
+                        <button class="courier-tab" type="button" data-bs-toggle="modal" data-bs-target="#archivedOrderActionModal">Nadaj przesyłkę</button>
+                    </div>
+                @elseif ($activeCourierAccounts->isNotEmpty())
                     <div class="courier-tabs" aria-label="Aktywne integracje kurierskie">
                         @foreach ($activeCourierAccounts as $courierAccount)
                             @if ($courierAccount->provider === \Modules\Shipments\Models\CourierAccount::PROVIDER_INPOST_LOCKERS)
@@ -4058,10 +4114,11 @@
                     </div>
                 @endif
 
-                @if ($activeCourierAccounts->isEmpty())
+                @if (! $archived && $activeCourierAccounts->isEmpty())
                     <div class="shipment-recipient-summary mx-2">Skonfiguruj i aktywuj Integracj&#281; Kuriersk&#261;, aby nadawa&#263; przesy&#322;ki.</div>
                 @endif
 
+                @unless ($archived)
                 <div
                     id="courierShipmentFormHost"
                     class="d-none"
@@ -4069,11 +4126,13 @@
                     data-initial-courier-provider="{{ $initialShipmentProvider }}"
                     aria-live="polite"
                 ></div>
+                @endunless
 
             @endif
         </div>
     </div>
 
+    @unless ($archived)
     <div class="modal fade" id="cancelShipmentModal" tabindex="-1" aria-labelledby="cancelShipmentModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -4119,13 +4178,31 @@
     </div>
 
     @include('orders.partials.sales-document-delete-modal')
+    @endunless
 
     <div class="order-communication-grid">
         <x-order-email-exchange :order="$order" />
         @include('components.order-additional-information', ['order' => $order])
     </div>
+    @if ($archived)
+        <div class="modal fade" id="archivedOrderActionModal" tabindex="-1" aria-labelledby="archivedOrderActionTitle" aria-describedby="archivedOrderActionMessage" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header border-0 pb-0">
+                        <h2 class="modal-title fs-6" id="archivedOrderActionTitle">Zamówienie w Archiwum</h2>
+                        <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Zamknij"></button>
+                    </div>
+                    <div class="modal-body" id="archivedOrderActionMessage">To zamówienie jest w Archiwum. Aby je edytować lub nadać przesyłkę, kliknij „Przywróć” w kaflu Zarządzanie.</div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button class="btn btn-sm btn-primary px-4" type="button" data-bs-dismiss="modal">OK</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
     </div>
 
+    @unless ($archived)
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const deferredFormFields = new WeakMap();
@@ -6993,4 +7070,5 @@
 
         });
     </script>
+    @endunless
 @endsection

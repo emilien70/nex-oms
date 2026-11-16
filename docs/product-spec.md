@@ -3167,6 +3167,31 @@ kryteria, sortowanie i liczbe pozycji na stronie.
 Sortowanie i paginacja nie sa czescia zestawu. Aktywny widok kazdej karty
 pozostaje w jej URL, ale preferencje sa wspolne w profilu przegladarki.
 
+# ARCHIWUM.1 - Archiwum zamowien
+
+Archiwum ma osobna liste, sortowanie, paginacje i filtry zapisywane
+w przegladarce niezaleznie od aktywnych statusow. Zamowienia archiwalne
+nie sa widoczne w zwyklej liscie, licznikach ani wyszukiwaniu. Ich karta
+korzysta z ukladu zwyklego zamowienia w trybie tylko do odczytu.
+Proba edycji lub nadania otwiera komunikat, a szczegoly integracji
+wyswietlaja zapisane dane bez odswiezania. Wiersz Archiwum w kaflu
+Zarzadzanie zawiera przycisk Przywroc. Przywrocenie wraca do dotychczasowego
+statusu bez zdarzenia zmiany statusu i odracza ponowna archiwizacje na 7 dni.
+
+W Archiwum mozna zaznaczac zamowienia na kolejnych stronach i trwale
+usunac do 1000 zaznaczonych rekordow po potwierdzeniu. Nie ma zaznaczania
+calego archiwum. Faktury, korekty, pro formy, zwroty i rozliczenia integracji
+nie sa usuwane. Usuniecie dotyczy OMS i nie odwoluje operacji u dostawcow.
+Jesli wybor zawiera rekord spoza Archiwum lub wykryto operacje w toku,
+nic z wybranej partii nie jest usuwane.
+
+Automatyczna archiwizacja domyslnie jest wylaczona. Po wlaczeniu
+harmonogram raz dziennie wybiera zamowienia starsze niz 90 dni od zlozenia,
+niezaleznie od statusu. Kosz pozostaje osobny. Archiwum nie inicjuje
+cyklicznego odpytywania o statusy przesylek, platnosci i znanych zamowien.
+Istniejace powiadomienia PayNow, wyniki wyslanych dokumentow KSeF i import
+zgloszen zwrotow Allegro nie przywracaja archiwalnego zamowienia.
+
 # Sortowanie zamowien
 
 Ikona za Zmien status otwiera wybor pola i kierunku. Dostepne sa ID OMS,

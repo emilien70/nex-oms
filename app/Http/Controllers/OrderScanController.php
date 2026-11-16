@@ -19,7 +19,7 @@ class OrderScanController extends Controller
         ]);
 
         $trackingNumber = trim($validated['code']);
-        $orderIds = $trackingLookup->matchingOrderIds(Order::query(), $trackingNumber);
+        $orderIds = $trackingLookup->matchingOrderIds(Order::query()->operational(), $trackingNumber);
 
         if ($orderIds->isEmpty()) {
             return response()->json([
