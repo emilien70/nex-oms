@@ -39,4 +39,21 @@ class AllegroCommissionRefundController extends Controller
 
         return redirect()->route('returns.show', $orderReturn);
     }
+
+    public function check(OrderReturn $orderReturn, AllegroCommissionRefundService $service)
+    {
+        $redirect = redirect()->route('returns.show', $orderReturn);
+
+        try {
+            $found = $service->checkExisting($orderReturn);
+        } catch (AllegroApiException $e) {
+            return $redirect->withErrors(['commission_refund' => $e->getMessage()]);
+        } catch (ValidationException $e) {
+            return $redirect->withErrors($e->errors());
+        }
+
+        return $redirect->with('commission_refund_check', $found > 0
+            ? 'Sprawdzono status wniosków w Allegro.'
+            : 'Nie potwierdzono w Allegro statusu wniosku dla tego zwrotu.');
+    }
 }

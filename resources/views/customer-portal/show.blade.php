@@ -22,6 +22,16 @@
         @media(max-width:760px){.layout{grid-template-columns:minmax(0,1fr);gap:0}.brandbar{min-height:74px}.logo{max-width:165px;max-height:52px}.service{max-width:110px}main{padding-top:24px}.stage{padding:18px;margin:22px 0 28px}.stage strong{font-size:20px}h1{font-size:25px}.item{grid-template-columns:48px minmax(0,1fr);gap:12px}.item img{width:48px;height:48px}.item .price{grid-column:2}.item.no-image{grid-template-columns:minmax(0,1fr) auto}.item.no-image .price{grid-column:auto}.document{align-items:flex-start}.inner{width:calc(100% - 36px)}}
         .verification{max-width:760px;padding:24px 0 48px}.verification h1{font-size:22px;margin-bottom:18px}.verification form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}.verification label{display:block;font-size:14px;margin-bottom:8px}.verification input{width:100%;min-width:0;border:1px solid #bfcbd3;border-radius:4px;padding:10px 12px;font:inherit}.verification button{background:var(--accent);color:#fff;border-color:var(--accent);font-family:inherit;cursor:pointer}.verification .payment-error{margin:14px 0}.verification .back{display:inline-block;margin-top:20px}.personal{overflow-wrap:anywhere}@media(max-width:480px){.verification form{grid-template-columns:minmax(0,1fr)}.verification button{width:100%}}
         .personal-lines>span,.personal-lines>a{display:block}.personal-lines>a{width:fit-content;max-width:100%}
+        .shipment-status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:4px}
+        .shipment-status strong{min-width:0;overflow-wrap:anywhere}
+        .shipment-progress{appearance:none;display:block;flex:none;width:112px;max-width:100%;height:7px;border:0;border-radius:999px;background:#edf0f3;overflow:hidden;--shipment-fill:#0783dc}
+        .shipment-progress.is-success{--shipment-fill:#16834b}.shipment-progress.is-error{--shipment-fill:#dc3545}
+        .shipment-progress::-webkit-meter-bar{height:100%;background:transparent;border:0;border-radius:inherit;box-shadow:none}
+        .shipment-progress::-webkit-meter-optimum-value{background:var(--shipment-fill);border-radius:999px}
+        .shipment-progress::-moz-meter-bar{background:var(--shipment-fill);border-radius:999px}
+        .shipment-meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;margin-top:8px}
+        .shipment-meta .tracking{min-width:0;margin:0}
+        .shipment .date{margin-top:4px}
         .customer-information-links{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;font-size:13px}
         .customer-information-links a{overflow-wrap:anywhere}
     </style>
@@ -75,10 +85,18 @@
                 </section>
                 <section><h2>Przesyłki</h2>@if($data['shippingMethod'])<p class="muted">{{ $data['shippingMethod'] }}</p>@endif
                     @forelse($data['shipments'] as $shipment)
-                        <div class="shipment"><div class="muted">{{ $shipment['carrier'] }}</div><strong>{{ $shipment['status'] }}</strong><span class="tracking">{{ $shipment['number'] }}</span>
-                            @if($shipment['tracking'])
-                                <a class="action" href="{{ $shipment['tracking'] }}" target="_blank" rel="noopener noreferrer">Śledź przesyłkę</a>
-                            @endif
+                        <div class="shipment">
+                            <div class="muted">{{ $shipment['carrier'] }}</div>
+                            <div class="shipment-status">
+                                <meter @class(['shipment-progress', $shipment['progressClass'] => $shipment['progressClass'] !== '']) min="0" max="100" value="{{ $shipment['progress'] }}" aria-hidden="true"></meter>
+                                <strong>{{ $shipment['status'] }}</strong>
+                            </div>
+                            <div class="shipment-meta">
+                                <span class="tracking">{{ $shipment['number'] }}</span>
+                                @if($shipment['tracking'])
+                                    <a class="action" href="{{ $shipment['tracking'] }}" target="_blank" rel="noopener noreferrer">Śledź przesyłkę</a>
+                                @endif
+                            </div>
                             @if($shipment['date'])
                                 <div class="date">{{ $shipment['date'] }}</div>
                             @endif

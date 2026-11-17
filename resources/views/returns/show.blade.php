@@ -21,6 +21,7 @@
     @if ($orderReturn->sync_error)<div class="alert alert-warning mt-3">{{ $orderReturn->sync_error }}</div>@endif
     @if (! $order && $orderReturn->creation_method === 'allegro_import')<div class="alert alert-secondary mt-3">Nie powiązano zwrotu z zamówieniem w OMS.</div>@elseif ($order?->trashed())<div class="alert alert-secondary mt-3">Powiązane zamówienie znajduje się w koszu.</div>@endif
     @if ($errors->any())<div class="alert alert-danger mt-3"><ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+    @if (session('commission_refund_check'))<div class="alert alert-info mt-3" role="status">{{ session('commission_refund_check') }}</div>@endif
 
     <section class="returns-card returns-products" aria-label="Produkty zwrotu">
         <div class="returns-table-wrap">
@@ -52,6 +53,10 @@
                     @endif
                     @if ($refundWriteAccount->isOperational() && $order && ! $order->trashed())
                         <a class="btn btn-sm btn-outline-primary" href="{{ route('returns.commission-refund.create', $orderReturn) }}"><i class="bi bi-percent me-1" aria-hidden="true"></i>Zwrot Prowizji</a>
+                        <form method="POST" action="{{ route('returns.commission-refund.check', $orderReturn) }}">
+                            @csrf
+                            <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Sprawdź status w Allegro</button>
+                        </form>
                     @else
                         <button class="btn btn-sm btn-outline-secondary" type="button" disabled title="Wymagane aktywne konto Allegro i powiązane zamówienie"><i class="bi bi-percent me-1" aria-hidden="true"></i>Zwrot Prowizji</button>
                     @endif

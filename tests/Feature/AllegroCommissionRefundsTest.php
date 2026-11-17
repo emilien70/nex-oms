@@ -29,6 +29,8 @@ class AllegroCommissionRefundsTest extends TestCase
 
     private array $remote = [];
 
+    private array $unavailableDetails = [];
+
     private array $writes = [];
 
     private bool $timeout = false;
@@ -92,6 +94,9 @@ class AllegroCommissionRefundsTest extends TestCase
                     return Http::response(['refundClaims' => $rows, 'count' => $this->badPage ? count($rows) + 1 : count($rows)]);
                 }
                 $id = basename($path);
+                if (in_array($id, $this->unavailableDetails, true)) {
+                    return Http::response([], 404);
+                }
                 $row = collect($this->remote)->firstWhere('id', $id);
 
                 return Http::response($row ?? [], $row ? 200 : 404);
@@ -111,7 +116,8 @@ class AllegroCommissionRefundsTest extends TestCase
     public function test_button_is_to_the_right_of_payment_refund_and_does_not_require_payment_write_gate(): void
     {
         $return = $this->returnRecord($this->account());
-        $this->get(route('returns.show', $return))->assertOk()->assertSeeInOrder(['Zwróć wpłatę', 'Zwrot Prowizji'])
+        $this->get(route('returns.show', $return))->assertOk()->assertSeeInOrder(['Zwróć wpłatę', 'Zwrot Prowizji', 'Sprawdź status w Allegro'])
+            ->assertSee(route('returns.commission-refund.check', $return), false)
             ->assertSee(route('returns.commission-refund.create', $return), false);
         $this->get(route('returns.commission-refund.create', $return))->assertOk()->assertSee('Wyślij wniosek')->assertSee('tylko jeden wniosek');
         $this->assertDatabaseCount('allegro_commission_refund_claims', 0);
@@ -434,6 +440,133 @@ class AllegroCommissionRefundsTest extends TestCase
         $this->assertNotNull($claim->fresh()->error);
     }
 
+    public function test_detail_404_recovers_the_same_claim_from_list_and_uses_the_list_afterwards(): void
+    {
+        $return = $this->returnRecord($this->account());
+        $claim = $this->submitAndProcess($return);
+        $original = $claim->external_claim_id;
+        $this->unavailableDetails = [$original];
+
+        $this->travel(5)->minutes();
+        $this->service()->process($claim->id);
+        $claim->refresh();
+        $this->assertSame($original, $claim->external_claim_id);
+        $this->assertNull($claim->resolved_claim_id);
+        $this->assertTrue($claim->lookup_via_list);
+        $this->assertSame('IN_PROGRESS', $claim->status);
+
+        $this->remote[0]['status'] = 'GRANTED';
+        $this->travel(15)->minutes();
+        $this->service()->process($claim->id);
+        $claim->refresh();
+        $this->assertSame('GRANTED', $claim->status);
+        $this->assertNull($claim->next_check_at);
+        $this->assertCount(1, Http::recorded(fn ($request) => str_ends_with($request->url(), '/refund-claims/'.$original)));
+        $this->assertCount(1, $this->writes);
+    }
+
+    public function test_detail_404_can_reconcile_a_different_claim_id_without_overwriting_original_id(): void
+    {
+        $return = $this->returnRecord($this->account());
+        $claim = $this->submitAndProcess($return);
+        $original = $claim->external_claim_id;
+        $replacement = (string) Str::uuid();
+        $this->remote[0]['id'] = $replacement;
+        $this->remote[0]['status'] = 'GRANTED';
+
+        $this->travel(5)->minutes();
+        $this->service()->process($claim->id);
+        $claim->refresh();
+        $this->assertSame($original, $claim->external_claim_id);
+        $this->assertSame($replacement, $claim->resolved_claim_id);
+        $this->assertSame('GRANTED', $claim->status);
+        $this->assertSame($replacement, $return->events()->latest('id')->first()->data['resolved_claim_id']);
+        $this->get(route('returns.show', $return))->assertOk()->assertSeeInOrder([$replacement, 'Pierwotne ID wniosku', $original]);
+        $this->assertCount(1, $this->writes);
+
+        $this->expectException(\LogicException::class);
+        $claim->update(['resolved_claim_id' => (string) Str::uuid()]);
+    }
+
+    public function test_unmatched_or_ambiguous_list_stops_automatic_checks_but_manual_check_can_recover(): void
+    {
+        $return = $this->returnRecord($this->account());
+        $claim = $this->submitAndProcess($return);
+        $this->service()->process($claim->id);
+        $original = $this->remote[0];
+        $this->remote[0]['id'] = (string) Str::uuid();
+        $this->remote[0]['quantity'] = 1;
+        $this->remote[0]['status'] = 'GRANTED';
+
+        $this->travel(5)->minutes();
+        foreach ([15, 60] as $delay) {
+            $this->service()->process($claim->id);
+            $this->assertTrue($claim->refresh()->next_check_at->equalTo(now()->addMinutes($delay)));
+            $this->travel($delay)->minutes();
+        }
+        $this->remote[0]['lineItem']['id'] = (string) Str::uuid();
+        $this->service()->process($claim->id);
+        $claim->refresh();
+        $this->assertSame('IN_PROGRESS', $claim->status);
+        $this->assertSame($original['id'], $claim->external_claim_id);
+        $this->assertNull($claim->resolved_claim_id);
+        $this->assertSame(3, $claim->lookup_misses);
+        $this->assertNull($claim->next_check_at);
+        $this->assertStringContainsString('Wstrzymano automatyczne odczyty', $claim->error);
+
+        Queue::fake();
+        $this->travel(1)->days();
+        $requestCount = Http::recorded()->count();
+        $this->service()->dispatchDue();
+        $this->service()->process($claim->id);
+        Queue::assertNothingPushed();
+        $this->assertSame($requestCount, Http::recorded()->count());
+
+        $this->post(route('returns.commission-refund.check', $return))
+            ->assertSessionHas('commission_refund_check', 'Nie potwierdzono w Allegro statusu wniosku dla tego zwrotu.');
+        $this->assertSame(3, $claim->refresh()->lookup_misses);
+        $this->assertNull($claim->next_check_at);
+
+        $this->remote = [array_replace($original, ['status' => 'GRANTED'])];
+        $this->post(route('returns.commission-refund.check', $return))->assertRedirect(route('returns.show', $return));
+        $this->assertSame('GRANTED', $claim->refresh()->status);
+        $this->assertSame(0, $claim->lookup_misses);
+        $this->assertNull($claim->error);
+        $this->assertCount(1, $this->writes);
+        $this->assertCount(2, Http::recorded(fn ($request) => str_ends_with($request->url(), '/refund-claims/'.$original['id'])));
+    }
+
+    public function test_manual_status_check_imports_a_claim_from_allegro_only_once(): void
+    {
+        $return = $this->returnRecord($this->account());
+        $this->remote[] = $this->remoteClaim(['lineItem' => ['id' => $this->checkout['lineItems'][0]['id']], 'quantity' => 1]);
+        $id = $this->remote[0]['id'];
+        $this->post(route('returns.commission-refund.check', $return))->assertRedirect(route('returns.show', $return))
+            ->assertSessionHas('commission_refund_check', 'Sprawdzono status wniosków w Allegro.');
+        $claim = AllegroCommissionRefundClaim::query()->sole();
+        $this->assertSame($id, $claim->external_claim_id);
+        $this->assertSame('known', $claim->state);
+        $this->assertNull($claim->started_at);
+        $count = $return->events()->count();
+        $this->post(route('returns.commission-refund.check', $return))->assertRedirect(route('returns.show', $return));
+        $this->assertSame($count, $return->events()->count());
+        $this->assertDatabaseCount('allegro_commission_refund_claims', 1);
+        Http::assertNotSent(fn ($request) => $request->method() !== 'GET');
+        Queue::assertNothingPushed();
+    }
+
+    public function test_manual_status_check_does_not_read_an_inactive_account(): void
+    {
+        $account = $this->account();
+        $return = $this->returnRecord($account);
+        $account->update(['is_active' => false]);
+
+        $this->post(route('returns.commission-refund.check', $return))
+            ->assertRedirect(route('returns.show', $return))->assertSessionHasErrors('commission_refund');
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('allegro_commission_refund_claims', 0);
+    }
+
     public function test_multiple_products_keep_each_result_without_resending_successful_lines(): void
     {
         $return = $this->returnRecord($this->account());
@@ -509,6 +642,16 @@ class AllegroCommissionRefundsTest extends TestCase
 
         return [['quote_token' => $token, 'items' => [$return->items()->sole()->id => ['selected' => 1, 'quantity' => 2]]],
             ['token' => $token, 'hash' => $context['hash'], 'expires' => now()->addMinutes(5)->timestamp]];
+    }
+
+    private function submitAndProcess(OrderReturn $return): AllegroCommissionRefundClaim
+    {
+        [$data, $quote] = $this->submission($return);
+        $this->service()->submit($return, $data, $quote);
+        $claim = AllegroCommissionRefundClaim::query()->sole();
+        $this->service()->process($claim->id);
+
+        return $claim->refresh();
     }
 
     private function remoteClaim(array $payload): array

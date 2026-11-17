@@ -552,3 +552,5 @@ Route::post('/orders/returns/{orderReturn}/refund-payment/{command}/confirm', [A
 Route::post('/orders/returns/{orderReturn}/refund-payment/{command}/reconcile', [AllegroRefundCommandController::class, 'reconcile'])->name('returns.refund-payment.reconcile');
 Route::get('/orders/returns/{orderReturn}/commission-refund', [AllegroCommissionRefundController::class, 'create'])->name('returns.commission-refund.create');
 Route::post('/orders/returns/{orderReturn}/commission-refund', [AllegroCommissionRefundController::class, 'store'])->name('returns.commission-refund.store');
+Route::post('/orders/returns/{orderReturn}/commission-refund/check', [AllegroCommissionRefundController::class, 'check'])
+    ->middleware('throttle:6,1,commission-refund-check')->name('returns.commission-refund.check');

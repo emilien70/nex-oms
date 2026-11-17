@@ -199,16 +199,35 @@ class CustomerPortalTest extends TestCase
             ->assertDontSee('odbiorca@example.test');
     }
 
-    public function test_multiple_shipments_show_creation_separately_from_dispatch_and_hide_cancelled_records(): void
+    public function test_multiple_shipments_show_individual_progress_and_hide_cancelled_records(): void
     {
         $this->settings();
         $order = $this->order();
-        foreach (['CREATED-1' => 'created', 'DISPATCHED-2' => 'dispatched'] as $number => $status) {
-            $order->shipments()->create(['provider' => 'inpost_courier', 'service' => 'inpost_courier_standard', 'request_uuid' => (string) Str::uuid(), 'tracking_number' => $number, 'oms_status' => $status, 'status' => $status === 'created' ? 'created' : 'taken_by_courier']);
+        $shipments = [
+            ['CREATED-1', 'created', 0, '', 'Przesyłka utworzona'],
+            ['DISPATCHED-2', 'taken_by_courier', 33, '', 'Przesyłka nadana'],
+            ['DELIVERY-3', 'out_for_delivery', 66, '', 'Wydano do doręczenia'],
+            ['PICKUP-4', 'ready_to_pickup', 90, '', 'Oczekuje w punkcie'],
+            ['DELIVERED-5', 'delivered', 100, ' is-success', 'Doręczono'],
+            ['PROBLEM-6', 'delivery_exception', 50, ' is-error', 'Wystąpił problem'],
+            ['RETURNED-7', 'returned_to_sender', 100, ' is-error', 'Zwrot'],
+        ];
+        foreach ($shipments as [$number, $status]) {
+            $order->shipments()->create([
+                'provider' => 'inpost_courier', 'service' => 'inpost_courier_standard',
+                'request_uuid' => (string) Str::uuid(), 'tracking_number' => $number, 'status' => $status,
+            ]);
         }
         $order->shipments()->create(['provider' => 'dpd', 'service' => 'dpd', 'request_uuid' => (string) Str::uuid(), 'tracking_number' => 'CANCELLED-PRIVATE', 'oms_status' => 'created', 'status' => 'cancelled']);
-        $this->get($this->url($order))->assertOk()->assertSeeText('Przesyłka utworzona')->assertSeeText('Przesyłka nadana')
-            ->assertSee('CREATED-1')->assertSee('DISPATCHED-2')->assertDontSee('CANCELLED-PRIVATE')->assertSee('https://inpost.pl/sledzenie-przesylek');
+        $page = $this->get($this->url($order))->assertOk()
+            ->assertDontSee('CANCELLED-PRIVATE')->assertSee('https://inpost.pl/sledzenie-przesylek');
+        $expected = [];
+        foreach ($shipments as [$number, , $progress, $class, $label]) {
+            $expected[] = '<meter class="shipment-progress'.$class.'" min="0" max="100" value="'.$progress.'" aria-hidden="true"></meter>';
+            $expected[] = '<strong>'.$label.'</strong>';
+            $expected[] = '<span class="tracking">'.$number.'</span>';
+        }
+        $page->assertSeeInOrder($expected, false);
         Http::assertNothingSent();
     }
 

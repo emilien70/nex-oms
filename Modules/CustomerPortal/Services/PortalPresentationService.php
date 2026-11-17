@@ -52,6 +52,7 @@ class PortalPresentationService
             'shipments' => $order->shipments()->whereNotNull('tracking_number')
                 ->whereNotIn('status', ['cancelled', 'cancelled_locally'])->orderBy('id')->get()
                 ->map(fn ($shipment): array => ['number' => $shipment->tracking_number, 'status' => $shipment->statusLabel(),
+                    'progress' => $shipment->omsStatusProgress(), 'progressClass' => $shipment->omsStatusProgressClass(),
                     'carrier' => match ($shipment->provider) {
                         'inpost_lockers', 'inpost_courier' => 'InPost', 'dpd' => 'DPD', 'allegro_shipping' => 'Allegro Delivery', default => 'Przesyłka'
                     },

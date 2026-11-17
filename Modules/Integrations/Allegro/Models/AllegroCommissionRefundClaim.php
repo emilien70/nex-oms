@@ -19,19 +19,24 @@ class AllegroCommissionRefundClaim extends Model
         'claimed_quantity' => 'integer', 'return_version' => 'integer', 'expires_at' => 'immutable_datetime',
         'started_at' => 'immutable_datetime', 'submitted_at' => 'immutable_datetime',
         'observed_at' => 'immutable_datetime', 'next_check_at' => 'immutable_datetime',
+        'lookup_via_list' => 'boolean', 'lookup_misses' => 'integer',
     ];
 
     protected static function booted(): void
     {
         static::updating(function (self $claim): void {
             $mutable = ['state', 'started_at', 'external_claim_id', 'claimed_quantity', 'status', 'claim_type',
-                'submitted_at', 'observed_at', 'next_check_at', 'error', 'updated_at'];
+                'submitted_at', 'observed_at', 'next_check_at', 'error', 'updated_at',
+                'resolved_claim_id', 'lookup_via_list', 'lookup_misses'];
             if (($claim->getOriginal('started_at') !== null || $claim->getOriginal('external_claim_id') !== null)
                 && array_diff(array_keys($claim->getDirty()), $mutable) !== []) {
                 throw new LogicException('Treść wysłanego wniosku o prowizję jest niezmienna.');
             }
             if ($claim->isDirty('external_claim_id') && $claim->getOriginal('external_claim_id') !== null) {
                 throw new LogicException('Nie można zmienić tożsamości wniosku Allegro.');
+            }
+            if ($claim->isDirty('resolved_claim_id') && ($claim->getOriginal('resolved_claim_id') !== null || ! $claim->getOriginal('external_claim_id'))) {
+                throw new LogicException('Nie można zastąpić zapisanego powiązania wniosku Allegro.');
             }
         });
         static::deleting(fn () => throw new LogicException('Nie można usuwać historii wniosków o prowizję.'));
@@ -40,6 +45,11 @@ class AllegroCommissionRefundClaim extends Model
     public function identity(): array
     {
         return $this->only(['environment', 'seller_user_id', 'external_order_id']);
+    }
+
+    public function lookupClaimId(): ?string
+    {
+        return $this->resolved_claim_id ?? $this->external_claim_id;
     }
 
     public static function statusLabel(?string $status): string
@@ -55,6 +65,10 @@ class AllegroCommissionRefundClaim extends Model
 
     public function stateLabel(): string
     {
+        if (! $this->status && $this->lookup_misses > 0 && $this->next_check_at === null) {
+            return 'Wniosek wymaga sprawdzenia';
+        }
+
         return $this->status ? self::statusLabel($this->status) : match ($this->state) {
             'queued' => 'Oczekuje na wysłanie', 'sending' => 'Wysyłanie wniosku',
             'submitted' => 'Wniosek złożony w Allegro', 'not_sent' => 'Nie wysłano wniosku',

@@ -5,6 +5,7 @@ namespace Modules\Integrations\Allegro\Services;
 use App\Models\OrderReturn;
 use App\Services\OrderReturnRefundService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -17,6 +18,10 @@ use Throwable;
 
 class AllegroCommissionRefundService
 {
+    private const LIST_BACKOFF_MINUTES = [15, 60];
+
+    private const FINAL_LIST_STATUSES = ['GRANTED', 'CANCELLED', 'REJECTED_AFTER_APPEAL'];
+
     public function __construct(private readonly AllegroClient $client) {}
 
     public static function accountIdentity(AllegroAccount $account): string
@@ -123,12 +128,10 @@ class AllegroCommissionRefundService
                     continue;
                 }
                 $claim ??= new AllegroCommissionRefundClaim;
-                $claim->fill($context['identity'] + [
-                    'allegro_account_id' => $account->id, 'order_id' => $return->order_id, 'order_return_id' => $return->id, 'return_number' => $return->id,
-                    'line_item_id' => $row['id'], 'offer_id' => $row['offer_id'], 'buyer_id' => $context['buyer_id'], 'product_name' => $row['name'],
-                    'quantity' => $quantity, 'purchased_quantity' => $row['purchased_quantity'], 'request_key' => $data['quote_token'],
-                    'context_hash' => $context['hash'], 'account_identity' => self::accountIdentity($account), 'return_version' => $currentReturn->lock_version,
-                    'expires_at' => CarbonImmutable::createFromTimestamp($quote['expires'])->setTimezone(config('app.timezone')), 'state' => 'queued', 'error' => null, 'next_check_at' => now(),
+                $claim->fill($this->claimAttributes($currentReturn, $account, $context, $row, $quantity) + [
+                    'request_key' => $data['quote_token'],
+                    'expires_at' => CarbonImmutable::createFromTimestamp($quote['expires'])->setTimezone(config('app.timezone')),
+                    'state' => 'queued', 'error' => null, 'next_check_at' => now(),
                 ])->save();
                 $this->event($claim);
                 $ids[] = $claim->id;
@@ -141,6 +144,64 @@ class AllegroCommissionRefundService
         }
     }
 
+    public function checkExisting(OrderReturn $return): int
+    {
+        $lock = Cache::lock('allegro-commission-check:'.$return->id, 180);
+        if (! $lock->get()) {
+            $this->invalid('Sprawdzanie wniosków dla tego zwrotu już trwa.');
+        }
+        try {
+            $context = $this->context($return);
+
+            return DB::transaction(function () use ($return, $context): int {
+                $account = AllegroAccount::query()->lockForUpdate()->findOrFail($context['account']->id);
+                $link = AllegroOrderLink::query()->lockForUpdate()->findOrFail($context['link_id']);
+                $currentReturn = OrderReturn::query()->lockForUpdate()->findOrFail($return->id);
+                $this->guard($account, $link, $currentReturn, $context);
+                $matched = 0;
+                foreach ($context['rows'] as $row) {
+                    $data = $context['known'][$row['id']] ?? null;
+                    if (! $data) {
+                        continue;
+                    }
+                    $claim = AllegroCommissionRefundClaim::query()
+                        ->where('environment', $account->environment)->where('seller_user_id', $account->allegro_user_id)
+                        ->where('line_item_id', $row['id'])->lockForUpdate()->first();
+                    if ($claim && in_array($claim->state, ['queued', 'sending'], true)) {
+                        continue;
+                    }
+                    if ($claim && ($claim->external_order_id !== $context['identity']['external_order_id']
+                        || $claim->allegro_account_id !== $account->id)) {
+                        $this->invalid('Istniejący wniosek nie odpowiada zapisanemu zamówieniu lub kontu.');
+                    }
+                    $snapshot = $context['local']->get($row['id']);
+                    if ($claim && (! $snapshot || ! $this->sameObservation($snapshot, $claim))) {
+                        continue;
+                    }
+                    $claim ??= new AllegroCommissionRefundClaim($this->claimAttributes($currentReturn, $account, $context, $row, $data['quantity']) + [
+                        'request_key' => (string) Str::uuid(), 'expires_at' => now(),
+                    ]);
+                    $this->persistObservation($claim, $data, viaList: true);
+                    $matched++;
+                }
+
+                return $matched;
+            }, 3);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function claimAttributes(OrderReturn $return, AllegroAccount $account, array $context, array $row, int $quantity): array
+    {
+        return $context['identity'] + [
+            'allegro_account_id' => $account->id, 'order_id' => $return->order_id, 'order_return_id' => $return->id, 'return_number' => $return->id,
+            'line_item_id' => $row['id'], 'offer_id' => $row['offer_id'], 'buyer_id' => $context['buyer_id'], 'product_name' => $row['name'],
+            'quantity' => $quantity, 'purchased_quantity' => $row['purchased_quantity'],
+            'context_hash' => $context['hash'], 'account_identity' => self::accountIdentity($account), 'return_version' => $return->lock_version,
+        ];
+    }
+
     public function process(int $id): void
     {
         $claim = AllegroCommissionRefundClaim::query()->find($id);
@@ -148,7 +209,8 @@ class AllegroCommissionRefundService
             return;
         }
         if ($claim->state !== 'queued') {
-            if (in_array($claim->state, ['submitted', 'uncertain', 'known', 'failed'], true)) {
+            if (in_array($claim->state, ['submitted', 'uncertain', 'known', 'failed'], true)
+                && ((! $claim->lookup_misses && ! $claim->lookup_via_list) || $claim->next_check_at?->lte(now()))) {
                 $this->refresh($claim);
             }
 
@@ -158,7 +220,7 @@ class AllegroCommissionRefundService
             $return = OrderReturn::query()->findOrFail($claim->order_return_id);
             $context = $this->context($return);
             if (isset($context['known'][$claim->line_item_id])) {
-                $this->observe($claim, $context['account'], $context['known'][$claim->line_item_id]);
+                $this->observe($claim, $context['account'], $context['known'][$claim->line_item_id], viaList: true);
 
                 return;
             }
@@ -215,20 +277,51 @@ class AllegroCommissionRefundService
 
     public function refresh(AllegroCommissionRefundClaim $claim): void
     {
+        $viaList = ! $claim->lookupClaimId() || $claim->lookup_via_list;
         try {
             $account = AllegroAccount::query()->findOrFail($claim->allegro_account_id);
-            if ($account->environment !== $claim->environment || $account->allegro_user_id !== $claim->seller_user_id) {
+            if (! $account->isOperational() || $account->environment !== $claim->environment || $account->allegro_user_id !== $claim->seller_user_id) {
                 throw new AllegroApiException('Konto zmieniło się.');
             }
-            $data = $claim->external_claim_id
-                ? $this->normalize($this->client->commissionRefundClaim($account, $claim->external_claim_id))
-                : ($this->findClaims($account, $claim->buyer_id)[$claim->line_item_id] ?? null);
+            $data = null;
+            if (! $viaList) {
+                try {
+                    $data = $this->normalize($this->client->commissionRefundClaim($account, $claim->lookupClaimId()));
+                } catch (AllegroApiException $e) {
+                    if ($e->statusCode !== 404) {
+                        throw $e;
+                    }
+                    $viaList = true;
+                }
+            }
+            if ($viaList) {
+                $data = $this->findClaims($account, $claim->buyer_id)[$claim->line_item_id] ?? null;
+            }
             if (! $data) {
                 throw new AllegroApiException('Wniosek nie jest jeszcze dostępny w odczycie Allegro.');
             }
-            $this->observe($claim, $account, $data);
+            $this->observe($claim, $account, $data, $viaList);
         } catch (Throwable) {
-            AllegroCommissionRefundClaim::query()->whereKey($claim->id)->update(['error' => 'Nie udało się uzgodnić wniosku z Allegro. Zachowano poprzedni wynik.', 'next_check_at' => now()->addMinutes(5)]);
+            DB::transaction(function () use ($claim, $viaList): void {
+                $current = AllegroCommissionRefundClaim::query()->lockForUpdate()->find($claim->id);
+                if (! $current || ! $this->sameObservation($claim, $current)) {
+                    return;
+                }
+                $bounded = $viaList || $current->lookup_misses > 0;
+                $misses = $bounded ? min(count(self::LIST_BACKOFF_MINUTES) + 1, (int) $current->lookup_misses + 1) : 0;
+                $delay = $bounded ? (self::LIST_BACKOFF_MINUTES[$misses - 1] ?? null) : 5;
+                $current->update([
+                    'lookup_via_list' => $viaList,
+                    'lookup_misses' => $misses,
+                    'next_check_at' => $delay !== null ? now()->addMinutes($delay) : null,
+                    'error' => $delay === null
+                        ? 'Wniosek wymaga sprawdzenia. Wstrzymano automatyczne odczyty i zachowano poprzedni wynik.'
+                        : 'Nie udało się uzgodnić wniosku z Allegro. Zachowano poprzedni wynik.',
+                ]);
+                if ($delay === null && $claim->next_check_at !== null) {
+                    $this->event($current);
+                }
+            }, 3);
         }
     }
 
@@ -297,26 +390,64 @@ class AllegroCommissionRefundService
             'status' => $raw['status'], 'type' => $raw['type'], 'created_at' => $date->utc()];
     }
 
-    private function observe(AllegroCommissionRefundClaim $claim, AllegroAccount $account, array $data): void
+    private function observe(AllegroCommissionRefundClaim $claim, AllegroAccount $account, array $data, bool $viaList): void
     {
-        DB::transaction(function () use ($claim, $account, $data): void {
+        DB::transaction(function () use ($claim, $account, $data, $viaList): void {
             $currentAccount = AllegroAccount::query()->lockForUpdate()->findOrFail($account->id);
             $current = AllegroCommissionRefundClaim::query()->lockForUpdate()->findOrFail($claim->id);
-            if ($currentAccount->environment !== $current->environment || $currentAccount->allegro_user_id !== $current->seller_user_id
-                || ($current->external_claim_id && $current->external_claim_id !== $data['id']) || $current->line_item_id !== $data['line_item_id']
-                || $current->buyer_id !== $data['buyer_id'] || $current->offer_id !== $data['offer_id'] || $current->purchased_quantity !== $data['purchased_quantity']
-                || ($current->submitted_at && ! $current->submitted_at->equalTo($data['created_at']))) {
-                $this->invalid('Wniosek Allegro nie odpowiada zapisanej pozycji zamówienia.');
+            if (! $this->sameObservation($claim, $current)) {
+                return;
             }
-            $changed = $current->state !== 'known' || $current->status !== $data['status'] || $current->claimed_quantity !== $data['quantity'];
-            $current->update(['state' => 'known', 'external_claim_id' => $data['id'], 'claimed_quantity' => $data['quantity'],
-                'status' => $data['status'], 'claim_type' => $data['type'], 'submitted_at' => $data['created_at']->setTimezone(config('app.timezone')),
-                'observed_at' => now(), 'next_check_at' => now()->addMinutes(5),
-                'error' => $data['quantity'] !== $current->quantity ? 'Istniejący wniosek dotyczy innej liczby sztuk. Nie wysłano kolejnego wniosku.' : null]);
-            if ($changed) {
-                $this->event($current);
+            if (! $currentAccount->isOperational() || $currentAccount->id !== $current->allegro_account_id
+                || $currentAccount->environment !== $current->environment || $currentAccount->allegro_user_id !== $current->seller_user_id) {
+                $this->invalid('Konto wniosku zmieniło się w trakcie sprawdzania.');
             }
+            $this->persistObservation($current, $data, $viaList);
         }, 3);
+    }
+
+    private function sameObservation(AllegroCommissionRefundClaim $snapshot, AllegroCommissionRefundClaim $current): bool
+    {
+        foreach (['state', 'status', 'external_claim_id', 'resolved_claim_id', 'lookup_via_list', 'lookup_misses', 'observed_at', 'next_check_at'] as $field) {
+            if ($snapshot->getRawOriginal($field) !== $current->getRawOriginal($field)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function persistObservation(AllegroCommissionRefundClaim $claim, array $data, bool $viaList): void
+    {
+        $differentId = $claim->lookupClaimId() && $claim->lookupClaimId() !== $data['id'];
+        if ($claim->line_item_id !== $data['line_item_id'] || $claim->buyer_id !== $data['buyer_id']
+            || $claim->offer_id !== $data['offer_id'] || $claim->purchased_quantity !== $data['purchased_quantity']
+            || ($differentId && (! $viaList || $claim->resolved_claim_id || $claim->quantity !== $data['quantity']))
+            || (! $differentId && $claim->submitted_at && ! $claim->submitted_at->equalTo($data['created_at']))) {
+            $this->invalid('Wniosek Allegro nie odpowiada jednoznacznie zapisanej pozycji zamówienia.');
+        }
+        if (($differentId || ! $claim->external_claim_id) && AllegroCommissionRefundClaim::query()
+            ->where('environment', $claim->environment)->where('seller_user_id', $claim->seller_user_id)
+            ->when($claim->exists, fn ($query) => $query->whereKeyNot($claim->id))
+            ->where(fn ($query) => $query->where('external_claim_id', $data['id'])->orWhere('resolved_claim_id', $data['id']))->exists()) {
+            $this->invalid('ID wniosku Allegro jest już powiązane z inną pozycją.');
+        }
+
+        $changed = $claim->state !== 'known' || $claim->status !== $data['status'] || $claim->claimed_quantity !== $data['quantity']
+            || $differentId || $claim->lookup_misses > 0;
+        $nextCheck = $viaList && in_array($data['status'], self::FINAL_LIST_STATUSES, true)
+            ? null : now()->addMinutes($viaList ? 15 : 5);
+        $claim->fill([
+            'state' => 'known', 'external_claim_id' => $claim->external_claim_id ?? $data['id'],
+            'resolved_claim_id' => $differentId ? $data['id'] : $claim->resolved_claim_id,
+            'claimed_quantity' => $data['quantity'], 'status' => $data['status'], 'claim_type' => $data['type'],
+            'submitted_at' => $data['created_at']->setTimezone(config('app.timezone')), 'observed_at' => now(), 'next_check_at' => $nextCheck,
+            'lookup_via_list' => $viaList, 'lookup_misses' => 0,
+            'error' => $data['quantity'] !== $claim->quantity ? 'Istniejący wniosek dotyczy innej liczby sztuk. Nie wysłano kolejnego wniosku.' : null,
+        ])->save();
+        if ($changed) {
+            $this->event($claim);
+        }
     }
 
     private function guard(AllegroAccount $account, AllegroOrderLink $link, OrderReturn $return, array $context): void
@@ -342,7 +473,8 @@ class AllegroCommissionRefundService
     private function event(AllegroCommissionRefundClaim $claim): void
     {
         OrderReturn::query()->find($claim->order_return_id)?->events()->create(['type' => 'allegro_commission_claim', 'status' => mb_substr($claim->stateLabel(), 0, 100),
-            'observed_at' => now(), 'data' => ['claim_id' => $claim->external_claim_id, 'state' => $claim->state,
+            'observed_at' => now(), 'data' => ['claim_id' => $claim->external_claim_id, 'resolved_claim_id' => $claim->resolved_claim_id,
+                'lookup_source' => $claim->lookup_via_list ? 'allegro_claim_list' : null, 'state' => $claim->state,
                 'status' => $claim->status, 'quantity' => $claim->claimed_quantity ?? $claim->quantity, 'product_name' => $claim->product_name]]);
     }
 
