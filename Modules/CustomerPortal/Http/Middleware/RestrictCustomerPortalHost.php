@@ -28,7 +28,7 @@ class RestrictCustomerPortalHost
         $customerLanding = $urls->isCustomerLanding($request);
         $information = $name === 'customer-portal.information';
         $publicPortal = $customerLanding || $information || in_array($name, ['customer-portal.show', 'customer-portal.document', 'customer-portal.details',
-            'customer-portal.verify', 'customer-portal.image', 'customer-portal.logo', 'customer-portal.payment'], true);
+            'customer-portal.verify', 'customer-portal.image', 'customer-portal.logo', 'customer-portal.payment', 'paynow.order-link'], true);
         $customerHost = $urls->domain();
         $ownerHost = strtolower((string) parse_url(config('app.url'), PHP_URL_HOST));
         $host = strtolower($request->getHost());

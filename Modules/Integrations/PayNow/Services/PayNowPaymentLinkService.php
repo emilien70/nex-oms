@@ -135,6 +135,8 @@ class PayNowPaymentLinkService
 
             if ($verifiedPayment !== null) {
                 $this->assertCustomerRetry($managedOrder, $managedAccount, $verifiedPayment, $existing);
+            } else {
+                $this->assertOperatorPreparation($managedOrder, $existing);
             }
 
             if ($existing) {
@@ -146,14 +148,31 @@ class PayNowPaymentLinkService
                 'order_id' => $managedOrder->getKey(),
                 'amount' => $amount,
                 'currency' => $currency,
-                'external_id' => 'nex-order-'.$managedOrder->getKey().'-'.Str::uuid(),
+                'external_id' => $this->nextExternalId($managedOrder),
                 'idempotency_key' => (string) Str::uuid(),
                 'status' => PayNowPaymentStatus::Created,
                 'buyer_email_snapshot' => $email,
                 'description' => $description,
                 'valid_until' => now()->addSeconds($managedAccount->link_validity_seconds),
             ]);
-        });
+        }, 3);
+    }
+
+    private function nextExternalId(Order $order): string
+    {
+        $prefix = 'NEX-'.$order->getKey().'-';
+        $previous = PayNowPayment::query()->where('order_id', $order->getKey())->lockForUpdate()->pluck('external_id');
+        $last = $previous->count();
+        foreach ($previous as $id) {
+            if (preg_match('/^'.$prefix.'([1-9][0-9]{0,8})$/D', $id, $matches)) {
+                $last = max($last, (int) $matches[1]);
+            }
+        }
+        if ($last >= 999999999) {
+            throw ValidationException::withMessages(['payment_link' => 'Wyczerpano numerację prób płatności dla tego zamówienia.']);
+        }
+
+        return $prefix.($last + 1);
     }
 
     private function assertAccountIsReady(PayNowAccount $account): void
@@ -210,6 +229,21 @@ class PayNowPaymentLinkService
             ], true))) {
             throw ValidationException::withMessages([
                 'payment_link' => 'Nie można teraz ponowić płatności. Sprawdź jej status ponownie lub skontaktuj się ze sprzedawcą.',
+            ]);
+        }
+    }
+
+    private function assertOperatorPreparation(Order $order, ?PayNowPayment $reusable): void
+    {
+        $payments = PayNowPayment::query()->where('order_id', $order->id)->latest('id')->lockForUpdate()->get();
+        if (($reusable && ! $reusable->is($payments->first()))
+            || $payments->contains(fn (PayNowPayment $payment): bool => $payment->needs_review
+                || ($payment->status === PayNowPaymentStatus::Confirmed && $payment->accounted_at === null)
+                || (! $payment->is($reusable) && in_array($payment->status, [
+                    PayNowPaymentStatus::Created, PayNowPaymentStatus::Pending, PayNowPaymentStatus::Abandoned,
+                ], true)))) {
+            throw ValidationException::withMessages([
+                'payment_link' => 'Poprzednia płatność nie jest jeszcze rozstrzygnięta. Sprawdź jej status, zanim przygotujesz nową.',
             ]);
         }
     }

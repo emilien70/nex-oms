@@ -108,6 +108,10 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('macrodroid-preview', static fn (Request $request): Limit => Limit::perMinute(60)->by('sms-preview:'.$request->ip()));
 
         RateLimiter::for('paynow-customer', static fn (Request $request): Limit => Limit::perMinute(60)->by('paynow-page:'.$request->ip()));
+        RateLimiter::for('paynow-order-link', static fn (Request $request): array => [
+            Limit::perMinute(60)->by('paynow-order-ip:'.$request->ip()),
+            Limit::perMinute(20)->by('paynow-order-pair:'.$request->ip().':'.$request->route('orderNumber')),
+        ]);
         RateLimiter::for('customer-portal', static fn (Request $request): Limit => Limit::perMinute(180)->by('customer-portal:'.$request->ip()));
         RateLimiter::for('customer-portal-payment', static fn (Request $request): array => [
             Limit::perMinute(20)->by('portal-payment-ip:'.$request->ip()),

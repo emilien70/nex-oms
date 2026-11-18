@@ -340,7 +340,80 @@ Przed dopuszczeniem klientow sprawdzic:
 
 Nowa strona nie wymaga migracji ani osobnego crona/jobow. Odczyt statusu klienta jest synchroniczny, a dotychczasowy scheduler PayNow i ksiegowanie pozostaja aktywne. Odczyt potwierdzenia moze uruchomic istniejace automatyzacje po prawidlowym zaksiegowaniu; nie jest to diagnostyka bez skutkow biznesowych.
 
-## Krotkie linki platnosci PayNow /pay/
+## Nowy adres platnosci PayNow z numerem zamowienia
+
+Nowe linki kopiowane z karty maja postac
+`https://klient.multi-click.pl/zamowienie/479/<10-znakowy-kod>/pay`.
+Kod zawiera litery i cyfry; obie czesci dostepu sprawdza Laravel. Jezeli
+tabela paynow_order_links nie istnieje, w ramach wdrozenia po kopii bazy
+uruchomic dotychczasowa migracje 2026_11_17_020000, opisana nizej. Sama
+zmiana adresu i numeracji prob nie wymaga kolejnej migracji.
+
+W publicznym bloku HTTPS domeny klienta dodac tylko nowy scisly wyjatek
+przed ogolnymi regexami. Nie dodawac go do multi-click.pl, gdzie stara
+sciezka obsluguje Base. Nie otwierac calego /zamowienie/.
+
+```nginx
+location ~ "^/zamowienie/[1-9][0-9]{0,17}/[A-Za-z0-9]{10}/pay$" {
+    auth_basic off;
+    access_log off;
+    fastcgi_cache off;
+    rewrite ^ /index.php break;
+    fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+    include fastcgi_params;
+    fastcgi_hide_header X-Powered-By;
+}
+```
+
+Sprawdzic nginx -t, przeladowac Nginx, wykonac kontrole nowej trasy:
+bledny kod 404 bez Basic Auth, prawidlowy kod na zamowieniu testowym
+200 z odliczaniem, continue=1 302 do PayNow tylko dla zgodnej aktywnej
+proby. Zweryfikowac niezaleznie POST z portalu klienta, podpisany powrot
+i chroniony panel. Nie podawac prawdziwych pelnych URL w poleceniach,
+historii powloki i monitoringu; w przypadku prawdziwej platnosci kontrola
+nie moze generowac dodatkowych dokumentow ani platnosci.
+
+Dopiero po pozytywnej kontroli i osobnej zgodzie na wycofanie starych
+adresow, w blokach HTTPS klienta oraz OMS skierowac wylacznie historyczne
+wejscie /pay/{32-znakowy-token} na 410. Zastapic dawny scisly blok, jezeli
+istnieje, a jezeli stary adres jest w ogolnym regexie, nowa regule postawic
+**przed** nim:
+
+```nginx
+location ~ "^/pay/[A-Za-z0-9_-]{32}$" {
+    auth_basic off;
+    access_log off;
+    add_header Cache-Control "private, no-store" always;
+    return 410;
+}
+```
+
+Ponownie sprawdzic nginx -t i przeladowac Nginx. Zachowac webhook
+/api/paynow/v1/notifications i podpisane trasy /paynow/powrot. Wycofanie
+starego URL OMS nie wygasza transakcji PayNow. Klient korzystajacy ze
+starej wiadomosci moze potrzebowac nowego adresu. Ten krok jest odwracalny
+przez przywrocenie starych regul Nginx; nie zmienia danych.
+
+## Historyczne linki platnosci PayNow /pay/
+
+Pierwsza wersja stalych linkow z 2026-11-18 rowniez uzywala sciezki /pay/.
+Najnowsza sciezka z numerem zamowienia jest opisana powyzej. Przy pierwszym
+wdrozeniu tabeli stalych linkow, po kopii bazy, uruchomic migracje:
+
+```bash
+php artisan migrate --path=database/migrations/2026_11_17_020000_create_paynow_order_links_table.php --force --no-interaction
+```
+
+Zwykly GET nowego kodu daje HTTP 200 z kwota i odliczaniem 5 sekund.
+Przejscie do tej samej sciezki z continue=1 ponownie sprawdza stan i dopiero
+wtedy moze przekierowac 302 do PayNow. HEAD jest tylko odczytem ekranu.
+Historyczne kody prob zachowuja dotychczasowe 302. Oba warianty nie tworza
+platnosci po otwarciu. Nie potrzeba zmiany dotychczasowych wyjatkow Nginx
+ani nowych kolejek. Przed migracja generowanie nowych adresow daje 503
+zamiast tworzenia platnosci; odczyt starych adresow jest zachowany.
+Scisla regula /pay/ obejmuje tez continue=1, bo query string nie uczestniczy
+w dopasowaniu sciezki. Ta sekcja dotyczy historycznych adresow.
 
 Po wdrozeniu tej funkcji przycisk generowania linku kopiuje adres
 `https://oms.multi-click.pl/pay/<bezpieczny-kod>`. Kod to dokladnie 32 znaki

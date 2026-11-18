@@ -2752,11 +2752,13 @@ Strona jest niezalezna od panelu administracyjnego i responsywna. Odczyt statusu
 
 # PayNow - krotkie linki do platnosci
 
-Przycisk generowania linku PayNow kopiuje adres OMS `/pay/<bezpieczny-kod>`, na VPS `https://oms.multi-click.pl/pay/<bezpieczny-kod>`. Kod nie zawiera numeru zamowienia ani danych osobowych. Powtorne kopiowanie tej samej proby zwraca ten sam adres. Pelny URL PayNow nadal jest przechowywany w dotychczasowym szyfrowanym polu; stare dlugie linki nie sa zmieniane.
+Przycisk generowania linku PayNow kopiuje staly adres `/zamowienie/<numer-NEX>/<kod>/pay` dla zamowienia i kupujacego. Host pochodzi z ustawionej domeny klienta, a przy jej braku z adresu aplikacji. Kod ma 10 znakow z liter i cyfr, rozroznia wielkosc liter i jest niezalezny od kodu strony informacyjnej. Weryfikowane sa numer zamowienia i kod. Kolejna przygotowana proba tego samego kupujacego zachowuje adres. Zmiana tozsamosci kupujacego wymaga nowego kodu i odbiera dostep staremu.
 
-Otwarcie aktualnego linku przekierowuje do bramki PayNow i nie tworzy nowej platnosci. Proba potwierdzona albo niekwalifikujaca sie juz do zaplaty kieruje do istniejacej strony statusu. Ponowienie korzysta z dotychczasowych zabezpieczen i jawnej akcji klienta. Nieznany, odwolany lub wygasly kod nie ujawnia danych. Link klienta nalezy traktowac jako poufny.
+Nowy link pokazuje kwote, przycisk Zaplac i odliczanie 5 sekund przed przekierowaniem do PayNow. Tuz przed przekierowaniem OMS ponownie sprawdza stan. Samo otwarcie nie tworzy platnosci i nie wywoluje API. Oplacone zamowienie pokazuje potwierdzenie. Niepewna, wymagajaca sprawdzenia lub niezgodna z saldem proba nie pozwala na zaplate; po wygasnieciu operator przygotowuje nowa probe bez potrzeby ponownego wysylania stalego adresu klientowi. Nierozstrzygnieta starsza proba blokuje utworzenie kolejnej. Archiwum, anulowanie i usuniecie zamowienia wylaczaja dostep. Pelny URL PayNow nadal jest szyfrowany. Dotychczasowe linki do konkretnej proby zachowuja poprzednie dzialanie i nie sa przepinane na nowe platnosci.
 
-Wymagana jest addytywna migracja `2026_10_26_030000_create_paynow_short_links_table.php` i waski wyjatek Basic Auth dla tej trasy na VPS. Nie ma nowego crona, workerow, masowego backfillu ani zmian ksiegowania, webhooka i konfiguracji konta.
+Nowe proby maja w PayNow identyfikator w formacie NEX-479-1. Licznik obejmuje tez historyczne proby zamowienia, ale ich identyfikatory nie sa zmieniane. Kopiowanie lub bezpieczne ponowienie komunikacji tej samej proby zachowuje numer i klucz idempotencji.
+
+Wymagane sa dotychczasowe tabele aliasow i stalych linkow (migracja `2026_11_17_020000_create_paynow_order_links_table.php`); zmiana formatu nie dodaje migracji. Na VPS nowa sciezka wymaga waskiej reguly Nginx. Po sprawdzeniu nowej sciezki starsze adresy /pay/ mozna publicznie wylaczyc oddzielnie, bez usuwania historii lub wygaszania platnosci w PayNow. Portal klienta nie zalezy od /pay/. Nie ma nowego crona, workerow, masowego backfillu ani zmian ksiegowania, webhooka i konfiguracji konta. Link klienta jest poufny; nie umieszczac go w analityce ani logach.
 
 ---
 

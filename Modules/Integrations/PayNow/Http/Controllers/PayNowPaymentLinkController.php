@@ -6,15 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use Illuminate\Http\JsonResponse;
 use Modules\Integrations\PayNow\Exceptions\PayNowApiException;
+use Modules\Integrations\PayNow\Services\PayNowOrderLinkService;
 use Modules\Integrations\PayNow\Services\PayNowPaymentLinkService;
-use Modules\Integrations\PayNow\Services\PayNowShortLinkService;
 
 class PayNowPaymentLinkController extends Controller
 {
-    public function __invoke(Order $order, PayNowPaymentLinkService $paymentLinks, PayNowShortLinkService $shortLinks): JsonResponse
+    public function __invoke(Order $order, PayNowPaymentLinkService $paymentLinks, PayNowOrderLinkService $orderLinks): JsonResponse
     {
-        if (! $shortLinks->isAvailable()) {
-            return response()->json(['message' => 'Krótkie linki PayNow wymagają wykonania migracji aplikacji.'], 503);
+        if (! $orderLinks->isAvailable()) {
+            return response()->json(['message' => 'Linki do płatności PayNow wymagają wykonania migracji aplikacji.'], 503);
         }
 
         try {
@@ -30,7 +30,7 @@ class PayNowPaymentLinkController extends Controller
         }
 
         return response()->json([
-            'url' => $shortLinks->forPayment($result->payment),
+            'url' => $orderLinks->forPayment($result->payment),
             'reused' => $result->reused,
             'amount' => $result->payment->amount,
             'currency' => $result->payment->currency,

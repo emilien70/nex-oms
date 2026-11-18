@@ -3337,6 +3337,8 @@ Trzy trasy klienta zachowuja middleware web i CSRF dla POST. Limitery ograniczaj
 
 # PayNow - krotkie linki klienta /pay/
 
+`PayNowOrderLinkService` obsluguje staly link zamowienia pod sciezka /zamowienie/{orderNumber}/{code}/pay. Opis aliasow prob ponizej nadal dotyczy historycznych adresow /pay/{token} oraz wewnetrznego sprawdzania aktualnej proby.
+
 `PayNowShortLinkService` dodaje losowy alias konkretnej proby platnosci, bez zmiany dlugiego `payment_url`, payloadu PayNow, ksiegowania ani `continueUrl`. POST generowania w zamowieniu zwraca teraz lokalny adres `/pay/{token}`. Token ma 24 kryptograficznie losowe bajty, kodowane jako 32 znaki base64url bez paddingu. Domeny nie wpisuje sie na sztywno; adres korzysta z istniejacego generatora tras i prawidlowego kontekstu HTTPS/hosta OMS.
 
 Migracja `2026_10_26_030000_create_paynow_short_links_table.php` dodaje tylko `paynow_short_links`: zaszyfrowany token do ponownego kopiowania, jego indeksowany SHA256 do odczytu, HMAC tozsamosci, hash celu, expires_at i nullable revoked_at. Unikalnosc payment_id i token_hash zabezpiecza duplikaty. Historyczny FK jest nullable z nullOnDelete. Nie ma backfillu; alias do starej aktywnej proby powstaje dopiero przy jawnym ponownym kopiowaniu. Down odmawia usuniecia niepustej tabeli. Bez migracji generowanie zwraca 503 przed wywolaniem PayNow, a odczyt aliasu nie ujawnia szczegolow.
@@ -3348,6 +3350,20 @@ Publiczny GET/HEAD jest tylko odczytem, bez HTTP do PayNow, tworzenia platnosci,
 Potwierdzona, wygasla, wymagajaca sprawdzenia, starsza lub niezgodna z biezacym saldem proba nie wraca do bramki: alias kieruje do istniejacej podpisanej strony statusu. Ponowienie wymaga dotychczasowego POST, CSRF i swiezej weryfikacji API. Nieznany, odwolany, wygasly alias albo zmieniona tozsamosc daje neutralna strone 404 bez danych. Alias wygasa tak samo jak podpis powrotu: dzien po valid_until, przy historycznym null 92 dni od created_at. GET nie przedluza terminu.
 
 Trasa ma istniejacy limiter klienta 60/min/IP i naglowki no-store, no-referrer, noindex, DENY/nosniff. Nie zmienia to stanu juz wydanych linkow u operatora i nie anuluje ich zdalnie. Dodatkowy wyjatek Basic Auth jest scisle ograniczony do `/pay/` i 32-znakowego kodu; dokumentacja Nginx znajduje sie w `docs/006-Deployment.md`.
+
+## Staly adres platnosci zamowienia
+
+Nowa tabela paynow_order_links ma nullable FK do zamowienia i aktualnie udostepnionego aliasu proby, oba z nullOnDelete. Zawiera unikalny order_id, losowy kod 192-bit zaszyfrowany do ponownego kopiowania, indeksowany SHA256 i HMAC tozsamosci kupujacego. Kod jest niezalezny od kodu portalu informacyjnego. Nowa migracja 2026_11_17_020000_create_paynow_order_links_table nie zmienia istniejacych platnosci lub linkow i nie robi backfillu. Brak tabeli blokuje operatorowe generowanie przed HTTP do PayNow; historyczne linki nadal dzialaja.
+
+Przycisk w zamowieniu przygotowuje probe przez dotychczasowy serwis i zapisuje powiazanie ze stalym adresem w transakcji pod blokadami konta, zamowienia, proby i aliasow. Przygotowanie kolejnej proby nie zmienia adresu dla tego samego kupujacego. Zmiana jego tozsamosci odbiera dostep staremu kodowi; jawne ponowne przygotowanie dla nowego kupujacego generuje nowy kod. Zmieniona kwota sama nie zmienia kodu, ale niezgodna aktywna proba nie jest dostepna. Nie wolno tworzyc nowej proby, dopoki inna pozostaje NEW/PENDING/ABANDONED lub needs_review, albo ma niezaksiegowane CONFIRMED. Sam lokalny uplyw valid_until nie jest dowodem statusu EXPIRED.
+
+GET nowego kodu pokazuje kwote i 5-sekundowe odliczanie, z zapasowym linkiem Zaplac. Skrypt kieruje do tej samej sciezki z continue=1, gdzie stan jest ponownie sprawdzany pod blokadami przed 302 do zweryfikowanego celu PayNow. HEAD nie przekierowuje do dostawcy. Zaden z tych odczytow nie wywoluje API, nie tworzy proby, nie zmienia salda ani historii. Oplacone zamowienie pokazuje potwierdzenie, niepewny wynik lub niezgodne dane blokuja przekierowanie, a anulowanie, archiwum i usuniecie zamowienia blokuja dostep. Wygasla proba czeka na jawne przygotowanie nowej w OMS. Istniejacy rekord jest przekierowywany na nowa probe tylko po tej operacji, nigdy na podstawie parametrow URL.
+
+Staly kod zawiera 10 znakow alfanumerycznych uzyskanych z HMAC APP_KEY, identyfikatora zamowienia i jego istniejacego, szyfrowanego losowego tokenu. Nowa sciezka weryfikuje powiazanie numeru z kodem przed odczytem platnosci i ponownie pod blokada. Przyjmuje tylko adres skonfigurowany dla klienta, a przy braku takiej domeny adres aplikacji. Rate limiter ogranicza ruch per IP i dodatkowo per para IP/zamowienie, niezaleznie od wpisanego kodu. Kod nie otwiera szczegolow portalu. Ekran uzywa istniejacego szablonu paynow.return z CSP nonce.
+
+Numery nowych prob NEX-{order_id}-{kolejnosc} sa wybierane w transakcji z zablokowanym zamowieniem i dotychczasowym unikalnym indeksem external_id. Liczymy historyczne proby i nie zmieniamy ich ID. Dotychczasowy klucz idempotencji oraz podpisy powrotu pozostaja bez zmian.
+
+Sciezka /pay/{token} pozostaje zgodna z historycznymi adresami do etapu ich publicznego wylaczenia na Nginx. Nowa trasa wymaga waskiej reguly; nie potrzeba kolejnego crona, workera ani migracji. POST platnosci z portalu klienta kieruje bezposrednio do zweryfikowanej bramki przez dotychczasowe sprawdzenia, bez posredniej sciezki /pay/. Wylaczenie tej sciezki nie zmienia webhooka, ksiegowania ani podpisanego powrotu.
 
 ---
 

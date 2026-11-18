@@ -25,10 +25,12 @@
         dl div { display: grid; grid-template-columns: 135px minmax(0, 1fr); gap: 12px; margin: 8px 0; }
         dt { color: #687585; }
         dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-        button { min-height: 44px; border-radius: 6px; padding: 10px 18px; border: 1px solid #0075c9; background: #0075c9; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-        button:hover { background: #0063ab; }
-        button:focus-visible { outline: 3px solid #80bce9; outline-offset: 3px; }
+        button, .pay-button { min-height: 44px; border-radius: 6px; padding: 10px 18px; border: 1px solid #0075c9; background: #0075c9; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+        button:hover, .pay-button:hover { background: #0063ab; }
+        button:focus-visible, .pay-button:focus-visible { outline: 3px solid #80bce9; outline-offset: 3px; }
         button:disabled { opacity: .6; cursor: wait; }
+        .pay-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+        .redirect-countdown { margin-top: 12px; margin-bottom: 0; }
         .secondary { color: #43586d; background: transparent; border-color: #bcc8d4; }
         .secondary:hover { background: #eaf0f5; }
         .portal-return { display: inline-block; color: #0075c9; margin-top: 20px; text-underline-offset: 3px; }
@@ -42,7 +44,7 @@
             header { min-height: 64px; padding: 14px 20px; }
             main { margin-top: 44px; }
             h1 { font-size: 24px; }
-            button { width: 100%; }
+            button, .pay-button { width: 100%; }
             dl div { grid-template-columns: 1fr; gap: 2px; margin: 14px 0; }
         }
     </style>
@@ -63,6 +65,10 @@
                 <div id="transaction-row" @if (!$data['transactionId']) hidden @endif><dt>ID transakcji</dt><dd id="transaction-id">{{ $data['transactionId'] }}</dd></div>
             </dl>
         @endif
+        @if ($continueUrl ?? null)
+            <a class="pay-button" id="pay-continue" href="{{ $continueUrl }}">Zapłać</a>
+            <p class="redirect-countdown" id="pay-countdown" aria-hidden="true" hidden>Przekierowanie za <span id="pay-seconds">5</span> s</p>
+        @endif
         @if ($retryUrl)
             <form method="POST" action="{{ $retryUrl }}" id="retry-form" @if (!$data['canRetry']) hidden @endif>
                 @csrf
@@ -80,6 +86,27 @@
         @endif
         @include('customer-portal.information-links')
     </main>
+    @if ($continueUrl ?? null)
+        <script nonce="{{ $nonce }}">
+            (() => {
+                const link = document.getElementById('pay-continue');
+                const countdown = document.getElementById('pay-countdown');
+                const seconds = document.getElementById('pay-seconds');
+                const deadline = Date.now() + 5000;
+                countdown.hidden = false;
+                const timer = window.setInterval(() => {
+                    const remaining = Math.ceil((deadline - Date.now()) / 1000);
+                    if (remaining > 0) {
+                        seconds.textContent = String(remaining);
+                    } else {
+                        window.clearInterval(timer);
+                        window.location.replace(link.href);
+                    }
+                }, 250);
+                window.addEventListener('pagehide', () => window.clearInterval(timer), { once: true });
+            })();
+        </script>
+    @endif
     @if ($statusUrl)
         <script nonce="{{ $nonce }}">
             (() => {

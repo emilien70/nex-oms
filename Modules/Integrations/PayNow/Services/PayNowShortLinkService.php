@@ -27,7 +27,12 @@ class PayNowShortLinkService
 
     public function forPayment(PayNowPayment $payment): string
     {
-        return DB::transaction(function () use ($payment): string {
+        return route('paynow.short-link', ['token' => $this->recordForPayment($payment)->token]);
+    }
+
+    public function recordForPayment(PayNowPayment $payment): PayNowShortLink
+    {
+        return DB::transaction(function () use ($payment): PayNowShortLink {
             $payment = PayNowPayment::query()->whereKey($payment->id)->lockForUpdate()->firstOrFail();
             $account = $payment->account;
             if (! $account || ! $payment->order_id) {
@@ -56,17 +61,27 @@ class PayNowShortLinkService
                 $this->unavailable();
             }
 
-            return route('paynow.short-link', ['token' => $link->token]);
+            return $link;
         }, 3);
     }
 
     public function destination(string $token): ?string
     {
+        return $this->resolveDestination($token, false);
+    }
+
+    public function activeDestination(string $token): ?string
+    {
+        return $this->resolveDestination($token, true);
+    }
+
+    private function resolveDestination(string $token, bool $activeOnly): ?string
+    {
         if (preg_match('/^[A-Za-z0-9_-]{32}$/D', $token) !== 1 || ! $this->isAvailable()) {
             return null;
         }
 
-        return DB::transaction(function () use ($token): ?string {
+        return DB::transaction(function () use ($token, $activeOnly): ?string {
             $link = PayNowShortLink::query()->where('token_hash', hash('sha256', $token))->first();
             if (! $link || $link->revoked_at || ! $link->expires_at->isFuture()) {
                 return null;
@@ -102,7 +117,7 @@ class PayNowShortLinkService
                 || $order->customer_email !== $payment->buyer_email_snapshot
                 || $this->decimal->compare($this->decimal->subtract($order->total_gross, $order->paid_amount), $payment->amount) !== 0
                 || $this->hasConflictingAttempt($payment)) {
-                return $this->returns->forPayment($payment);
+                return $activeOnly ? null : $this->returns->forPayment($payment);
             }
 
             if (! $payment->provider_payment_id || ! hash_equals($link->target_hash, $this->targetHash($payment))

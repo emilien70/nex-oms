@@ -164,6 +164,9 @@ Route::get('/informacje', [PortalController::class, 'information'])
 Route::get('/pay/{token}', PayNowShortLinkController::class)
     ->where('token', '[A-Za-z0-9_-]{32}')
     ->middleware('throttle:paynow-customer')->name('paynow.short-link');
+Route::get('/zamowienie/{orderNumber}/{code}/pay', [PayNowShortLinkController::class, 'checkout'])
+    ->where(['orderNumber' => '[1-9][0-9]{0,17}', 'code' => '[A-Za-z0-9]{10}'])
+    ->middleware('throttle:paynow-order-link')->name('paynow.order-link');
 Route::prefix('{orderNumber}/{token}')->where(['orderNumber' => '[1-9][0-9]{0,17}', 'token' => '[A-Za-z0-9]{10}'])->middleware('throttle:customer-portal')->group(function (): void {
     Route::get('/', [PortalController::class, 'show'])->name('customer-portal.show');
     Route::get('/dane', [PortalController::class, 'details'])->name('customer-portal.details');

@@ -102,14 +102,12 @@ class CustomerPortalPaymentsTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_pay_continues_the_same_attempt_through_existing_short_link_without_api(): void
+    public function test_pay_continues_the_same_attempt_without_requiring_the_old_public_route_or_api(): void
     {
         $payment = $this->payment();
         $url = $this->url($payment->order);
-        $response = $this->postAction($url, 'pay')->assertStatus(303)->assertHeader('Referrer-Policy', 'no-referrer');
-        $shortUrl = $response->headers->get('Location');
-        $this->assertStringContainsString('/pay/', $shortUrl);
-        $this->get($shortUrl)->assertRedirect(self::PROVIDER_URL);
+        $this->postAction($url, 'pay')->assertStatus(303)->assertHeader('Referrer-Policy', 'no-referrer')
+            ->assertRedirect(self::PROVIDER_URL);
         $this->assertDatabaseCount('paynow_payments', 1);
         $this->assertSame('0.00', $payment->order->fresh()->paid_amount);
         Http::assertNothingSent();
@@ -229,8 +227,7 @@ class CustomerPortalPaymentsTest extends TestCase
         $url = $this->url($payment->order);
         $form = $this->form($url, 'retry');
         $this->fakeProvider($status);
-        $response = $this->post($form['url'], ['intent' => $form['intent']])->assertStatus(303);
-        $this->get($response->headers->get('Location'))->assertRedirect(self::PROVIDER_URL);
+        $this->post($form['url'], ['intent' => $form['intent']])->assertStatus(303)->assertRedirect(self::PROVIDER_URL);
         $this->post($form['url'], ['intent' => $form['intent']])->assertStatus(303)->assertRedirect($url);
         $this->assertDatabaseCount('paynow_payments', 2);
         $this->assertCount(1, Http::recorded(fn (Request $r) => $r->method() === 'POST'));

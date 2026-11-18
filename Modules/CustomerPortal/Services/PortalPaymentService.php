@@ -126,14 +126,13 @@ class PortalPaymentService
                 if (! hash_equals($fingerprint, $this->fingerprint($fresh))) {
                     $this->deny();
                 }
-                $url = $this->shortLinks->forPayment($payment);
-                $code = basename((string) parse_url($url, PHP_URL_PATH));
-                $destination = $this->shortLinks->destination($code);
-                if ($destination !== $payment->payment_url) {
+                $alias = $this->shortLinks->recordForPayment($payment);
+                $destination = $this->shortLinks->activeDestination($alias->token);
+                if ($destination === null || $destination !== $payment->payment_url) {
                     $this->deny();
                 }
 
-                return ['payment' => $payment, 'url' => $url, 'grant' => $fresh['grant']];
+                return ['payment' => $payment, 'url' => $destination, 'grant' => $fresh['grant']];
             }, 3);
         } finally {
             $lock->release();
