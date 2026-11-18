@@ -448,6 +448,7 @@
 
         .nex-printer-tooltip {
             opacity: .7 !important;
+            pointer-events: none;
         }
 
         .nav-settings-icon {
@@ -1152,7 +1153,7 @@
             gap: 4px;
             align-items: flex-end;
             max-height: min(240px, 36dvh);
-            overflow-y: auto;
+            overflow: clip;
             padding: 2px;
             position: absolute;
             right: -2px;
@@ -1160,15 +1161,31 @@
         }
 
         .automation-activity-step-list {
+            --automation-step-slot-height: 30px;
             align-items: flex-end;
             display: flex;
             flex: 0 0 auto;
             flex-direction: column;
-            gap: 4px;
             list-style: none;
-            margin: 0;
+            margin: 0 0 -4px;
             max-width: 100%;
             padding: 0;
+        }
+
+        .automation-activity-step-list[hidden] {
+            display: none;
+        }
+
+        .automation-activity-step-slot {
+            display: flex;
+            flex: 0 0 auto;
+            flex-direction: column;
+            height: var(--automation-step-slot-height);
+            max-width: 100%;
+        }
+
+        .automation-activity-step-slot[data-moving] {
+            overflow: hidden;
         }
 
         .automation-activity-step {
@@ -1201,6 +1218,19 @@
             margin: 0;
             pointer-events: auto;
             width: 22px;
+        }
+
+        .automation-activity-step-count {
+            align-items: center;
+            background: #edf1f5;
+            border: 1px solid #d5dce5;
+            border-radius: 4px;
+            color: #374151;
+            display: inline-flex;
+            flex: 0 0 22px;
+            font-size: 11px;
+            padding: 0 6px;
+            white-space: nowrap;
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -2062,9 +2092,11 @@
 
                 elements.forEach((element) => {
                     bootstrap.Tooltip.getOrCreateInstance(element, {
+                        animation: false,
                         container: 'body',
                         customClass: 'nex-printer-tooltip',
                         title: element.dataset.bsTitle,
+                        trigger: 'manual',
                     });
                 });
             };
@@ -2096,6 +2128,37 @@
             window.nexOmsDisposePrinterControls = disposePrinterControls;
             initializePrinterControls();
 
+            const printerToggle = '[data-nex-printer-toggle]';
+            // Bootstrap keeps the dropdown instance on the button, so the tooltip uses its wrapper.
+            const printerTooltip = (button) => {
+                const wrapper = button.closest('[data-nex-printer-tooltip]');
+                return wrapper ? window.bootstrap?.Tooltip.getInstance(wrapper) : null;
+            };
+            const showPrinterTooltip = (button) => {
+                if (!button.disabled && button.getAttribute('aria-expanded') === 'false') {
+                    printerTooltip(button)?.show();
+                }
+            };
+            const hidePrinterTooltip = (event) => {
+                if (event.target.matches?.(printerToggle)) {
+                    printerTooltip(event.target)?.hide();
+                }
+            };
+
+            document.addEventListener('pointerenter', (event) => {
+                if (event.pointerType !== 'touch' && event.target.matches?.(printerToggle)) {
+                    showPrinterTooltip(event.target);
+                }
+            }, true);
+            document.addEventListener('pointerleave', hidePrinterTooltip, true);
+            document.addEventListener('focusin', (event) => {
+                if (event.target.matches?.(printerToggle) && event.target.matches(':focus-visible')) {
+                    showPrinterTooltip(event.target);
+                }
+            });
+            document.addEventListener('focusout', hidePrinterTooltip);
+            document.addEventListener('show.bs.dropdown', hidePrinterTooltip);
+
             document.addEventListener('click', (event) => {
                 document.querySelectorAll('[data-nex-printer-dropdown]').forEach((dropdown) => {
                     if (dropdown.contains(event.target)) {
@@ -2123,7 +2186,7 @@
                     return;
                 }
 
-                bootstrap.Tooltip.getInstance(dropdown)?.hide();
+                printerTooltip(toggle)?.hide();
                 bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
                 dropdown.dataset.busy = '1';
                 dropdown.setAttribute('aria-busy', 'true');
@@ -2198,13 +2261,23 @@
             const orderId = Number(center.dataset.automationOrderId);
             const dismissedStorageKey = 'nexOmsDismissedAutomationActivities';
             const narrowScreen = window.matchMedia('(max-width: 767.98px)');
+            const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+            const stepCountPlural = new Intl.PluralRules('pl');
+            const motionDuration = 250;
+            const motionVisible = { opacity: 1, transform: 'none' };
+            const motionHidden = { opacity: 0, transform: 'translateY(6px)' };
+            const stepShown = { height: 'var(--automation-step-slot-height)', opacity: 1 };
+            const stepHidden = { height: '0px', opacity: 0 };
             const tonePriority = { error: 0, warning: 1, progress: 2, success: 3, waiting: 4 };
             const autoHideTimers = new Map();
             const handledTerminalActivities = new Set();
             const stepExpiry = new Map();
             const stepExpansion = new Map();
+            const renderedActivities = new Map();
+            const closingActivities = new Set();
             let activities = [];
             let visibleIds = [];
+            let overflowIndicator = null;
             let lastRender = '';
             let pageActive = true;
             let currentRequest = null;
@@ -2271,6 +2344,43 @@
                 }
             };
 
+            const canAnimateActivity = (node) => !reducedMotion.matches && typeof node.animate === 'function';
+
+            const showActivityMotion = (entry) => {
+                if (!canAnimateActivity(entry.node)) return;
+
+                const animation = entry.node.animate([motionHidden, motionVisible], {
+                    duration: motionDuration, easing: 'ease-in-out',
+                });
+                entry.animation = animation;
+                animation.onfinish = () => {
+                    if (entry.animation === animation) entry.animation = null;
+                };
+            };
+
+            const dismissActivity = (activity) => {
+                const token = activityToken(activity);
+                rememberDismissed(token);
+                const entry = renderedActivities.get(activity.id);
+                if (activity.is_local || entry?.token !== token || !canAnimateActivity(entry.node)) {
+                    render();
+                    return;
+                }
+                if (closingActivities.has(entry)) return;
+
+                const style = entry.animation ? window.getComputedStyle(entry.node) : null;
+                const from = style ? { opacity: style.opacity, transform: style.transform } : motionVisible;
+                entry.animation?.cancel();
+                entry.node.inert = true;
+                closingActivities.add(entry);
+                entry.animation = entry.node.animate([from, motionHidden], {
+                    duration: motionDuration, easing: 'ease-in-out', fill: 'forwards',
+                });
+                entry.animation.onfinish = () => {
+                    if (closingActivities.delete(entry)) render();
+                };
+            };
+
             const statusIcon = (activity) => {
                 const icon = document.createElement('span');
                 icon.className = activity.is_local ? 'automation-activity-icon' : 'automation-activity-chip-icon';
@@ -2301,10 +2411,7 @@
                 close.textContent = '\u00d7';
                 close.dataset.activityControl = `close:${activity.id}`;
                 close.setAttribute('aria-label', 'Zamknij powiadomienie');
-                close.addEventListener('click', () => {
-                    rememberDismissed(activityToken(activity));
-                    render();
-                });
+                close.addEventListener('click', () => dismissActivity(activity));
                 return close;
             };
 
@@ -2366,11 +2473,20 @@
                 return activity.status_label;
             };
 
+            const fitActivitySteps = (steps, nextExpiry, manual, canDismiss) => {
+                // A step takes 30px with its gap; the close button and count take 26px each.
+                const panelHeight = Math.min(240, (window.visualViewport?.height ?? window.innerHeight) * 0.36);
+                const available = panelHeight - (manual && canDismiss ? 26 : 0);
+                const countHeight = steps.length * 30 > available ? 26 : 0;
+                const capacity = Math.max(0, Math.floor((available - countHeight) / 30));
+                return { steps: steps.slice(0, capacity), overflow: Math.max(0, steps.length - capacity), capacity, nextExpiry, manual };
+            };
+
             const activitySteps = (activity, now) => {
                 const steps = Array.isArray(activity.steps) ? activity.steps : [];
                 const mode = stepExpansion.get(activity.id);
-                if (mode === 'closed') return { steps: [], nextExpiry: Infinity, manual: false };
-                if (mode === 'open') return { steps, nextExpiry: Infinity, manual: true };
+                if (mode === 'closed') return { steps: [], overflow: 0, capacity: 0, nextExpiry: Infinity, manual: false };
+                if (mode === 'open') return fitActivitySteps(steps, Infinity, true, activity.can_dismiss);
 
                 let deadlines = stepExpiry.get(activity.id);
                 if (!deadlines) {
@@ -2389,11 +2505,11 @@
                     nextExpiry = Math.min(nextExpiry, expiresAt);
                     return true;
                 });
-                return { steps: visibleSteps, nextExpiry, manual: false };
+                return fitActivitySteps(visibleSteps, nextExpiry, false, activity.can_dismiss);
             };
 
             const activityStep = (step) => {
-                const stepItem = document.createElement('li');
+                const stepItem = document.createElement('div');
                 const tone = ['success', 'warning', 'error', 'progress', 'waiting', 'skipped'].includes(step.tone)
                     ? step.tone : 'queued';
                 stepItem.className = `automation-activity-step is-${tone}`;
@@ -2417,12 +2533,7 @@
                 return stepItem;
             };
 
-            const compactActivity = (activity, details) => {
-                const group = document.createElement('div');
-                group.className = 'automation-activity-group';
-                group.dataset.automationRun = String(activity.id);
-                const expanded = details.steps.length > 0 || details.manual;
-                const panelId = `automationActivitySteps-${activity.id}`;
+            const compactActivityButton = (activity) => {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = `automation-activity-chip is-${activity.tone}`;
@@ -2436,40 +2547,151 @@
                 title.textContent = compactTitle(activity);
                 button.appendChild(title);
                 if (activity.steps?.length || activity.can_dismiss) {
-                    button.setAttribute('aria-expanded', String(expanded));
-                    if (expanded) button.setAttribute('aria-controls', panelId);
                     const chevron = document.createElement('i');
-                    chevron.className = `automation-activity-chevron bi bi-chevron-${expanded ? 'up' : 'down'}`;
+                    chevron.className = 'automation-activity-chevron bi';
                     chevron.setAttribute('aria-hidden', 'true');
                     button.appendChild(chevron);
                     button.addEventListener('click', () => {
-                        stepExpansion.set(activity.id, expanded ? 'closed' : 'open');
+                        stepExpansion.set(activity.id, button.getAttribute('aria-expanded') === 'true' ? 'closed' : 'open');
                         render(button.dataset.activityControl);
                     });
                 } else {
                     button.disabled = true;
                 }
-                group.appendChild(button);
+                return button;
+            };
 
-                if (expanded) {
-                    const panel = document.createElement('div');
-                    panel.id = panelId;
-                    panel.className = 'automation-activity-steps';
-                    if (details.manual && activity.can_dismiss) {
-                        const close = dismissButton(activity);
-                        close.className += ' automation-activity-step-close';
-                        panel.appendChild(close);
-                    }
-                    if (details.steps.length) {
-                        const list = document.createElement('ol');
-                        list.className = 'automation-activity-step-list';
-                        list.setAttribute('role', 'list');
-                        details.steps.forEach((step) => list.appendChild(activityStep(step)));
-                        panel.appendChild(list);
-                    }
-                    group.appendChild(panel);
+            const syncStepExpansion = (entry) => {
+                const expanded = entry.manual || Boolean(entry.count) || [...entry.steps.values()].some((row) => !row.leaving);
+                if (entry.panel && !expanded && entry.steps.size === 0) {
+                    entry.panel.remove();
+                    entry.panel = null;
+                    entry.list = null;
+                    entry.close = null;
+                } else if (entry.list) {
+                    entry.list.hidden = entry.steps.size === 0;
                 }
-                return group;
+                const chevron = entry.button.querySelector('.automation-activity-chevron');
+                if (!chevron) return;
+                entry.button.setAttribute('aria-expanded', String(expanded));
+                if (expanded) entry.button.setAttribute('aria-controls', entry.panel.id);
+                else entry.button.removeAttribute('aria-controls');
+                chevron.className = `automation-activity-chevron bi bi-chevron-${expanded ? 'up' : 'down'}`;
+            };
+
+            const setStepVisible = (entry, position, row, shown) => {
+                const { node } = row;
+                const style = row.animation ? window.getComputedStyle(node) : null;
+                const from = style ? { height: style.height, opacity: style.opacity } : (shown ? stepHidden : stepShown);
+                row.animation?.cancel();
+                row.leaving = !shown;
+                if (shown) node.removeAttribute('aria-hidden');
+                else node.setAttribute('aria-hidden', 'true');
+
+                const finish = () => {
+                    delete node.dataset.moving;
+                    if (!shown) {
+                        node.remove();
+                        entry.steps.delete(position);
+                        syncStepExpansion(entry);
+                        if (entry.deferredSteps) {
+                            entry.content = '';
+                            lastRender = '';
+                            render();
+                        }
+                    }
+                };
+                if (!canAnimateActivity(node)) {
+                    row.animation = null;
+                    finish();
+                    return;
+                }
+                node.dataset.moving = '';
+                const animation = node.animate([from, shown ? stepShown : stepHidden], {
+                    duration: motionDuration, easing: 'ease-in-out', fill: 'both',
+                });
+                row.animation = animation;
+                animation.onfinish = () => {
+                    if (row.animation !== animation) return;
+                    row.animation = null;
+                    finish();
+                    animation.cancel();
+                };
+            };
+
+            const syncCompactActivity = (entry, activity, details) => {
+                const button = compactActivityButton(activity);
+                entry.node.insertBefore(button, entry.button ?? null);
+                entry.button?.remove();
+                entry.button = button;
+                entry.manual = details.manual;
+
+                if (details.steps.length || details.overflow || details.manual || entry.steps.size) {
+                    if (!entry.panel) {
+                        entry.panel = document.createElement('div');
+                        entry.panel.id = `automationActivitySteps-${activity.id}`;
+                        entry.panel.className = 'automation-activity-steps';
+                        entry.list = document.createElement('ol');
+                        entry.list.className = 'automation-activity-step-list';
+                        entry.list.setAttribute('role', 'list');
+                        entry.panel.appendChild(entry.list);
+                        entry.node.appendChild(entry.panel);
+                    }
+                    entry.close?.remove();
+                    entry.close = null;
+                    if (details.overflow) {
+                        if (!entry.count) {
+                            entry.count = document.createElement('span');
+                            entry.count.className = 'automation-activity-step-count';
+                            entry.panel.insertBefore(entry.count, entry.list);
+                        }
+                        const noun = { one: 'krok', few: 'kroki' }[stepCountPlural.select(details.overflow)] ?? 'krok\u00f3w';
+                        entry.count.textContent = `+${details.overflow} ${noun}`;
+                        entry.count.title = 'Pozosta\u0142e kroki s\u0105 w historii automatycznych akcji.';
+                    } else if (entry.count) {
+                        entry.count.remove();
+                        entry.count = null;
+                    }
+                    if (details.manual && activity.can_dismiss) {
+                        entry.close = dismissButton(activity);
+                        entry.close.className += ' automation-activity-step-close';
+                        entry.panel.insertBefore(entry.close, entry.count ?? entry.list);
+                    }
+
+                    entry.deferredSteps = false;
+                    const visibleSteps = new Set(details.steps.map((step) => step.position));
+                    const enteringSteps = [];
+                    details.steps.forEach((step) => {
+                        const content = JSON.stringify(step);
+                        let row = entry.steps.get(step.position);
+                        if (!row) {
+                            if (entry.steps.size >= details.capacity && canAnimateActivity(entry.list)) {
+                                entry.deferredSteps = true;
+                                return;
+                            }
+                            const node = document.createElement('li');
+                            node.className = 'automation-activity-step-slot';
+                            row = { node, content, animation: null, leaving: false };
+                            node.appendChild(activityStep(step));
+                            entry.steps.set(step.position, row);
+                            enteringSteps.push([step.position, row]);
+                        } else {
+                            if (row.content !== content) row.node.replaceChildren(activityStep(step));
+                            row.content = content;
+                            if (row.leaving) enteringSteps.push([step.position, row]);
+                        }
+                    });
+                    [...entry.steps].sort(([a], [b]) => a - b).forEach(([, row], index) => {
+                        const current = entry.list.children[index] ?? null;
+                        if (current !== row.node) entry.list.insertBefore(row.node, current);
+                    });
+                    syncStepExpansion(entry);
+                    enteringSteps.forEach(([position, row]) => setStepVisible(entry, position, row, true));
+                    entry.steps.forEach((row, position) => {
+                        if (!visibleSteps.has(position) && !row.leaving) setStepVisible(entry, position, row, false);
+                    });
+                }
+                syncStepExpansion(entry);
             };
 
             const scheduleDismissal = (activity) => {
@@ -2480,13 +2702,12 @@
                     ? { success: 7000, error: 20000 }[activity.tone]
                     : 8000;
                 if (!delay) return;
-                autoHideTimers.set(token, window.setTimeout(() => {
-                    rememberDismissed(token);
-                    render();
-                }, delay));
+                autoHideTimers.set(token, window.setTimeout(() => dismissActivity(activity), delay));
             };
 
             const render = (focusControl = document.activeElement?.dataset?.activityControl) => {
+                // Keep fading notifications in their slots until they finish closing.
+                if (closingActivities.size) return;
                 const pending = activities.filter((activity) => !dismissed.has(activityToken(activity)));
                 const pendingIds = new Set(pending.map((activity) => activity.id));
                 stepExpiry.forEach((_, id) => { if (!pendingIds.has(id)) stepExpiry.delete(id); });
@@ -2519,20 +2740,64 @@
                 const signature = JSON.stringify([entries, overflow]);
                 if (signature === lastRender) return;
                 lastRender = signature;
-                center.replaceChildren();
-                center.hidden = visible.length === 0;
 
+                renderedActivities.forEach((entry, id) => {
+                    if (selected.has(id)) return;
+                    entry.animation?.cancel();
+                    entry.steps?.forEach((row) => row.animation?.cancel());
+                    entry.node.remove();
+                    renderedActivities.delete(id);
+                });
+
+                const orderedNodes = [];
+                const entering = [];
                 if (overflow > 0) {
-                    const count = document.createElement('span');
-                    count.className = 'automation-activity-count';
-                    count.textContent = `+${overflow}`;
-                    count.title = `Pozosta\u0142e powiadomienia: ${overflow}`;
-                    center.appendChild(count);
+                    overflowIndicator ??= document.createElement('span');
+                    overflowIndicator.className = 'automation-activity-count';
+                    overflowIndicator.textContent = `+${overflow}`;
+                    overflowIndicator.title = `Pozosta\u0142e powiadomienia: ${overflow}`;
+                    orderedNodes.push(overflowIndicator);
+                } else if (overflowIndicator) {
+                    overflowIndicator.remove();
+                    overflowIndicator = null;
                 }
-                entries.forEach(({ activity, details }) => {
-                    center.appendChild(activity.is_local ? localActivity(activity) : compactActivity(activity, details));
+                entries.forEach((snapshot) => {
+                    const { activity, details } = snapshot;
+                    const token = activityToken(activity);
+                    const content = JSON.stringify(snapshot);
+                    let entry = renderedActivities.get(activity.id);
+                    if (!entry) {
+                        const node = activity.is_local ? localActivity(activity) : document.createElement('div');
+                        entry = { node, token, content, animation: null };
+                        renderedActivities.set(activity.id, entry);
+                        if (!activity.is_local) {
+                            node.className = 'automation-activity-group';
+                            node.dataset.automationRun = String(activity.id);
+                            entry.steps = new Map();
+                            syncCompactActivity(entry, activity, details);
+                            entering.push(entry);
+                        }
+                    } else if (entry.content !== content) {
+                        if (entry.node.inert) {
+                            entry.node.inert = false;
+                            entry.animation?.cancel();
+                            entry.animation = null;
+                        }
+                        if (!activity.is_local) {
+                            syncCompactActivity(entry, activity, details);
+                        }
+                        entry.token = token;
+                        entry.content = content;
+                    }
+                    orderedNodes.push(entry.node);
                     scheduleDismissal(activity);
                 });
+                orderedNodes.forEach((node, index) => {
+                    const current = center.children[index] ?? null;
+                    if (current !== node) center.insertBefore(node, current);
+                });
+                center.hidden = visible.length === 0;
+                entering.forEach(showActivityMotion);
                 if (focusControl) {
                     Array.from(center.querySelectorAll('[data-activity-control]'))
                         .find((element) => element.dataset.activityControl === focusControl)?.focus({ preventScroll: true });
@@ -2540,6 +2805,8 @@
             };
 
             narrowScreen.addEventListener('change', () => render());
+            window.addEventListener('resize', () => render());
+            window.visualViewport?.addEventListener('resize', () => render());
             center.addEventListener('keydown', (event) => {
                 if (event.key !== 'Escape') return;
                 const group = event.target.closest('[data-automation-run]');
@@ -2681,6 +2948,7 @@
                 });
                 autoHideTimers.forEach((timer) => window.clearTimeout(timer));
                 autoHideTimers.clear();
+                closingActivities.clear();
                 activities = [];
                 render();
             });

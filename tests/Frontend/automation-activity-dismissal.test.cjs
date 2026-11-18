@@ -13,9 +13,24 @@ assert.ok(source);
 function element() {
     return {
         children: [], listeners: {}, attributes: {}, dataset: {}, hidden: false,
-        appendChild(child) { child.parent = this; this.children.push(child); },
-        replaceChildren() { this.children = []; },
+        appendChild(child) { this.insertBefore(child, null); },
+        insertBefore(child, before) {
+            if (child === before) return;
+            child.remove();
+            this.children.splice(before ? this.children.indexOf(before) : this.children.length, 0, child);
+            child.parent = this;
+        },
+        remove() {
+            if (!this.parent) return;
+            this.parent.children.splice(this.parent.children.indexOf(this), 1);
+            this.parent = null;
+        },
+        replaceChildren(...children) {
+            [...this.children].forEach(child => child.remove());
+            children.forEach(child => this.appendChild(child));
+        },
         setAttribute(name, value) { this.attributes[name] = value; },
+        removeAttribute(name) { delete this.attributes[name]; },
         getAttribute(name) { return this.attributes[name]; },
         addEventListener(name, callback) { this.listeners[name] = callback; },
         querySelectorAll() { return this.children.flatMap(child => [child, ...child.querySelectorAll()]); },
@@ -44,12 +59,13 @@ function step(position, status, tone) {
     return { position, status, tone, short_label: 'Krok ' + position, status_label: status };
 }
 
-function fixture(initial = [], storage = new Map(), storageFails = false, mobile = false, orderId = 1) {
+function fixture(initial = [], storage = new Map(), storageFails = false, mobile = false, orderId = 1, motion = null) {
     const listeners = {};
     const pageListeners = {};
     const timers = new Map();
     const requests = [];
     const events = [];
+    const animations = [];
     const center = element();
     center.hidden = true;
     if (orderId !== null) {
@@ -62,18 +78,40 @@ function fixture(initial = [], storage = new Map(), storageFails = false, mobile
     const document = {
         hidden: false,
         querySelector: selector => selector === '[data-automation-activity-center]' ? center : null,
-        createElement: element,
+        createElement() {
+            const node = element();
+            if (motion) {
+                node.animate = (frames, options) => {
+                    const animation = {
+                        node, frames, options, cancelled: false,
+                        cancel() {
+                            this.cancelled = true;
+                            window.clearTimeout(timer);
+                        },
+                    };
+                    const timer = window.setTimeout(() => animation.onfinish?.(), options.duration);
+                    animations.push(animation);
+                    return animation;
+                };
+            }
+            return node;
+        },
         addEventListener(name, callback) { listeners[name] = callback; },
         dispatchEvent(event) { events.push(event); },
     };
     const window = {
+        innerHeight: motion?.height ?? 900,
         setTimeout(callback, delay) {
             const id = ++nextTimer;
             timers.set(id, { callback, due: now + delay, delay });
             return id;
         },
         clearTimeout(id) { timers.delete(id); },
-        matchMedia: () => ({ matches: mobile, addEventListener() {} }),
+        matchMedia: query => ({
+            matches: query.includes('prefers-reduced-motion') ? motion?.reduced === true : mobile,
+            addEventListener() {},
+        }),
+        getComputedStyle: () => ({ opacity: '0.5', transform: 'matrix(1, 0, 0, 1, 0, 3)', height: '15px' }),
         addEventListener(name, callback) { pageListeners[name] = callback; },
     };
     class ClockDate extends Date {
@@ -115,14 +153,20 @@ function fixture(initial = [], storage = new Map(), storageFails = false, mobile
     const chips = () => groups().map(group => group.querySelector('.automation-activity-chip'));
 
     return {
-        center, timers, requests, events, storage, advance, chips,
+        center, timers, requests, events, storage, advance, chips, animations,
         open: (index = 0) => chips()[index].listeners.click(),
         panel: (index = 0) => groups()[index]?.querySelector('.automation-activity-steps'),
-        steps: (index = 0) => groups()[index]?.querySelector('.automation-activity-step-list')?.children ?? [],
+        stepCount: (index = 0) => groups()[index]?.querySelector('.automation-activity-step-count')?.textContent,
+        stepSlots: (index = 0) => groups()[index]?.querySelector('.automation-activity-step-list')?.children ?? [],
+        steps: (index = 0) => groups()[index]?.querySelector('.automation-activity-step-list')?.children.map(slot => slot.children[0]) ?? [],
         show: detail => window.nexOmsShowActivity(detail),
         close: () => center.querySelector('.automation-activity-close').listeners.click(),
         hidePage: () => pageListeners.pagehide?.(),
         restorePage: () => pageListeners.pageshow?.({ persisted: true }),
+        resize(height) {
+            window.innerHeight = height;
+            pageListeners.resize();
+        },
         pauseNextFetch() {
             let release;
             fetchGate = new Promise(resolve => { release = resolve; });
@@ -421,4 +465,191 @@ test('leaving an order aborts the in-flight poll and returning resumes it', asyn
     assert.equal(f.requests.length, 2);
     assert.equal(f.chips().length, 1);
     assert.equal(f.events.length, 1);
+});
+
+test('a notification slides in once and fades out only after the full result time', async () => {
+    const running = activity({ status: 'running', is_terminal: false, can_dismiss: false, tone: 'progress' });
+    const f = fixture([running], new Map(), false, false, 1, {});
+    await f.refresh();
+    assert.equal(f.animations.length, 1);
+    const [entrance] = f.animations;
+    const groupAnimations = () => f.animations.filter(animation => animation.node.className === 'automation-activity-group');
+    assert.equal(entrance.options.duration, 250);
+    assert.equal(entrance.frames[0].transform, 'translateY(6px)');
+    assert.equal(entrance.frames[1].opacity, 1);
+
+    await f.advance(100);
+    const completed = activity({ status: 'completed', tone: 'success', steps: [step(1, 'completed', 'success')] });
+    await f.refresh([completed]);
+    assert.equal(f.center.children[0], entrance.node);
+    assert.match(f.chips()[0].className, /is-success/);
+    assert.equal(groupAnimations().length, 1);
+    assert.equal(entrance.cancelled, false);
+    await f.advance(7999);
+    assert.equal(groupAnimations().length, 1);
+    await f.advance(1);
+    assert.equal(groupAnimations().length, 2);
+    const exit = groupAnimations()[1];
+    assert.equal(exit.options.duration, 250);
+    assert.equal(exit.frames[1].opacity, 0);
+    assert.equal(exit.node.inert, true);
+    await f.refresh([completed]);
+    await f.advance(249);
+    assert.equal(f.center.hidden, false);
+    await f.advance(1);
+    assert.equal(f.center.hidden, true);
+});
+
+test('manual dismissal fades the notification and persists while the next notification waits for its slot', async () => {
+    const first = activity();
+    const second = activity({ id: 14, status: 'running', is_terminal: false, can_dismiss: false, tone: 'progress' });
+    const f = fixture([first], new Map(), false, false, 1, {});
+    await f.refresh();
+    f.open();
+    f.close();
+    assert.equal(f.animations.length, 2);
+    assert.equal(f.animations[0].cancelled, true);
+    assert.equal(f.animations[1].frames[0].opacity, '0.5');
+    assert.equal(f.animations[1].node.inert, true);
+    await f.refresh([first, second]);
+    assert.equal(f.chips().length, 1);
+    await f.advance(250);
+    assert.deepEqual(f.chips().map(chip => chip.dataset.activityControl), ['chip:14']);
+    assert.equal(f.animations.length, 3);
+    await f.refresh([first, second]);
+    assert.deepEqual(f.chips().map(chip => chip.dataset.activityControl), ['chip:14']);
+});
+
+test('simultaneous exits keep their slots until the next result can enter', async () => {
+    const notices = [1, 2, 3, 4].map(id => activity({ id }));
+    const f = fixture(notices, new Map(), false, false, 1, {});
+    await f.refresh();
+    await f.advance(8000);
+    assert.equal(f.chips().length, 3);
+    const exits = f.animations.filter(animation => animation.frames.at(-1).opacity === 0);
+    assert.equal(exits.length, 3);
+    assert.ok(exits.every(animation => animation.node.inert));
+    await f.advance(250);
+    assert.deepEqual(f.chips().map(chip => chip.dataset.activityControl), ['chip:4']);
+    assert.equal(f.animations.length, 7);
+});
+
+test('finished steps fade and collapse together after five seconds without replaying other steps', async () => {
+    const running = activity({
+        status: 'running', is_terminal: false, can_dismiss: false, tone: 'progress',
+        steps: [step(1, 'completed', 'success'), step(2, 'completed', 'success'), step(3, 'running', 'progress')],
+    });
+    const f = fixture([running], new Map(), false, false, 1, {});
+    await f.refresh();
+    const rows = () => f.animations.filter(animation => animation.node.className === 'automation-activity-step-slot');
+    const [first, second, remaining] = f.stepSlots();
+    assert.equal(rows().length, 3);
+    assert.equal(rows()[0].frames[0].height, '0px');
+    await f.advance(4999);
+    assert.equal(rows().length, 3);
+    await f.advance(1);
+    assert.equal(rows().length, 5);
+    const exits = rows().slice(-2);
+    assert.deepEqual(exits.map(exit => exit.node), [first, second]);
+    assert.ok(exits.every(exit => exit.options.duration === 250 && exit.frames[1].height === '0px'
+        && exit.frames[1].opacity === 0 && exit.node.getAttribute('aria-hidden') === 'true'));
+    await f.refresh([running]);
+    await f.advance(249);
+    assert.equal(f.stepSlots().length, 3);
+    await f.advance(1);
+    assert.deepEqual(f.stepSlots(), [remaining]);
+    assert.equal(rows().length, 5);
+    assert.equal(f.chips()[0].getAttribute('aria-expanded'), 'true');
+});
+
+test('updating a step keeps its slot and reopening while it fades uses its current animation state', async () => {
+    const running = activity({
+        status: 'running', is_terminal: false, can_dismiss: false, tone: 'progress',
+        steps: [step(1, 'running', 'progress')],
+    });
+    const f = fixture([running], new Map(), false, false, 1, {});
+    await f.refresh();
+    const [slot] = f.stepSlots();
+    await f.advance(1000);
+    await f.refresh([{ ...running, steps: [step(1, 'completed', 'success')] }]);
+    assert.equal(f.stepSlots()[0], slot);
+    assert.match(f.steps()[0].className, /is-success/);
+    assert.equal(f.animations.length, 2);
+    f.open();
+    const exit = f.animations.at(-1);
+    await f.advance(100);
+    assert.equal(f.chips()[0].getAttribute('aria-expanded'), 'false');
+    f.open();
+    assert.equal(exit.cancelled, true);
+    assert.equal(f.stepSlots()[0], slot);
+    assert.equal(slot.getAttribute('aria-hidden'), undefined);
+    assert.equal(f.animations.at(-1).frames[0].height, '15px');
+    await f.advance(7000);
+    assert.equal(f.steps().length, 1);
+});
+
+test('long step lists reserve room for the count and the close button at different heights', async () => {
+    const notice = activity({ steps: Array.from({ length: 10 }, (_, i) => step(i + 1, 'completed', 'success')) });
+    const f = fixture([notice], new Map(), false, true, 1, { height: 360, reduced: true });
+    await f.refresh();
+    assert.equal(f.steps().length, 3);
+    assert.equal(f.stepCount(), '+7 kroków');
+    f.resize(900);
+    assert.equal(f.steps().length, 7);
+    assert.equal(f.stepCount(), '+3 kroki');
+    f.open();
+    assert.equal(f.panel(), undefined);
+    f.open();
+    f.resize(360);
+    assert.equal(f.steps().length, 2);
+    assert.equal(f.stepCount(), '+8 kroków');
+    assert.ok(f.panel().querySelector('.automation-activity-step-close'));
+    await f.advance(5000);
+    assert.equal(f.stepCount(), '+8 kroków');
+});
+
+test('a waiting step does not enlarge the panel while earlier steps are fading', async () => {
+    const running = activity({
+        status: 'running', is_terminal: false, can_dismiss: false, tone: 'progress',
+        steps: [
+            step(1, 'completed', 'success'), step(2, 'completed', 'success'), step(3, 'running', 'progress'),
+            step(4, 'waiting', 'waiting'), step(5, 'waiting', 'waiting'), step(6, 'waiting', 'waiting'),
+        ],
+    });
+    const f = fixture([running], new Map(), false, true, 1, { height: 360 });
+    await f.refresh();
+    const lastVisible = f.stepSlots()[2];
+    assert.equal(f.stepSlots().length, 3);
+    assert.equal(f.stepCount(), '+3 kroki');
+    await f.advance(5000);
+    assert.equal(f.stepSlots().length, 4);
+    assert.equal(f.stepCount(), undefined);
+    await f.advance(250);
+    assert.equal(f.stepSlots()[0], lastVisible);
+    assert.deepEqual(f.steps().map(row => row.children[1].textContent), ['Krok 3', 'Krok 4', 'Krok 5', 'Krok 6']);
+});
+
+test('reduced motion and leaving a card do not leave a fading notification behind', async () => {
+    const notice = activity({ steps: [step(1, 'completed', 'success')] });
+    const reduced = fixture([notice], new Map(), false, false, 1, { reduced: true });
+    await reduced.refresh();
+    await reduced.advance(5000);
+    assert.equal(reduced.steps().length, 0);
+    reduced.open();
+    reduced.close();
+    assert.equal(reduced.animations.length, 0);
+    assert.equal(reduced.center.hidden, true);
+
+    const animated = fixture([activity()], new Map(), false, false, 1, {});
+    await animated.refresh();
+    animated.open();
+    animated.close();
+    animated.hidePage();
+    assert.equal(animated.animations[1].cancelled, true);
+    assert.equal(animated.center.hidden, true);
+    animated.restorePage();
+    await animated.advance(250);
+    assert.equal(animated.chips().length, 0);
+    animated.show({ tone: 'success', title: 'NEX Printer' });
+    assert.equal(animated.animations.length, 2);
 });
