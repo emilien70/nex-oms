@@ -2226,6 +2226,8 @@
 
         [data-shipment-ajax-notice] {
             margin: 2px 2px 10px;
+            overflow-wrap: anywhere;
+            white-space: pre-line;
         }
 
         .courier-tabs {
@@ -4048,7 +4050,7 @@
             @if ($order->trashed())
                 <div class="shipments-empty-copy">Przesy&#322;ki nie s&#261; dost&#281;pne dla zam&oacute;wienia w koszu.</div>
             @else
-                <div class="alert alert-info py-2 px-3 small d-none" role="status" data-shipment-ajax-notice></div>
+                <div class="alert {{ $allegroShipmentError ? 'alert-danger' : 'alert-info d-none' }} py-2 px-3 small" role="status" data-shipment-ajax-notice>{{ $allegroShipmentError }}</div>
                 @php($hasParcels = $order->shipments->isNotEmpty() || $order->returns->contains(fn ($record) => $record->parcels->isNotEmpty()))
                 <div class="shipments-empty-copy {{ $hasParcels ? 'd-none' : '' }}" data-shipments-empty>{{ $archived ? 'Nie nadano żadnych paczek.' : 'Nie nadano żadnych paczek - skorzystaj z przycisków poniżej, aby wygenerować przesyłkę.' }}</div>
                 <div class="shipments-table-wrap {{ ! $hasParcels ? 'd-none' : '' }}" data-shipments-table-wrap>

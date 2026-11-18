@@ -296,15 +296,7 @@ class AllegroShippingClient
 
     private function errorMessage(array $payload, int $status): string
     {
-        $messages = collect((array) ($payload['errors'] ?? []))
-            ->map(fn (mixed $error): ?string => is_array($error)
-                ? ($error['userMessage'] ?? $error['message'] ?? $error['code'] ?? null)
-                : null)
-            ->filter();
-
-        return $messages->isNotEmpty()
-            ? $messages->unique()->implode(' ')
-            : (string) ($payload['message'] ?? 'API Allegro zwrocilo blad HTTP '.$status.'.');
+        return AllegroShippingErrorMessage::fromPayload($payload) ?? 'API Allegro zwrocilo blad HTTP '.$status.'.';
     }
 
     private function log(

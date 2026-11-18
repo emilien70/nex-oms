@@ -58,12 +58,15 @@ class CreateAllegroShipmentJob implements ShouldBeUnique, ShouldQueue
         $knownRejection = $exception instanceof AllegroShippingApiException
             && $exception->statusCode !== null
             && $exception->statusCode >= 400
-            && $exception->statusCode < 500;
+            && $exception->statusCode < 500
+            && $exception->statusCode !== 408;
         $localError = $exception instanceof \DomainException || $exception instanceof \Error;
         $outcomeUnknown = ! $knownRejection && ! $localError;
         $message = $exception?->getMessage() ?? 'Nie udalo sie utworzyc przesylki Wysylam z Allegro.';
 
-        if ($outcomeUnknown) {
+        if ($knownRejection) {
+            $message = "Nadanie odrzucone przez Allegro.\n".$message;
+        } elseif ($outcomeUnknown) {
             $message .= ' Wynik nadania jest niepewny - sprawdz panel Wysylam z Allegro przed kolejna proba.';
         }
 

@@ -7,11 +7,16 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Modules\Integrations\AllegroShipping\Drivers\AllegroShippingDriver;
+use Modules\Integrations\AllegroShipping\Exceptions\AllegroShippingApiException;
 use Modules\Integrations\AllegroShipping\Jobs\CreateAllegroShipmentJob;
+use Modules\Integrations\AllegroShipping\Jobs\ResolveAllegroShipmentCommandJob;
 use Modules\Integrations\AllegroShipping\Services\AllegroShippingClient;
+use Modules\Integrations\AllegroShipping\Services\AllegroShippingPayloadFactory;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
 use Modules\Shipments\Services\CourierDriverRegistry;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class AllegroShippingTest extends TestCase
@@ -281,6 +286,135 @@ class AllegroShippingTest extends TestCase
         $this->assertUserAgentSentOnAllRequests();
     }
 
+    public function test_allegro_shipping_sends_the_current_oms_address_and_shows_full_rejection_after_reload(): void
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        $order = $this->order(['customer_email' => 'customer@example.test', 'pickup_point_id' => 'STALEPOINT']);
+        $attempt = $this->queueAllegroShipment($order);
+        $companyName = 'FIKCYJNA FIRMA DO TESTOW OMS X';
+        $order->update([
+            'shipping_name' => 'Nowy odbiorca', 'shipping_company_name' => $companyName,
+            'shipping_street' => 'Nowa', 'shipping_building_number' => '17A', 'shipping_apartment_number' => '4',
+            'shipping_postal_code' => '20-001', 'shipping_city' => 'Lublin', 'shipping_province' => 'lubelskie',
+            'shipping_phone' => '+48 600 123 456', 'billing_company_name' => 'Nie używaj danych do faktury',
+        ]);
+        $proposal = $this->proposal();
+        $proposal['suggestedInput']['receiver']['company'] = str_repeat('X', 44);
+        $proposal['suggestedInput']['receiver']['point'] = 'REMOTEPOINT';
+        $longMessage = 'Komunikat przewoźnika: '.str_repeat('pełna treść błędu ', 12).'<nie renderuj jako HTML>';
+        Http::fake([
+            '*/shipment-management/delivery-proposals/*' => Http::response($proposal),
+            '*/shipment-management/shipments/create-commands' => Http::response(['commandId' => $attempt->request_uuid], 202),
+            '*/shipment-management/shipments/create-commands/*' => Http::response([
+                'status' => 'ERROR', 'shipmentId' => null,
+                'errors' => [
+                    ['path' => 'receiver.company', 'userMessage' => $longMessage, 'message' => 'Technical fallback'],
+                    ['path' => 'receiver.phone', 'userMessage' => '', 'message' => 'Drugi błąd'],
+                ],
+            ]),
+        ]);
+
+        (new CreateAllegroShipmentJob($attempt->shipment))->handle(app(CourierDriverRegistry::class));
+
+        Http::assertSent(fn ($request): bool => $request->method() === 'POST'
+            && data_get($request->data(), 'input.receiver') === [
+                'name' => 'Nowy odbiorca', 'company' => $companyName, 'street' => 'Nowa 17A/4',
+                'postalCode' => '20-001', 'city' => 'Lublin', 'state' => 'lubelskie', 'countryCode' => 'PL',
+                'email' => 'buyer+hash@allegromail.pl', 'phone' => '+48600123456',
+            ]
+            && data_get($request->data(), 'input.sender.company') === 'NEX');
+        Http::assertSentCount(3);
+        Queue::assertNotPushed(ResolveAllegroShipmentCommandJob::class);
+        $this->assertNull($attempt->shipment->fresh());
+        $attempt->refresh();
+        $this->assertSame(ShipmentCreationAttempt::STATUS_FAILED, $attempt->status);
+        $this->assertFalse($attempt->outcome_unknown);
+        $this->assertSame("Nadanie odrzucone przez Allegro.\nNazwa firmy odbiorcy: {$longMessage}\nTelefon odbiorcy: Drugi błąd", $attempt->error_message);
+        $this->get(route('orders.show', $order))->assertOk()->assertViewHas('allegroShipmentError', $attempt->error_message)
+            ->assertSee($longMessage)->assertSee('Telefon odbiorcy: Drugi błąd');
+        $this->assertSame('Nie używaj danych do faktury', $order->fresh()->billing_company_name);
+        Http::assertSentCount(3);
+    }
+
+    public function test_point_delivery_uses_only_the_point_and_company_saved_in_oms(): void
+    {
+        Queue::fake();
+        $order = $this->order(['pickup_point_id' => 'NOWY01', 'shipping_company_name' => null]);
+        $proposal = $this->proposal();
+        $proposal['deliveryOptions'][0]['deliveryType'] = 'APM';
+        $proposal['suggestedInput']['receiver']['point'] = 'STARY01';
+        $proposal['suggestedInput']['receiver']['company'] = 'Firma usunięta z adresu';
+        Http::fake(['*/shipment-management/delivery-proposals/*' => Http::response($proposal)]);
+
+        $shipment = $this->queueAllegroShipment($order)->shipment;
+        $payload = app(AllegroShippingPayloadFactory::class)->make($shipment);
+        $this->assertSame('NOWY01', $payload['input']['receiver']['point']);
+        $this->assertArrayNotHasKey('company', $payload['input']['receiver']);
+        $this->assertSame('+48501294368', $payload['input']['receiver']['phone']);
+    }
+
+    public function test_missing_oms_pickup_point_blocks_creation_without_using_the_allegro_point(): void
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        $proposal = $this->proposal();
+        $proposal['deliveryOptions'][0]['deliveryType'] = 'PUDO';
+        $proposal['suggestedInput']['receiver']['point'] = 'STARY01';
+        Http::fake(['*/shipment-management/delivery-proposals/*' => Http::response($proposal)]);
+
+        $attempt = $this->queueAllegroShipment($this->order());
+        $job = new CreateAllegroShipmentJob($attempt->shipment);
+        try {
+            $job->handle(app(CourierDriverRegistry::class));
+            $this->fail('The order must have a pickup point before making the create request.');
+        } catch (\DomainException $exception) {
+            $this->assertStringContainsString('Brakuje identyfikatora punktu odbioru', $exception->getMessage());
+            $job->failed($exception);
+        }
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+        $this->assertSame(ShipmentCreationAttempt::STATUS_FAILED, $attempt->fresh()->status);
+        $this->assertFalse($attempt->fresh()->outcome_unknown);
+    }
+
+    #[DataProvider('createHttpFailures')]
+    public function test_allegro_create_http_failures_preserve_all_messages_and_correct_outcome(int $status, bool $unknown): void
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        Http::fake([
+            '*/shipment-management/delivery-proposals/*' => Http::response($this->proposal()),
+            '*/shipment-management/shipments/create-commands' => Http::response(['errors' => [
+                ['path' => 'receiver.point', 'userMessage' => 'Punkt nie obsługuje tej dostawy.'],
+                ['path' => 'packages[0].weight', 'message' => 'Sprawdź wagę paczki.'],
+            ]], $status),
+        ]);
+
+        $attempt = $this->queueAllegroShipment($this->order());
+        $job = new CreateAllegroShipmentJob($attempt->shipment);
+        try {
+            $job->handle(app(CourierDriverRegistry::class));
+            $this->fail('Expected an Allegro API failure.');
+        } catch (AllegroShippingApiException $exception) {
+            $job->failed($exception);
+        }
+
+        $attempt->refresh();
+        $this->assertSame($unknown, $attempt->outcome_unknown);
+        $this->assertSame($unknown ? ShipmentCreationAttempt::STATUS_UNKNOWN : ShipmentCreationAttempt::STATUS_FAILED, $attempt->status);
+        $this->assertStringContainsString("Punkt odbioru: Punkt nie obsługuje tej dostawy.\npackages[0].weight: Sprawdź wagę paczki.", $attempt->error_message);
+        $this->assertSame(! $unknown, str_contains($attempt->error_message, 'Nadanie odrzucone przez Allegro.'));
+        $this->assertSame($unknown, $attempt->shipment()->exists());
+        Queue::assertNotPushed(ResolveAllegroShipmentCommandJob::class);
+        Http::assertSentCount(2);
+    }
+
+    public static function createHttpFailures(): array
+    {
+        return ['validation rejection' => [422, false], 'unconfirmed timeout' => [408, true]];
+    }
+
     public function test_manual_order_cannot_use_allegro_shipping(): void
     {
         $this->account();
@@ -417,6 +551,15 @@ class AllegroShippingTest extends TestCase
         ];
     }
 
+    private function queueAllegroShipment(Order $order): ShipmentCreationAttempt
+    {
+        $account = $this->account();
+
+        return app(CourierDriverRegistry::class)->driver($account->provider)->queueShipment($order, $account, [
+            'parcels' => [['weight' => 0.2, 'length' => 25, 'width' => 20, 'height' => 5]],
+        ]);
+    }
+
     private function order(array $overrides = []): Order
     {
         return Order::query()->create(array_merge([
@@ -424,6 +567,7 @@ class AllegroShippingTest extends TestCase
             'customer_email' => 'buyer+hash@allegromail.pl', 'customer_phone' => '+48 501 294 368',
             'shipping_name' => 'Anna Kowalska', 'shipping_street' => 'Testowa', 'shipping_building_number' => '12',
             'shipping_postal_code' => '00-001', 'shipping_city' => 'Warszawa', 'shipping_country_code' => 'PL',
+            'shipping_phone' => '+48 501 294 368',
             'currency' => 'PLN', 'total_gross' => 110, 'paid_amount' => 0, 'cash_on_delivery' => true,
         ], $overrides));
     }

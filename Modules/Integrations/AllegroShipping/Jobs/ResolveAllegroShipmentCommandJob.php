@@ -78,9 +78,12 @@ class ResolveAllegroShipmentCommandJob implements ShouldQueue
             return;
         }
 
-        $message = 'Allegro nie potwierdzilo wyniku tworzenia przesylki w wymaganym czasie. Sprawdz panel Wysylam z Allegro przed kolejna proba.';
+        $message = $this->confirmationExpired()
+            ? 'Allegro nie potwierdzilo wyniku tworzenia przesylki w wymaganym czasie.'
+            : 'Nie udalo sie ustalic wyniku tworzenia przesylki.';
+        $message .= ' Sprawdz panel Wysylam z Allegro przed kolejna proba.';
         if ($exception && $exception->getMessage() !== '') {
-            $message .= ' '.$exception->getMessage();
+            $message .= "\n".$exception->getMessage();
         }
 
         app(ShipmentCreationAttemptService::class)->fail($shipment, $message, true);

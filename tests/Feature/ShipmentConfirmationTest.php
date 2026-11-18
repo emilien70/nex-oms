@@ -141,7 +141,11 @@ class ShipmentConfirmationTest extends TestCase
         $job = (new ResolveAllegroShipmentCommandJob($shipment))->withFakeQueueInteractions();
         $job->handle(app(AllegroShippingOperations::class));
         $job->assertNotReleased();
-        $this->assertSame(Shipment::STATUS_CREATION_UNKNOWN, $shipment->fresh()->status);
+        $attempt = $shipment->creationAttempt->fresh();
+        $this->assertSame(ShipmentCreationAttempt::STATUS_FAILED, $attempt->status);
+        $this->assertFalse($attempt->outcome_unknown);
+        $this->assertSame("Nadanie odrzucone przez Allegro.\nRejected", $attempt->error_message);
+        $this->assertNull($shipment->fresh());
         Http::assertSentCount(1);
         Event::assertDispatchedTimes(ShipmentCreationFailed::class, 1);
     }

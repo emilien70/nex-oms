@@ -2,7 +2,6 @@
 
 namespace Modules\Integrations\AllegroShipping\Services;
 
-use DomainException;
 use Illuminate\Support\Carbon;
 use Modules\Integrations\Allegro\Support\AllegroShipmentNumbers;
 use Modules\Shipments\Events\ShipmentCreated;
@@ -22,11 +21,11 @@ class AllegroShippingSynchronizer
     {
         $status = strtoupper((string) ($command['status'] ?? 'IN_PROGRESS'));
 
-        if ($status === 'ERROR') {
-            $message = collect((array) ($command['errors'] ?? []))
-                ->map(fn (mixed $error): ?string => is_array($error) ? ($error['userMessage'] ?? $error['message'] ?? null) : null)
-                ->filter()->implode(' ');
-            throw new DomainException($message ?: 'Allegro odrzucilo utworzenie przesylki.');
+        if ($status === 'ERROR' && blank($command['shipmentId'] ?? null)) {
+            $message = AllegroShippingErrorMessage::fromPayload($command);
+            $this->attempts->fail($shipment, 'Nadanie odrzucone przez Allegro.'.($message === null ? '' : "\n".$message), false);
+
+            return true;
         }
 
         if ($status !== 'SUCCESS' || blank($command['shipmentId'] ?? null)) {

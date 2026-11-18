@@ -37,7 +37,13 @@ class AllegroShippingOperations
         }
 
         $shipment->loadMissing(['order', 'courierAccount', 'parcels']);
-        $response = $this->client->createCommandResponse($shipment->courierAccount, $shipment, $this->payloadFactory->make($shipment));
+        try {
+            $payload = $this->payloadFactory->make($shipment);
+        } catch (AllegroShippingApiException $exception) {
+            // The proposal was not read successfully; no creation request has been sent.
+            throw new DomainException($exception->getMessage(), previous: $exception);
+        }
+        $response = $this->client->createCommandResponse($shipment->courierAccount, $shipment, $payload);
         $retryAfter = ShipmentConfirmationSchedule::retryAfter($response->header('Retry-After'));
         $result = new ShipmentConfirmationResult(false, $retryAfter);
 
@@ -54,7 +60,7 @@ class AllegroShippingOperations
             ResolveAllegroShipmentCommandJob::dispatch($shipment)->delay(now()->addSeconds(max(1, $result->retryAfter ?? 1)));
         }
 
-        return $shipment->fresh();
+        return $shipment->fresh() ?? $shipment;
     }
 
     public function resolveCreation(Shipment $shipment): bool
@@ -73,6 +79,10 @@ class AllegroShippingOperations
             $response = $this->client->createCommandStatusResponse($shipment->courierAccount, $shipment);
             if (! $this->synchronizer->applyCommand($shipment, (array) $response->json())) {
                 return new ShipmentConfirmationResult(false, ShipmentConfirmationSchedule::retryAfter($response->header('Retry-After')));
+            }
+            if (blank($shipment->external_id)) {
+                // A terminal rejection finished the attempt without creating a shipment.
+                return new ShipmentConfirmationResult(true);
             }
 
             $shipment->refresh()->loadMissing('courierAccount');

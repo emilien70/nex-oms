@@ -50,6 +50,7 @@ use Modules\Invoices\Services\InvoiceFinancialValueValidator;
 use Modules\Invoices\Services\OrderSalesDocumentActionsView;
 use Modules\Shipments\Models\CourierAccount;
 use Modules\Shipments\Models\Shipment;
+use Modules\Shipments\Models\ShipmentCreationAttempt;
 
 class OrdersController extends Controller
 {
@@ -868,6 +869,13 @@ class OrdersController extends Controller
             $order->load('invoices.ksefOfflineIssuances');
         }
 
+        $latestAllegroAttempt = ! $archive && ! $order->trashed() && $order->source === 'allegro'
+            ? $order->shipmentCreationAttempts()->where('provider', CourierAccount::PROVIDER_ALLEGRO_SHIPPING)->latest('id')->first(['status', 'error_message'])
+            : null;
+        $allegroShipmentError = in_array($latestAllegroAttempt?->status, [ShipmentCreationAttempt::STATUS_FAILED, ShipmentCreationAttempt::STATUS_UNKNOWN], true)
+            ? $latestAllegroAttempt->error_message
+            : null;
+
         $quickActions = $archive || $order->trashed() ? collect() : AutomationCustomEvent::query()->where('button_enabled', true)
             ->orderBy('button_position')->orderBy('id')->get();
 
@@ -885,6 +893,7 @@ class OrdersController extends Controller
             'statuses' => $statuses,
             'statusSettings' => OrderStatusSetting::orderedSettings()->keyBy('code'),
             'activeCourierAccounts' => $activeCourierAccounts,
+            'allegroShipmentError' => $allegroShipmentError,
             'previousOrderUrl' => $adjacentOrderIds['previous'] === null
                 ? null
                 : route('orders.show', $orderNavigationParameters($adjacentOrderIds['previous'])),
